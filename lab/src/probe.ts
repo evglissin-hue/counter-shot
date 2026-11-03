@@ -141,7 +141,7 @@ export async function probe(): Promise<ProbeResult> {
   return result;
 }
 
-/** Median frame interval over about half a second, as a refresh rate. */
+/** Median frame interval over about half a second, as a refresh rate. Call while nothing heavy is drawing. */
 export function measureRefresh(ms = 600): Promise<number> {
   return new Promise((resolve) => {
     const times: number[] = [];
@@ -152,9 +152,11 @@ export function measureRefresh(ms = 600): Promise<number> {
       last = now;
       if (now - start < ms) requestAnimationFrame(tick);
       else {
+        // Too few frames means the device could not keep up even with an idle page: assume a 60 Hz screen.
+        if (times.length < 5) return resolve(60);
         times.sort((a, b) => a - b);
-        const median = times[Math.floor(times.length / 2)] || 16.7;
-        resolve(Math.round(1000 / median));
+        const hz = Math.round(1000 / times[Math.floor(times.length / 2)]);
+        resolve(Math.max(30, Math.min(240, hz)));
       }
     };
     requestAnimationFrame(tick);

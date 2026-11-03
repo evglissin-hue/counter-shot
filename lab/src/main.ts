@@ -8,8 +8,8 @@ import { LabRenderer, type QualityTier, type StyleName, type ViewMode } from "./
 import { copyText, saveResult, watchResults, type GraphicsRow, type LabResult } from "./results";
 
 /** Deterministic siege hashes from the reference run (Node 22, x86-64). Same code must give the same bits everywhere. */
-const REFERENCE = { state: "8c0afc9c", snapshot: "5c7d901b" };
-const LAB_BUILD = "lab-1";
+const REFERENCE = { state: "35a7603f", snapshot: "054e5eb0" };
+const LAB_BUILD = "lab-2";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -25,6 +25,8 @@ let backend = "--";
 let physicsMs = 0;
 let lastTarget: { x: number; y: number; z: number } | null = null;
 let benchHook: ((now: number) => void) | null = null;
+/** True while measuring the screen's refresh rate: the scene is not drawn so frames are cheap. */
+let paused = false;
 const waiters = new Map<string, Array<(m: FromWorker) => void>>();
 
 function waitFor<T extends FromWorker["t"]>(t: T): Promise<Extract<FromWorker, { t: T }>> {
@@ -103,7 +105,7 @@ function fireAt(t: { x: number; y: number; z: number }) {
 
 let down: { x: number; y: number; t: number } | null = null;
 canvas.addEventListener("pointerdown", (e) => {
-  down = { x: e.clientX, y: e.clientY, t: performance.now() };
+  down = { x: e.clientX, y: e.clientY, t: e.timeStamp };
   if (e.pointerType !== "mouse") previewAt(renderer.pick(e.clientX, e.clientY));
 });
 canvas.addEventListener("pointermove", (e) => {
@@ -113,12 +115,21 @@ canvas.addEventListener("pointermove", (e) => {
 canvas.addEventListener("pointerup", (e) => {
   if (!down || benchHook) return;
   const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
-  const quick = performance.now() - down.t < 700;
+  const quick = e.timeStamp - down.t < 700; // event times, so a busy frame cannot turn a tap into a long press
   down = null;
   if (moved > 8 || !quick) return;
   const p = renderer.pick(e.clientX, e.clientY);
   if (p) fireAt(p);
 });
+canvas.addEventListener(
+  "wheel",
+  (e) => {
+    if (view !== "cannon" || benchHook) return;
+    e.preventDefault();
+    renderer.zoom(e.deltaY > 0 ? 1.12 : 1 / 1.12);
+  },
+  { passive: false },
+);
 canvas.addEventListener("pointerleave", () => {
   if (!benchHook) renderer.setAimArc(null);
 });
@@ -129,6 +140,10 @@ window.addEventListener("keydown", (e) => {
     fireAt(lastTarget);
   } else if (e.code === "KeyR" && !benchHook) {
     rebuild();
+  } else if ((e.key === "+" || e.key === "=") && view === "cannon") {
+    renderer.zoom(1 / 1.12);
+  } else if ((e.key === "-" || e.key === "_") && view === "cannon") {
+    renderer.zoom(1.12);
   }
 });
 
@@ -289,7 +304,8 @@ async function runTest() {
   try {
     setProgress(0, "Checking the device");
     const device = await probe();
-    const refreshHz = await measureRefresh();
+    paused = true;
+    const refreshHz = await measureRefresh().finally(() => (paused = false));
     const rows = await graphicsTest(refreshHz);
     renderer.setQuality(quality);
     renderer.setView(view);
@@ -385,7 +401,7 @@ function loop(now: number) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (benchHook) benchHook(now);
-  renderer.render(dt);
+  if (!paused) renderer.render(dt);
   frames++;
   if (now - fpsAt > 500) {
     const stats = renderer.getStats();
@@ -404,13 +420,31 @@ async function boot() {
   pressed("quality", quality);
   pressed("view", view);
   try {
-    const info = await renderer.init();
+    const info = await renderer.init({ forceWebGL: location.hash === "#webgl" });
     backend = info.backend;
   } catch (err) {
     $("loading-detail").textContent = `Graphics failed to start: ${err instanceof Error ? err.message : String(err)}`;
     return;
   }
   $("r-backend").textContent = backend;
+  renderer.onDeviceLost = (message) => {
+    const toast = $("toast");
+    toast.innerHTML = "";
+    const title = document.createElement("strong");
+    title.textContent = "Graphics stopped";
+    const text = document.createElement("span");
+    text.textContent = `The browser lost the WebGPU device (${message}). `;
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "primary";
+    retry.textContent = "Reload with WebGL2";
+    retry.addEventListener("click", () => {
+      location.hash = "webgl";
+      location.reload();
+    });
+    toast.append(title, text, retry);
+    toast.hidden = false;
+  };
   renderer.setLayout(layout);
   renderer.setStyle(style);
   renderer.setQuality(quality);
@@ -421,5 +455,8 @@ async function boot() {
   requestAnimationFrame(loop);
   void watchResults(renderHistory, () => undefined);
 }
+
+// Handles for automated checks and for poking at the lab from the browser console.
+(window as unknown as { __lab: unknown }).__lab = { renderer, layout, fireAt, rebuild };
 
 void boot();

@@ -5,9 +5,10 @@
 // How destruction works:
 // - Every castle piece starts as a FIXED body: an intact castle costs almost
 //   nothing to simulate, however many stones it has.
-// - A cannonball that hits fixed masonry knocks loose every piece within a
-//   radius that grows with impact speed: those pieces become dynamic and the
-//   ball keeps its momentum, so it ploughs through them for real.
+// - A cannonball that hits fixed masonry shatters the pieces at the core of
+//   the impact (they turn to dust and chips, which the renderer draws, and
+//   leave the simulation) and knocks loose the ring around it, scattering it.
+//   The ball keeps its momentum, so it ploughs on through the loose pieces.
 // - Heavy impacts from falling rubble knock pieces loose too (contact forces).
 // - After anything comes loose, a support check runs over the remaining fixed
 //   pieces: support flows up from the ground through stones resting on each
@@ -42,11 +43,13 @@ export interface SimOptions {
   /** Blast radius in metres = blastBase + blastPerSpeed * impact speed (m/s). */
   blastBase: number;
   blastPerSpeed: number;
+  /** Share of the blast radius that shatters outright. */
+  shatter: number;
   /** Share of a loosened piece's momentum-at-ball-speed given as a push. */
   push: number;
 }
 
-export const DEFAULT_SIM: SimOptions = { span: 2, breakForce: 220_000, iterations: 4, blastBase: 0.8, blastPerSpeed: 0.034, push: 0.08 };
+export const DEFAULT_SIM: SimOptions = { span: 2, breakForce: 450_000, iterations: 4, blastBase: 0.8, blastPerSpeed: 0.034, push: 0.25, shatter: 0.65 };
 
 export interface Ball {
   body: Body;
@@ -85,6 +88,9 @@ export class CastleSim {
   private awakeLast: Uint8Array;
   /** loose pieces that came to rest and were frozen back into fixed bodies */
   frozen: Uint8Array;
+  /** pieces shattered by a direct hit: gone from the simulation */
+  shattered: Uint8Array;
+  private shatterReported: Uint8Array;
   private frozenList: number[] = [];
   private restSteps: Uint16Array;
   balls: Ball[] = [];
@@ -103,6 +109,8 @@ export class CastleSim {
     this.dynamic = new Uint8Array(n);
     this.awakeLast = new Uint8Array(n);
     this.frozen = new Uint8Array(n);
+    this.shattered = new Uint8Array(n);
+    this.shatterReported = new Uint8Array(n);
     this.restSteps = new Uint16Array(n);
     this.cost = new Int32Array(n);
     this.deque = new Int32Array(n * 4 + 16);
@@ -234,7 +242,9 @@ export class CastleSim {
       const speed = dsqrt(speed2);
       const p = ball.body.translation();
       const radius = this.opts.blastBase + speed * this.opts.blastPerSpeed;
-      this.blast(p.x, p.y, p.z, radius, ball.vx / speed, ball.vy / speed, ball.vz / speed, speed);
+      const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
+      // The ball touches the face; the damage centres inside the masonry, a metre along the shot.
+      this.blast(p.x + dx, p.y + dy, p.z + dz, radius, dx, dy, dz, speed);
       // Give the ball its momentum back (minus what breaking the bond cost).
       ball.body.setLinvel({ x: ball.vx * 0.85, y: ball.vy * 0.85, z: ball.vz * 0.85 }, true);
       this.impacts.push({ x: p.x, y: p.y, z: p.z, strength: Math.min(1, speed / 80) });
@@ -242,6 +252,7 @@ export class CastleSim {
     }
     let breakFx = 0;
     for (const id of breaks) {
+      if (this.shattered[id]) continue;
       if (this.frozen[id]) {
         const p = this.bodies[id].translation();
         this.thaw(p.x, p.y, p.z, 2.5);
@@ -301,15 +312,25 @@ export class CastleSim {
         }
     this.thaw(x, y, z, radius);
     found.sort((p, q) => p - q);
+    const core2 = r2 * this.opts.shatter * this.opts.shatter;
     for (const id of found) {
-      this.loosen(id);
       const s = this.layout.stones[id];
-      const body = this.bodies[id];
       const ex = s.x - x, ey = s.y - y, ez = s.z - z;
       const d2 = ex * ex + ey * ey + ez * ez;
+      if (d2 <= core2 && s.part !== "banner") {
+        this.shatter(id);
+        continue;
+      }
+      this.loosen(id);
+      const body = this.bodies[id];
       const fall = 1 - d2 / r2; // 1 at the centre, 0 at the edge
-      const k = body.mass() * speed * this.opts.push * fall;
-      body.applyImpulse({ x: dx * k, y: dy * k + k * 0.15, z: dz * k }, true);
+      // Debris flies along the shot and bursts out from the point of impact, with a little lift.
+      const d = dsqrt(d2) + 0.001;
+      let px = dx + 0.6 * (ex / d), py = dy + 0.6 * (ey / d) + 0.25, pz = dz + 0.6 * (ez / d);
+      const pl = dsqrt(px * px + py * py + pz * pz) + 0.001;
+      px /= pl; py /= pl; pz /= pl;
+      const k = body.mass() * speed * this.opts.push * (0.25 + 0.75 * fall);
+      body.applyImpulse({ x: px * k, y: py * k, z: pz * k }, true);
     }
   }
 
@@ -318,7 +339,7 @@ export class CastleSim {
     const fixed = this.R.RigidBodyType.Fixed;
     const banners = this.layout.bannerIds;
     for (const id of this.dynList) {
-      if (this.frozen[id] || id === banners[0] || id === banners[1]) continue;
+      if (this.frozen[id] || this.shattered[id] || id === banners[0] || id === banners[1]) continue;
       if (this.bodies[id].isSleeping()) {
         if (++this.restSteps[id] >= 90) {
           this.bodies[id].setBodyType(fixed, false);
@@ -351,6 +372,18 @@ export class CastleSim {
       }
     }
     this.frozenList = keep;
+  }
+
+  /** A direct hit turns the piece to dust and chips: it leaves the simulation. */
+  private shatter(id: number) {
+    if (this.shattered[id]) return;
+    if (!this.dynamic[id]) {
+      this.dynamic[id] = 1;
+      this.dynList.push(id);
+    }
+    this.shattered[id] = 1;
+    this.frozen[id] = 0;
+    this.bodies[id].setEnabled(false);
   }
 
   private loosen(id: number) {
@@ -429,6 +462,21 @@ export class CastleSim {
     let n = 0;
     const max = Math.floor(out.length / 8);
     for (const id of this.dynList) {
+      if (this.shattered[id]) {
+        if (this.shatterReported[id] || n >= max) continue;
+        this.shatterReported[id] = 1;
+        const o = n * 8;
+        out[o] = id;
+        out[o + 1] = 0;
+        out[o + 2] = -1000; // gone: the renderer draws dust and chips where it was
+        out[o + 3] = 0;
+        out[o + 4] = 0;
+        out[o + 5] = 0;
+        out[o + 6] = 0;
+        out[o + 7] = 1;
+        n++;
+        continue;
+      }
       const body = this.bodies[id];
       const awake = !this.frozen[id] && !body.isSleeping();
       if (!awake && !this.awakeLast[id]) continue;
@@ -467,7 +515,7 @@ export class CastleSim {
 
   awakeCount(): number {
     let n = 0;
-    for (const id of this.dynList) if (!this.frozen[id] && !this.bodies[id].isSleeping()) n++;
+    for (const id of this.dynList) if (!this.frozen[id] && !this.shattered[id] && !this.bodies[id].isSleeping()) n++;
     return n;
   }
 

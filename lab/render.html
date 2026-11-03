@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Counter-Shot render lab</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --panel: rgba(18, 20, 24, 0.72);
+        --edge: rgba(255, 255, 255, 0.14);
+        --text: #eef0f2;
+        --dim: #a9b0b8;
+        --accent: #ffcf6e;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #101215;
+        color: var(--text);
+        font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      #view {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+      }
+      .panel {
+        position: fixed;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        padding: 8px 10px;
+      }
+      #controls {
+        left: 12px;
+        top: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        max-width: calc(100vw - 24px);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px;
+      }
+      .row > span {
+        color: var(--dim);
+        width: 52px;
+        font-size: 12px;
+      }
+      button {
+        appearance: none;
+        border: 1px solid var(--edge);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 5px 9px;
+        font: inherit;
+        cursor: pointer;
+        min-height: 30px;
+      }
+      button:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      button.on {
+        border-color: var(--accent);
+        color: #1a1408;
+        background: var(--accent);
+      }
+      #stats {
+        right: 12px;
+        top: 12px;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre;
+        min-width: 180px;
+      }
+      #pickInfo {
+        right: 12px;
+        bottom: 12px;
+        font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+        display: none;
+      }
+      body.shot .panel {
+        display: none !important;
+      }
+      #error {
+        position: fixed;
+        inset: auto 12px 12px 12px;
+        color: #ffb4a8;
+        font: 12px ui-monospace, monospace;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="controls" class="panel">
+      <div class="row" id="styleRow"><span>Style</span></div>
+      <div class="row" id="qualityRow"><span>Quality</span></div>
+      <div class="row" id="viewRow"><span>View</span></div>
+      <div class="row" id="actionRow"><span>Test</span></div>
+    </div>
+    <div id="stats" class="panel">starting...</div>
+    <div id="pickInfo" class="panel"></div>
+    <div id="error"></div>
+    <script type="module" src="/src/render-harness.ts"></script>
+  </body>
+</html>

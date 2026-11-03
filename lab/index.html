@@ -28,6 +28,7 @@
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   color-scheme: dark;
 }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.4 var(--ui); overflow: hidden; -webkit-font-smoothing: antialiased; }
 #app { position: fixed; inset: 0; }
@@ -46,7 +47,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--brass); out
 button[aria-pressed="true"] { background: var(--brass); color: var(--brass-ink); }
 button:disabled { opacity: 0.45; cursor: default; }
 .spacer { flex: 1 1 auto; }
-#panel-toggle { display: none; }
+.toggle-wrap { display: none; }
 .panel { position: absolute; top: calc(66px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: 360px; max-height: calc(100% - 150px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: auto; padding: 16px; display: grid; gap: 12px; }
 .panel h2 { margin: 0; font: 20px/1.1 var(--display); text-wrap: balance; }
 .panel p { margin: 0; color: var(--ink-dim); }
@@ -86,7 +87,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; font: 12px/1.3
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); font: 22px var(--display); color: var(--ink-dim); text-align: center; padding: 24px; }
 .loading small { display: block; font: 14px var(--ui); margin-top: 8px; }
 @media (max-width: 760px) {
-  #panel-toggle { display: inline-block; }
+  .toggle-wrap { display: flex; }
   .panel { left: max(16px, env(safe-area-inset-left, 0px)); width: auto; top: auto; bottom: calc(66px + env(safe-area-inset-bottom, 0px)); max-height: 62%; }
   .panel.closed { display: none; }
   .hint { display: none; }
@@ -122,7 +123,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; font: 12px/1.3
       <button type="button" id="view-orbit" data-view="orbit" aria-pressed="false">Orbit</button>
     </div>
     <div class="spacer"></div>
-    <div class="group glass"><button type="button" id="panel-toggle" aria-expanded="false" aria-controls="panel">Device test</button></div>
+    <div class="group glass toggle-wrap"><button type="button" id="panel-toggle" aria-expanded="false" aria-controls="panel">Device test</button></div>
   </div>
 
   <aside class="panel glass closed" id="panel" aria-label="Device test">
@@ -156,7 +157,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 90px; font: 12px/1.3
       <span><em>Moving</em><b id="r-awake">0</b></span>
       <span><em>Renderer</em><b id="r-backend">--</b></span>
     </div>
-    <div class="hint glass" id="hint">Click or tap the far castle to fire. In Orbit view, drag to look around. Space fires again at the last spot.</div>
+    <div class="hint glass" id="hint">Click or tap the far castle to fire. Scroll (or + and -) zooms the sight; in Orbit view, drag to look around. Space fires again at the last spot.</div>
     <div class="spacer"></div>
     <div class="group glass"><button type="button" id="reset">Rebuild castles</button></div>
   </div>

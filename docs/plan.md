@@ -49,18 +49,21 @@ Each race is built on a different branch of physics, has a different skill curve
 
 ## Technical direction
 
-- Physics: Rapier (WebAssembly) in a worker. The deterministic build guarantees identical results across browsers and CPUs, which lets online play send only inputs (lockstep), like Castle Artillery's turn replays. Castle pieces are fixed bodies until hit; impacts loosen pieces; a support check drops anything left unsupported; settled rubble freezes back to fixed. Rapier 0.21 also has tearable soft bodies (banners, gore) and editable voxel shapes (craters), worth testing next.
+- Physics: Rapier (WebAssembly) in a worker. The deterministic build guarantees identical results across browsers and CPUs, which lets online play send only inputs (lockstep), like Castle Artillery's turn replays. Castle pieces are fixed bodies until hit. A hit shatters the core of the impact (those stones leave the simulation; the renderer draws dust and chips) and knocks loose and scatters the ring around it; heavy falling debris knocks more pieces loose; a support check drops anything left unsupported; settled rubble freezes back to fixed. Rapier 0.21 also has tearable soft bodies (banners, gore) and editable voxel shapes (craters), worth testing next.
 - Rendering: Three.js WebGPU renderer (with its WebGL2 fallback), procedural materials, instanced stones.
 - Online: lockstep over a Cloudflare Durable Object relay, rooms by invite link. Every client simulates everything, so the weakest device sets the physics budget; cosmetic effects scale per device.
 - Moonshot to evaluate: AVBD (SIGGRAPH 2025) on the GPU for far larger castles, if it can be made deterministic (fixed-point) or run on one host.
 
-## Findings from the first physics runs (Node, cloud server CPU)
+## Findings from the first physics runs (Node and headless Chromium, cloud server CPU)
+
+The server's speed varies between runs, so these are ranges. The lab page measures the real devices.
 
 | Test | Deterministic build | Fast (SIMD) build |
 |---|---|---|
-| Moving stones that fit in 6 ms per step | about 680 | about 1,680 |
-| Moving stones that fit in 12 ms per step | about 1,330 | about 2,820 |
-| Scripted siege, 12 shots, average step | 5.2 ms | 4.0 ms |
+| Moving stones that fit in 6 ms per step | about 500 to 700 | about 900 to 1,900 |
+| Scripted siege (12 shots in 9 s, about 830 stones loosened, about 300 moving at peak), average step | about 6.8 ms | about 7.0 ms |
+
+- Tuning that mattered: centring the blast a metre inside the masonry (the ball touches the face), shattering the core so a real hole opens, and a 450 kN break threshold for falling debris (220 kN made chain reactions double the cost).
 
 - Same input gives the same hash run after run, and headless Chromium matches Node bit for bit. Cross-browser and cross-device checks are what the lab is for.
 - Jolt (single-thread WebAssembly build) on the same rubble test: 3.0 ms at 500 stones, 12.9 ms at 1,000, 22.5 ms at 2,000. No faster than Rapier's deterministic build, and its browser determinism is unproven. Multithreaded Jolt needs special page headers (cross-origin isolation), so it can only be tested once the game is hosted on Cloudflare.
@@ -68,6 +71,8 @@ Each race is built on a different branch of physics, has a different skill curve
 - Freezing settled rubble keeps a ruined castle cheap; without it, rubble piles keep waking up.
 
 ## Spikes
+
+The lab page: https://claude.ai/artifact/GHqbFzcvN2tPt7wkhSm7NN (private to the owner; share it from its Share menu for other devices or people). Source in `lab/`; `npm run lab:build` writes `lab/dist/artifact.html` plus `lab/dist/assets/`.
 
 1. Physics budget and determinism on every target device: the lab page.
 2. The look on the weaker devices, and the art style choice: the lab page.
