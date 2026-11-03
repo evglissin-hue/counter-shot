@@ -1,0 +1,18 @@
+{
+  "name": "counter-shot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Counter-Shot: a physics-heavy 3D castle duel for the browser.",
+  "workspaces": [
+    "lab"
+  ],
+  "scripts": {
+    "lab:dev": "npm run dev -w @counter-shot/lab",
+    "lab:build": "npm run build -w @counter-shot/lab",
+    "typecheck": "npm run typecheck -w @counter-shot/lab"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

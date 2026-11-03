@@ -1,0 +1,24 @@
+{
+  "name": "@counter-shot/lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Test page: measures what each device can do (physics, graphics, determinism) and previews art styles.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-deterministic-compat": "0.21.0",
+    "@dimforge/rapier3d-simd-compat": "0.21.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "@webgpu/types": "^0.1.74",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}
