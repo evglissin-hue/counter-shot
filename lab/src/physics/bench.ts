@@ -3,7 +3,7 @@
 
 import type { CastleLayout } from "../core/castle";
 import { aim, SIEGE_SHOTS, SIEGE_STEPS } from "../core/ballistics";
-import { quatY, Rng } from "../core/detmath";
+import { dsqrt, quatY, Rng } from "../core/detmath";
 import { CastleSim, type Rapier } from "./sim";
 
 export interface StepStats {
@@ -105,7 +105,7 @@ function rubbleStep(R: Rapier, bodies: number, seed: number): number[] {
   const rng = new Rng(seed).fork("rubble");
   const layers = 6;
   const perLayer = Math.ceil(bodies / layers);
-  const side = Math.ceil(Math.sqrt(perLayer));
+  const side = Math.ceil(dsqrt(perLayer));
   let made = 0;
   for (let l = 0; l < layers && made < bodies; l++) {
     for (let i = 0; i < side && made < bodies; i++) {

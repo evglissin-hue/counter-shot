@@ -22,7 +22,7 @@
 import type RAPIER_NS from "@dimforge/rapier3d-deterministic-compat";
 import type { CastleLayout, Stone } from "../core/castle";
 import { aim } from "../core/ballistics";
-import { hashBytes, hex8 } from "../core/detmath";
+import { dsqrt, hashBytes, hex8 } from "../core/detmath";
 
 export type Rapier = typeof RAPIER_NS;
 type World = InstanceType<Rapier["World"]>;
@@ -231,7 +231,7 @@ export class CastleSim {
       const speed2 = ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz;
       if (speed2 < 64) continue; // under 8 m/s: just a bump
       lastBall = bi;
-      const speed = Math.sqrt(speed2);
+      const speed = dsqrt(speed2);
       const p = ball.body.translation();
       const radius = this.opts.blastBase + speed * this.opts.blastPerSpeed;
       this.blast(p.x, p.y, p.z, radius, ball.vx / speed, ball.vy / speed, ball.vz / speed, speed);

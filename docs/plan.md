@@ -62,7 +62,8 @@ Each race is built on a different branch of physics, has a different skill curve
 | Moving stones that fit in 12 ms per step | about 1,330 | about 2,820 |
 | Scripted siege, 12 shots, average step | 5.2 ms | 4.0 ms |
 
-- Same input gives the same hash run after run. Cross-browser and cross-device checks are what the lab is for.
+- Same input gives the same hash run after run, and headless Chromium matches Node bit for bit. Cross-browser and cross-device checks are what the lab is for.
+- Jolt (single-thread WebAssembly build) on the same rubble test: 3.0 ms at 500 stones, 12.9 ms at 1,000, 22.5 ms at 2,000. No faster than Rapier's deterministic build, and its browser determinism is unproven. Multithreaded Jolt needs special page headers (cross-origin isolation), so it can only be tested once the game is hosted on Cloudflare.
 - The first step after building a castle costs about 120 ms (the broad phase is built): do it during loading.
 - Freezing settled rubble keeps a ruined castle cheap; without it, rubble piles keep waking up.
 

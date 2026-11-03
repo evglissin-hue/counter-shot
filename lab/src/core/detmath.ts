@@ -37,6 +37,25 @@ export function dcos(x: number): number {
 
 export const DPI = PI;
 
+const F64 = new Float64Array(1);
+const U32 = new Uint32Array(F64.buffer);
+const HI = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1 ? 1 : 0; // index of the high word
+
+/**
+ * Square root with + - * / only. Math.sqrt is correctly rounded in practice,
+ * but the language spec does not promise it, so the physics uses this.
+ */
+export function dsqrt(x: number): number {
+  if (!(x > 0)) return x === 0 ? 0 : NaN;
+  // Initial guess from the exponent bits (exact integer maths), then Newton.
+  F64[0] = x;
+  U32[HI] = ((U32[HI] >>> 1) + 0x1ff80000) >>> 0;
+  U32[1 - HI] = 0;
+  let r = F64[0];
+  for (let i = 0; i < 6; i++) r = 0.5 * (r + x / r);
+  return r;
+}
+
 /** Quaternion for a rotation of `angle` radians about the Y axis. */
 export function quatY(angle: number): [number, number, number, number] {
   const h = angle / 2;
