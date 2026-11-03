@@ -6,7 +6,7 @@
   "description": "Test page: measures what each device can do (physics, graphics, determinism) and previews art styles.",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build",
+    "build": "vite build && node scripts/make-artifact.mjs",
     "preview": "vite preview --host",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

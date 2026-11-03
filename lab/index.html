@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- artifact-head-start -->
+<title>Counter-Shot Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* One deliberate look: smoked-glass siege instruments laid over the 3D scene, the same in light and dark. */
+:root {
+  --ground: #1b1915;
+  --glass: rgba(22, 19, 15, 0.66);
+  --glass-strong: rgba(16, 14, 11, 0.86);
+  --line: rgba(241, 232, 212, 0.16);
+  --ink: #f2ead8;
+  --ink-dim: #bdb39d;
+  --brass: #d9a84e;
+  --brass-ink: #241a08;
+  --ok: #93c57d;
+  --warn: #e3a64f;
+  --bad: #e2715a;
+  --display: "IM Fell English SC", "Iowan Old Style", Georgia, serif;
+  --ui: "Barlow Semi Condensed", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.4 var(--ui); overflow: hidden; -webkit-font-smoothing: antialiased; }
+#app { position: fixed; inset: 0; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.glass { background: var(--glass); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(10px) saturate(1.1); -webkit-backdrop-filter: blur(10px) saturate(1.1); }
+.top { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; pointer-events: none; }
+.top > * { pointer-events: auto; }
+.brand { display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 7px; }
+.brand .mark { font: 22px/1 var(--display); letter-spacing: 0.02em; }
+.brand .sub { font: 500 12px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
+.group { display: flex; align-items: center; gap: 2px; padding: 4px; }
+.group .label { font: 500 11px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); padding: 0 6px 0 8px; }
+button { font: 500 14px/1 var(--ui); color: var(--ink); background: transparent; border: 0; border-radius: 7px; padding: 8px 11px; cursor: pointer; }
+button:hover { background: rgba(241, 232, 212, 0.08); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--brass); color: var(--brass-ink); }
+button:disabled { opacity: 0.45; cursor: default; }
+.spacer { flex: 1 1 auto; }
+#panel-toggle { display: none; }
+.panel { position: absolute; top: calc(66px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: 360px; max-height: calc(100% - 150px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); overflow: auto; padding: 16px; display: grid; gap: 12px; }
+.panel h2 { margin: 0; font: 20px/1.1 var(--display); text-wrap: balance; }
+.panel p { margin: 0; color: var(--ink-dim); }
+.field { display: grid; gap: 4px; }
+.field label { font: 500 11px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+input[type="text"] { font: 15px/1.2 var(--ui); color: var(--ink); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: 7px; padding: 9px 10px; min-width: 0; }
+.primary { background: var(--brass); color: var(--brass-ink); font-weight: 600; padding: 11px 14px; }
+.primary:hover { background: #e6b862; }
+.secondary { border: 1px solid var(--line); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.progress { height: 6px; border-radius: 3px; background: rgba(241, 232, 212, 0.12); overflow: hidden; }
+.progress > div { height: 100%; width: 0; background: var(--brass); transition: width 0.2s; }
+.facts { margin: 0; display: grid; gap: 7px; }
+.facts > div { display: grid; grid-template-columns: 118px 1fr; gap: 8px; }
+.facts dt { color: var(--ink-dim); }
+.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.bad { color: var(--bad); }
+.num { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font: 500 11px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
+td.num, th.num { text-align: right; }
+.section-title { font: 500 11px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); margin-top: 4px; }
+textarea { width: 100%; box-sizing: border-box; min-height: 90px; font: 12px/1.35 var(--mono); color: var(--ink); background: rgba(0, 0, 0, 0.4); border: 1px solid var(--line); border-radius: 7px; }
+.bottom { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; pointer-events: none; }
+.bottom > * { pointer-events: auto; }
+.readout { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 8px 12px; align-items: baseline; }
+.readout span { white-space: nowrap; }
+.readout b { font: 500 13px var(--mono); font-variant-numeric: tabular-nums; color: var(--ink); }
+.readout em { font-style: normal; color: var(--ink-dim); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; margin-right: 4px; }
+.hint { padding: 8px 12px; color: var(--ink-dim); max-width: 520px; }
+.toast { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); padding: 14px 20px; text-align: center; background: var(--glass-strong); max-width: min(520px, calc(100% - 32px)); }
+.toast strong { display: block; font: 26px/1.1 var(--display); color: var(--brass); margin-bottom: 4px; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; background: var(--ground); font: 22px var(--display); color: var(--ink-dim); text-align: center; padding: 24px; }
+.loading small { display: block; font: 14px var(--ui); margin-top: 8px; }
+@media (max-width: 760px) {
+  #panel-toggle { display: inline-block; }
+  .panel { left: max(16px, env(safe-area-inset-left, 0px)); width: auto; top: auto; bottom: calc(66px + env(safe-area-inset-bottom, 0px)); max-height: 62%; }
+  .panel.closed { display: none; }
+  .hint { display: none; }
+  .brand .mark { font-size: 19px; }
+}
+@media (prefers-reduced-motion: reduce) { .progress > div { transition: none; } }
+</style>
+<!-- artifact-head-end -->
+</head>
+<body>
+<!-- artifact-body-start -->
+<div id="app">
+  <canvas id="scene" aria-label="Two castles across a field. Click or tap the far castle to fire."></canvas>
+
+  <div class="top">
+    <div class="brand glass"><span class="mark">Counter-Shot</span><span class="sub">Lab</span></div>
+    <div class="group glass" role="group" aria-label="Art style">
+      <span class="label">Style</span>
+      <button type="button" id="style-warm" data-style="warm" aria-pressed="true">Warm</button>
+      <button type="button" id="style-gritty" data-style="gritty" aria-pressed="false">Gritty</button>
+      <button type="button" id="style-lowpoly" data-style="lowpoly" aria-pressed="false">Low-poly</button>
+    </div>
+    <div class="group glass" role="group" aria-label="Graphics quality">
+      <span class="label">Quality</span>
+      <button type="button" id="q-low" data-quality="low" aria-pressed="false">Low</button>
+      <button type="button" id="q-medium" data-quality="medium" aria-pressed="false">Medium</button>
+      <button type="button" id="q-high" data-quality="high" aria-pressed="true">High</button>
+      <button type="button" id="q-ultra" data-quality="ultra" aria-pressed="false">Ultra</button>
+    </div>
+    <div class="group glass" role="group" aria-label="Camera">
+      <span class="label">View</span>
+      <button type="button" id="view-cannon" data-view="cannon" aria-pressed="true">Cannon</button>
+      <button type="button" id="view-orbit" data-view="orbit" aria-pressed="false">Orbit</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group glass"><button type="button" id="panel-toggle" aria-expanded="false" aria-controls="panel">Device test</button></div>
+  </div>
+
+  <aside class="panel glass closed" id="panel" aria-label="Device test">
+    <h2>Device test</h2>
+    <p>Measures graphics and physics on this device. Takes about two minutes; keep this tab in front and the device plugged in.</p>
+    <div class="field">
+      <label for="device-label">This device</label>
+      <input type="text" id="device-label" placeholder="For example: Evgeny's laptop" maxlength="60" autocomplete="off">
+    </div>
+    <div class="row">
+      <button type="button" class="primary" id="run">Run the test</button>
+      <button type="button" class="secondary" id="copy" disabled>Copy results</button>
+    </div>
+    <div class="progress" aria-hidden="true"><div id="progress-fill"></div></div>
+    <p id="progress-label">Not run yet on this device.</p>
+    <p id="save-status" hidden></p>
+    <textarea id="copy-fallback" hidden readonly aria-label="Results to copy"></textarea>
+    <div id="summary"></div>
+    <div id="history-wrap" hidden>
+      <div class="section-title">All devices so far</div>
+      <div class="tablewrap"><table id="history"></table></div>
+    </div>
+  </aside>
+
+  <div class="bottom">
+    <div class="readout glass" id="readout" aria-live="off">
+      <span><em>Frame</em><b id="r-fps">--</b></span>
+      <span><em>GPU</em><b id="r-gpu">--</b></span>
+      <span><em>Physics</em><b id="r-phys">--</b></span>
+      <span><em>Loose</em><b id="r-loose">0</b></span>
+      <span><em>Moving</em><b id="r-awake">0</b></span>
+      <span><em>Renderer</em><b id="r-backend">--</b></span>
+    </div>
+    <div class="hint glass" id="hint">Click or tap the far castle to fire. In Orbit view, drag to look around. Space fires again at the last spot.</div>
+    <div class="spacer"></div>
+    <div class="group glass"><button type="button" id="reset">Rebuild castles</button></div>
+  </div>
+
+  <div class="toast glass" id="toast" hidden role="status"><strong>Keep toppled</strong><span>The enemy banner fell. In a real match, that wins the game.</span></div>
+  <div class="loading" id="loading"><div>Raising two castles<small id="loading-detail">Loading physics and graphics</small></div></div>
+</div>
+<!-- artifact-body-end -->
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>
