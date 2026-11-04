@@ -84,3 +84,12 @@ The lab page: https://claude.ai/artifact/GHqbFzcvN2tPt7wkhSm7NN (private to the 
 1. Physics budget and determinism on every target device: the lab page.
 2. The look on the weaker devices, and the art style choice: the lab page.
 3. Online lockstep over the internet: needs the repo connected to Cloudflare (artifacts cannot open network connections).
+
+## Findings from phase 1 (the sandbox)
+
+- Headless Chromium replays the scripted sandbox session (all four weapons, drag, wind, spin, fuses, ragdolls, craters) to the same hash as Node, bit for bit (`npm run check:browser`).
+- Real gravity makes mortar flights too long at 150 m (6 to 7 s): lobbed shells use a gravity multiplier (3.2x) so they land in 3 to 4.5 s. The aim preview applies the same multiplier and matches the sim to about 0.1 m.
+- A partial arc gives too little information for a lobbed weapon: the sandbox defaults to the full predicted arc with a landing ring; the partial arc stays as the harder setting.
+- The lab's castle layout mirrored castle 1's tower wedges inside out; the fix is a layout option so the lab's reference hash stays valid.
+- Weapon tabs kept keyboard focus, so Space pressed them: game keys must preventDefault and buttons must blur after a click.
+

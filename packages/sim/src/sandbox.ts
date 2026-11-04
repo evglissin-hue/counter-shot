@@ -26,7 +26,7 @@ import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 1;
+export const RULES_VERSION = 2;
 
 export const enum Spin {
   None = 0,
@@ -72,7 +72,7 @@ export interface SandboxOptions {
 const MAX_STONES = 9000;
 /** Grapeshot pellets do not collide with each other. */
 const PELLET_GROUPS = (0x0004 << 16) | (0xffff & ~0x0004);
-const EXPLOSION = { radius: 2.6, power: 55, knock: 6.5, crater: 2.4, depth: 0.9 };
+const EXPLOSION = { radius: 3.3, power: 75, knock: 8.5, crater: 3.0, depth: 1.15 };
 
 export class SandboxSim {
   readonly R: Rapier;
@@ -191,7 +191,7 @@ export class SandboxSim {
     const [dx, dy, dz] = aimDir(yaw, pitch);
     const p = w.projectile;
     const slot = this.castle.fire(mx, my, mz, dx * speed, dy * speed, dz * speed, {
-      radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: false, life: 60 * 20,
+      radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: false, life: 60 * 20, gravity: p.gravity,
     });
     const f = fuse <= 0 ? 0 : this.tick + clampInt(fuse, w.fuseMin, w.fuseMax);
     if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Shell, slots: [slot], coef: flightCoef(p), spin: false, fuseAt: f, landed: false, joint: null });

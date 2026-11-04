@@ -64,6 +64,8 @@ const recording = new Map<number, { emp: number; pts: number[] }>(); // shot id 
 const landing: Array<{ x: number; y: number; z: number } | null> = EMP.map(() => null);
 let follow: { id: number; lastX: number; lastY: number; lastZ: number; vx: number; vy: number; vz: number; until: number } | null = null;
 let slowUntil = 0;
+/** Camera shake after an explosion (render only). */
+let shakeAt = -1e9;
 let lastFrameTick = 0;
 let stats = { stepMs: 0, down: 0, standing: 0, awake: 0 };
 
@@ -98,6 +100,8 @@ function onFrame(f: FrameData) {
       const emp = f.events[o + 1], id = f.events[o + 2];
       recording.set(id, { emp, pts: [] });
       if (shotCam && emp === current) follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
+    } else if (kind === EventKind.Explosion) {
+      shakeAt = performance.now();
     } else if (kind === EventKind.Landed) {
       const emp = f.events[o + 1];
       landing[emp] = { x: f.events[o + 2], y: f.events[o + 3], z: f.events[o + 4] };
@@ -290,7 +294,12 @@ const hud = {
   lock: $("lock-hint"),
 };
 const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-weapon]")];
-tabs.forEach((b) => b.addEventListener("click", () => select(Number(b.dataset.weapon))));
+tabs.forEach((b) =>
+  b.addEventListener("click", () => {
+    select(Number(b.dataset.weapon));
+    b.blur(); // keep keys like Space for the game, not the button
+  }),
+);
 
 let hudFrame = 0;
 function updateHud(force = false) {
@@ -491,7 +500,16 @@ function frame(now: number) {
     send({ t: "speed", factor: 1 });
   }
   const pose = cameraPose();
-  if (pose.mode === "sight") pose.fov = shownFov;
+  if (pose.mode === "sight") {
+    if (EMP[current].weapon !== "mortar") pose.fov = shownFov;
+    else pose.fov = Math.max(shownFov, 40);
+    const age = (now - shakeAt) / 1000;
+    if (age < 0.6) {
+      const amp = 0.012 * Math.exp(-age / 0.15);
+      pose.yaw += amp * Math.sin(now * 0.09);
+      pose.pitch += amp * Math.sin(now * 0.13 + 1.7);
+    }
+  }
   renderer.setCamera(pose);
   updateAimHelp();
   updateHud();

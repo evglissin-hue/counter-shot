@@ -84,6 +84,8 @@ export interface FireOptions {
   angvel?: { x: number; y: number; z: number };
   /** Rapier collision groups (membership << 16 | filter). */
   groups?: number;
+  /** Gravity multiplier for this ball. */
+  gravity?: number;
 }
 
 export interface Impact {
@@ -206,6 +208,7 @@ export class CastleSim {
     const radius = o.radius ?? BALL_RADIUS;
     const bd = R.RigidBodyDesc.dynamic().setTranslation(x, y, z).setLinvel(vx, vy, vz).setCcdEnabled(true).setCanSleep(false);
     if (o.angvel) bd.setAngvel(o.angvel);
+    if (o.gravity !== undefined && o.gravity !== 1) bd.setGravityScale(o.gravity);
     const body = this.world.createRigidBody(bd);
     const col = this.world.createCollider(
       R.ColliderDesc.ball(radius)

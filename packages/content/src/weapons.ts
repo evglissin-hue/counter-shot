@@ -10,6 +10,8 @@ export interface ProjectileDef {
   radius: number;
   /** Material density, kg per cubic metre. */
   density: number;
+  /** Gravity multiplier: lobbed shells fall faster than real so they land in seconds, not ages. */
+  gravity: number;
   /** Drag coefficient of the shape (a sphere is about 0.47). */
   cd: number;
   /** How hard a hit on masonry blasts it: 1 is a full cannon blast, 0 none. */
@@ -64,7 +66,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     pitchRate: 0.25,
     fine: 0.2,
     reload: 4 * 60,
-    projectile: { radius: 0.22, density: IRON, cd: 0.47, blast: 1, restitution: 0.1 },
+    projectile: { radius: 0.22, density: IRON, gravity: 1, cd: 0.47, blast: 1, restitution: 0.1 },
     pellets: 1,
     spread: 0,
     fuseMin: 0,
@@ -78,15 +80,15 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   mortar: {
     kind: "mortar",
     name: "Mortar",
-    speed: 42,
-    minSpeed: 20,
-    minPitch: 0.7,
+    speed: 82,
+    minSpeed: 36,
+    minPitch: 0.68,
     maxPitch: 1.35,
     yawRate: 0.5,
     pitchRate: 0.3,
     fine: 0.2,
     reload: 6 * 60,
-    projectile: { radius: 0.28, density: 3200, cd: 0.47, blast: 0, restitution: 0.35 },
+    projectile: { radius: 0.28, density: 3200, gravity: 3.2, cd: 0.47, blast: 0, restitution: 0.35 },
     pellets: 1,
     spread: 0,
     fuseMin: 30,
@@ -108,7 +110,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     pitchRate: 0.4,
     fine: 0.25,
     reload: 5 * 60,
-    projectile: { radius: 0.16, density: IRON, cd: 0.9, blast: 0.35, restitution: 0.1 },
+    projectile: { radius: 0.16, density: IRON, gravity: 1, cd: 0.9, blast: 0.35, restitution: 0.1 },
     pellets: 2,
     spread: 0,
     fuseMin: 0,
@@ -130,7 +132,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     pitchRate: 1.2,
     fine: 0.25,
     reload: 2 * 60,
-    projectile: { radius: 0.05, density: 7000, cd: 0.47, blast: 0, restitution: 0.25 },
+    projectile: { radius: 0.05, density: 7000, gravity: 1, cd: 0.47, blast: 0, restitution: 0.25 },
     pellets: 12,
     spread: 0.06,
     fuseMin: 0,

@@ -32,7 +32,8 @@ export class Input {
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
       if (isTyping(e)) return;
-      if (e.code === "Tab") e.preventDefault();
+      // Tab and Space are game keys: never let them move focus or press a focused button.
+      if (e.code === "Tab" || e.code === "Space") e.preventDefault();
       if (!e.repeat) this.edges.add(e.code);
       this.keys.add(e.code);
       this.usedPad = false;

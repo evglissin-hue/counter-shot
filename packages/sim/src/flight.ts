@@ -12,6 +12,8 @@ export interface FlightCoef {
   drag: number;
   /** Magnus: acceleration = magnus * (spin x v). */
   magnus: number;
+  /** Gravity multiplier. */
+  gravity: number;
 }
 
 export function flightCoef(p: ProjectileDef): FlightCoef {
@@ -19,7 +21,7 @@ export function flightCoef(p: ProjectileDef): FlightCoef {
   const drag = (AIR_SCALE * 3 * AIR_DENSITY * p.cd) / (8 * p.radius * p.density);
   // Magnus lift ~ rho_air pi r^3 (w x v) / m = 3 rho_air / (4 rho).
   const magnus = (AIR_SCALE * 3 * AIR_DENSITY) / (4 * p.density) * 0.5;
-  return { drag, magnus };
+  return { drag, magnus, gravity: p.gravity };
 }
 
 /** Velocity change for one tick from drag and spin (not gravity). Writes into out. */
@@ -66,7 +68,7 @@ export function predictPath(
   for (let i = 1; i <= steps; i++) {
     flightDv(v, spin, windX, windZ, c, dv);
     v[0] += dv[0];
-    v[1] += dv[1] - G * DT;
+    v[1] += dv[1] - G * c.gravity * DT;
     v[2] += dv[2];
     p[0] += v[0] * DT;
     p[1] += v[1] * DT;
