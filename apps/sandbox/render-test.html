@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Keepfall renderer test</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #101215; color: #eef0f2; overflow: hidden; font: 12px/1.4 ui-monospace, monospace; }
+      #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+      #info { position: fixed; left: 10px; top: 10px; background: rgba(0, 0, 0, 0.55); padding: 6px 8px; border-radius: 6px; white-space: pre; }
+      body.shot #info { display: none; }
+      #error { position: fixed; left: 10px; bottom: 10px; color: #ffb4a8; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="info">starting...</div>
+    <div id="error"></div>
+    <script type="module" src="./src/render-test.ts"></script>
+  </body>
+</html>
