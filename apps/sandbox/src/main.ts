@@ -329,11 +329,45 @@ $("help-close").addEventListener("click", () => (help.hidden = true));
 $("shotcam").addEventListener("change", (e) => (shotCam = (e.target as HTMLInputElement).checked));
 $("overview-btn").addEventListener("click", () => toggleOverview());
 
+// First launch: a quick graphics test. Starting at Ultra, each tier renders
+// the live scene for about 1.5 seconds; the first whose 95th-percentile frame
+// fits 60 fps (with a little slack) is kept and saved.
+let calib: { tier: number; frames: number[]; warm: number } | null = null;
+function calibrate(dt: number) {
+  if (!calib || !ready || paused) return;
+  if (calib.warm > 0) {
+    calib.warm--;
+    return;
+  }
+  calib.frames.push(dt);
+  if (calib.frames.length < 90) return;
+  const sorted = calib.frames.slice().sort((a, b) => a - b);
+  const p95 = sorted[Math.floor(sorted.length * 0.95)];
+  if (p95 <= 1 / 60 * 1.12 || calib.tier === 0) {
+    const tier = TIER_ORDER[calib.tier];
+    calib = null;
+    try {
+      localStorage.setItem("keepfall.quality", tier);
+    } catch {}
+    const note = $("note");
+    note.textContent = `Quality set to ${tier} for this machine. Change it under Controls.`;
+    note.hidden = false;
+    setTimeout(() => (note.hidden = true), 5000);
+    return;
+  }
+  calib.tier--;
+  calib.frames = [];
+  calib.warm = 30;
+  quality.value = TIER_ORDER[calib.tier];
+  renderer.setQuality(quality.value as QualityTier);
+  renderer.resize();
+}
+
 // Frame-time guard: after 5 seconds of missed frames, drop one quality tier and say so.
 const TIER_ORDER: QualityTier[] = ["low", "medium", "high", "ultra"];
 let slowFrames = 0, guardFrames = 0;
 function guard(dt: number) {
-  if (!ready || paused) return;
+  if (!ready || paused || calib) return;
   guardFrames++;
   if (dt > 1 / 45) slowFrames++;
   if (guardFrames < 300) return;
@@ -417,6 +451,7 @@ function frame(now: number) {
   updateHud();
   placeWanted();
   if (!paused) renderer.render(dt);
+  calibrate(dt);
   guard(dt);
   requestAnimationFrame(frame);
 }
@@ -436,12 +471,20 @@ async function start() {
     showError(`Could not start the renderer: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  // Default tier: High; a saved choice wins.
+  // A saved choice wins; otherwise the quick test starts at Ultra (High if storage is unavailable).
   let tier: QualityTier = "high";
+  let saved: QualityTier | null = null;
+  let storage = true;
   try {
-    const saved = localStorage.getItem("keepfall.quality") as QualityTier | null;
-    if (saved && TIER_ORDER.includes(saved)) tier = saved;
-  } catch {}
+    saved = localStorage.getItem("keepfall.quality") as QualityTier | null;
+  } catch {
+    storage = false;
+  }
+  if (saved && TIER_ORDER.includes(saved)) tier = saved;
+  else if (storage && !location.hash.includes("low")) {
+    tier = "ultra";
+    calib = { tier: 3, frames: [], warm: 60 };
+  }
   if (location.hash.includes("low")) tier = "low";
   quality.value = tier;
   renderer.setLayout(layout, EMP);

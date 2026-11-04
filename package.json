@@ -17,7 +17,8 @@
     "lab:dev": "npm run dev -w @counter-shot/lab",
     "lab:build": "npm run build -w @counter-shot/lab",
     "sandbox:dev": "npm run dev -w @keepfall/sandbox",
-    "sandbox:build": "npm run build -w @keepfall/sandbox"
+    "sandbox:build": "npm run build -w @keepfall/sandbox",
+    "check:browser": "node tools/browser-hash.mjs"
   },
   "engines": {
     "node": ">=22"
