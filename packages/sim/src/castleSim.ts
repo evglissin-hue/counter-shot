@@ -70,6 +70,8 @@ export interface Ball {
   touched: boolean;
   /** Touched something during the last step. */
   touchedNow: boolean;
+  /** The first stone it struck during the last step, or -1. */
+  struck: number;
   /** Lifetime in steps before it is removed. */
   life: number;
 }
@@ -226,7 +228,7 @@ export class CastleSim {
     this.owner.set(col.handle, -(slot + 1));
     this.balls[slot] = {
       body, handle: col.handle, radius, vx, vy, vz, age: 0, alive: true,
-      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, life: o.life ?? 60 * 12,
+      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12,
     };
     return slot;
   }
@@ -254,6 +256,78 @@ export class CastleSim {
     this.supportCheck();
   }
 
+  /**
+   * A powder burst at a point (a mortar shell): shatters the masonry at its
+   * core, loosens the ring around it and throws it up and out, and throws
+   * loose rubble out to 1.3 times the radius. Unlike a ball's blast it has no
+   * direction of its own. `power` is the throw speed (m/s) at the centre,
+   * falling to a quarter at the edge; `lift` tips the throw upwards.
+   */
+  burst(x: number, y: number, z: number, radius: number, shatter: number, power: number, lift: number) {
+    const reach = radius * 1.3;
+    const r2 = radius * radius, reach2 = reach * reach;
+    const c0x = Math.floor((x - radius) / 2), c1x = Math.floor((x + radius) / 2);
+    const c0y = Math.floor((y - radius) / 2), c1y = Math.floor((y + radius) / 2);
+    const c0z = Math.floor((z - radius) / 2), c1z = Math.floor((z + radius) / 2);
+    const found: number[] = [];
+    for (let cx = c0x; cx <= c1x; cx++)
+      for (let cy = c0y; cy <= c1y; cy++)
+        for (let cz = c0z; cz <= c1z; cz++) {
+          const list = this.grid.get(this.cellKey(cx, cy, cz));
+          if (!list) continue;
+          for (const id of list) {
+            if (this.dynamic[id]) continue;
+            const s = this.layout.stones[id];
+            const ex = s.x - x, ey = s.y - y, ez = s.z - z;
+            if (ex * ex + ey * ey + ez * ez <= r2) found.push(id);
+          }
+        }
+    // Rubble already lying loose nearby is thrown too: thaw it first.
+    this.thaw(x, y, z, reach);
+    const rubble: number[] = [];
+    for (const id of this.dynList) {
+      if (this.shattered[id] || this.frozen[id]) continue;
+      const p = this.bodies[id].translation();
+      const ex = p.x - x, ey = p.y - y, ez = p.z - z;
+      if (ex * ex + ey * ey + ez * ez <= reach2) rubble.push(id);
+    }
+    found.sort((p, q) => p - q);
+    const core2 = r2 * shatter * shatter;
+    for (const id of found) {
+      const s = this.layout.stones[id];
+      const ex = s.x - x, ey = s.y - y, ez = s.z - z;
+      const d2 = ex * ex + ey * ey + ez * ez;
+      if (d2 <= core2 && s.part !== "banner") {
+        this.shatter(id);
+        continue;
+      }
+      this.loosen(id);
+      this.throwPiece(id, ex, ey, ez, d2, r2, power, lift);
+    }
+    for (const id of rubble) {
+      const p = this.bodies[id].translation();
+      const ex = p.x - x, ey = p.y - y, ez = p.z - z;
+      this.throwPiece(id, ex, ey, ez, ex * ex + ey * ey + ez * ez, reach2, power, lift);
+    }
+    this.impacts.push({ x, y, z, strength: 1 });
+    this.supportCheck();
+  }
+
+  /** Throw a loose piece away from a burst: up and out, harder near the centre. */
+  private throwPiece(id: number, ex: number, ey: number, ez: number, d2: number, r2: number, power: number, lift: number) {
+    const body = this.bodies[id];
+    const d = dsqrt(d2) + 0.001;
+    // Pieces below the centre would only be driven into the ground: they go up and out too.
+    let px = ex / d, py = (ey > 0 ? ey / d : (ey / d) * 0.3) + lift, pz = ez / d;
+    const pl = dsqrt(px * px + py * py + pz * pz) + 0.001;
+    px /= pl;
+    py /= pl;
+    pz /= pl;
+    const fall = 1 - d2 / r2; // 1 at the centre, 0 at the edge
+    const k = body.mass() * power * (0.25 + 0.75 * (fall > 0 ? fall : 0));
+    body.applyImpulse({ x: px * k, y: py * k, z: pz * k }, true);
+  }
+
   /** Stone id for a collider handle, or undefined. */
   stoneOf(handle: number): number | undefined {
     const o = this.owner.get(handle);
@@ -279,7 +353,10 @@ export class CastleSim {
     this.foreign.length = 0;
     this.foreignStones.length = 0;
     this.glances.length = 0;
-    for (const b of this.balls) b.touchedNow = false;
+    for (const b of this.balls) {
+      b.touchedNow = false;
+      b.struck = -1;
+    }
     this.world.step(this.queue);
     this.steps++;
 
@@ -318,6 +395,8 @@ export class CastleSim {
     let changed = false;
     let lastBall = -1;
     for (const [bi, stoneId] of hits) {
+      const struck = this.balls[bi];
+      if (struck && struck.struck < 0) struck.struck = stoneId;
       if (bi === lastBall) continue; // one blast per ball per step
       const ball = this.balls[bi];
       if (!ball || !ball.alive || (this.dynamic[stoneId] && !this.frozen[stoneId])) continue;

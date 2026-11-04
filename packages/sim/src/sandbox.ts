@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { ASHWRIGHT_EMPLACEMENTS, WEAPONS, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, WEAPONS, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { CastleSim, DEFAULT_SIM, type Rapier } from "./castleSim";
@@ -26,7 +26,7 @@ import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 
 export const enum Spin {
   None = 0,
@@ -72,7 +72,8 @@ export interface SandboxOptions {
 const MAX_STONES = 9000;
 /** Grapeshot pellets do not collide with each other. */
 const PELLET_GROUPS = (0x0004 << 16) | (0xffff & ~0x0004);
-const EXPLOSION = { radius: 3.3, power: 75, knock: 8.5, crater: 3.0, depth: 1.15 };
+/** The mortar shell's burst: the default for explode(). */
+const SHELL_BURST: BurstDef = WEAPONS.mortar.burst!;
 
 export class SandboxSim {
   readonly R: Rapier;
@@ -317,8 +318,17 @@ export class SandboxSim {
         const due = shot.fuseAt === 0 ? ball.touchedNow : shot.fuseAt > 0 && this.tick + 1 >= shot.fuseAt;
         if (due) {
           const p = ball.body.translation();
+          let x = p.x, y = p.y, z = p.z;
+          const burst = WEAPONS[this.emplacements[shot.emplacement].weapon].burst ?? SHELL_BURST;
+          if (shot.fuseAt === 0 && ball.struck >= 0) {
+            // A shell that strikes masonry bursts inside it, along its flight: roofs and wall tops cave in.
+            const sp = dsqrt(ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz) + 1e-9;
+            x += (ball.vx / sp) * burst.bite;
+            y += (ball.vy / sp) * burst.bite;
+            z += (ball.vz / sp) * burst.bite;
+          }
           castle.removeBall(shot.slots[0]);
-          this.explode(p.x, p.y, p.z);
+          this.explode(x, y, z, burst);
           alive = 0;
         }
       }
@@ -331,20 +341,21 @@ export class SandboxSim {
   }
 
   /** A powder burst: masonry, minions, a crater if it is near the ground. */
-  explode(x: number, y: number, z: number) {
-    const E = EXPLOSION;
-    this.castle.explode(x, y, z, E.radius, E.power);
+  explode(x: number, y: number, z: number, burst: BurstDef = SHELL_BURST) {
+    const E = burst;
+    this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift);
     this.event(EventKind.Explosion, x, y, z, E.radius);
     for (const n of this.minions.near(x, y, z, E.knock)) {
       const d = n.d + 0.3;
-      const f = 14 * (1 - n.d / E.knock);
+      const f = E.knockSpeed * (1 - n.d / E.knock);
       const ex = (n.cx - x) / d, ey = (n.cy - y) / d, ez = (n.cz - z) / d;
       this.minions.knock({ minion: n.id, vx: ex * f, vy: ey * f + f * 0.6, vz: ez * f, px: x, py: y, pz: z, extra: 0.6 }, this.tick);
       this.event(EventKind.Blood, n.cx, n.cy, n.cz, 1 - n.d / E.knock);
     }
     const g = this.terrain.heightAt(x, z);
     if (y - g < 1.6) {
-      const depth = E.depth * (1 - (y - g) / 1.6 * 0.6);
+      const up = y - g > 0 ? y - g : 0;
+      const depth = E.depth * (1 - (up / 1.6) * 0.6);
       if (this.terrain.crater(x, z, E.crater, depth)) this.castle.thawAt(x, y, z, E.crater + 1.5);
     }
   }

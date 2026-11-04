@@ -63,3 +63,29 @@ test("chain shot balls stay within the chain and craters dig the ground", () => 
   assert.ok(sim.terrain.heightAt(0, -60) < before - 0.5, "a crater");
   sim.free();
 });
+
+test("a mortar burst on the keep caves it in and throws masonry up and out", () => {
+  const sim = new SandboxSim(R, buildLayout(1, { mirrorWedges: true }), { seed: 3, minions: 0 });
+  const layout = sim.castle.layout;
+  const burst = WEAPONS.mortar.burst!;
+  sim.explode(0, 19.3, -0.6); // just inside the top of the keep's south face
+  let shattered = 0;
+  for (let i = 0; i < layout.stones.length; i++) if (sim.castle.shattered[i]) shattered++;
+  const loose = sim.castle.dynList.length - shattered;
+  assert.ok(shattered >= 8, `a hole: ${shattered} stones turned to dust`);
+  assert.ok(loose >= 40, `${loose} stones came loose`);
+  const top = new Float32Array(layout.stones.length).fill(-1e9);
+  for (let t = 0; t < 120; t++) {
+    sim.step();
+    for (const id of sim.castle.dynList) {
+      if (sim.castle.shattered[id]) continue;
+      const y = sim.castle.bodies[id].translation().y;
+      if (y > top[id]) top[id] = y;
+    }
+  }
+  let thrown = 0;
+  for (const id of sim.castle.dynList) if (!sim.castle.shattered[id] && top[id] - layout.stones[id].y > 3) thrown++;
+  assert.ok(thrown >= 15, `${thrown} stones thrown more than 3 m up`);
+  assert.ok(burst.radius > 4 && burst.knock > burst.radius, "the burst reaches minions beyond the masonry it breaks");
+  sim.free();
+});

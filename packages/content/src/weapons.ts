@@ -19,6 +19,26 @@ export interface ProjectileDef {
   restitution: number;
 }
 
+/** A powder burst (mortar shells): what it does to masonry, minions and the ground. */
+export interface BurstDef {
+  /** Fixed masonry within this radius (m) is hit; loose rubble out to 1.3 times it is thrown. */
+  radius: number;
+  /** Share of the radius that turns to dust outright. */
+  shatter: number;
+  /** Throw speed (m/s) given to masonry at the centre; a quarter of it at the edge. */
+  power: number;
+  /** Upward share of the throw, so debris goes up and out rather than sideways. */
+  lift: number;
+  /** A shell that strikes masonry bursts this far inside it (m), so roofs and wall tops cave in. */
+  bite: number;
+  /** Minions within this radius (m) are thrown, at `knockSpeed` (m/s) at the centre. */
+  knock: number;
+  knockSpeed: number;
+  /** Crater radius and depth (m) when it bursts at or near the ground. */
+  crater: number;
+  depth: number;
+}
+
 export interface WeaponDef {
   kind: WeaponKind;
   name: string;
@@ -48,6 +68,8 @@ export interface WeaponDef {
   spinRate: number;
   /** Seconds of the predicted arc the aim help shows. */
   arcSeconds: number;
+  /** The shell's powder burst, for weapons whose shot explodes. */
+  burst: BurstDef | null;
   /** Sight field of view range in degrees (render only). */
   fov: [number, number];
 }
@@ -75,6 +97,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 0,
     spinRate: 40,
     arcSeconds: 0.5,
+    burst: null,
     fov: [14, 55],
   },
   mortar: {
@@ -97,6 +120,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 0,
     spinRate: 0,
     arcSeconds: 1.0,
+    burst: { radius: 4.6, shatter: 0.45, power: 30, lift: 1.1, bite: 0.9, knock: 12, knockSpeed: 18, crater: 4.0, depth: 1.6 },
     fov: [20, 60],
   },
   chainShot: {
@@ -119,6 +143,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 14,
     spinRate: 0,
     arcSeconds: 0.4,
+    burst: null,
     fov: [18, 55],
   },
   swivel: {
@@ -141,6 +166,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 0,
     spinRate: 0,
     arcSeconds: 0.3,
+    burst: null,
     fov: [30, 65],
   },
 };
