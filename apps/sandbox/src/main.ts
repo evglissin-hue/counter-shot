@@ -219,7 +219,8 @@ function cameraPose() {
   const [fx, , fz] = aimDir(a.yaw, 0);
   if (e.weapon === "mortar") {
     // The mortar points at the sky: look out over the wall towards where it is aimed.
-    return { mode: "sight" as const, x: e.x - fx * 7, y: e.y + 12.5, z: e.z - fz * 7, yaw: a.yaw, pitch: -0.02, fov: fov[current] };
+    // The keep stands right behind it, so the eye sits in front, over the courtyard, above the front wall.
+    return { mode: "sight" as const, x: e.x + fx * 2, y: e.y + 11.8, z: e.z + fz * 2, yaw: a.yaw, pitch: -0.05, fov: fov[current] };
   }
   const [dx, dy, dz] = aimDir(a.yaw, a.pitch);
   return { mode: "sight" as const, x: e.x - dx * 3.2, y: e.y + 1.1 - dy * 3.2, z: e.z - dz * 3.2, yaw: a.yaw, pitch: a.pitch - 0.05, fov: fov[current] };
