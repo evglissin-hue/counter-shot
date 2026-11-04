@@ -1,6 +1,6 @@
 # Keepfall: planning notes
 
-Working notes from the planning conversation. The spec (`SPEC.md`) comes after the test spikes.
+Working notes from the planning conversation. The spec is `SPEC.md` (draft 0.2); the phase 1 plan is `docs/phase-1.md`.
 
 ## The game in one paragraph
 
@@ -12,8 +12,10 @@ A browser game where two castles face each other across a field. You fire siege 
 |---|---|
 | Platforms | Desktop browsers (Windows, Mac) and iPad. No phones. The 2019 MacBook Air is not a target. The iPad is a couple of years old (model unknown) and touch only. |
 | Audience | The owner, Kat and friends, via invite links. |
-| MVP mode | Online 1v1. Later: online co-op (two players, one castle, vs AI) on two laptops or a laptop and an iPad; one day 2v2. |
-| Against the AI | Both an AI castle playing by the same rules (first) and wave defence (later). |
+| MVP mode | Online 1v1. Later: online co-op on two laptops or a laptop and an iPad; one day 2v2. |
+| Spec 0.1 | Agreed by the owner and Kat, including the build order. |
+| Against the AI | Solo versus an AI castle playing by the same rules stays as a mode. |
+| Co-op | Changed after spec 0.1: two players defend one castle against waves of attackers (tower defence), not against an AI castle. It must be very physics-based, not identical minions: attackers differ in mass and size, armour that deflects shots or makes them ricochet, shields and formations, mounts, siege engines and towers that collapse, climbers, swarms, giants, units that change the terrain. Waves interact with the castle's physics. See SPEC section 11. |
 | Co-op roles | Soft roles: Gunner (shooting, abilities) and Steward (buildings, repairs, economy, minion orders); the Steward can shoot too; swap any time. |
 | How you play | You ride the castle's weapons: number keys or bumpers jump between cannons, mortars, ballistae; an overview camera for building. No walking around. |
 | Unmanned weapons | Fire at minions on their own (the tower defence half). Manual control is far more accurate and allows trick shots. |
@@ -29,7 +31,8 @@ A browser game where two castles face each other across a field. You fire siege 
 | Races | Start with the first two proposals: Ashwright Guild (the MVP race) and Graniteborn. The others later. |
 | Name | Keepfall is the working title; the final name comes later. |
 | Online test | Later: the owner will connect the repo to Cloudflare when ready. |
-| Art style | Undecided: the lab shows three candidates on the same scene. |
+| Art style | Gritty (grim siege), chosen by the owner and Kat. The game uses Gritty only; Warm and Low-poly stay in the lab as references. See SPEC section 13. CC0 photo textures are allowed if committed with their licence. |
+| Quality tiers | Picked on first launch by the quick graphics test; High on desktop and Medium on iPad without one; drop a tier after 5 s of missed frames. |
 | Art assets | No artist: code-built castles and terrain, free asset packs and AI-generated models. |
 | Stack | Same as Castle Artillery: TypeScript monorepo, Cloudflare, a preview link per branch, several Claude sessions in parallel. |
 
@@ -70,6 +73,7 @@ The server's speed varies between runs, so these are ranges. The lab page measur
 - Same input gives the same hash run after run, and headless Chromium matches Node bit for bit. Cross-browser and cross-device checks are what the lab is for.
 - First real device (lab-2 build, Apple M4 Mac, Chrome, WebGPU, 120 Hz screen): the deterministic siege matched the reference hash bit for bit, so Apple ARM and x86 servers simulate identically. Physics budget: about 1,460 moving stones in 6 ms per step (about 2,750 in 12 ms); the fast build about 2,870. Scripted siege: 1.7 ms average step, 4.1 ms worst. Graphics: 95% of frames under 9.3 ms at every quality tier, but average frame rates were dragged down by one-off stalls when switching tiers; the lab-3 build warms each tier up first, reports stalls separately and fixes the GPU timer (it was adding up several frames).
 - Jolt (single-thread WebAssembly build) on the same rubble test: 3.0 ms at 500 stones, 12.9 ms at 1,000, 22.5 ms at 2,000. No faster than Rapier's deterministic build, and its browser determinism is unproven. Multithreaded Jolt needs special page headers (cross-origin isolation), so it can only be tested once the game is hosted on Cloudflare.
+- Second real device (lab-3 build, Kat's laptop: Apple M3, Chrome, WebGPU, 60 Hz): matched the reference hash bit for bit. Physics budget about 550 moving stones in 6 ms (about 780 in 12 ms); scripted siege 9.3 ms average step, 37 ms worst. The SIMD build measured slower than the deterministic one on this run, which points to a busy or throttled machine, so treat these as a floor. Graphics: 60 fps on Low, Medium and High (High recommended), Ultra about 30 fps with stalls. This laptop sets today's physics limit, so the 600-stone target stands.
 - The first step after building a castle costs about 120 ms (the broad phase is built): do it during loading.
 - Freezing settled rubble keeps a ruined castle cheap; without it, rubble piles keep waking up.
 

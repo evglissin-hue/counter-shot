@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.1)
+# Keepfall: Game Spec (draft 0.2)
 
-Keepfall is a working title. This draft is for review. Three things are still open and marked **Pending**: the art style (the owner is comparing three in the lab), the physics budget on the iPad and the second laptop (lab runs), and how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), and the second laptop's lab result with the quality tier defaults (section 6). Still **Pending**: the iPad's physics budget (lab run) and how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -24,7 +24,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
   1. **Practice range** (solo): your castle and a target castle, no enemy. Learn the weapons. Includes a short guided first match.
   2. **Versus AI** (solo): an AI castle that plays by the same rules.
   3. **Online 1v1**: the MVP.
-  4. **Online co-op**: two players share one castle against an AI castle. Later, wave defence.
+  4. **Online co-op**: two players defend one castle against waves of attackers (section 11).
   5. **2v2**: two players per castle, one day.
 - Online rooms open by invite link. No accounts or matchmaking at first.
 
@@ -83,7 +83,21 @@ To build:
 - Every gameplay action enters the match as an input tagged with its tick.
 - Rooms remember a rules version, bumped whenever the same inputs would play out differently.
 
-**Budget (Pending: iPad and second laptop).** Both machines in a match simulate everything, so the weaker one sets the limit. Target: at most about 600 stones moving at once at 60 Hz on the weakest supported device. The Apple M4 Mac manages about 1,460 in 6 ms per step.
+**Budget (Pending: iPad).** Both machines in a match simulate everything, so the weaker one sets the limit. Target: at most about 600 stones moving at once at 60 Hz on the weakest supported device. Measured in the lab (deterministic build, moving stones that fit in 6 ms per step):
+
+| Device | Physics budget | Scripted siege, average step | Graphics |
+|---|---|---|---|
+| Owner's Apple M4 Mac (Chrome, WebGPU, 120 Hz) | about 1,460 | 1.7 ms | Every tier under 9.3 ms for 95% of frames |
+| Kat's laptop (Apple M3, Chrome, WebGPU, 60 Hz) | about 550 | 9.3 ms | 60 fps on Low to High; Ultra about 30 fps |
+| iPad | Pending | Pending | Pending |
+
+Both matched the reference hash bit for bit. Kat's laptop sets today's limit, so the 600 target holds, and the support check, freezing and the shatter core must keep peaks there. A siege on her laptop averages 9.3 ms against a 16.7 ms frame, so the step must stay in the worker.
+
+**Quality tiers.** Low, Medium, High and Ultra change only the look (shadows, post effects, scatter density, chip and dust counts, resolution scale), never the simulation. Defaults:
+
+- First launch runs the lab's quick graphics test and picks the highest tier whose 95th-percentile frame fits the screen's refresh (with a 60 fps floor).
+- Without a test result: High on desktop, Medium on iPad. Ultra is never picked automatically on a 60 Hz screen if High already fills it.
+- A frame-time guard drops one tier after 5 seconds of missed frames, and says so.
 
 ## 7. Economy and buildings
 
@@ -186,13 +200,75 @@ Stone giants and the people who live alongside them. Enormous strength, slow tem
 
 Later races: Tidebound (water and ice) and Lodestar Order (magnetism and gravity), as proposed in `docs/plan.md`.
 
-## 11. Co-op (after the MVP)
+## 11. Co-op: hold the keep (after the MVP)
 
-- Two players share one castle against an AI castle.
-- **Soft roles**: Gunner (weapons, abilities) and Steward (buildings, repairs, economy, minion orders). The Steward can shoot too, and the roles can be swapped at any time.
-- **The iPad player** suits the Steward: tap plots to build, drag a wave's route on the overview, tap ability buttons. To shoot, drag back from the weapon to set direction and power, then release.
-- The laptop player is the Gunner, with mouse, gamepad or keyboard.
-- In co-op the iPad simulates the whole match too, so it sets the physics budget for that match.
+Two players defend one castle against waves of attackers: a tower defence where every attacker is a physics problem, not a hit-point bar. Each enemy is defined by its mass, shape, armour and the way it moves, so the right answer changes from wave to wave: a shot that scythes through pikemen bounces off a shield wall, and a wall that stops infantry is exactly what a ram wants. Solo versus an AI castle stays as its own mode.
+
+**The map.** Your castle on high ground, attackers entering from one to three approaches (the same terrain generator as the duel, not mirrored). Waves come in rounds of about 60 to 90 seconds with a short lull between them for building and repairs. A run is 12 to 20 waves, about 20 to 30 minutes.
+
+**What attackers do to your castle.** Attackers win by physics too: rams and sappers breach walls, giants and trebuchets bring down towers, climbers get over intact walls, and the run is lost when the keep's banner falls or the attackers hold the courtyard for 20 seconds. Your own shots can drop your own towers on them (and on your own buildings).
+
+### The roster
+
+Every enemy below is a different physics problem. Numbers are starting points; the roster lives in data files.
+
+| Enemy | Its physics | How you counter it | What it does to your castle |
+|---|---|---|---|
+| Levy | Light (70 kg) single body, ragdolls easily | Anything: grapeshot, chain shot, falling rubble | Little on its own; fills breaches and storms the courtyard |
+| Shield wall | A rank of 8 to 12 locked together by joints; big tower shields are heavy plates that deflect shots and make shallow hits ricochet | Hit the flank or drop shells behind it (mortar fuse); a steep plunging shot breaks the lock; a heavy ball at the right angle tears a gap | Escorts rams and sappers to the wall untouched |
+| Armoured knight | Heavy (140 kg) with plate armour: glancing hits ricochet off, only near-square hits knock him down | Square, heavy, close hits; or knock him off a bridge or ledge | Holds breaches, kills your repair crews |
+| Cavalry | Rider and horse as two linked bodies, fast (12 m/s), big momentum; the rider is thrown when the horse falls | Lead the shot; caltrops and craters trip horses; a fallen horse blocks the road for the next riders | Reaches the walls first and rides down gate crews |
+| Swarm | 30 to 60 tiny, light bodies (goblin-sized) spread wide | Splash, not precision: mortar air bursts, swivel guns, landslides | Climbs rubble anywhere; floods the courtyard if ignored |
+| Climber | Grapnel on a rope (a jointed chain) hooked to a merlon | Cut the rope with chain shot or shoot the merlon off; a falling climber knocks the ones below off | Gets over intact walls; opens the gate from inside |
+| Ram | A heavy log on a wheeled frame under a roof that sheds glancing shots; rams the gate with real impulses | Break a wheel to stall it, set the roof alight later, or drop masonry on it | Breaks gates and walls with repeated hits |
+| Sapper | Carries a powder keg; the keg explodes when hit | Shoot the keg on the way and it blows up among its own side | Blows a breach where it reaches the wall |
+| Siege tower | A tall timber tower of jointed sections pushed on wheels; it collapses section by section | Hit the lower sections to topple it, ideally onto the wave behind it | If it reaches the wall, a ramp drops and a wave crosses onto your walls |
+| Trebuchet | A counterweight engine set up out of your easy range, with real arm and sling physics; it throws boulders that knock your masonry loose like your own shots | Long-range trick shots, a mortar at full charge, or a sortie of your minions | Takes towers apart from a distance; forces you to repair |
+| Giant | Huge (2 to 3 t) jointed body, slow; only big impacts stagger it | Make it fall: hit a knee, drop a tower on it, start a landslide under it; its body becomes cover for the next wave | Tears stones out of walls with its hands, throws them |
+| Digger | Tunnels under the terrain and changes the height field: trenches for cover, mines under walls | Spot the spoil heaps; shell the tunnel line to collapse it; a flooded or blocked tunnel stops them | Undermines a wall section, which slumps and falls |
+| Bridge crew | Carries planks and lays a bridge across a ditch or river | Shoot the bridge, ideally with a crew on it | Opens a new approach the wave director can use |
+| Shaman (late) | Raises a ward that bends shots near it, or makes the ground slide | Shoot it first: it is light and exposed | Turns the terrain against your defences |
+
+Rules that keep the roster honest:
+
+- **Armour is geometry, not a multiplier.** Shields and plate are real colliders with their own restitution. The angle of the hit decides whether a ball ricochets, glances or knocks the target down, so a trick shot can bounce off a shield into the next rank.
+- **Formations are joints.** A shield wall is bodies held by breakable joints; enough force at one point breaks a gap and the rest fall into disorder.
+- **Bodies stay.** Dead attackers, wrecked engines and fallen giants stay as physics debris (frozen once settled), so the battlefield fills with cover, ramps and blockages that the next waves must deal with.
+- **Engines collapse for real.** Siege towers, rams and trebuchets are jointed timber that breaks into pieces, using the same freeze and thaw as masonry.
+- **Budget aware.** A wave carries a physics cost (bodies, joints, ragdolls), and the director keeps the peak under the weakest device's budget.
+
+### The wave director
+
+Waves are built from the roster by a deterministic director (seeded Rng, so both players see the same run):
+
+- Each wave has a **budget** that grows with the wave number, and each enemy has a cost.
+- The director picks a **theme** per wave and **combines** units into packages that need two answers at once: a shield wall escorting sappers (break the shields or hit the kegs), cavalry with climbers behind them, a giant pushing a siege tower, a swarm screening a trebuchet, diggers under covering fire.
+- It **reads the castle**: it targets breaches and weak sections, sends climbers to intact walls, and picks approaches your weapons cover least.
+- It **reads the battlefield**: blown bridges, craters and rubble change which approaches are open and what can cross them.
+- **Boss waves** every fifth wave: a pair of giants, three siege towers at once, a trebuchet battery.
+- **Pressure** adapts slowly to how the defence is doing, within limits, so a strong team is pushed and a struggling one gets a lull.
+
+### Roles
+
+- **Gunner** rides the weapons, as in the duel, with full aim help. The fast reactions: picking off sappers, breaking shield walls, leading cavalry.
+- **Steward** runs the castle: builds and upgrades in the lulls, sends repair crews to breaches, sets traps (powder trails, caltrops, oil), places barricades, calls abilities, and orders the castle's own minions to sortie or hold a breach. The Steward can also man a weapon, and the roles swap at any time.
+- Both see a shared **threat strip** at the top: the next wave's packages and the approaches they will use, so the team can plan in the lull.
+
+### The iPad Steward (touch only)
+
+- The overview is the main view: pan with one finger, pinch to zoom, two-finger twist to rotate.
+- Tap a plot to build, tap a wall section to send masons, drag along a route to lay a trap line or a barricade.
+- Big ability and order buttons along the edges, sized for thumbs; long press shows what a button does.
+- To shoot: tap a weapon, then drag back from it to set direction and power and release (with the full aim arc). Fine aim is a second finger held anywhere.
+- No hover anywhere; everything tappable is at least 44 points.
+- The iPad simulates the whole match too, so it sets the physics budget for that run.
+
+### Scoring
+
+- The run's score is the waves held, plus points for kills (more for trick shots, collapse kills and engines destroyed), minus castle damage at the end.
+- Medals per wave for clean defence (no breach), and per run for the best trick shot (saved as a replay, since a run is just its inputs).
+- A shared high-score board per map and difficulty, kept by the room later; in the first version, on the device.
+- Difficulty: Squire, Knight and Warlord change the wave budget growth and the aim help, never the physics.
 
 ## 12. Controls (default bindings)
 
@@ -209,9 +285,53 @@ Later races: Tidebound (water and ice) and Lodestar Order (magnetism and gravity
 
 ## 13. Look and sound
 
-- **Art style: Pending.** The lab offers Warm (storybook), Gritty (grim siege) and Low-poly (clean diorama) on the same scene.
-- **Assets**: no artist. Castles, terrain and foliage are generated in code; characters come from free asset packs or AI-generated models.
-- **Sound**: free libraries plus procedural impacts that vary with material and mass.
+### Art direction: Gritty
+
+The owner and Kat chose Gritty from the three lab styles. The game ships Gritty only; Warm and Low-poly stay in the lab as references and are not maintained.
+
+**Mood.** A grim, cold siege late in a hard campaign: wet stone, mud, smoke drifting across the valley, the light of a low sun through haze. Heavy and believable rather than cartoonish, but never murky: the player must always read the battle (pillar 4).
+
+**Palette.**
+
+- Ground: muddy olive and grey-brown grass, darker trodden earth on the routes, wet black mud in craters.
+- Stone: cool grey granite and limestone with green-grey lichen low down; Ashwright brick in dull red-brown with soot above every gun port; Graniteborn granite in heavy blue-grey.
+- Wood: weathered grey timber, darker where wet; iron bands near black with rust.
+- Sky: overcast blue-grey, a warm band near the horizon at dawn or dusk.
+- Accents, used sparingly so they read: team colours on banners and minion tabards (Ashwright oxblood and brass, Graniteborn slate and ochre, attackers in co-op in sickly yellow-green), muzzle flashes, fire and fuse sparks in hot orange.
+
+**Lighting.**
+
+- One low key light (the sun at 10 to 25 degrees) with long shadows, and a cool sky fill. Shadows are what make masonry and craters read, so they are kept on every tier (cheaper on Low).
+- Aerial perspective: distance fades to the haze colour, which separates the near castle from the far one.
+- Time of day and weather are per map (overcast morning, stormy dusk, light rain); fog density is capped so the enemy castle stays readable.
+- Tone mapping is filmic with gentle contrast; bloom only on fire, flashes and sparks.
+
+**Materials.**
+
+- Everything is generated in code from noise: stone faces with chipped edges and colour variation per block, mortar lines, grime that collects low and under ledges, wetness darkening at the base of walls.
+- Damage shows on the surface: fresh breaks are lighter and sharper than weathered faces, and impacts leave soot and scorch.
+- Realism without an artist means believable surface detail on simple shapes. CC0 photo textures (for example from Poly Haven or ambientCG) are allowed for detail maps such as stone, mud, bark and plaster, committed under `assets/textures/` with a `LICENCE` note per file (source, author, CC0). Procedural colour and wear still go on top, so no two blocks look stamped.
+- Characters: low-detail bodies with strong silhouettes and painted cloth and metal; the physics shapes are simple capsules, so the look carries the detail.
+
+**Readability rules.**
+
+1. Silhouettes first: every unit type is recognisable as a black shape at 100 m (shields, lances, kegs, ladders, engine frames).
+2. Team colour lives on large surfaces (banners, tabards, shields) and stays saturated against the muted world.
+3. Threats glow: lit fuses, burning kegs and incoming boulders carry a small warm light so they read through smoke.
+4. Aim help and interface marks use a cold white with a dark outline, never the warm effect colours.
+5. Loose, about-to-fall masonry gets a subtle dust trickle, so you can see what is about to come down.
+6. Smoke and dust thin out near the aim line and the crosshair, so effects never hide a shot.
+
+**Gore.** On by default, one switch turns it off (blood becomes dust, severed limbs stay attached).
+
+- Blood is dark, desaturated red-brown, never bright. Hits leave sprays and decals on ground and stone that fade over about a minute.
+- Heavy hits (a direct cannonball, a falling block, a giant's blow) can take off limbs: the ragdoll splits at a joint, the limb becomes its own small body, and the stump gets a dark cap. No organs, no slow lingering.
+- Gore is cosmetic: it never changes the simulation, so the switch is safe in online matches.
+
+### Assets and sound
+
+- **Assets**: no artist. Castles, terrain and foliage are generated in code; detail textures from CC0 libraries; characters from free asset packs or AI-generated models, with their licences committed alongside.
+- **Sound**: free libraries plus procedural impacts that vary with material and mass. Gritty mood: low drums, wind, distant shouting; no heroic fanfare.
 
 ## 14. Technical architecture
 
@@ -227,7 +347,7 @@ Later races: Tidebound (water and ice) and Lodestar Order (magnetism and gravity
   - An adaptive input delay of 3 to 8 ticks (50 to 130 ms) hides latency. Aiming and the camera respond instantly; a fire command carries the exact aim and enters a few ticks later, covered by the fuse and recoil animation.
   - Both machines exchange a state hash every second to catch desyncs. On a desync the host sends a world snapshot.
 - **Rooms**: a Cloudflare Durable Object relays inputs over WebSocket. Peer-to-peer comes later, if latency calls for it.
-- **Rendering**: Three.js WebGPU renderer with a WebGL2 fallback, instanced masonry and procedural materials. On first launch, a quality tier is chosen automatically by the same benchmark the lab runs.
+- **Rendering**: Three.js WebGPU renderer with a WebGL2 fallback, instanced masonry and procedural materials, in the Gritty style only. On first launch, a quality tier is chosen automatically by the same benchmark the lab runs.
 - **Content is data**: weapons, minions, buildings, races and castles are JSON files, with behaviour in small modules.
 - **Testing**:
   - A determinism check runs scripted matches in Node and compares state hashes with references (`lab/scripts/bench-node.ts` is the seed of this).
@@ -240,23 +360,22 @@ Later races: Tidebound (water and ice) and Lodestar Order (magnetism and gravity
 Each phase ends with a playable, deployed version.
 
 0. **Lab** (done): device test, three art styles, masonry destruction, determinism across browsers and chips.
-1. **Sandbox**:
-   - An Ashwright castle facing a target castle, with all four weapons and real ballistics (drag, wind, spin).
-   - Aim help, the shot camera, craters, and test minions that ragdoll.
-   - Choose the art style.
+1. **Sandbox** (planned in `docs/phase-1.md`):
+   - The production monorepo with enforced package boundaries.
+   - An Ashwright castle facing a target castle in the Gritty style, with all four weapons and real ballistics (drag, wind, spin, the chain shot as two linked balls).
+   - Aim help, sight zoom, the shot camera, craters, a wind gauge, and test minions that ragdoll.
 2. **A full match versus the AI**:
    - Build plots, buildings, gold and upgrades, repairs.
    - Barracks and waves with flow-field paths, orders, routes that physics can close.
    - Both win conditions, the AI castle, and the guided first match.
 3. **Online 1v1** (completes the MVP): lockstep over Cloudflare rooms, invite links, desync checks.
 4. **Graniteborn**: the second race, with landslides and quakes.
-5. **Co-op**: roles, the iPad Steward, vs AI, then wave defence.
+5. **Co-op wave defence**: the roster, the wave director, both roles, the iPad Steward.
 6. **Polish**: sound, gore, more maps, 2v2.
 
 ## 16. Open questions
 
-- Art style (lab).
-- Physics budget on the iPad and the second laptop (lab).
+- Physics budget on the iPad (lab).
 - How lockstep feels over a real connection (needs Cloudflare).
 - Castle distance and match pacing (playtests).
 - The final name.
