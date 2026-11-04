@@ -33,6 +33,7 @@ import {
   vec3,
   vec4,
 } from "three/tsl";
+import type { ClearView } from "./clearview";
 import type { N } from "./tslUtils";
 
 export interface BurstConfig {
@@ -67,6 +68,10 @@ export interface BurstConfig {
   opacity: number;
   /** Keep particles above y = 0 (the field). */
   floor: boolean;
+  /** How much the sun shades the puffs (0 flat, 1 fully lit). Defaults to 1. */
+  lighting?: number;
+  /** Thin out near the aim line and crosshair (readability rule 6). */
+  clearAim?: boolean;
 }
 
 function rnd(i: N, salt: number): N {
@@ -80,7 +85,7 @@ export class Burst {
   private next = 0;
   private cfg: BurstConfig;
 
-  constructor(cfg: BurstConfig, time: N, wind: N, sunDir: N, noise: THREE.Texture) {
+  constructor(cfg: BurstConfig, time: N, wind: N, sunDir: N, noise: THREE.Texture, clear: ClearView | null = null) {
     this.cfg = cfg;
     for (let i = 0; i < cfg.slots; i++) {
       this.a.push(new THREE.Vector4(0, -100, 0, -1000));
@@ -129,13 +134,15 @@ export class Burst {
     const ang: N = r5.mul(6.283);
     const rq: N = vec2(qp.x.mul(cos(ang)).sub(qp.y.mul(sin(ang))), qp.x.mul(sin(ang)).add(qp.y.mul(cos(ang))));
     const s: N = select(alive, size, float(0.0));
-    m.positionNode = centre.add(right.mul(rq.x.mul(s))).add(up.mul(rq.y.mul(s)));
+    const wpos: N = centre.add(right.mul(rq.x.mul(s))).add(up.mul(rq.y.mul(s)));
+    m.positionNode = wpos;
+    const clearFade: N = clear && cfg.clearAim ? clear.fade(wpos) : float(1);
 
     const vuv: N = varying(qp.mul(2.0), `v${cfg.name}UV`);
     const age: N = clamp(t.div(life), 0.0, 1.0);
     const vAge: N = varying(age, `v${cfg.name}Age`);
     const vAlpha: N = varying(
-      smoothstep(0.0, 0.04, age).mul(float(1).sub(smoothstep(0.35, 1.0, age))).mul(mix(0.6, 1.0, r2)).mul(cfg.opacity),
+      smoothstep(0.0, 0.04, age).mul(float(1).sub(smoothstep(0.35, 1.0, age))).mul(mix(0.6, 1.0, r2)).mul(cfg.opacity).mul(clearFade),
       `v${cfg.name}A`,
     );
     const vSeed: N = varying(r1, `v${cfg.name}Seed`);
@@ -149,7 +156,8 @@ export class Burst {
       if (cfg.additive) return vec4(base.mul(cfg.glow), 1.0);
       const n = vec3(vuv.x, vuv.y, nz);
       const lit = clamp(dot(n, sunView).mul(0.5).add(0.5), 0.0, 1.0);
-      return vec4(base.mul(mix(0.55, 1.05, lit)).mul(cfg.glow), 1.0);
+      const L = cfg.lighting ?? 1;
+      return vec4(base.mul(mix(1.0 - 0.5 * L, 1.0 + 0.05 * L, lit)).mul(cfg.glow), 1.0);
     })();
     m.opacityNode = Fn(() => {
       const r2d = dot(vuv, vuv);

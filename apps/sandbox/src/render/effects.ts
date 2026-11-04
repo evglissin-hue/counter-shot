@@ -44,6 +44,7 @@ import {
 } from "three/tsl";
 import { chipGeometry } from "./geometry";
 import type { StyleName, StylePreset } from "./styles";
+import type { ClearView } from "./clearview";
 import { N, qrot } from "./tslUtils";
 
 const SLOTS = 16;
@@ -94,6 +95,8 @@ export class Effects {
   bias = new THREE.Vector3(0, 0, -1);
   /** Wind (m/s, x and z) that drifts the dust. */
   readonly wind = uniform(new THREE.Vector2(0, 0));
+  /** Thins the dust near the aim line (set before the first setStyle). */
+  clear: ClearView | null = null;
 
   constructor(time: N, sunDir: N, noise: THREE.Texture) {
     this.time = time;
@@ -240,9 +243,11 @@ export class Effects {
     const up: N = (cameraWorldMatrix as N).element(1).xyz;
     const qp: N = positionGeometry.xy;
     const s: N = select(alive, size, float(0.0));
-    m.positionNode = centre.add(right.mul(qp.x.mul(s))).add(up.mul(qp.y.mul(s)));
+    const wpos: N = centre.add(right.mul(qp.x.mul(s))).add(up.mul(qp.y.mul(s)));
+    m.positionNode = wpos;
+    const clearFade: N = this.clear ? this.clear.fade(wpos) : float(1);
     const vuv: N = varying(qp.mul(2.0), "vDustUV");
-    const vAlpha: N = varying(smoothstep(0.0, 0.12, t).mul(float(1).sub(smoothstep(life.mul(0.35), life, t))).mul(mix(0.45, 0.8, r2)), "vDustA");
+    const vAlpha: N = varying(smoothstep(0.0, 0.12, t).mul(float(1).sub(smoothstep(life.mul(0.35), life, t))).mul(mix(0.45, 0.8, r2)).mul(clearFade), "vDustA");
     const vSeed: N = varying(r1, "vDustSeed");
     const sunView: N = normalize(cameraViewMatrix.mul(vec4(this.sunDir, 0.0)).xyz);
     const dustCol = color(style.dust);

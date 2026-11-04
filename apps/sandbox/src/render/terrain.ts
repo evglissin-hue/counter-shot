@@ -122,14 +122,28 @@ export interface TerrainGeometry {
   gj0: number;
 }
 
-export function buildTerrainGeometry(): TerrainGeometry {
+/**
+ * The ground in two meshes: the physics grid at 1 m (patched for craters) and
+ * a coarse surround with a hole where the grid is. Both are exactly flat
+ * along the seam, so the T-junctions there do not crack unless a crater
+ * reaches the very edge of the grid.
+ */
+export function buildTerrainGeometry(): { outer: THREE.BufferGeometry; field: TerrainGeometry } {
   const EXT = 2300;
   const cz = (FIELD.z0 + FIELD.z1) / 2;
-  // One line per grid line inside the physics grid (1 m), growing outside.
-  const xs = axisLines(-EXT, EXT, TG.x0, GX1, TG.cell, 2.4, 1.055);
-  const zs = axisLines(cz - EXT, cz + EXT, TG.z0, GZ1, TG.cell, 2.4, 1.055);
-  const gi0 = xs.indexOf(TG.x0);
-  const gj0 = zs.indexOf(TG.z0);
+  const xs = axisLines(-EXT, EXT, TG.x0, GX1, 8, 2.4, 1.055);
+  const zs = axisLines(cz - EXT, cz + EXT, TG.z0, GZ1, 8, 2.4, 1.055);
+  const outer = buildGrid(xs, zs, true).geometry;
+  const fx: number[] = [];
+  const fz: number[] = [];
+  for (let i = 0; i < TG.nx; i++) fx.push(TG.x0 + i * TG.cell);
+  for (let j = 0; j < TG.nz; j++) fz.push(TG.z0 + j * TG.cell);
+  return { outer, field: buildGrid(fx, fz, false) };
+}
+
+function buildGrid(xs: number[], zs: number[], hole: boolean): TerrainGeometry {
+  const gi0 = Math.max(0, xs.indexOf(TG.x0));
+  const gj0 = Math.max(0, zs.indexOf(TG.z0));
   const nx = xs.length;
   const nz = zs.length;
   const pos = new Float32Array(nx * nz * 3);
@@ -166,6 +180,8 @@ export function buildTerrainGeometry(): TerrainGeometry {
   let k = 0;
   for (let j = 0; j < nz - 1; j++) {
     for (let i = 0; i < nx - 1; i++) {
+      // The surround leaves a hole where the 1 m field mesh is.
+      if (hole && xs[i] >= TG.x0 && xs[i + 1] <= GX1 && zs[j] >= TG.z0 && zs[j + 1] <= GZ1) continue;
       const a = j * nx + i;
       const b = a + 1;
       const c = a + nx;
@@ -190,7 +206,7 @@ export function buildTerrainGeometry(): TerrainGeometry {
   g.setAttribute("position", pa);
   g.setAttribute("normal", na);
   g.setAttribute("aCrater", ca);
-  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.setIndex(new THREE.BufferAttribute(idx.slice(0, k), 1));
   g.computeBoundingSphere();
   return { geometry: g, nx, nz, gi0, gj0 };
 }
@@ -419,7 +435,10 @@ export function makeWaterMaterial(style: StylePreset, sky: Sky, noise: THREE.Tex
 }
 
 export class Terrain {
+  /** The coarse surround (hills), with a hole over the physics grid. */
   readonly ground: THREE.Mesh;
+  /** The physics grid at 1 m: crater patches land here. */
+  readonly field: THREE.Mesh;
   readonly mountains: THREE.Mesh;
   readonly water: THREE.Mesh;
   private noise: THREE.Texture;
@@ -442,13 +461,17 @@ export class Terrain {
     this.noise = noise;
     this.sky = sky;
     this.time = time;
-    const tg = buildTerrainGeometry();
+    const geos = buildTerrainGeometry();
+    const tg = geos.field;
     this.nx = tg.nx;
     this.gi0 = tg.gi0;
     this.gj0 = tg.gj0;
-    this.ground = new THREE.Mesh(tg.geometry);
+    this.ground = new THREE.Mesh(geos.outer);
     this.ground.name = "terrain";
     this.ground.receiveShadow = true;
+    this.field = new THREE.Mesh(tg.geometry);
+    this.field.name = "terrain-field";
+    this.field.receiveShadow = true;
     this.pos = tg.geometry.attributes.position as THREE.BufferAttribute;
     this.nor = tg.geometry.attributes.normal as THREE.BufferAttribute;
     this.crater = tg.geometry.attributes.aCrater as THREE.BufferAttribute;
@@ -472,6 +495,7 @@ export class Terrain {
     if (this.built) return;
     this.built = true;
     this.ground.material = makeTerrainMaterial({ style, noise: this.noise, sky: this.sky });
+    this.field.material = this.ground.material;
     this.mountains.material = makeMountainMaterial(style, this.sky);
     this.water.material = makeWaterMaterial(style, this.sky, this.noise, this.time);
   }
@@ -557,6 +581,7 @@ export class Terrain {
 
   dispose() {
     this.ground.geometry.dispose();
+    this.field.geometry.dispose();
     this.mountains.geometry.dispose();
     this.water.geometry.dispose();
     for (const m of [this.ground, this.mountains, this.water]) (m.material as THREE.Material).dispose();
