@@ -127,6 +127,17 @@ const longGun = ems[0];
 const mortar = ems[1];
 const lgDir = { yaw: 0.05, pitch: 0.04 };
 
+// A few loose merlons on the target's front wall wobble slowly (dust trickle test).
+const loose = layout.stones.filter((s) => s.castle === 0 && s.part === "merlon" && s.z < -14 && s.x > 2 && s.x < 9);
+const stoneBuf = new Float32Array(Math.max(1, loose.length) * 8);
+function wobble(): Float32Array {
+  loose.forEach((s, i) => {
+    const w = Math.sin(t * 2 + i) * 0.04;
+    stoneBuf.set([s.id, s.x + w, s.y, s.z - Math.abs(w), s.q[0], s.q[1], s.q[2], s.q[3]], i * 8);
+  });
+  return stoneBuf;
+}
+
 let t = 0;
 let lastExplosion = -10;
 let lastMuzzle = -10;
@@ -200,13 +211,15 @@ function buildFrame(dt: number): FrameData {
   if (tb < dt) ev(EventKind.Impact, 0, 6, -15.2, 0.8);
   if (t - lastBlood > 2.2) {
     lastBlood = t;
-    ev(EventKind.Blood, -4, 0.9, -26, 0.8);
+    ev(EventKind.Blood, -4, 0.9, -26, 0.9);
     ev(EventKind.Blood, 3.5, 0.6, -28.5, 0.5);
+    // Against the target castle's front wall (blood on stone).
+    ev(EventKind.Blood, -6, 1.3, -16.6, 0.7);
   }
   return {
     tick: Math.round(t * 60),
-    stones: new Float32Array(0),
-    stoneCount: 0,
+    stones: wobble(),
+    stoneCount: loose.length,
     projectiles,
     projectileCount: np,
     chains,
@@ -279,6 +292,7 @@ async function main() {
     const views = (r as unknown as { views: { camera: { position: { set(x: number, y: number, z: number): void } }; controls: { target: { set(x: number, y: number, z: number): void }; update(): void } } }).views;
     views.camera.position.set(ex, ey, ez);
     views.controls.target.set(tx, ty, tz);
+    (views.controls as unknown as { minDistance: number }).minDistance = 1;
     views.controls.update();
   }
   let last = performance.now();

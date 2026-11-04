@@ -393,9 +393,44 @@ export class StoneSet {
           }
         }
       }
-      if (hit && t0 < best) best = t0;
+      if (hit && t0 < best) {
+        best = t0;
+        this.lastHitId = id;
+      }
     }
     return best === Infinity ? -1 : best;
+  }
+
+  /** Stone id of the nearest hit of the last raycast that hit something. */
+  lastHitId = -1;
+
+  /**
+   * Outward face normal of a stone at a world point on its surface (boxes:
+   * the face the point is nearest to; wedges: against the ray).
+   */
+  faceNormal(id: number, x: number, y: number, z: number, dx: number, dy: number, dz: number, out: number[]) {
+    const g = this.groups[this.groupOf[id]];
+    const o = this.slotOf[id] * 8;
+    const a = g.dynArray;
+    const hx = this.half[id * 3];
+    if (hx < 0) {
+      out[0] = -dx;
+      out[1] = -dy;
+      out[2] = -dz;
+      return;
+    }
+    const hy = this.half[id * 3 + 1], hz = this.half[id * 3 + 2];
+    const L = this.local;
+    rotateInto(L, 0, -a[o + 4], -a[o + 5], -a[o + 6], a[o + 7], x - a[o], y - a[o + 1], z - a[o + 2]);
+    const rx = Math.abs(L[0]) / hx, ry = Math.abs(L[1]) / hy, rz = Math.abs(L[2]) / hz;
+    let nx = 0, ny = 0, nz = 0;
+    if (rx >= ry && rx >= rz) nx = Math.sign(L[0]) || 1;
+    else if (ry >= rz) ny = Math.sign(L[1]) || 1;
+    else nz = Math.sign(L[2]) || 1;
+    rotateInto(L, 3, a[o + 4], a[o + 5], a[o + 6], a[o + 7], nx, ny, nz);
+    out[0] = L[3];
+    out[1] = L[4];
+    out[2] = L[5];
   }
 
   get wedgeRadius() {

@@ -3,12 +3,20 @@
 // minions get a procedural walk from walkPhase; ragdolls take each part's
 // transform from the sim. One instanced mesh per part shape, colours per
 // instance (team tabard, cloth, skin).
+//
+// Gore (cosmetic only, the sim never knows): a heavy hit can take off an arm
+// or a leg of a ragdoll. The renderer hides that limb's two parts, caps the
+// stump and throws a loose copy of the limb that falls, tumbles and settles
+// with simple kinematics.
 
 import * as THREE from "three/webgpu";
 import { MINION_PARTS, MINION_STRIDE, PART_STRIDE } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
 
 const MAX_FIGURES = 128;
+const MAX_LIMBS = 32;
+const CAPACITY = MAX_FIGURES + MAX_LIMBS;
+const STUMP = 0x2b0d0a;
 const NPARTS = MINION_PARTS.length;
 const PELVIS = 0, TORSO = 1, HEAD = 2, UARM_L = 3, LARM_L = 4, UARM_R = 5, LARM_R = 6, THIGH_L = 7, SHIN_L = 8, THIGH_R = 9, SHIN_R = 10;
 
@@ -28,6 +36,7 @@ const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _d = new THREE.Vector3();
 const _one = new THREE.Vector3(1, 1, 1);
+const _s = new THREE.Vector3();
 const _y = new THREE.Vector3(0, 1, 0);
 const _x = new THREE.Vector3(1, 0, 0);
 const _z = new THREE.Vector3(0, 0, 1);
@@ -45,6 +54,18 @@ export class Minions {
   private yawQ = new THREE.Quaternion();
   private base = new THREE.Vector3();
   private joints = Array.from({ length: 6 }, () => new THREE.Vector3());
+  private stumps: THREE.InstancedMesh;
+  private nStump = 0;
+  /** Counts after the frame's figures, before loose limbs are appended. */
+  private baseCounts = new Int32Array(NPARTS);
+  private baseStumps = 0;
+  /** Severed limb per minion id: which limb (0..3) and the stump end along the upper part's axis. */
+  private severed = new Map<number, { limb: number; sign: number }>();
+  private limbs: Limb[] = [];
+  private nextLimb = 0;
+  private lastParts = new Float32Array(0);
+  private lastPartCount = 0;
+  private gore = true;
 
   constructor() {
     this.root.name = "minions";
@@ -55,7 +76,7 @@ export class Minions {
     for (let i = 0; i < NPARTS; i++) {
       const p = MINION_PARTS[i];
       const geo = p.half > 0 ? new THREE.CapsuleGeometry(p.radius, p.half * 2, 3, 8) : new THREE.SphereGeometry(p.radius, 10, 8);
-      const mesh = new THREE.InstancedMesh(geo, mat, MAX_FIGURES);
+      const mesh = new THREE.InstancedMesh(geo, mat, CAPACITY);
       mesh.name = `minion-${p.name}`;
       mesh.count = 0;
       mesh.frustumCulled = false;
@@ -100,12 +121,173 @@ export class Minions {
     this.pike.count = 0;
     this.pike.frustumCulled = false;
     this.pike.castShadow = true;
-    this.root.add(this.helmet, this.pike);
+    // Stump caps: dark, wet discs where a limb came off.
+    const sm = new THREE.MeshStandardNodeMaterial();
+    sm.name = "minion-stump";
+    sm.color = new THREE.Color(STUMP);
+    sm.roughness = 0.4;
+    this.stumps = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), sm, MAX_LIMBS * 2 + MAX_FIGURES);
+    this.stumps.name = "minion-stumps";
+    this.stumps.count = 0;
+    this.stumps.frustumCulled = false;
+    this.root.add(this.helmet, this.pike, this.stumps);
+  }
+
+  setGore(on: boolean) {
+    this.gore = on;
+  }
+
+  private putStump(pos: THREE.Vector3, q: THREE.Quaternion, r: number) {
+    if (this.nStump >= MAX_LIMBS * 2 + MAX_FIGURES) return;
+    _s.set(r * 1.08, r * 0.5, r * 1.08);
+    _m.compose(pos, q, _s);
+    this.stumps.setMatrixAt(this.nStump++, _m);
+  }
+
+  /**
+   * A heavy hit at (x, y, z): take a limb off the nearest ragdoll within
+   * reach (once per minion; which limb is stable per minion id).
+   */
+  sever(x: number, y: number, z: number): boolean {
+    const P = this.lastParts;
+    let best = -1;
+    let bestD = 2.5 * 2.5;
+    for (let i = 0; i < this.lastPartCount; i++) {
+      const o = i * PART_STRIDE;
+      if ((P[o + 1] | 0) !== PELVIS) continue;
+      const id = P[o] | 0;
+      if (this.severed.has(id)) continue;
+      const d = (P[o + 2] - x) ** 2 + (P[o + 3] - y) ** 2 + (P[o + 4] - z) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    if (best < 0) return false;
+    const limb = (Math.imul(best + 17, 2654435761) >>> 0) % 4;
+    const upper = UARM_L + limb * 2;
+    // Find the limb's parts and the body part it hangs from.
+    let iu = -1, il = -1, ib = -1;
+    const anchor = limb < 2 ? TORSO : PELVIS;
+    for (let i = 0; i < this.lastPartCount; i++) {
+      const o = i * PART_STRIDE;
+      if ((P[o] | 0) !== best) continue;
+      const part = P[o + 1] | 0;
+      if (part === upper) iu = o;
+      else if (part === upper + 1) il = o;
+      else if (part === anchor) ib = o;
+    }
+    if (iu < 0 || il < 0) return false;
+    const half = MINION_PARTS[upper].half;
+    _q.set(P[iu + 5], P[iu + 6], P[iu + 7], P[iu + 8]);
+    _d.set(0, half, 0).applyQuaternion(_q);
+    let sign = 1;
+    if (ib >= 0) {
+      const dp = (P[iu + 2] + _d.x - P[ib + 2]) ** 2 + (P[iu + 3] + _d.y - P[ib + 3]) ** 2 + (P[iu + 4] + _d.z - P[ib + 4]) ** 2;
+      const dm = (P[iu + 2] - _d.x - P[ib + 2]) ** 2 + (P[iu + 3] - _d.y - P[ib + 3]) ** 2 + (P[iu + 4] - _d.z - P[ib + 4]) ** 2;
+      sign = dp <= dm ? 1 : -1;
+    }
+    this.severed.set(best, { limb, sign });
+    // The loose limb: both parts as one rigid piece, thrown away from the hit.
+    const c = new THREE.Vector3((P[iu + 2] + P[il + 2]) / 2, (P[iu + 3] + P[il + 3]) / 2, (P[iu + 4] + P[il + 4]) / 2);
+    const L: Limb = {
+      team: this.teamOf.get(best) ?? 0,
+      upper,
+      pos: c,
+      q: new THREE.Quaternion(),
+      offU: new THREE.Vector3(P[iu + 2], P[iu + 3], P[iu + 4]).sub(c),
+      offL: new THREE.Vector3(P[il + 2], P[il + 3], P[il + 4]).sub(c),
+      qU: new THREE.Quaternion(P[iu + 5], P[iu + 6], P[iu + 7], P[iu + 8]),
+      qL: new THREE.Quaternion(P[il + 5], P[il + 6], P[il + 7], P[il + 8]),
+      sign,
+      vel: new THREE.Vector3(),
+      spin: new THREE.Vector3(),
+      age: 0,
+      settled: false,
+    };
+    const away = new THREE.Vector3(c.x - x, 0, c.z - z);
+    if (away.lengthSq() < 1e-4) away.set(Math.cos(best), 0, Math.sin(best));
+    away.normalize();
+    const j = ((best * 7919) % 100) / 100;
+    L.vel.set(away.x * (1.5 + j * 2), 2.5 + j * 1.5, away.z * (1.5 + j * 2));
+    L.spin.set(away.z * (5 + j * 4), (j - 0.5) * 4, -away.x * (5 + j * 4));
+    this.limbs[this.nextLimb] = L;
+    this.nextLimb = (this.nextLimb + 1) % MAX_LIMBS;
+    return true;
+  }
+
+  /** Advance the loose limbs and draw them (every rendered frame). */
+  step(dt: number, height: (x: number, z: number) => number) {
+    const [pu, pl] = this.joints;
+    for (const L of this.limbs) {
+      if (!L || L.settled) continue;
+      L.age += dt;
+      L.vel.y -= 9.81 * dt;
+      L.pos.addScaledVector(L.vel, dt);
+      const w = L.spin.length();
+      if (w > 1e-4) {
+        _q2.setFromAxisAngle(_a.copy(L.spin).multiplyScalar(1 / w), w * dt);
+        L.q.premultiply(_q2);
+      }
+      pu.copy(L.offU).applyQuaternion(L.q).add(L.pos);
+      pl.copy(L.offL).applyQuaternion(L.q).add(L.pos);
+      const r = MINION_PARTS[L.upper].radius;
+      const g = height(L.pos.x, L.pos.z);
+      const low = Math.min(pu.y, pl.y) - r;
+      if (low < g) {
+        L.pos.y += g - low;
+        if (L.vel.y < 0) L.vel.y *= -0.25;
+        L.vel.x *= 0.55;
+        L.vel.z *= 0.55;
+        L.spin.multiplyScalar(0.4);
+        // Topple flat: turn the limb's axis towards the horizontal.
+        _d.copy(pu).sub(pl).normalize();
+        _b.set(_d.x, 0, _d.z);
+        if (_b.lengthSq() < 1e-4) _b.set(1, 0, 0);
+        _b.normalize();
+        _q2.setFromUnitVectors(_d, _b);
+        _q.identity().slerp(_q2, 1 - Math.exp(-dt * 8));
+        L.q.premultiply(_q);
+        if ((L.vel.lengthSq() < 0.2 && Math.abs(_d.y) < 0.15) || L.age > 5) L.settled = true;
+      }
+    }
+    this.drawLimbs();
+  }
+
+  private drawLimbs() {
+    for (let i = 0; i < NPARTS; i++) this.counts[i] = this.baseCounts[i];
+    this.nStump = this.baseStumps;
+    if (this.gore) {
+      for (const L of this.limbs) {
+        if (!L) continue;
+        for (let k = 0; k < 2; k++) {
+          const part = L.upper + k;
+          _p.copy(k === 0 ? L.offU : L.offL).applyQuaternion(L.q).add(L.pos);
+          _q.copy(L.q).multiply(k === 0 ? L.qU : L.qL);
+          this.put(part, _p, _q, L.team);
+          if (k === 0) {
+            // Cap on the cut end of the loose limb.
+            _a.set(0, L.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
+            this.putStump(_a, _q, MINION_PARTS[part].radius);
+          }
+        }
+      }
+    }
+    for (let i = 0; i < NPARTS; i++) {
+      const mesh = this.parts[i];
+      mesh.count = this.counts[i];
+      if (mesh.count > 0) {
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      }
+    }
+    this.stumps.count = this.nStump;
+    if (this.nStump > 0) this.stumps.instanceMatrix.needsUpdate = true;
   }
 
   private put(part: number, pos: THREE.Vector3, q: THREE.Quaternion, team: number) {
     const k = this.counts[part];
-    if (k >= MAX_FIGURES) return;
+    if (k >= CAPACITY) return;
     this.counts[part] = k + 1;
     const mesh = this.parts[part];
     _m.compose(pos, q, _one);
@@ -136,6 +318,7 @@ export class Minions {
 
   update(minions: Float32Array, minionCount: number, parts: Float32Array, partCount: number) {
     this.counts.fill(0);
+    this.nStump = 0;
     this.nHelmet = 0;
     this.nPike = 0;
     const yawQ = this.yawQ;
@@ -196,24 +379,32 @@ export class Minions {
       this.put(HEAD, _p, yawQ, team);
     }
     // Ragdolls: one capsule per part straight from the sim.
-    const np = partCount | 0;
+    const np = Math.max(0, partCount | 0);
+    if (this.lastParts.length < np * PART_STRIDE) this.lastParts = new Float32Array(np * PART_STRIDE * 2);
+    this.lastParts.set(parts.subarray(0, np * PART_STRIDE));
+    this.lastPartCount = np;
     for (let i = 0; i < np; i++) {
       const o = i * PART_STRIDE;
+      const id = parts[o] | 0;
       const part = parts[o + 1] | 0;
       if (part < 0 || part >= NPARTS) continue;
-      const team = this.teamOf.get(parts[o] | 0) ?? 0;
+      const team = this.teamOf.get(id) ?? 0;
       _p.set(parts[o + 2], parts[o + 3], parts[o + 4]);
       _q.set(parts[o + 5], parts[o + 6], parts[o + 7], parts[o + 8]);
+      const cut = this.gore ? this.severed.get(id) : undefined;
+      if (cut && (part === UARM_L + cut.limb * 2 || part === UARM_L + cut.limb * 2 + 1)) {
+        if (part === UARM_L + cut.limb * 2) {
+          // Stump cap where the limb joined the body.
+          _a.set(0, cut.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
+          this.putStump(_a, _q, MINION_PARTS[part].radius);
+        }
+        continue;
+      }
       this.put(part, _p, _q, team);
     }
-    for (let i = 0; i < NPARTS; i++) {
-      const mesh = this.parts[i];
-      mesh.count = this.counts[i];
-      if (mesh.count > 0) {
-        mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      }
-    }
+    this.baseCounts.set(this.counts);
+    this.baseStumps = this.nStump;
+    this.drawLimbs();
     this.helmet.count = this.nHelmet;
     if (this.nHelmet > 0) this.helmet.instanceMatrix.needsUpdate = true;
     this.pike.count = this.nPike;
@@ -223,15 +414,40 @@ export class Minions {
   /** Forget the team of every minion (after a reset). */
   clear() {
     this.teamOf.clear();
+    this.severed.clear();
+    this.limbs = [];
+    this.nextLimb = 0;
+    this.lastPartCount = 0;
+    this.baseCounts.fill(0);
+    this.baseStumps = 0;
+    this.stumps.count = 0;
     for (const m of this.parts) m.count = 0;
     this.helmet.count = 0;
     this.pike.count = 0;
   }
 
   dispose() {
-    for (const m of [...this.parts, this.helmet, this.pike]) m.geometry.dispose();
+    for (const m of [...this.parts, this.helmet, this.pike, this.stumps]) m.geometry.dispose();
+    (this.stumps.material as THREE.Material).dispose();
     (this.parts[0].material as THREE.Material).dispose();
     (this.helmet.material as THREE.Material).dispose();
     (this.pike.material as THREE.Material).dispose();
   }
+}
+
+interface Limb {
+  team: number;
+  /** Part index of the upper segment (the lower one is upper + 1). */
+  upper: number;
+  pos: THREE.Vector3;
+  q: THREE.Quaternion;
+  offU: THREE.Vector3;
+  offL: THREE.Vector3;
+  qU: THREE.Quaternion;
+  qL: THREE.Quaternion;
+  sign: number;
+  vel: THREE.Vector3;
+  spin: THREE.Vector3;
+  age: number;
+  settled: boolean;
 }

@@ -11,6 +11,7 @@ import type { CastleLayout, Emplacement } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
 import type { CameraPose, GameRendererApi, QualityTier, RenderStats } from "./api";
 import { Burst } from "./bursts";
+import { ClearView } from "./clearview";
 import { Decals } from "./decals";
 import { Effects } from "./effects";
 import { Flags } from "./flags";
@@ -52,7 +53,13 @@ export class GameRenderer implements GameRendererApi {
   private minions: Minions;
   private guns: Guns;
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "smoke" | "muzzleSmoke" | "dust" | "spray", Burst>;
+  private bursts: Record<"flash" | "fire" | "smoke" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
+  private clear = new ClearView();
+  /** Per stone: last reported position and tick, and when it last shed dust (rule 5). */
+  private prevPos = new Float32Array(0);
+  private prevTick = new Int32Array(0);
+  private lastTrickle = new Float32Array(0);
+  private normal = [0, 0, 0];
   private marker: THREE.Group;
   private markerOn = false;
   private stones: StoneSet | null = null;
@@ -101,6 +108,7 @@ export class GameRenderer implements GameRendererApi {
     this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir);
     this.scene.add(this.scatter.root);
     this.effects = new Effects(this.time, this.sky.sunDir, this.noise);
+    this.effects.clear = this.clear;
     this.scene.add(this.effects.root);
     this.projectiles = new Projectiles(STYLE, this.time, this.noise);
     this.scene.add(this.projectiles.root);
@@ -111,17 +119,18 @@ export class GameRenderer implements GameRendererApi {
     this.decals = new Decals(this.time, this.noise);
     this.scene.add(this.decals.mesh);
     const mk = (cfg: ConstructorParameters<typeof Burst>[0]) => {
-      const b = new Burst(cfg, this.time, this.wind, this.sky.sunDir, this.noise);
+      const b = new Burst(cfg, this.time, this.wind, this.sky.sunDir, this.noise, this.clear);
       this.scene.add(b.mesh);
       return b;
     };
     this.bursts = {
       flash: mk({ name: "flash", slots: 12, per: 8, life: [0.08, 0.18], color: 0xffd9a0, colorEnd: 0xff7a2a, additive: true, glow: 4, speed: [1, 5], size: [0.5, 1.3], grow: 12, gravity: 0, rise: 0, drag: 8, windScale: 0, spread: 0.6, opacity: 1, floor: false }),
       fire: mk({ name: "fire", slots: 8, per: 18, life: [0.35, 0.8], color: 0xffb060, colorEnd: 0x8a2a0a, additive: true, glow: 2.6, speed: [2, 7], size: [0.4, 1.2], grow: 4, gravity: 0, rise: 1.5, drag: 4, windScale: 0.2, spread: 1.2, opacity: 0.85, floor: true }),
-      smoke: mk({ name: "smoke", slots: 10, per: 26, life: [4.5, 7.5], color: 0x3c3a37, colorEnd: 0x5a5854, additive: false, glow: 1, speed: [1.5, 5], size: [0.6, 2.0], grow: 0.8, gravity: 0, rise: 1.0, drag: 1.6, windScale: 0.6, spread: 1.0, opacity: 0.8, floor: true }),
-      muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true }),
-      dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true }),
-      spray: mk({ name: "spray", slots: 24, per: 14, life: [0.5, 0.9], color: 0x3a100c, additive: false, glow: 0.8, speed: [1.5, 4.5], size: [0.06, 0.12], grow: 3, gravity: 9.8, rise: 0, drag: 1, windScale: 0, spread: 0.9, opacity: 0.95, floor: true }),
+      smoke: mk({ name: "smoke", slots: 10, per: 26, life: [4.5, 7.5], color: 0x232120, colorEnd: 0x383633, additive: false, glow: 1, speed: [1.5, 5], size: [0.6, 2.0], grow: 0.8, gravity: 0, rise: 1.0, drag: 1.6, windScale: 0.6, spread: 1.0, opacity: 0.85, floor: true, lighting: 0.3, clearAim: true }),
+      muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true, clearAim: true }),
+      dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
+      trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
+      spray: mk({ name: "spray", slots: 24, per: 14, life: [0.5, 0.9], color: 0x2c0d0a, additive: false, glow: 0.6, speed: [1.5, 4.5], size: [0.06, 0.12], grow: 3, gravity: 9.8, rise: 0, drag: 1, windScale: 0, spread: 0.9, opacity: 0.95, floor: true }),
     };
     this.marker = this.buildMarker();
     this.scene.add(this.marker);
@@ -168,6 +177,10 @@ export class GameRenderer implements GameRendererApi {
     }
     this.layout = layout;
     this.stones = new StoneSet(layout, this.noise);
+    const n = layout.stones.length;
+    this.prevPos = new Float32Array(n * 3);
+    this.prevTick = new Int32Array(n).fill(-1);
+    this.lastTrickle = new Float32Array(n).fill(-100);
     this.flags = new Flags(layout, this.time, this.noise);
     this.scene.add(this.stones.root, this.flags.mesh);
     this.stones.setStyle(STYLE);
@@ -187,13 +200,17 @@ export class GameRenderer implements GameRendererApi {
 
   setGore(on: boolean): void {
     this.gore = on;
+    this.minions.setGore(on);
     this.decals.mesh.visible = on && (this.decals.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount > 0;
   }
 
   // --- per frame data ---------------------------------------------------------
 
   applyFrame(frame: FrameData): void {
-    if (this.stones && frame.stoneCount > 0) this.stones.updateBodies(frame.stones, frame.stoneCount);
+    if (this.stones && frame.stoneCount > 0) {
+      this.stones.updateBodies(frame.stones, frame.stoneCount);
+      this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
+    }
     this.projectiles.update(frame.projectiles, frame.projectileCount, frame.chains, frame.chainCount);
     this.minions.update(frame.minions, frame.minionCount, frame.parts, frame.partCount);
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
@@ -219,10 +236,43 @@ export class GameRenderer implements GameRendererApi {
 
   resetWorld(): void {
     this.stones?.resetStones();
+    this.prevTick.fill(-1);
+    this.lastTrickle.fill(-100);
     this.terrain.resetHeights();
     this.decals.clear();
     this.minions.clear();
     for (const b of Object.values(this.bursts)) b.clear();
+  }
+
+  /** Readability rule 5: slow-moving masonry (settling, about to go) sheds a thin dust trickle. */
+  private trickleDust(data: Float32Array, count: number, tick: number) {
+    const layout = this.layout;
+    if (!layout) return;
+    const n = layout.stones.length;
+    let spawned = 0;
+    for (let i = 0; i < count; i++) {
+      const o = i * 8;
+      const id = data[o] | 0;
+      if (id < 0 || id >= n) continue;
+      const x = data[o + 1], y = data[o + 2], z = data[o + 3];
+      const pt = this.prevTick[id];
+      const k = id * 3;
+      if (pt >= 0 && tick > pt && y > 0.8) {
+        const dt = (tick - pt) / 60;
+        const dx = x - this.prevPos[k], dy = y - this.prevPos[k + 1], dz = z - this.prevPos[k + 2];
+        const speed = Math.sqrt(dx * dx + dy * dy + dz * dz) / dt;
+        if (speed > 0.03 && speed < 1.2 && this.now - this.lastTrickle[id] > 0.8 && spawned < 4) {
+          this.lastTrickle[id] = this.now;
+          spawned++;
+          const s = layout.stones[id];
+          this.bursts.trickle.spawn(this.now, x, y - s.hy * 0.9, z, 1, 0, -1, 0);
+        }
+      }
+      this.prevPos[k] = x;
+      this.prevPos[k + 1] = y;
+      this.prevPos[k + 2] = z;
+      this.prevTick[id] = tick;
+    }
   }
 
   private spawnImpact(x: number, y: number, z: number, strength: number) {
@@ -259,9 +309,49 @@ export class GameRenderer implements GameRendererApi {
     this.bursts.spray.spawn(this.now, x, y, z, 0.6 + s * 0.8, 0, 0.6, 0);
     this.seed = (this.seed * 16807) % 2147483647;
     const r = this.seed / 2147483647;
+    // Heavy hits on a ragdoll can take a limb off (cosmetic only).
+    if (strength >= 0.8) this.minions.sever(x, y, z);
+    // Masonry within reach takes a spray: the nearest stone face around the hit.
+    if (this.stones && this.splashStone(x, y, z, s, r)) return;
     const gx = x + (r - 0.5) * 1.4, gz = z + (((r * 7.13) % 1) - 0.5) * 1.4;
     this.decals.add(this.now, gx, this.terrain.heightAt(gx, gz), gz, s, r);
     this.decals.mesh.visible = true;
+  }
+
+  /** Rays out from the hit (four sideways, one down, one up a little); a stone within 1.6 m gets the decal. */
+  private splashStone(x: number, y: number, z: number, s: number, r: number): boolean {
+    const stones = this.stones!;
+    const reach = 1.6;
+    const ground = y - this.terrain.heightAt(x, z);
+    let best = reach, bid = -1, bdx = 0, bdy = 0, bdz = 0;
+    const a0 = r * Math.PI * 2;
+    const dirs: [number, number, number][] = [
+      [Math.cos(a0), 0, Math.sin(a0)],
+      [-Math.sin(a0), 0, Math.cos(a0)],
+      [-Math.cos(a0), 0, -Math.sin(a0)],
+      [Math.sin(a0), 0, -Math.cos(a0)],
+      [0, -1, 0],
+    ];
+    for (const [dx, dy, dz] of dirs) {
+      for (const c of [0, 1] as const) {
+        const t = stones.raycast(x - dx * 0.05, y - dy * 0.05, z - dz * 0.05, dx, dy, dz, c);
+        // Straight down, the ground wins if it is nearer.
+        if (t >= 0 && t < best && !(dy < 0 && t > ground)) {
+          best = t;
+          bid = stones.lastHitId;
+          bdx = dx;
+          bdy = dy;
+          bdz = dz;
+        }
+      }
+    }
+    if (bid < 0) return false;
+    const hx = x + bdx * (best - 0.05), hy = y + bdy * (best - 0.05), hz = z + bdz * (best - 0.05);
+    stones.faceNormal(bid, hx, hy, hz, bdx, bdy, bdz, this.normal);
+    const [nx, ny, nz] = this.normal;
+    this.decals.add(this.now, hx, hy, hz, s, r, nx, ny, nz, bid, stones);
+    this.decals.mesh.visible = true;
+    return true;
   }
 
   private pulseLight(x: number, y: number, z: number, level: number, hex: number) {
@@ -278,10 +368,12 @@ export class GameRenderer implements GameRendererApi {
 
   setCamera(pose: CameraPose): void {
     this.views.setPose(pose);
+    this.clear.crosshair.value = pose.mode === "sight" ? 1 : 0;
   }
 
   setAimArc(points: Float32Array | null): void {
     this.effects.setAimArc(points);
+    this.clear.setArc(points);
   }
 
   setGhostTrail(points: Float32Array | null): void {
@@ -392,6 +484,10 @@ export class GameRenderer implements GameRendererApi {
     this.effects.setTime(this.now);
     this.views.update(dt);
     const cam = this.views.camera;
+    cam.updateMatrixWorld();
+    this.clear.update(cam);
+    this.minions.step(dt, (x, z) => this.terrain.heightAt(x, z));
+    this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
     if (this.stones) {
       this.stones.flush();

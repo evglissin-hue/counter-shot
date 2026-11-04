@@ -1,9 +1,12 @@
-// Blood decals on the ground (gore on): dark, desaturated red-brown splats
-// that fade over about a minute. A ring of instanced flat quads with a noisy
-// splat mask; cosmetic only.
+// Blood decals (gore on): dark, desaturated red-brown splats on the ground
+// and on masonry that fade over about a minute. A ring of instanced quads
+// with a noisy splat mask, each laid on a surface normal. A decal on a stone
+// remembers the stone and its offset in the stone's frame, so it rides along
+// if the stone moves. Cosmetic only.
 
 import * as THREE from "three/webgpu";
-import { Fn, attribute, clamp, color, cos, float, length, mix, normalLocal, positionGeometry, sin, smoothstep, texture, varying, vec2, vec3 } from "three/tsl";
+import { Fn, abs, attribute, clamp, color, cos, cross, float, length, mix, normalLocal, normalize, positionGeometry, select, sin, smoothstep, texture, varying, vec2, vec3 } from "three/tsl";
+import type { StoneSet } from "./stones";
 import type { N } from "./tslUtils";
 
 const MAX = 160;
@@ -16,6 +19,14 @@ export class Decals {
   private b = new Float32Array(MAX * 4);
   private attrA: THREE.InstancedBufferAttribute;
   private attrB: THREE.InstancedBufferAttribute;
+  private n = new Float32Array(MAX * 3);
+  private attrN: THREE.InstancedBufferAttribute;
+  /** Per slot: stone id (-1 on the ground), spawn time, offset and normal in the stone's frame. */
+  private stoneOf = new Int32Array(MAX).fill(-1);
+  private born = new Float32Array(MAX);
+  private local = new Float32Array(MAX * 6);
+  private tmp = new Float32Array(7);
+  private scratch = [0, 0, 0, 0, 0, 0];
   private next = 0;
   private used = 0;
 
@@ -31,6 +42,9 @@ export class Decals {
     this.attrB.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("iDecalA", this.attrA);
     geo.setAttribute("iDecalB", this.attrB);
+    this.attrN = new THREE.InstancedBufferAttribute(this.n, 3);
+    this.attrN.setUsage(THREE.DynamicDrawUsage);
+    geo.setAttribute("iDecalN", this.attrN);
     geo.instanceCount = 0;
     const m = new THREE.MeshStandardNodeMaterial();
     m.name = "blood-decals";
@@ -46,10 +60,15 @@ export class Decals {
     const qp: N = positionGeometry.xy;
     const ca: N = cos(B.y), sa: N = sin(B.y);
     const r: N = vec2(qp.x.mul(ca).sub(qp.y.mul(sa)), qp.x.mul(sa).add(qp.y.mul(ca))).mul(B.x);
+    // A tangent frame around the surface normal.
+    const nrm: N = normalize(attribute("iDecalN", "vec3"));
+    const helper: N = select(abs(nrm.y).greaterThan(0.9), vec3(1, 0, 0), vec3(0, 1, 0));
+    const t1: N = normalize(cross(helper, nrm));
+    const t2: N = cross(nrm, t1);
+    m.side = THREE.DoubleSide;
     m.positionNode = Fn(() => {
-      normalLocal.assign(vec3(0, 1, 0));
-      // Quad (x, y) maps to world (x, -z) so the face points up.
-      return vec3(A.x.add(r.x), A.y.add(0.03), A.z.sub(r.y));
+      normalLocal.assign(nrm);
+      return A.xyz.add(t1.mul(r.x)).add(t2.mul(r.y)).add(nrm.mul(0.03));
     })();
     const vuv: N = varying(qp, "vDecalUV");
     const vSeed: N = varying(B.z, "vDecalSeed");
@@ -77,21 +96,75 @@ export class Decals {
     this.mesh.visible = false;
   }
 
-  add(now: number, x: number, y: number, z: number, strength: number, seed: number) {
+  /**
+   * One splat at (x, y, z) facing (nx, ny, nz). With a stone (and its set),
+   * the decal follows that stone from then on.
+   */
+  add(now: number, x: number, y: number, z: number, strength: number, seed: number, nx = 0, ny = 1, nz = 0, stone = -1, stones: StoneSet | null = null) {
     const k = this.next;
     this.next = (k + 1) % MAX;
     this.used = Math.min(MAX, this.used + 1);
     const s = Math.max(0, Math.min(1, strength));
     this.a.set([x, y, z, now], k * 4);
-    this.b.set([0.8 + s * 1.2, seed * 6.283, (seed * 7.31) % 1, s], k * 4);
+    // Smaller on walls: a spray, not a pool.
+    const size = stone >= 0 ? 0.45 + s * 0.6 : 0.8 + s * 1.2;
+    this.b.set([size, seed * 6.283, (seed * 7.31) % 1, s], k * 4);
+    this.n.set([nx, ny, nz], k * 3);
+    this.stoneOf[k] = stones ? stone : -1;
+    this.born[k] = now;
+    if (stones && stone >= 0) {
+      // Offset and normal in the stone's frame.
+      stones.getTransform(stone, this.tmp);
+      const t = this.tmp;
+      const qx = -t[3], qy = -t[4], qz = -t[5], qw = t[6];
+      rot(this.local, k * 6, qx, qy, qz, qw, x - t[0], y - t[1], z - t[2]);
+      rot(this.local, k * 6 + 3, qx, qy, qz, qw, nx, ny, nz);
+    }
     const g = this.mesh.geometry as THREE.InstancedBufferGeometry;
     g.instanceCount = this.used;
     this.mesh.visible = true;
     this.attrA.needsUpdate = true;
     this.attrB.needsUpdate = true;
+    this.attrN.needsUpdate = true;
+  }
+
+  /** Move decals that sit on stones along with them (once per frame). */
+  follow(stones: StoneSet | null, now: number) {
+    if (!stones) return;
+    let moved = false;
+    const t = this.tmp;
+    for (let k = 0; k < this.used; k++) {
+      const id = this.stoneOf[k];
+      if (id < 0) continue;
+      if (now - this.born[k] > FADE_END) {
+        this.stoneOf[k] = -1;
+        continue;
+      }
+      stones.getTransform(id, t);
+      const o = k * 6;
+      const L = this.local;
+      const p = this.scratch;
+      rotArr(p, 0, t[3], t[4], t[5], t[6], L[o], L[o + 1], L[o + 2]);
+      rotArr(p, 3, t[3], t[4], t[5], t[6], L[o + 3], L[o + 4], L[o + 5]);
+      const x = t[0] + p[0], y = t[1] + p[1], z = t[2] + p[2];
+      const a = this.a;
+      if (Math.abs(a[k * 4] - x) + Math.abs(a[k * 4 + 1] - y) + Math.abs(a[k * 4 + 2] - z) < 1e-4) continue;
+      a[k * 4] = x;
+      a[k * 4 + 1] = y;
+      a[k * 4 + 2] = z;
+      this.n[k * 3] = p[3];
+      this.n[k * 3 + 1] = p[4];
+      this.n[k * 3 + 2] = p[5];
+      moved = true;
+    }
+    if (moved) {
+      this.attrA.needsUpdate = true;
+      this.attrN.needsUpdate = true;
+    }
   }
 
   clear() {
+    this.stoneOf.fill(-1);
     this.used = 0;
     this.next = 0;
     (this.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount = 0;
@@ -102,4 +175,22 @@ export class Decals {
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
   }
+}
+
+function rot(out: Float32Array, at: number, qx: number, qy: number, qz: number, qw: number, x: number, y: number, z: number) {
+  const tx = 2 * (qy * z - qz * y);
+  const ty = 2 * (qz * x - qx * z);
+  const tz = 2 * (qx * y - qy * x);
+  out[at] = x + qw * tx + (qy * tz - qz * ty);
+  out[at + 1] = y + qw * ty + (qz * tx - qx * tz);
+  out[at + 2] = z + qw * tz + (qx * ty - qy * tx);
+}
+
+function rotArr(out: number[], at: number, qx: number, qy: number, qz: number, qw: number, x: number, y: number, z: number) {
+  const tx = 2 * (qy * z - qz * y);
+  const ty = 2 * (qz * x - qx * z);
+  const tz = 2 * (qx * y - qy * x);
+  out[at] = x + qw * tx + (qy * tz - qz * ty);
+  out[at + 1] = y + qw * ty + (qz * tx - qx * tz);
+  out[at + 2] = z + qw * tz + (qx * ty - qy * tx);
 }
