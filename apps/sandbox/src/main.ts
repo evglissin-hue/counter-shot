@@ -44,7 +44,14 @@ const aims: AimState[] = EMP.map((e) => restAim(e, WEAPONS[e.weapon]));
 /** Where the player wants the weapon to point; the weapon turns towards it at its own rate. */
 const wanted: AimState[] = aims.map((a) => ({ ...a }));
 const fov: number[] = EMP.map((e) => WEAPONS[e.weapon].fov[1] * 0.8);
-let fuseTicks = 4 * 60; // mortar: 0 means burst on impact
+let fuseTicks = 0; // mortar: 0 means burst on impact
+/** Aim help: the whole predicted flight (default in the sandbox) or only its first part, as in ranked play. */
+let aimHelp: "full" | "partial" = "full";
+try {
+  if (localStorage.getItem("keepfall.aimHelp") === "partial") aimHelp = "partial";
+} catch {}
+/** Seconds the current shot is predicted to fly before it lands (full arc only). */
+let flightSeconds = 0;
 let spin: Spin = Spin.None;
 let view: "sight" | "overview" = "sight";
 let shotCam = false;
@@ -166,6 +173,7 @@ function aimTick() {
     }
   }
   const k = fine || padFine ? w.fine : 1;
+  if (e.weapon === "mortar") ratePitch = -ratePitch; // forward means farther
   if (rateYaw || ratePitch) {
     // Keys and sticks drive the weapon directly at its rate; the wanted aim follows.
     wanted[current] = clampAim(
@@ -189,7 +197,9 @@ function applyMouse() {
   const k = MOUSE_RAD_PER_PX * zoomK * (fine ? 0.35 : 1);
   const t = wanted[current];
   // Mouse right turns the aim right (towards -X when facing +Z), i.e. lower yaw.
-  wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch - input.mouseY * k }, e, w);
+  // The mortar ranges by elevation: pushing forward (mouse up) sends the shell farther, i.e. lowers the barrel.
+  const py = e.weapon === "mortar" ? 1 : -1;
+  wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch + py * input.mouseY * k }, e, w);
   input.mouseX = input.mouseY = 0;
 }
 
@@ -218,14 +228,20 @@ function cameraPose() {
   const e = EMP[current], a = aims[current];
   const [fx, , fz] = aimDir(a.yaw, 0);
   if (e.weapon === "mortar") {
-    // The mortar points at the sky: look out over the wall towards where it is aimed.
-    // The keep stands right behind it, so the eye sits in front, over the courtyard, above the front wall.
-    return { mode: "sight" as const, x: e.x + fx * 2, y: e.y + 11.8, z: e.z + fz * 2, yaw: a.yaw, pitch: -0.05, fov: fov[current] };
+    // A spotter's view: raised and off to the side, looking at where the shell will come down,
+    // so the arc reads as a curve instead of a line straight up the screen.
+    const rx = -fz, rz = fx; // right
+    const ex = e.x + rx * 26 - fx * 18, ey = e.y + 34, ez = e.z + rz * 26 - fz * 18;
+    const t = predicted ?? { x: e.x + fx * 110, y: 0, z: e.z + fz * 110 };
+    const lx = t.x - ex, ly = t.y + 4 - ey, lz = t.z - ez;
+    const yaw = Math.atan2(lx, lz), pitch = Math.atan2(ly, Math.hypot(lx, lz));
+    return { mode: "sight" as const, x: ex, y: ey, z: ez, yaw, pitch, fov: Math.max(fov[current], 48) };
   }
   const [dx, dy, dz] = aimDir(a.yaw, a.pitch);
   return { mode: "sight" as const, x: e.x - dx * 3.2, y: e.y + 1.1 - dy * 3.2, z: e.z - dz * 3.2, yaw: a.yaw, pitch: a.pitch - 0.05, fov: fov[current] };
 }
 
+let predicted: { x: number; y: number; z: number } | null = null;
 function updateAimHelp() {
   const e = EMP[current], w = WEAPONS[e.weapon], a = aims[current];
   if (view !== "sight" || follow) {
@@ -235,10 +251,26 @@ function updateAimHelp() {
     const d = aimDir(a.yaw, a.pitch);
     const sv = e.weapon === "longGun" ? spinVector(a.yaw, spin, w.spinRate) : null;
     const v: [number, number, number] = [d[0] * w.speed, d[1] * w.speed, d[2] * w.speed];
-    renderer.setAimArc(predictPath(m, v, sv, wind.x, wind.z, flightCoef(w.projectile), w.arcSeconds, 2));
+    const coef = flightCoef(w.projectile);
+    if (aimHelp === "full") {
+      // The whole flight to the ground; a mortar fuse shorter than the flight cuts it where the shell bursts.
+      const full = predictPath(m, v, sv, wind.x, wind.z, coef, 12, 2);
+      const landed = full.length >= 6 && full[full.length - 2] <= 0.01;
+      flightSeconds = landed ? ((full.length / 3 - 1) * 2) / 60 : 0;
+      const burstAt = e.weapon === "mortar" && fuseTicks > 0 ? fuseTicks / 60 : Infinity;
+      const path = burstAt < flightSeconds || (burstAt < 12 && !landed) ? predictPath(m, v, sv, wind.x, wind.z, coef, burstAt, 2) : full;
+      renderer.setAimArc(path);
+      const n = path.length;
+      predicted = n >= 3 ? { x: path[n - 3], y: Math.max(0, path[n - 2]), z: path[n - 1] } : null;
+    } else {
+      flightSeconds = 0;
+      predicted = null;
+      renderer.setAimArc(predictPath(m, v, sv, wind.x, wind.z, coef, w.arcSeconds, 2));
+    }
   }
   renderer.setGhostTrail(trails[current]);
-  renderer.setLandingMarker(landing[current]);
+  // Full aim help marks where this shot will land (or burst); partial marks where the last one landed.
+  renderer.setLandingMarker(aimHelp === "full" && view === "sight" && !follow ? predicted : landing[current]);
   for (let i = 0; i < EMP.length; i++) renderer.setWeaponPose(i, aims[i].yaw, aims[i].pitch, i === current);
 }
 
@@ -270,7 +302,11 @@ function updateHud(force = false) {
   const r = reload[current];
   hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
   hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
-  if (e.weapon === "mortar") hud.extra.textContent = fuseTicks === 0 ? "Fuse: on impact  ( [ ] )" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s  ( [ ] )`;
+  if (e.weapon === "mortar") {
+    const flight = flightSeconds ? `, flight ${flightSeconds.toFixed(1)} s` : "";
+    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 < flightSeconds ? " (bursts in the air)" : fuseTicks > 0 && flightSeconds ? " (bounces, then bursts)" : "";
+    hud.extra.textContent = (fuseTicks === 0 ? "Fuse: on impact" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s${air}`) + `${flight}  ( [ ] )`;
+  }
   else if (e.weapon === "longGun") hud.extra.textContent = `Spin: ${SPIN_NAMES[spin]}  (R)`;
   else if (e.weapon === "chainShot") hud.extra.textContent = "Two balls on a spinning chain";
   else hud.extra.textContent = `${w.pellets} balls of grapeshot`;
@@ -291,7 +327,7 @@ function updateHud(force = false) {
 /** Where the wanted aim is on screen, relative to the barrel, for the lead marker. */
 function placeWanted() {
   const a = aims[current], t = wanted[current];
-  if (view !== "sight" || follow || (Math.abs(a.yaw - t.yaw) < 0.002 && Math.abs(a.pitch - t.pitch) < 0.002)) {
+  if (view !== "sight" || follow || EMP[current].weapon === "mortar" || (Math.abs(a.yaw - t.yaw) < 0.002 && Math.abs(a.pitch - t.pitch) < 0.002)) {
     hud.want.hidden = true;
     return;
   }
@@ -311,6 +347,14 @@ quality.addEventListener("change", () => {
   renderer.resize();
   try {
     localStorage.setItem("keepfall.quality", quality.value);
+  } catch {}
+});
+const aimHelpSel = $<HTMLSelectElement>("aimhelp");
+aimHelpSel.value = aimHelp;
+aimHelpSel.addEventListener("change", () => {
+  aimHelp = aimHelpSel.value === "partial" ? "partial" : "full";
+  try {
+    localStorage.setItem("keepfall.aimHelp", aimHelp);
   } catch {}
 });
 const gore = $<HTMLInputElement>("gore");
@@ -416,7 +460,8 @@ function frame(now: number) {
   const w = WEAPONS[EMP[current].weapon];
   const fuseStep = (dir: number) => {
     if (EMP[current].weapon !== "mortar") return;
-    if (fuseTicks === 0 && dir > 0) fuseTicks = w.fuseMin;
+    // Leaving impact starts the fuse at the predicted flight time, so one press gives a burst just as it lands.
+    if (fuseTicks === 0 && dir > 0) fuseTicks = flightSeconds ? Math.max(w.fuseMin, Math.min(w.fuseMax, Math.round((flightSeconds * 60) / 15) * 15)) : w.fuseMin;
     else if (fuseTicks <= w.fuseMin && dir < 0) fuseTicks = 0;
     else if (fuseTicks !== 0) fuseTicks = Math.max(w.fuseMin, Math.min(w.fuseMax, fuseTicks + dir * 15));
   };
