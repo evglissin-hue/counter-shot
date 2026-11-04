@@ -1,4 +1,6 @@
-# Counter-Shot: notes for agents
+# Keepfall: notes for agents
+
+Keepfall is a working title. The repo and package names still say counter-shot; leave them until the owner picks the final name.
 
 - Never use em dashes (or en dashes) in code, comments, docs, commits or UI text.
 - Anything that feeds the physics must be deterministic: use `lab/src/core/detmath.ts` (dsin, dcos, Rng) instead of Math.sin, Math.cos, Math.random and friends. Plain + - * / and comparisons are fine.

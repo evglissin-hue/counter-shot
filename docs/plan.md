@@ -1,4 +1,4 @@
-# Counter-Shot: planning notes
+# Keepfall: planning notes
 
 Working notes from the planning conversation. The spec (`SPEC.md`) comes after the test spikes.
 
@@ -10,7 +10,7 @@ A browser game where two castles face each other across a field. You fire siege 
 
 | Topic | Decision |
 |---|---|
-| Platforms | Desktop browsers (Windows, Mac) and iPad. No phones. The 2019 MacBook Air is not a target. |
+| Platforms | Desktop browsers (Windows, Mac) and iPad. No phones. The 2019 MacBook Air is not a target. The iPad is a couple of years old (model unknown) and touch only. |
 | Audience | The owner, Kat and friends, via invite links. |
 | MVP mode | Online 1v1. Later: online co-op (two players, one castle, vs AI) on two laptops or a laptop and an iPad; one day 2v2. |
 | Against the AI | Both an AI castle playing by the same rules (first) and wave defence (later). |
@@ -26,7 +26,9 @@ A browser game where two castles face each other across a field. You fire siege 
 | Minions | Barracks spawn them; you set the mix and give a few hotkey orders (advance, hold, push the breach). 2 to 3 routes that physics can open or close. |
 | Economy | Kills and trick shots earn gold. |
 | Match length | 10 to 15 minutes. |
-| Races | New races (proposals below); fall back to Castle Artillery's peoples if these do not land. |
+| Races | Start with the first two proposals: Ashwright Guild (the MVP race) and Graniteborn. The others later. |
+| Name | Keepfall is the working title; the final name comes later. |
+| Online test | Later: the owner will connect the repo to Cloudflare when ready. |
 | Art style | Undecided: the lab shows three candidates on the same scene. |
 | Art assets | No artist: code-built castles and terrain, free asset packs and AI-generated models. |
 | Stack | Same as Castle Artillery: TypeScript monorepo, Cloudflare, a preview link per branch, several Claude sessions in parallel. |
@@ -43,9 +45,9 @@ Each race is built on a different branch of physics, has a different skill curve
 | Lodestar Order (astronomer engineers) | Magnetism and gravity | Shots that curve toward iron, gravity wells that bend every shot nearby (including the enemy's), lifting rubble and dropping it. The best at countering incoming shots. | Hardest, highest ceiling |
 | Alternates | Ropes and tension (net and bola weavers); growth and decay (a swarm whose roots crack foundations over time) | | |
 
-## What the name suggests
+## Name
 
-"Counter-Shot" could be a signature mechanic: shoot down or deflect incoming shots in mid-air (a fast light shot nudges a heavy ball off course). Both players fire in real time, so defending your castle with your own shots becomes a skill of its own. To confirm with the owner.
+Keepfall is a working title (after the main way to win: topple the enemy keep). The final name comes later; the repo is still called counter-shot.
 
 ## Technical direction
 
@@ -66,6 +68,7 @@ The server's speed varies between runs, so these are ranges. The lab page measur
 - Tuning that mattered: centring the blast a metre inside the masonry (the ball touches the face), shattering the core so a real hole opens, and a 450 kN break threshold for falling debris (220 kN made chain reactions double the cost).
 
 - Same input gives the same hash run after run, and headless Chromium matches Node bit for bit. Cross-browser and cross-device checks are what the lab is for.
+- First real device (lab-2 build, Apple M4 Mac, Chrome, WebGPU, 120 Hz screen): the deterministic siege matched the reference hash bit for bit, so Apple ARM and x86 servers simulate identically. Physics budget: about 1,460 moving stones in 6 ms per step (about 2,750 in 12 ms); the fast build about 2,870. Scripted siege: 1.7 ms average step, 4.1 ms worst. Graphics: 95% of frames under 9.3 ms at every quality tier, but average frame rates were dragged down by one-off stalls when switching tiers; the lab-3 build warms each tier up first, reports stalls separately and fixes the GPU timer (it was adding up several frames).
 - Jolt (single-thread WebAssembly build) on the same rubble test: 3.0 ms at 500 stones, 12.9 ms at 1,000, 22.5 ms at 2,000. No faster than Rapier's deterministic build, and its browser determinism is unproven. Multithreaded Jolt needs special page headers (cross-origin isolation), so it can only be tested once the game is hosted on Cloudflare.
 - The first step after building a castle costs about 120 ms (the broad phase is built): do it during loading.
 - Freezing settled rubble keeps a ruined castle cheap; without it, rubble piles keep waking up.

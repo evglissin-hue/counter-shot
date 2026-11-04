@@ -60,6 +60,7 @@ export class LabRenderer {
   private gpuMs: number | null = null;
   private timingPending = false;
   private canTime = false;
+  private framesSinceResolve = 0;
   private lastDraw = 0;
   private lastTris = 0;
   private initialized = false;
@@ -286,12 +287,16 @@ export class LabRenderer {
     post.render(this.now);
     this.lastDraw = this.renderer.info.render.drawCalls;
     this.lastTris = this.renderer.info.render.triangles;
+    this.framesSinceResolve++;
     if (this.canTime && !this.timingPending) {
       this.timingPending = true;
+      // The resolve covers every frame rendered since the last one: report the per-frame average.
+      const frames = this.framesSinceResolve;
+      this.framesSinceResolve = 0;
       this.renderer
         .resolveTimestampsAsync(THREE.TimestampQuery.RENDER)
         .then((ms) => {
-          if (typeof ms === "number" && ms > 0) this.gpuMs = ms;
+          if (typeof ms === "number" && ms > 0) this.gpuMs = ms / Math.max(1, frames);
         })
         .catch(() => {})
         .finally(() => {

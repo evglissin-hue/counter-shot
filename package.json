@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Counter-Shot: a physics-heavy 3D castle duel for the browser.",
+  "description": "Keepfall (working title): a physics-heavy 3D castle duel for the browser.",
   "workspaces": [
     "lab"
   ],

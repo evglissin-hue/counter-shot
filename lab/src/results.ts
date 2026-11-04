@@ -6,8 +6,15 @@ import type { ProbeResult } from "./probe";
 
 export interface GraphicsRow {
   tier: string;
+  /** Typical frame rate, from the median frame time. */
   fps: number;
+  /** Mean frame rate, dragged down by stalls. */
+  avgFps: number;
+  /** 95th percentile frame time. */
   p95Ms: number;
+  /** Frames longer than 50 ms. */
+  hitches: number;
+  /** GPU time per frame, when the browser can measure it. */
   gpuMs: number | null;
 }
 

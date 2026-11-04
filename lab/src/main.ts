@@ -1,4 +1,4 @@
-// Counter-Shot lab page: a live siege sandbox plus a device test.
+// Keepfall lab page: a live siege sandbox plus a device test.
 
 import { aim, arc, SIEGE_SHOTS } from "./core/ballistics";
 import { buildLayout } from "./core/castle";
@@ -9,7 +9,7 @@ import { copyText, saveResult, watchResults, type GraphicsRow, type LabResult } 
 
 /** Deterministic siege hashes from the reference run (Node 22, x86-64). Same code must give the same bits everywhere. */
 const REFERENCE = { state: "35a7603f", snapshot: "054e5eb0" };
-const LAB_BUILD = "lab-2";
+const LAB_BUILD = "lab-3";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -231,9 +231,11 @@ function physicsProgress(label: string, fraction: number): number {
   return i < 0 ? 0 : (i + Math.min(1, fraction)) / PHYS_STAGES.length;
 }
 
-async function graphicsTest(refreshHz: number): Promise<GraphicsRow[]> {
+async function graphicsTest(): Promise<GraphicsRow[]> {
   const tiers: QualityTier[] = ["low", "medium", "high", "ultra"];
   const rows: GraphicsRow[] = [];
+  const WARM = 1.5; // seconds per tier to compile shaders before measuring
+  const MEASURE = 6;
   renderer.setView("flyover");
   renderer.setAimArc(null);
   for (let i = 0; i < tiers.length; i++) {
@@ -250,45 +252,54 @@ async function graphicsTest(refreshHz: number): Promise<GraphicsRow[]> {
       const start = performance.now();
       let last = start;
       let fired = 0;
+      let warmed = false;
       benchHook = (now) => {
         const t = (now - start) / 1000;
         renderer.setFlyoverTime(t);
-        if (fired < 3 && t > 0.3 + fired * 0.9) {
+        if (!warmed && t > 0.2) {
+          renderer.spawnImpact(-6, 3, -16, 0.8); // compiles the dust and chip effects before measuring
+          warmed = true;
+        }
+        if (fired < 3 && t > WARM + 0.2 + fired * 0.9) {
           const shot = SIEGE_SHOTS[fired];
           const c = layout.cannon;
           const v = aim(c.x, c.y, c.z, shot.target[0], shot.target[1], shot.target[2], shot.time);
           send({ t: "fire", x: c.x, y: c.y, z: c.z, vx: v[0], vy: v[1], vz: v[2] });
           fired++;
         }
-        if (t > 0.8) {
+        if (t > WARM) {
           frames.push(now - last);
           const g = renderer.getStats().gpuMs;
           if (g !== null && g > 0) gpu.push(g);
         }
         last = now;
-        if (t > 6) {
+        if (t > WARM + MEASURE) {
           benchHook = null;
           resolve();
         }
       };
     });
-    frames.sort((a, b) => a - b);
+    const sorted = [...frames].sort((a, b) => a - b);
+    const pick = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0;
     const avgMs = frames.reduce((s, f) => s + f, 0) / Math.max(1, frames.length);
+    gpu.sort((a, b) => a - b);
     rows.push({
       tier,
-      fps: Math.round(1000 / avgMs),
-      p95Ms: Math.round(frames[Math.floor(frames.length * 0.95)] * 10) / 10,
-      gpuMs: gpu.length ? Math.round((gpu.reduce((s, g) => s + g, 0) / gpu.length) * 10) / 10 : null,
+      fps: Math.round(1000 / Math.max(0.1, pick(0.5))), // typical frame rate, from the median frame
+      avgFps: Math.round(1000 / Math.max(0.1, avgMs)),
+      p95Ms: Math.round(pick(0.95) * 10) / 10,
+      hitches: frames.filter((f) => f > 50).length,
+      gpuMs: gpu.length ? Math.round(gpu[Math.floor(gpu.length / 2)] * 10) / 10 : null,
     });
   }
-  void refreshHz;
   return rows;
 }
 
+/** The highest tier that runs smoothly: typical frame rate near the screen's, no long stalls. */
 function recommend(rows: GraphicsRow[], refreshHz: number): string {
-  const target = Math.min(55, refreshHz * 0.92);
+  const target = Math.min(55, refreshHz * 0.9);
   let best = "low";
-  for (const r of rows) if (r.fps >= target) best = r.tier;
+  for (const r of rows) if (r.fps >= target && r.p95Ms <= 33 && r.hitches <= 3) best = r.tier;
   return best;
 }
 
@@ -300,13 +311,14 @@ async function runTest() {
   $<HTMLButtonElement>("copy").disabled = true;
   $("save-status").hidden = true;
   $("summary").innerHTML = "";
-  const label = ($("device-label") as HTMLInputElement).value.trim() || "Unnamed device";
+  const typed = ($("device-label") as HTMLInputElement).value.trim();
   try {
     setProgress(0, "Checking the device");
     const device = await probe();
+    const label = typed || `${device.os}, ${gpuName(device)}`;
     paused = true;
     const refreshHz = await measureRefresh().finally(() => (paused = false));
-    const rows = await graphicsTest(refreshHz);
+    const rows = await graphicsTest();
     renderer.setQuality(quality);
     renderer.setView(view);
     renderer.resize();
@@ -361,7 +373,7 @@ function renderSummary(r: LabResult) {
   const g = r.graphics;
   const p = r.physics;
   const tierRows = g.rows
-    .map((row) => `<tr><td>${TIER_NAME[row.tier]}</td><td class="num">${row.fps}</td><td class="num">${row.p95Ms}</td><td class="num">${row.gpuMs ?? "--"}</td></tr>`)
+    .map((row) => `<tr><td>${TIER_NAME[row.tier]}</td><td class="num">${row.fps}</td><td class="num">${row.p95Ms}</td><td class="num">${row.hitches ?? "--"}</td><td class="num">${row.gpuMs ?? "--"}</td></tr>`)
     .join("");
   const fast = p.rubbleSimd ? ` (fast build: ${fmt(p.rubbleSimd.comfortable)})` : "";
   $("summary").innerHTML = `
@@ -373,7 +385,7 @@ function renderSummary(r: LabResult) {
       <div><dt>Siege replay</dt><dd class="num">${p.siegeDet.stats.avg} ms average step, ${p.siegeDet.stats.max} ms worst</dd></div>
       <div><dt>Same result as reference</dt><dd class="${p.matchesReference ? "ok" : "bad"}">${p.matchesReference ? "Yes, bit for bit" : `No (${esc(p.siegeDet.hash.state)})`}</dd></div>
     </dl>
-    <div class="tablewrap"><table><thead><tr><th>Quality</th><th class="num">FPS</th><th class="num">Slow frame ms</th><th class="num">GPU ms</th></tr></thead><tbody>${tierRows}</tbody></table></div>`;
+    <div class="tablewrap"><table><thead><tr><th>Quality</th><th class="num">FPS</th><th class="num">Slow frame ms</th><th class="num">Stalls</th><th class="num">GPU ms</th></tr></thead><tbody>${tierRows}</tbody></table></div>`;
 }
 
 function renderHistory(rows: LabResult[]) {

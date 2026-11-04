@@ -43,8 +43,9 @@ function osName(ua: string, touch: number): string {
   if (/iPhone/.test(ua)) return "iOS";
   if (/iPad/.test(ua) || (/Macintosh/.test(ua) && touch > 1)) return "iPadOS";
   if (/Mac OS X/.test(ua)) {
+    // Browsers freeze the macOS version in the user agent at 10.15, so it says nothing.
     const m = ua.match(/Mac OS X (\d+[._]\d+)/);
-    return m ? `macOS ${m[1].replace("_", ".")}` : "macOS";
+    return m && !/^10[._]15/.test(m[1]) ? `macOS ${m[1].replace("_", ".")}` : "macOS";
   }
   if (/Windows NT 10/.test(ua)) return "Windows 10 or 11";
   if (/Windows/.test(ua)) return "Windows";
@@ -89,6 +90,18 @@ export async function probe(): Promise<ProbeResult> {
     })(),
     pointerLock: "requestPointerLock" in Element.prototype,
   };
+
+  try {
+    // Chromium can tell the real OS version.
+    const uad = (navigator as Navigator & { userAgentData?: { getHighEntropyValues(h: string[]): Promise<{ platform?: string; platformVersion?: string }> } }).userAgentData;
+    if (uad) {
+      const hi = await uad.getHighEntropyValues(["platformVersion"]);
+      if (hi.platform === "macOS" && hi.platformVersion) result.os = `macOS ${hi.platformVersion.split(".").slice(0, 2).join(".")}`;
+      if (hi.platform === "Windows" && hi.platformVersion) result.os = Number(hi.platformVersion.split(".")[0]) >= 13 ? "Windows 11" : "Windows 10";
+    }
+  } catch {
+    // keep the guess from the user agent
+  }
 
   try {
     const gpu = (navigator as Navigator & { gpu?: GPU }).gpu;
