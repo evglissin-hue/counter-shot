@@ -26,12 +26,6 @@ export class Input {
   private edges = new Set<string>();
   private padPrev: boolean[] = [];
   locked = false;
-  /** Touch drag since the last read, in pixels (one finger on the scene). */
-  touchX = 0;
-  touchY = 0;
-  touched = false;
-  private touchId = -1;
-  private touchLast = { x: 0, y: 0 };
   fireHeld = false;
   usedPad = false;
 
@@ -47,7 +41,6 @@ export class Input {
     window.addEventListener("blur", () => this.keys.clear());
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 0) {
-        if (this.touched) return;
         if (!this.locked) canvas.requestPointerLock?.();
         else this.edges.add("Mouse0");
       }
@@ -57,24 +50,6 @@ export class Input {
       if (e.button === 2) this.zoomHeld = false;
     });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-    // Touch: one finger drags the aim, like a mouse with the button held.
-    canvas.addEventListener("pointerdown", (e) => {
-      if (e.pointerType !== "touch" || this.touchId >= 0) return;
-      this.touched = true;
-      this.touchId = e.pointerId;
-      this.touchLast = { x: e.clientX, y: e.clientY };
-    });
-    canvas.addEventListener("pointermove", (e) => {
-      if (e.pointerId !== this.touchId) return;
-      this.touchX += e.clientX - this.touchLast.x;
-      this.touchY += e.clientY - this.touchLast.y;
-      this.touchLast = { x: e.clientX, y: e.clientY };
-    });
-    const end = (e: PointerEvent) => {
-      if (e.pointerId === this.touchId) this.touchId = -1;
-    };
-    canvas.addEventListener("pointerup", end);
-    canvas.addEventListener("pointercancel", end);
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
     });
@@ -108,11 +83,6 @@ export class Input {
     const pads = navigator.getGamepads?.() ?? [];
     for (const p of pads) if (p && p.connected) return p;
     return null;
-  }
-
-  /** Queue a fire from an on-screen button. */
-  pressFire() {
-    this.edges.add("Mouse0");
   }
 
   /** Edge-triggered actions since the last call. */

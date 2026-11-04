@@ -179,13 +179,7 @@ function aimTick() {
 }
 
 function applyMouse() {
-  if (view === "sight" && (input.touchX || input.touchY)) {
-    // Touch drags the aim: the scene moves with the finger, as if grabbing it.
-    input.mouseX -= input.touchX * 0.6;
-    input.mouseY -= input.touchY * 0.6;
-  }
-  input.touchX = input.touchY = 0;
-  if ((!input.locked && !input.touched) || view !== "sight") {
+  if (!input.locked || view !== "sight") {
     input.mouseX = input.mouseY = 0;
     return;
   }
@@ -290,8 +284,7 @@ function updateHud(force = false) {
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms, ${stats.awake} moving, tick ${lastFrameTick}`;
-  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || input.touched;
-  $("fire-btn").hidden = $("zoom-btn").hidden = !input.touched || view !== "sight";
+  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad;
 }
 
 /** Where the wanted aim is on screen, relative to the barrel, for the lead marker. */
@@ -335,12 +328,6 @@ $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
 $("help-close").addEventListener("click", () => (help.hidden = true));
 $("shotcam").addEventListener("change", (e) => (shotCam = (e.target as HTMLInputElement).checked));
 $("overview-btn").addEventListener("click", () => toggleOverview());
-$("fire-btn").addEventListener("pointerdown", (e) => {
-  e.preventDefault();
-  input.pressFire();
-});
-$("zoom-btn").addEventListener("pointerdown", () => (input.zoomHeld = true));
-$("zoom-btn").addEventListener("pointerup", () => (input.zoomHeld = false));
 
 // Frame-time guard: after 5 seconds of missed frames, drop one quality tier and say so.
 const TIER_ORDER: QualityTier[] = ["low", "medium", "high", "ultra"];
@@ -449,8 +436,8 @@ async function start() {
     showError(`Could not start the renderer: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  // Default tier: High on desktop, Medium on touch devices (iPad); a saved choice wins.
-  let tier: QualityTier = matchMedia("(pointer: coarse)").matches ? "medium" : "high";
+  // Default tier: High; a saved choice wins.
+  let tier: QualityTier = "high";
   try {
     const saved = localStorage.getItem("keepfall.quality") as QualityTier | null;
     if (saved && TIER_ORDER.includes(saved)) tier = saved;

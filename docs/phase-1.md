@@ -75,8 +75,8 @@ The lab keeps working: its physics reference hash (state 35a7603f, snapshot 054e
 
 - Hash tests for every weapon, the chain shot, wind, craters and ragdolls, plus a long scripted sandbox session.
 - Headless browser check of the sandbox page on WebGL2 at Low.
-- Quality tiers per spec (auto pick from the quick test, frame-time guard), and touch aiming on iPad (drag back from the weapon and release) so the iPad can join the next device round.
-- Try: the sandbox on all three devices; the iPad also runs the lab so its physics budget is recorded.
+- Quality tiers per spec (auto pick from the quick test, frame-time guard).
+- Try: the sandbox on both laptops (the owner's M4 and Kat's M3).
 
 ## Not in phase 1
 

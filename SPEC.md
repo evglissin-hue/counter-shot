@@ -1,6 +1,6 @@
 # Keepfall: Game Spec (draft 0.2)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), and the second laptop's lab result with the quality tier defaults (section 6). Still **Pending**: the iPad's physics budget (lab run) and how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -18,8 +18,8 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 
 ## 2. Platforms, players and modes
 
-- Desktop browsers (Chrome, Edge, Firefox, Safari) on Windows and Mac, plus iPad (Safari, touch only) for co-op. No phones.
-- Input: keyboard and mouse, gamepad, keyboard only, and touch on iPad. Mouse is never required.
+- Laptops only: desktop browsers (Chrome, Edge, Firefox, Safari) on Windows and Mac. No tablets or phones.
+- Input: keyboard and mouse, gamepad, and keyboard only. Mouse is never required.
 - Modes, in build order:
   1. **Practice range** (solo): your castle and a target castle, no enemy. Learn the weapons. Includes a short guided first match.
   2. **Versus AI** (solo): an AI castle that plays by the same rules.
@@ -83,20 +83,19 @@ To build:
 - Every gameplay action enters the match as an input tagged with its tick.
 - Rooms remember a rules version, bumped whenever the same inputs would play out differently.
 
-**Budget (Pending: iPad).** Both machines in a match simulate everything, so the weaker one sets the limit. Target: at most about 600 stones moving at once at 60 Hz on the weakest supported device. Measured in the lab (deterministic build, moving stones that fit in 6 ms per step):
+**Budget.** Both machines in a match simulate everything, so the weaker one sets the limit. Target: at most about 600 stones moving at once at 60 Hz on the weakest supported laptop. Measured in the lab (deterministic build, moving stones that fit in 6 ms per step):
 
 | Device | Physics budget | Scripted siege, average step | Graphics |
 |---|---|---|---|
 | Owner's Apple M4 Mac (Chrome, WebGPU, 120 Hz) | about 1,460 | 1.7 ms | Every tier under 9.3 ms for 95% of frames |
 | Kat's laptop (Apple M3, Chrome, WebGPU, 60 Hz) | about 550 | 9.3 ms | 60 fps on Low to High; Ultra about 30 fps |
-| iPad | Pending | Pending | Pending |
 
-Both matched the reference hash bit for bit. Kat's laptop sets today's limit, so the 600 target holds, and the support check, freezing and the shatter core must keep peaks there. A siege on her laptop averages 9.3 ms against a 16.7 ms frame, so the step must stay in the worker.
+Both matched the reference hash bit for bit. Kat's laptop is the floor among supported devices, so the 600 target holds, and the support check, freezing and the shatter core must keep peaks there. A siege on her laptop averages 9.3 ms against a 16.7 ms frame, so the step must stay in the worker.
 
 **Quality tiers.** Low, Medium, High and Ultra change only the look (shadows, post effects, scatter density, chip and dust counts, resolution scale), never the simulation. Defaults:
 
 - First launch runs the lab's quick graphics test and picks the highest tier whose 95th-percentile frame fits the screen's refresh (with a 60 fps floor).
-- Without a test result: High on desktop, Medium on iPad. Ultra is never picked automatically on a 60 Hz screen if High already fills it.
+- Without a test result: High. Ultra is never picked automatically on a 60 Hz screen if High already fills it.
 - A frame-time guard drops one tier after 5 seconds of missed frames, and says so.
 
 ## 7. Economy and buildings
@@ -251,17 +250,8 @@ Waves are built from the roster by a deterministic director (seeded Rng, so both
 ### Roles
 
 - **Gunner** rides the weapons, as in the duel, with full aim help. The fast reactions: picking off sappers, breaking shield walls, leading cavalry.
-- **Steward** runs the castle: builds and upgrades in the lulls, sends repair crews to breaches, sets traps (powder trails, caltrops, oil), places barricades, calls abilities, and orders the castle's own minions to sortie or hold a breach. The Steward can also man a weapon, and the roles swap at any time.
+- **Steward** runs the castle: builds and upgrades in the lulls, sends repair crews to breaches, sets traps (powder trails, caltrops, oil), places barricades, calls abilities, and orders the castle's own minions to sortie or hold a breach, mostly from the overview with mouse, keyboard or gamepad. The Steward can also man a weapon, and the roles swap at any time.
 - Both see a shared **threat strip** at the top: the next wave's packages and the approaches they will use, so the team can plan in the lull.
-
-### The iPad Steward (touch only)
-
-- The overview is the main view: pan with one finger, pinch to zoom, two-finger twist to rotate.
-- Tap a plot to build, tap a wall section to send masons, drag along a route to lay a trap line or a barricade.
-- Big ability and order buttons along the edges, sized for thumbs; long press shows what a button does.
-- To shoot: tap a weapon, then drag back from it to set direction and power and release (with the full aim arc). Fine aim is a second finger held anywhere.
-- No hover anywhere; everything tappable is at least 44 points.
-- The iPad simulates the whole match too, so it sets the physics budget for that run.
 
 ### Scoring
 
@@ -272,16 +262,16 @@ Waves are built from the roster by a deterministic director (seeded Rng, so both
 
 ## 12. Controls (default bindings)
 
-| Action | Keyboard and mouse | Keyboard only | Gamepad | Touch (iPad) |
-|---|---|---|---|---|
-| Aim | Mouse | W A S D (Shift: fine) | Left stick (right stick: fine) | Drag back from the weapon |
-| Fire, or hold to charge | Left click | Space | Right trigger | Release the drag |
-| Zoom the sight | Right click or scroll | Z | Left trigger | Pinch |
-| Switch weapon | 1 to 8, Q and E | 1 to 8, Q and E | Bumpers | Tap a weapon |
-| Overview | Tab | Tab | View button | Overview button |
-| Build wheel | B | B | Y | Tap a plot |
-| Abilities | F, G, H | F, G, H | X, then pick | Ability buttons |
-| Orders: advance, hold, push | Ctrl+1, Ctrl+2, Ctrl+3 | Ctrl+1, Ctrl+2, Ctrl+3 | D-pad | Order buttons |
+| Action | Keyboard and mouse | Keyboard only | Gamepad |
+|---|---|---|---|
+| Aim | Mouse | W A S D (Shift: fine) | Left stick (right stick: fine) |
+| Fire, or hold to charge | Left click | Space | Right trigger |
+| Zoom the sight | Right click or scroll | Z | Left trigger |
+| Switch weapon | 1 to 8, Q and E | 1 to 8, Q and E | Bumpers |
+| Overview | Tab | Tab | View button |
+| Build wheel | B | B | Y |
+| Abilities | F, G, H | F, G, H | X, then pick |
+| Orders: advance, hold, push | Ctrl+1, Ctrl+2, Ctrl+3 | Ctrl+1, Ctrl+2, Ctrl+3 | D-pad |
 
 ## 13. Look and sound
 
@@ -370,12 +360,11 @@ Each phase ends with a playable, deployed version.
    - Both win conditions, the AI castle, and the guided first match.
 3. **Online 1v1** (completes the MVP): lockstep over Cloudflare rooms, invite links, desync checks.
 4. **Graniteborn**: the second race, with landslides and quakes.
-5. **Co-op wave defence**: the roster, the wave director, both roles, the iPad Steward.
+5. **Co-op wave defence**: the roster, the wave director, both roles.
 6. **Polish**: sound, gore, more maps, 2v2.
 
 ## 16. Open questions
 
-- Physics budget on the iPad (lab).
 - How lockstep feels over a real connection (needs Cloudflare).
 - Castle distance and match pacing (playtests).
 - The final name.
