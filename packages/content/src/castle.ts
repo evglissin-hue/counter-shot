@@ -375,7 +375,16 @@ function oneCastle(seed: number, wedge: WedgeSpec): { stones: Stone[]; bannerId:
 }
 
 /** Builds both castles and the neighbour graph. Same input, same output, on every machine. */
-export function buildLayout(seed = 1): CastleLayout {
+export interface LayoutOptions {
+  /**
+   * Mirror wedge shapes properly for castle 1. The lab's reference layout
+   * (and its device hash) predates this fix, so it stays off there: without
+   * it, castle 1's tower wedges are turned inside out.
+   */
+  mirrorWedges?: boolean;
+}
+
+export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
   const enemy = oneCastle(seed, wedge);
   const player = oneCastle(seed + 1, wedge);
@@ -384,7 +393,11 @@ export function buildLayout(seed = 1): CastleLayout {
   const offset = stones.length;
   for (const s of player.stones) {
     // Mirror across z = -DIST / 2: z' = -DIST - z; rotations mirror as (-x, -y, z, w).
-    stones.push({ ...s, id: stones.length, castle: 1, z: -DIST - s.z, q: [-s.q[0], -s.q[1], s.q[2], s.q[3]] });
+    // A reflection must also flip the piece's own shape. Wedges are symmetric across local X,
+    // so reflecting local Z equals a half turn about local Y: q' = mirror(q) * (0, 1, 0, 0).
+    const q: Quat =
+      opts.mirrorWedges && s.shape === "wedge" ? [-s.q[2], s.q[3], -s.q[0], s.q[1]] : [-s.q[0], -s.q[1], s.q[2], s.q[3]];
+    stones.push({ ...s, id: stones.length, castle: 1, z: -DIST - s.z, q });
   }
   const bannerIds: [number, number] = [enemy.bannerId, offset + player.bannerId];
 

@@ -20,7 +20,7 @@ export class Decals {
   private used = 0;
 
   constructor(time: N, noise: THREE.Texture) {
-    const quad = new THREE.PlaneGeometry(1, 1);
+    const quad = new THREE.PlaneGeometry(2, 2);
     const geo = new THREE.InstancedBufferGeometry();
     geo.setIndex(quad.index);
     geo.setAttribute("position", quad.attributes.position);
@@ -48,9 +48,10 @@ export class Decals {
     const r: N = vec2(qp.x.mul(ca).sub(qp.y.mul(sa)), qp.x.mul(sa).add(qp.y.mul(ca))).mul(B.x);
     m.positionNode = Fn(() => {
       normalLocal.assign(vec3(0, 1, 0));
-      return vec3(A.x.add(r.x), A.y.add(0.03), A.z.add(r.y));
+      // Quad (x, y) maps to world (x, -z) so the face points up.
+      return vec3(A.x.add(r.x), A.y.add(0.03), A.z.sub(r.y));
     })();
-    const vuv: N = varying(qp.mul(2.0), "vDecalUV");
+    const vuv: N = varying(qp, "vDecalUV");
     const vSeed: N = varying(B.z, "vDecalSeed");
     const vAge: N = varying(time.sub(A.w), "vDecalAge");
     const vStr: N = varying(B.w, "vDecalStr");
@@ -82,7 +83,7 @@ export class Decals {
     this.used = Math.min(MAX, this.used + 1);
     const s = Math.max(0, Math.min(1, strength));
     this.a.set([x, y, z, now], k * 4);
-    this.b.set([0.5 + s * 1.1, seed * 6.283, seed * 7.31 % 1, s], k * 4);
+    this.b.set([0.8 + s * 1.2, seed * 6.283, (seed * 7.31) % 1, s], k * 4);
     const g = this.mesh.geometry as THREE.InstancedBufferGeometry;
     g.instanceCount = this.used;
     this.mesh.visible = true;

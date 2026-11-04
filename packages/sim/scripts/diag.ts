@@ -6,7 +6,7 @@ import { EVENT_STRIDE, EventKind, SandboxSim, Spin, type Rapier } from "@keepfal
 
 await RD.init();
 const R = RD as unknown as Rapier;
-const layout = buildLayout(1);
+const layout = buildLayout(1, { mirrorWedges: true });
 const cases: Array<[string, number, number, number, Spin]> = [
   ["long gun", 0, 0.0, 0, Spin.None], ["long gun", 0, 0.03, 0, Spin.None], ["long gun", 0, 0.06, 0, Spin.None],
   ["long gun left", 0, 0.03, 0, Spin.Left], ["long gun back", 0, 0.03, 0, Spin.Back],

@@ -31,7 +31,7 @@ function build(seed: number, minions: number) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
-  sim = new SandboxSim(R, buildLayout(1), { seed, minions });
+  sim = new SandboxSim(R, buildLayout(1, { mirrorWedges: true }), { seed, minions });
   post({ t: "ready", stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
 

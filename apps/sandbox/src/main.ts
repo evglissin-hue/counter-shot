@@ -30,7 +30,7 @@ const renderer = new GameRenderer(canvas);
 const worker = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "module" });
 const send = (m: ToWorker) => worker.postMessage(m);
 const input = new Input(canvas);
-const layout = buildLayout(1);
+const layout = buildLayout(1, { mirrorWedges: true });
 const EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
 
 const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];

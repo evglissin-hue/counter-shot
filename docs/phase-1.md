@@ -81,3 +81,9 @@ The lab keeps working: its physics reference hash (state 35a7603f, snapshot 054e
 ## Not in phase 1
 
 Economy, buildings, repairs, minion waves and pathfinding, the AI castle, networking, sound, Graniteborn. The sandbox's minions only patrol and ragdoll.
+
+## Status
+
+- First build published (https://claude.ai/artifact/XMq2HmKaL5KB6MUMVwHrbU, private to the owner). It already holds most of M1 to M4: the monorepo and checks, the Gritty renderer, all four weapons with drag, wind, spin and fuses, chain shot, grapeshot, glancing hits, craters, ragdoll minions, aim help, sight zoom and the shot camera. The sim and renderer were built in parallel, so the milestones landed together.
+- Fixed in the layout: castle 1's tower wedges were mirrored inside out. The fix is the `mirrorWedges` layout option, on in the sandbox; the lab keeps the old layout so its device reference hash stays valid.
+- Left for M5: pin the sandbox hash in the tests after tuning, a headless browser versus Node hash comparison, the quick graphics test for the first-launch tier, blood on stone, severed limbs, smoke thinning near the aim line, dust trickle on loose masonry, and a lighter terrain mesh outside the field.

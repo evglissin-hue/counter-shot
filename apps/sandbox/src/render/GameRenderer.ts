@@ -259,7 +259,7 @@ export class GameRenderer implements GameRendererApi {
     this.bursts.spray.spawn(this.now, x, y, z, 0.6 + s * 0.8, 0, 0.6, 0);
     this.seed = (this.seed * 16807) % 2147483647;
     const r = this.seed / 2147483647;
-    const gx = x + (r - 0.5) * 0.6, gz = z + (((r * 7.13) % 1) - 0.5) * 0.6;
+    const gx = x + (r - 0.5) * 1.4, gz = z + (((r * 7.13) % 1) - 0.5) * 1.4;
     this.decals.add(this.now, gx, this.terrain.heightAt(gx, gz), gz, s, r);
     this.decals.mesh.visible = true;
   }

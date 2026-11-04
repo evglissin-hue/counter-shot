@@ -33,7 +33,7 @@ if (params.get("shot") === "1") document.body.classList.add("shot");
 window.addEventListener("error", (e) => (errorEl.textContent += `${e.message}\n`));
 window.addEventListener("unhandledrejection", (e) => (errorEl.textContent += `${String(e.reason)}\n`));
 
-const layout = buildLayout(1);
+const layout = buildLayout(1, { mirrorWedges: true });
 const ems = ASHWRIGHT_EMPLACEMENTS;
 const r = new GameRenderer(canvas);
 const state = { ready: false, frames: 0, backend: "", lost: "" };

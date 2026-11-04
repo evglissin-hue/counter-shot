@@ -30,6 +30,7 @@ const _d = new THREE.Vector3();
 const _one = new THREE.Vector3(1, 1, 1);
 const _y = new THREE.Vector3(0, 1, 0);
 const _x = new THREE.Vector3(1, 0, 0);
+const _z = new THREE.Vector3(0, 0, 1);
 const _c = new THREE.Color();
 
 export class Minions {
@@ -41,6 +42,9 @@ export class Minions {
   private teamOf = new Map<number, number>();
   private nHelmet = 0;
   private nPike = 0;
+  private yawQ = new THREE.Quaternion();
+  private base = new THREE.Vector3();
+  private joints = Array.from({ length: 6 }, () => new THREE.Vector3());
 
   constructor() {
     this.root.name = "minions";
@@ -134,11 +138,10 @@ export class Minions {
     this.counts.fill(0);
     this.nHelmet = 0;
     this.nPike = 0;
-    const yawQ = new THREE.Quaternion();
-    const base = new THREE.Vector3();
+    const yawQ = this.yawQ;
+    const base = this.base;
     const n = Math.min(minionCount | 0, MAX_FIGURES);
-    const hip = new THREE.Vector3(), knee = new THREE.Vector3(), ankle = new THREE.Vector3();
-    const sh = new THREE.Vector3(), elbow = new THREE.Vector3(), hand = new THREE.Vector3();
+    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
     for (let i = 0; i < n; i++) {
       const o = i * MINION_STRIDE;
       const id = minions[o] | 0;
@@ -150,7 +153,7 @@ export class Minions {
       const bob = Math.abs(Math.cos(ph)) * 0.035;
       const pikeman = team === 0;
       // Legs: swing forward and back, knee bends on the forward swing.
-      for (const side of [1, -1]) {
+      for (let side = 1; side >= -1; side -= 2) {
         const s = Math.sin(ph + (side > 0 ? 0 : Math.PI));
         const a = s * 0.42;
         const bend = Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65;
@@ -181,7 +184,7 @@ export class Minions {
         }
       }
       // Pelvis lies sideways (wide hips), torso leans a touch into the walk.
-      _q2.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+      _q2.setFromAxisAngle(_z, Math.PI / 2);
       _q.copy(yawQ).multiply(_q2);
       _p.set(0, 0.97 + bob, 0).applyQuaternion(yawQ).add(base);
       this.put(PELVIS, _p, _q, team);

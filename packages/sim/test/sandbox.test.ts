@@ -8,7 +8,7 @@ import { ASHWRIGHT_EMPLACEMENTS } from "@keepfall/content";
 
 await RD.init();
 const R = RD as unknown as Rapier;
-const layout = buildLayout(1);
+const layout = buildLayout(1, { mirrorWedges: true });
 
 /** A scripted session: every weapon fires, the mortar twice with a fuse and on impact. */
 const SCRIPT: Array<[number, SandboxInput]> = [
