@@ -8,7 +8,7 @@ import type { CameraPose } from "./api";
 
 /** Midpoint between the castles: the overview orbits around it. */
 const OVERVIEW_TARGET = new THREE.Vector3(0, 5, -75);
-const OVERVIEW_START = new THREE.Vector3(118, 62, -18);
+const OVERVIEW_START = new THREE.Vector3(135, 72, -58);
 const OVERVIEW_FOV = 45;
 const FOLLOW_FOV = 55;
 

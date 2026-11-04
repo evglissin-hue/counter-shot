@@ -177,7 +177,7 @@ export const GRITTY: StylePreset = {
     mountain: 0x3f4846,
     mountainHaze: 0.62,
   },
-  fog: { density: 0.0019, falloff: 0.013, color: 0x8d969c, sunColor: 0xbfc6cc },
+  fog: { density: 0.0015, falloff: 0.013, color: 0x8d969c, sunColor: 0xbfc6cc },
   toneMapping: THREE.AgXToneMapping,
   exposure: 1.18,
   bloom: { strength: 0.08, radius: 0.4, threshold: 1.0 },

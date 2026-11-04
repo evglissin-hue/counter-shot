@@ -24,6 +24,7 @@ export class Decals {
     const geo = new THREE.InstancedBufferGeometry();
     geo.setIndex(quad.index);
     geo.setAttribute("position", quad.attributes.position);
+    geo.setAttribute("normal", quad.attributes.normal);
     this.attrA = new THREE.InstancedBufferAttribute(this.a, 4);
     this.attrB = new THREE.InstancedBufferAttribute(this.b, 4);
     this.attrA.setUsage(THREE.DynamicDrawUsage);

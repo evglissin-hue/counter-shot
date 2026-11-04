@@ -31,7 +31,7 @@ function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMa
   // The weapon you ride gets a faint cold rim so it reads against the wall.
   const v: N = positionWorld.sub(cameraPosition).normalize();
   const rim: N = pow(float(1).sub(normalWorld.dot(v.negate()).abs()), 3.0);
-  m.emissiveNode = color(0xb8c8d8).mul(rim.mul(0.35).add(0.03)).mul(active);
+  m.emissiveNode = color(0xb8c8d8).mul(rim.mul(0.12).add(0.01)).mul(active);
   return m;
 }
 
@@ -39,7 +39,7 @@ function woodMaterial(noise: THREE.Texture): THREE.MeshStandardNodeMaterial {
   const m = new THREE.MeshStandardNodeMaterial();
   m.name = "gun-wood";
   const g: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z).mul(2.5), positionWorld.y.mul(0.4))).g;
-  m.colorNode = mix(color(0x3a3630), color(0x67615a), g.mul(0.8).add(0.1));
+  m.colorNode = mix(color(0x2b2824), color(0x4d4841), g.mul(0.8).add(0.1));
   m.roughness = 0.9;
   m.metalness = 0;
   return m;
@@ -106,7 +106,8 @@ function supportHeight(layout: CastleLayout, x: number, y: number, z: number): {
     const b = stoneBounds(s, layout.wedge);
     const top = b[4];
     if (top > y + 0.05) continue;
-    if (x >= b[0] - 0.1 && x <= b[3] + 0.1 && z >= b[2] - 0.1 && z <= b[5] + 0.1) under = Math.max(under, top);
+    // Generous margin: a gun may overhang the wall face a little.
+    if (x >= b[0] - 0.6 && x <= b[3] + 0.6 && z >= b[2] - 0.6 && z <= b[5] + 0.6) under = Math.max(under, top);
     if (s.shape === "wedge" && Math.hypot(s.x - x, s.z - z) < R) ring = Math.max(ring, top);
   }
   return { under, ring };

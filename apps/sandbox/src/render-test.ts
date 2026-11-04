@@ -186,10 +186,10 @@ function buildFrame(dt: number): FrameData {
   let terrain: TerrainPatch[] = [];
   if (t - lastExplosion > 3.5) {
     lastExplosion = t;
-    ev(EventKind.Explosion, 6, 0.3, -12, 4);
+    ev(EventKind.Explosion, 8, 0.3, -45, 4);
     if (!craterDone) {
       craterDone = true;
-      terrain = [craterPatch(6, -12, 3, 1.2)];
+      terrain = [craterPatch(8, -45, 3, 1.2)];
     }
   }
   if (t - lastMuzzle > 1.3) {
@@ -197,7 +197,7 @@ function buildFrame(dt: number): FrameData {
     ev(EventKind.Muzzle, muzzleIdx % 4, 0, 0, 0);
     muzzleIdx++;
   }
-  if (tb < dt) ev(EventKind.Impact, 0, 6, -15, 0.8);
+  if (tb < dt) ev(EventKind.Impact, 0, 6, -15.2, 0.8);
   if (t - lastBlood > 2.2) {
     lastBlood = t;
     ev(EventKind.Blood, -4, 0.9, -26, 0.8);
@@ -230,8 +230,8 @@ function pose(): CameraPose {
     const em = camMode === "sight" ? longGun : mortar;
     const yaw = camMode === "sight" ? lgDir.yaw : 0;
     const pitch = camMode === "sight" ? lgDir.pitch : 0.25;
-    const back = camMode === "sight" ? 4.5 : 5;
-    const up = camMode === "sight" ? 1.4 : 3;
+    const back = camMode === "sight" ? 4.5 : -3;
+    const up = camMode === "sight" ? 1.4 : 9;
     return { mode: "sight", x: em.x - Math.sin(yaw) * back, y: em.y + up, z: em.z - Math.cos(yaw) * back, yaw, pitch, fov: camMode === "sight" ? 34 : 55 };
   }
   if (camMode === "follow") {
@@ -272,6 +272,15 @@ async function main() {
   r.setGhostTrail(trail);
   const n = trail.length / 3 - 1;
   r.setLandingMarker({ x: trail[n * 3], y: 0, z: trail[n * 3 + 2] });
+  if (params.has("eye")) {
+    // Test only: place the overview orbit (reaches into the renderer's camera).
+    const [ex, ey, ez, tx, ty, tz] = params.get("eye")!.split(",").map(Number);
+    r.setCamera({ mode: "overview" });
+    const views = (r as unknown as { views: { camera: { position: { set(x: number, y: number, z: number): void } }; controls: { target: { set(x: number, y: number, z: number): void }; update(): void } } }).views;
+    views.camera.position.set(ex, ey, ez);
+    views.controls.target.set(tx, ty, tz);
+    views.controls.update();
+  }
   let last = performance.now();
   const loop = () => {
     const now = performance.now();

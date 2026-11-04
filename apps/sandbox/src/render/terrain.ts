@@ -353,7 +353,7 @@ export function makeTerrainMaterial({ style, noise, sky }: TerrainCtx): THREE.Me
     const shore = float(1).sub(smoothstep(POND.r - 1.0, POND.r + 4.0, pd));
     c.assign(mix(c, mix(color(G.dirt), color(G.grassDark), 0.5).mul(0.8), shore.mul(0.45)));
     // Craters: thrown-up fresh earth around the rim and on the slopes, wet black mud in the hollow.
-    const fresh = clamp(smoothstep(0.03, 0.25, crater.abs()).mul(fine.g.mul(0.5).add(0.6)), 0.0, 1.0);
+    const fresh = clamp(smoothstep(0.02, 0.12, crater.abs()).mul(fine.g.mul(0.5).add(0.6)), 0.0, 1.0);
     c.assign(mix(c, color(0x4e3d2b).mul(fine.r.mul(0.35).add(0.8)), fresh));
     const wet = smoothstep(0.25, 0.9, crater);
     c.assign(mix(c, color(0x15120f).mul(fine.g.mul(0.3).add(0.85)), wet.mul(0.9)));
