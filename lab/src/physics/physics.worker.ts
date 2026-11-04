@@ -1,10 +1,10 @@
 // Physics runs here, off the main thread: a live sandbox the page renders,
 // and the benchmark suite on request.
 
-import type { CastleLayout } from "../core/castle";
-import { buildLayout } from "../core/castle";
+import type { CastleLayout } from "@keepfall/content";
+import { buildLayout } from "@keepfall/content";
 import { runRubble, runSiege, type RubbleResult, type SiegeResult } from "./bench";
-import { CastleSim, type Rapier } from "./sim";
+import { CastleSim, type Rapier } from "@keepfall/sim";
 import type { FromWorker, ToWorker } from "./protocol";
 
 const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);

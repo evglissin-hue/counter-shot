@@ -9,7 +9,7 @@
 //   A: fine value noise, 64 cells across (speckle)
 
 import * as THREE from "three/webgpu";
-import { Rng } from "../core/detmath";
+import { Rng } from "@keepfall/core";
 
 const SIZE = 256;
 

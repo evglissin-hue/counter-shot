@@ -1,0 +1,10 @@
+{
+  "name": "@keepfall/content",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Game content as data: castle layouts, weapons, minions, maps.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@keepfall/core": "0.0.0" }
+}

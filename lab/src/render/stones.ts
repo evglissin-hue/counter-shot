@@ -4,7 +4,7 @@
 // is eight float writes; the GPU applies the rotation in the vertex shader.
 
 import * as THREE from "three/webgpu";
-import type { CastleLayout, Stone } from "../core/castle";
+import type { CastleLayout, Stone } from "@keepfall/content";
 import { boxStoneGeometry, wedgeStoneGeometry } from "./geometry";
 import { GroupKind, makeGroupMaterial, makeProxyMaterial } from "./stoneMaterials";
 

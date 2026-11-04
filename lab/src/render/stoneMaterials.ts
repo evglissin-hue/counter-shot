@@ -31,7 +31,7 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
-import type { WedgeSpec } from "../core/castle";
+import type { WedgeSpec } from "@keepfall/content";
 import type { StylePreset } from "./styles";
 import { N, aaLine, boxUV, bumpNormal, median3, qrot } from "./tslUtils";
 

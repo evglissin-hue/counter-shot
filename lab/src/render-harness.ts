@@ -7,7 +7,7 @@
 //   &collapse=1.2 (run the fake collapse and hold it at that time)
 //   &cam=x,y,z,tx,ty,tz (orbit camera placement)
 
-import { buildLayout, type Stone } from "./core/castle";
+import { buildLayout, type Stone } from "@keepfall/content";
 import { LabRenderer, type QualityTier, type StyleName, type ViewMode } from "./render/LabRenderer";
 
 const params = new URLSearchParams(location.search);

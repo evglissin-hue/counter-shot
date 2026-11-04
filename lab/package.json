@@ -13,11 +13,14 @@
   "dependencies": {
     "@dimforge/rapier3d-deterministic-compat": "0.21.0",
     "@dimforge/rapier3d-simd-compat": "0.21.0",
+    "@keepfall/content": "0.0.0",
+    "@keepfall/core": "0.0.0",
+    "@keepfall/sim": "0.0.0",
     "three": "0.186.1"
   },
   "devDependencies": {
     "@types/three": "0.186.0",
-    "@webgpu/types": "^0.1.74",
+    "@webgpu/types": "0.1.74",
     "typescript": "7.0.2",
     "vite": "8.3.4"
   }

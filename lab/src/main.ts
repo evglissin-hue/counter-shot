@@ -1,7 +1,7 @@
 // Keepfall lab page: a live siege sandbox plus a device test.
 
-import { aim, arc, SIEGE_SHOTS } from "./core/ballistics";
-import { buildLayout } from "./core/castle";
+import { aim, arc, SIEGE_SHOTS } from "@keepfall/sim";
+import { buildLayout } from "@keepfall/content";
 import type { FromWorker, ToWorker } from "./physics/protocol";
 import { gpuName, measureRefresh, probe } from "./probe";
 import { LabRenderer, type QualityTier, type StyleName, type ViewMode } from "./render/LabRenderer";

@@ -7,7 +7,7 @@
 // at z = -DIST, gate facing +Z. The player's cannon sits on castle 1's front
 // wall and fires along +Z.
 
-import { DPI, dcos, dsin, quatY, quatYX, Rng } from "./detmath";
+import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
 
 export type Shape = "box" | "wedge";
 export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
@@ -481,11 +481,11 @@ function valueNoise(x: number, z: number): number {
   return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
 }
 
-/** Rolling hills outside the flat field. Render-only, so ordinary maths is fine. */
+/** Rolling hills outside the flat field. Deterministic, so the physics can share it later. */
 export function terrainHeight(x: number, z: number): number {
   const dx = Math.max(FIELD.x0 - x, 0, x - FIELD.x1);
   const dz = Math.max(FIELD.z0 - z, 0, z - FIELD.z1);
-  const d = Math.hypot(dx, dz);
+  const d = dsqrt(dx * dx + dz * dz);
   if (d <= 0) return 0;
   const t = Math.min(1, d / 60);
   const blend = t * t * (3 - 2 * t);

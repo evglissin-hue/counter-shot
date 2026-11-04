@@ -6,8 +6,8 @@
 
 import * as THREE from "three/webgpu";
 import { uniform } from "three/tsl";
-import type { CastleLayout } from "../core/castle";
-import { FIELD } from "../core/castle";
+import type { CastleLayout } from "@keepfall/content";
+import { FIELD } from "@keepfall/content";
 import { Effects } from "./effects";
 import { Flags } from "./flags";
 import { getNoiseTexture } from "./noiseTexture";

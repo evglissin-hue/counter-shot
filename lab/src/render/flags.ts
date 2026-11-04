@@ -29,7 +29,7 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
-import type { CastleLayout } from "../core/castle";
+import type { CastleLayout } from "@keepfall/content";
 import { mergeGeometries } from "./geometry";
 import type { StoneSet } from "./stones";
 import type { StyleName, StylePreset } from "./styles";

@@ -3,9 +3,9 @@
 // Usage: npx rolldown scripts/bench-node.ts --format esm --platform browser -o /tmp/bench.mjs && node /tmp/bench.mjs
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import RS from "@dimforge/rapier3d-simd-compat";
-import { buildLayout } from "../src/core/castle";
+import { buildLayout } from "@keepfall/content";
 import { runRubble, runSiege } from "../src/physics/bench";
-import type { Rapier } from "../src/physics/sim";
+import type { Rapier } from "@keepfall/sim";
 
 await RD.init();
 await RS.init();

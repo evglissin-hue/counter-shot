@@ -27,8 +27,8 @@ import {
   vec2,
   vec3,
 } from "three/tsl";
-import { FIELD } from "../core/castle";
-import { Rng } from "../core/detmath";
+import { FIELD } from "@keepfall/content";
+import { Rng } from "@keepfall/core";
 import { mergeGeometries, rockGeometry } from "./geometry";
 import type { StyleName, StylePreset, TreeKind } from "./styles";
 import { POND, groundHeight } from "./terrain";

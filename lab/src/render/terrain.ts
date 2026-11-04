@@ -30,8 +30,8 @@ import {
   attribute,
   varying,
 } from "three/tsl";
-import { DIST, FIELD, terrainHeight } from "../core/castle";
-import { Rng } from "../core/detmath";
+import { DIST, FIELD, terrainHeight } from "@keepfall/content";
+import { Rng } from "@keepfall/core";
 import type { Sky } from "./sky";
 import type { StyleName, StylePreset } from "./styles";
 import { N, aaLine } from "./tslUtils";

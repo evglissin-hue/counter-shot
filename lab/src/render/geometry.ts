@@ -7,8 +7,8 @@
 // with evenly rounded edges whatever its size. With r = 0 it is a plain box.
 
 import * as THREE from "three/webgpu";
-import type { WedgeSpec } from "../core/castle";
-import { Rng } from "../core/detmath";
+import type { WedgeSpec } from "@keepfall/content";
+import { Rng } from "@keepfall/core";
 
 function sgn(v: number): number {
   return v < 0 ? -1 : 1;

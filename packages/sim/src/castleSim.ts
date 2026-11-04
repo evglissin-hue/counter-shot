@@ -21,9 +21,9 @@
 // same collapse on every machine when used with the deterministic build.
 
 import type RAPIER_NS from "@dimforge/rapier3d-deterministic-compat";
-import type { CastleLayout, Stone } from "../core/castle";
-import { aim } from "../core/ballistics";
-import { dsqrt, hashBytes, hex8 } from "../core/detmath";
+import type { CastleLayout, Stone } from "@keepfall/content";
+import { aim } from "./ballistics";
+import { dsqrt, hashBytes, hex8 } from "@keepfall/core";
 
 export type Rapier = typeof RAPIER_NS;
 type World = InstanceType<Rapier["World"]>;

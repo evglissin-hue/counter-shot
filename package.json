@@ -5,14 +5,26 @@
   "type": "module",
   "description": "Keepfall (working title): a physics-heavy 3D castle duel for the browser.",
   "workspaces": [
+    "packages/*",
+    "apps/*",
     "lab"
   ],
   "scripts": {
+    "check": "node tools/check-boundaries.mjs && npm run typecheck && node tools/run-tests.mjs",
+    "check:boundaries": "node tools/check-boundaries.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "node tools/run-tests.mjs",
     "lab:dev": "npm run dev -w @counter-shot/lab",
     "lab:build": "npm run build -w @counter-shot/lab",
-    "typecheck": "npm run typecheck -w @counter-shot/lab"
+    "sandbox:dev": "npm run dev -w @keepfall/sandbox",
+    "sandbox:build": "npm run build -w @keepfall/sandbox"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "rolldown": "1.2.16",
+    "typescript": "7.0.2"
   }
 }

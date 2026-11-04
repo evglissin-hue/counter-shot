@@ -3,8 +3,8 @@
 
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import type { CastleLayout } from "../core/castle";
-import { dcos, dsin } from "../core/detmath";
+import type { CastleLayout } from "@keepfall/content";
+import { dcos, dsin } from "@keepfall/core";
 import { groundHeight } from "./terrain";
 
 export type ViewMode = "cannon" | "orbit" | "flyover";

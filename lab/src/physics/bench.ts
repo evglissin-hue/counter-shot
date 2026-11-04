@@ -1,10 +1,10 @@
 // Physics benchmarks. Both run the same fixed script on every device, so the
 // timings compare devices and the hashes compare determinism.
 
-import type { CastleLayout } from "../core/castle";
-import { aim, SIEGE_SHOTS, SIEGE_STEPS } from "../core/ballistics";
-import { dsqrt, quatY, Rng } from "../core/detmath";
-import { CastleSim, type Rapier } from "./sim";
+import type { CastleLayout } from "@keepfall/content";
+import { fireScripted, SIEGE_SHOTS, SIEGE_STEPS } from "@keepfall/sim";
+import { dsqrt, quatY, Rng } from "@keepfall/core";
+import { CastleSim, type Rapier } from "@keepfall/sim";
 
 export interface StepStats {
   avg: number;
@@ -53,16 +53,7 @@ function round2(x: number): number {
   return Math.round(x * 100) / 100;
 }
 
-export { SIEGE_SHOTS, SIEGE_STEPS };
-
-export function fireScripted(sim: CastleSim, step: number) {
-  const c = sim.layout.cannon;
-  for (const shot of SIEGE_SHOTS) {
-    if (shot.step !== step) continue;
-    const [vx, vy, vz] = aim(c.x, c.y, c.z, shot.target[0], shot.target[1], shot.target[2], shot.time);
-    sim.fire(c.x, c.y, c.z, vx, vy, vz);
-  }
-}
+export { fireScripted, SIEGE_SHOTS, SIEGE_STEPS };
 
 export function runSiege(R: Rapier, build: string, layout: CastleLayout, progress: Progress): SiegeResult {
   const t0 = performance.now();
