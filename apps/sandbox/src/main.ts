@@ -179,7 +179,13 @@ function aimTick() {
 }
 
 function applyMouse() {
-  if (!input.locked || view !== "sight") {
+  if (view === "sight" && (input.touchX || input.touchY)) {
+    // Touch drags the aim: the scene moves with the finger, as if grabbing it.
+    input.mouseX -= input.touchX * 0.6;
+    input.mouseY -= input.touchY * 0.6;
+  }
+  input.touchX = input.touchY = 0;
+  if ((!input.locked && !input.touched) || view !== "sight") {
     input.mouseX = input.mouseY = 0;
     return;
   }
@@ -284,7 +290,8 @@ function updateHud(force = false) {
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms, ${stats.awake} moving, tick ${lastFrameTick}`;
-  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad;
+  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || input.touched;
+  $("fire-btn").hidden = $("zoom-btn").hidden = !input.touched || view !== "sight";
 }
 
 /** Where the wanted aim is on screen, relative to the barrel, for the lead marker. */
@@ -328,6 +335,34 @@ $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
 $("help-close").addEventListener("click", () => (help.hidden = true));
 $("shotcam").addEventListener("change", (e) => (shotCam = (e.target as HTMLInputElement).checked));
 $("overview-btn").addEventListener("click", () => toggleOverview());
+$("fire-btn").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  input.pressFire();
+});
+$("zoom-btn").addEventListener("pointerdown", () => (input.zoomHeld = true));
+$("zoom-btn").addEventListener("pointerup", () => (input.zoomHeld = false));
+
+// Frame-time guard: after 5 seconds of missed frames, drop one quality tier and say so.
+const TIER_ORDER: QualityTier[] = ["low", "medium", "high", "ultra"];
+let slowFrames = 0, guardFrames = 0;
+function guard(dt: number) {
+  if (!ready || paused) return;
+  guardFrames++;
+  if (dt > 1 / 45) slowFrames++;
+  if (guardFrames < 300) return;
+  const share = slowFrames / guardFrames;
+  guardFrames = slowFrames = 0;
+  const i = TIER_ORDER.indexOf(quality.value as QualityTier);
+  if (share > 0.5 && i > 0) {
+    quality.value = TIER_ORDER[i - 1];
+    renderer.setQuality(quality.value as QualityTier);
+    renderer.resize();
+    const note = $("note");
+    note.textContent = `Frames were slow, so quality dropped to ${quality.value}. Change it under Controls.`;
+    note.hidden = false;
+    setTimeout(() => (note.hidden = true), 6000);
+  }
+}
 
 function toggleOverview() {
   view = view === "sight" ? "overview" : "sight";
@@ -395,6 +430,7 @@ function frame(now: number) {
   updateHud();
   placeWanted();
   if (!paused) renderer.render(dt);
+  guard(dt);
   requestAnimationFrame(frame);
 }
 
@@ -413,10 +449,11 @@ async function start() {
     showError(`Could not start the renderer: ${err instanceof Error ? err.message : String(err)}`);
     return;
   }
-  let tier: QualityTier = "high";
+  // Default tier: High on desktop, Medium on touch devices (iPad); a saved choice wins.
+  let tier: QualityTier = matchMedia("(pointer: coarse)").matches ? "medium" : "high";
   try {
     const saved = localStorage.getItem("keepfall.quality") as QualityTier | null;
-    if (saved) tier = saved;
+    if (saved && TIER_ORDER.includes(saved)) tier = saved;
   } catch {}
   if (location.hash.includes("low")) tier = "low";
   quality.value = tier;
