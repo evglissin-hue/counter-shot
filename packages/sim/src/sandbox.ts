@@ -1,0 +1,462 @@
+// The phase 1 sandbox simulation: the masonry of both castles, the four
+// Ashwright weapons with real flight (drag, wind, spin), mortar fuses, chain
+// shot, grapeshot, craters and test minions. Everything that changes the
+// world enters as an input tagged with its tick, so a session is just its
+// inputs and replays the same on every machine.
+
+import { ASHWRIGHT_EMPLACEMENTS, WEAPONS, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { dsqrt, hashBytes, hex8, Rng } from "@keepfall/core";
+import { aimDir, clampAim, muzzle } from "./aim";
+import { CastleSim, DEFAULT_SIM, type Rapier } from "./castleSim";
+import { flightCoef, flightDv, type FlightCoef } from "./flight";
+import {
+  CHAIN_STRIDE,
+  EVENT_STRIDE,
+  EventKind,
+  MINION_STRIDE,
+  PART_STRIDE,
+  PROJECTILE_STRIDE,
+  ProjectileKind,
+  STONE_STRIDE,
+  type FrameData,
+  type TerrainPatch,
+} from "./frame";
+import { Minions, MinionState } from "./minions";
+import { Terrain } from "./terrain";
+import { Wind } from "./wind";
+
+/** Bump whenever the same inputs would play out differently. */
+export const RULES_VERSION = 1;
+
+export const enum Spin {
+  None = 0,
+  Top = 1,
+  Back = 2,
+  Left = 3,
+  Right = 4,
+}
+
+export type SandboxInput =
+  | {
+      kind: "fire";
+      emplacement: number;
+      yaw: number;
+      pitch: number;
+      /** 0..1 between the weapon's min and max muzzle speed. */
+      charge: number;
+      /** Mortar fuse in ticks (0 = burst on impact). */
+      fuse: number;
+      spin: Spin;
+    }
+  | { kind: "minions"; count: number };
+
+interface Shot {
+  id: number;
+  emplacement: number;
+  kind: ProjectileKind;
+  slots: number[];
+  coef: FlightCoef;
+  spin: boolean;
+  /** Tick the fuse fires, or -1 (no fuse), or 0 for impact. */
+  fuseAt: number;
+  landed: boolean;
+  joint: unknown;
+}
+
+export interface SandboxOptions {
+  seed: number;
+  minions: number;
+  emplacements?: Emplacement[];
+}
+
+const MAX_STONES = 9000;
+/** Grapeshot pellets do not collide with each other. */
+const PELLET_GROUPS = (0x0004 << 16) | (0xffff & ~0x0004);
+const EXPLOSION = { radius: 2.6, power: 55, knock: 6.5, crater: 2.4, depth: 0.9 };
+
+export class SandboxSim {
+  readonly R: Rapier;
+  readonly castle: CastleSim;
+  readonly terrain: Terrain;
+  readonly minions: Minions;
+  readonly wind: Wind;
+  readonly emplacements: Emplacement[];
+  tick = 0;
+  /** Ticks until each emplacement can fire again. */
+  reload: number[];
+  private inputs = new Map<number, SandboxInput[]>();
+  private shots: Shot[] = [];
+  private nextShot = 1;
+  private events: number[] = [];
+  private rng: Rng;
+  private pelletRng: Rng;
+  private bufs = {
+    stones: new Float32Array(MAX_STONES * STONE_STRIDE),
+    projectiles: new Float32Array(64 * PROJECTILE_STRIDE),
+    chains: new Float32Array(16 * CHAIN_STRIDE),
+    minions: new Float32Array(128 * MINION_STRIDE),
+    parts: new Float32Array(128 * 11 * PART_STRIDE),
+  };
+  private tmpV: [number, number, number] = [0, 0, 0];
+  private tmpS: [number, number, number] = [0, 0, 0];
+  private tmpDv: [number, number, number] = [0, 0, 0];
+
+  constructor(R: Rapier, layout: CastleLayout, opts: SandboxOptions) {
+    this.R = R;
+    this.castle = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: false });
+    this.terrain = new Terrain(R, this.castle.world);
+    this.minions = new Minions(R, this.castle.world, this.terrain);
+    this.rng = new Rng(opts.seed);
+    this.wind = new Wind(this.rng.fork("wind"));
+    this.pelletRng = this.rng.fork("pellets");
+    this.emplacements = opts.emplacements ?? ASHWRIGHT_EMPLACEMENTS;
+    this.reload = this.emplacements.map(() => 0);
+    this.minions.spawnPatrol(this.rng.fork("patrol"), opts.minions);
+    this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
+  }
+
+  free() {
+    this.castle.free();
+  }
+
+  /** Queue an input for a tick (now or later). Inputs for one tick apply in the order queued. */
+  queue(tick: number, input: SandboxInput) {
+    const t = tick < this.tick ? this.tick : tick;
+    let list = this.inputs.get(t);
+    if (!list) this.inputs.set(t, (list = []));
+    list.push(input);
+  }
+
+  step() {
+    const tick = this.tick;
+    const list = this.inputs.get(tick);
+    if (list) {
+      this.inputs.delete(tick);
+      for (const input of list) this.apply(input);
+    }
+    this.wind.step(tick);
+    this.applyFlight();
+    this.minions.walk(tick);
+    this.terrain.rebuild();
+    this.castle.step();
+    this.afterStep();
+    for (let i = 0; i < this.reload.length; i++) if (this.reload[i] > 0) this.reload[i]--;
+    this.tick++;
+  }
+
+  private apply(input: SandboxInput) {
+    if (input.kind === "minions") {
+      this.minions.spawnPatrol(this.rng.fork(`patrol${this.tick}`), input.count);
+      return;
+    }
+    const e = this.emplacements[input.emplacement];
+    if (!e || this.reload[e.id] > 0) return;
+    const w = WEAPONS[e.weapon];
+    const a = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
+    const charge = input.charge < 0 ? 0 : input.charge > 1 ? 1 : input.charge;
+    const speed = w.minSpeed + (w.speed - w.minSpeed) * charge;
+    this.reload[e.id] = w.reload;
+    const id = this.nextShot++;
+    this.event(EventKind.Muzzle, e.id, id, 0, 0);
+    switch (e.weapon) {
+      case "longGun":
+        this.fireBall(id, e, w, a.yaw, a.pitch, speed, input.spin);
+        break;
+      case "mortar":
+        this.fireShell(id, e, w, a.yaw, a.pitch, speed, input.fuse);
+        break;
+      case "chainShot":
+        this.fireChain(id, e, w, a.yaw, a.pitch, speed);
+        break;
+      case "swivel":
+        this.fireGrape(id, e, w, a.yaw, a.pitch, speed);
+        break;
+    }
+  }
+
+  private fireBall(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number, spin: Spin) {
+    const [mx, my, mz] = muzzle(e, yaw, pitch);
+    const [dx, dy, dz] = aimDir(yaw, pitch);
+    const sv = spinVector(yaw, spin, w.spinRate);
+    const p = w.projectile;
+    const slot = this.castle.fire(mx, my, mz, dx * speed, dy * speed, dz * speed, {
+      radius: p.radius, density: p.density, restitution: p.restitution, blast: p.blast, ricochet: true,
+      angvel: sv ? { x: sv[0], y: sv[1], z: sv[2] } : undefined,
+    });
+    if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Ball, slots: [slot], coef: flightCoef(p), spin: sv !== null, fuseAt: -1, landed: false, joint: null });
+  }
+
+  private fireShell(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number, fuse: number) {
+    const [mx, my, mz] = muzzle(e, yaw, pitch);
+    const [dx, dy, dz] = aimDir(yaw, pitch);
+    const p = w.projectile;
+    const slot = this.castle.fire(mx, my, mz, dx * speed, dy * speed, dz * speed, {
+      radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: false, life: 60 * 20,
+    });
+    const f = fuse <= 0 ? 0 : this.tick + clampInt(fuse, w.fuseMin, w.fuseMax);
+    if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Shell, slots: [slot], coef: flightCoef(p), spin: false, fuseAt: f, landed: false, joint: null });
+  }
+
+  private fireChain(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number) {
+    const [mx, my, mz] = muzzle(e, yaw, pitch);
+    const [dx, dy, dz] = aimDir(yaw, pitch);
+    // The chain lies across the shot (along "right") and the pair spins about the vertical.
+    const rx = -dz, rz = dx; // right = forward x up, flattened
+    const rl = dsqrt(rx * rx + rz * rz) + 1e-9;
+    const h = w.chainLength / 2;
+    const ux = rx / rl, uz = rz / rl;
+    const tang = w.chainSpin * h; // tangential speed of each ball
+    // up x right = forward (flattened): one ball runs ahead, the other lags, so the pair turns.
+    const fx = dx, fz = dz;
+    const fl = dsqrt(fx * fx + fz * fz) + 1e-9;
+    const p = w.projectile;
+    const opts = { radius: p.radius, density: p.density, restitution: p.restitution, blast: p.blast, ricochet: true };
+    const s1 = this.castle.fire(mx + ux * h, my, mz + uz * h, dx * speed + (fx / fl) * tang, dy * speed, dz * speed + (fz / fl) * tang, opts);
+    const s2 = this.castle.fire(mx - ux * h, my, mz - uz * h, dx * speed - (fx / fl) * tang, dy * speed, dz * speed - (fz / fl) * tang, opts);
+    if (s1 < 0 || s2 < 0) return;
+    const b1 = this.castle.balls[s1].body, b2 = this.castle.balls[s2].body;
+    const joint = this.castle.world.createImpulseJoint(this.R.JointData.rope(w.chainLength, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }), b1, b2, true);
+    this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Chain, slots: [s1, s2], coef: flightCoef(p), spin: false, fuseAt: -1, landed: false, joint });
+  }
+
+  private fireGrape(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number) {
+    const [mx, my, mz] = muzzle(e, yaw, pitch);
+    const p = w.projectile;
+    const slots: number[] = [];
+    for (let i = 0; i < w.pellets; i++) {
+      // Uniform over a disc of directions: radius from sqrt of a uniform.
+      const r = w.spread * dsqrt(this.pelletRng.next());
+      const t = this.pelletRng.range(0, 6.283185307179586);
+      const [dx, dy, dz] = aimDir(yaw + r * cosT(t), pitch + r * sinT(t));
+      const sp = speed * this.pelletRng.range(0.92, 1.05);
+      const s = this.castle.fire(mx, my, mz, dx * sp, dy * sp, dz * sp, { radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: true, life: 60 * 4, groups: PELLET_GROUPS });
+      if (s >= 0) slots.push(s);
+    }
+    if (slots.length) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Grape, slots, coef: flightCoef(p), spin: false, fuseAt: -1, landed: false, joint: null });
+  }
+
+  /** Drag against the wind for everything in the air, Magnus lift for spinning shot that has not touched anything. */
+  private applyFlight() {
+    const v = this.tmpV, sp = this.tmpS, dv = this.tmpDv;
+    for (const shot of this.shots) {
+      for (const slot of shot.slots) {
+        const ball = this.castle.balls[slot];
+        if (!ball || !ball.alive) continue;
+        const lv = ball.body.linvel();
+        v[0] = lv.x;
+        v[1] = lv.y;
+        v[2] = lv.z;
+        let spin: [number, number, number] | null = null;
+        if (shot.spin && !ball.touched) {
+          const av = ball.body.angvel();
+          sp[0] = av.x;
+          sp[1] = av.y;
+          sp[2] = av.z;
+          spin = sp;
+        }
+        flightDv(v, spin, this.wind.x, this.wind.z, shot.coef, dv);
+        ball.body.setLinvel({ x: v[0] + dv[0], y: v[1] + dv[1], z: v[2] + dv[2] }, true);
+      }
+    }
+  }
+
+  private afterStep() {
+    const castle = this.castle;
+    for (const im of castle.impacts) this.event(EventKind.Impact, im.x, im.y, im.z, im.strength);
+
+    // Balls that touched minions: knock them down and keep most of the momentum.
+    for (const [bi, handle] of castle.foreign) {
+      const mid = this.minions.of(handle);
+      if (mid === undefined) continue;
+      const ball = castle.balls[bi];
+      if (!ball) continue;
+      const speed2 = ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz;
+      if (speed2 < 16) continue;
+      const mass = ball.body.mass();
+      const share = mass / (mass + 70); // momentum shared with a 70 kg body
+      const p = ball.body.translation();
+      this.minions.knock({ minion: mid, vx: ball.vx * share, vy: ball.vy * share + 1.5, vz: ball.vz * share, px: p.x, py: p.y, pz: p.z, extra: 1.5 }, this.tick);
+      ball.body.setLinvel({ x: ball.vx * (1 - share * 0.5), y: ball.vy * (1 - share * 0.5), z: ball.vz * (1 - share * 0.5) }, true);
+      this.event(EventKind.Blood, p.x, p.y, p.z, Math.min(1, dsqrt(speed2) / 60));
+    }
+    // Falling stones on minions.
+    for (const [stoneId, handle] of castle.foreignStones) {
+      const mid = this.minions.of(handle);
+      if (mid === undefined) continue;
+      const v = castle.bodies[stoneId].linvel();
+      const s2 = v.x * v.x + v.y * v.y + v.z * v.z;
+      if (s2 < 6) continue;
+      const p = castle.bodies[stoneId].translation();
+      this.minions.knock({ minion: mid, vx: v.x * 0.4, vy: v.y * 0.2, vz: v.z * 0.4, px: p.x, py: p.y, pz: p.z, extra: 0.5 }, this.tick);
+      this.event(EventKind.Blood, p.x, p.y, p.z, 0.5);
+    }
+
+    for (let k = this.shots.length - 1; k >= 0; k--) {
+      const shot = this.shots[k];
+      let alive = 0;
+      for (const slot of shot.slots) {
+        const ball = castle.balls[slot];
+        if (!ball || !ball.alive) continue;
+        alive++;
+        if (ball.touchedNow && !shot.landed) {
+          shot.landed = true;
+          const p = ball.body.translation();
+          this.event(EventKind.Landed, shot.emplacement, p.x, p.y, p.z);
+          // A heavy, fast ball into the ground digs a small crater.
+          if (shot.kind === ProjectileKind.Ball) {
+            const speed2 = ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz;
+            if (speed2 > 900 && p.y - this.terrain.heightAt(p.x, p.z) < ball.radius + 0.4) {
+              if (this.terrain.crater(p.x, p.z, 1.3, 0.45)) castle.thawAt(p.x, p.y, p.z, 2.5);
+            }
+          }
+        }
+      }
+      // Fuses.
+      if (shot.kind === ProjectileKind.Shell && alive) {
+        const ball = castle.balls[shot.slots[0]];
+        const due = shot.fuseAt === 0 ? ball.touchedNow : shot.fuseAt > 0 && this.tick + 1 >= shot.fuseAt;
+        if (due) {
+          const p = ball.body.translation();
+          castle.removeBall(shot.slots[0]);
+          this.explode(p.x, p.y, p.z);
+          alive = 0;
+        }
+      }
+      if (!alive) {
+        if (shot.joint) shot.joint = null; // removed with its bodies
+        this.shots.splice(k, 1);
+      }
+    }
+    this.minions.settle();
+  }
+
+  /** A powder burst: masonry, minions, a crater if it is near the ground. */
+  explode(x: number, y: number, z: number) {
+    const E = EXPLOSION;
+    this.castle.explode(x, y, z, E.radius, E.power);
+    this.event(EventKind.Explosion, x, y, z, E.radius);
+    for (const n of this.minions.near(x, y, z, E.knock)) {
+      const d = n.d + 0.3;
+      const f = 14 * (1 - n.d / E.knock);
+      const ex = (n.cx - x) / d, ey = (n.cy - y) / d, ez = (n.cz - z) / d;
+      this.minions.knock({ minion: n.id, vx: ex * f, vy: ey * f + f * 0.6, vz: ez * f, px: x, py: y, pz: z, extra: 0.6 }, this.tick);
+      this.event(EventKind.Blood, n.cx, n.cy, n.cz, 1 - n.d / E.knock);
+    }
+    const g = this.terrain.heightAt(x, z);
+    if (y - g < 1.6) {
+      const depth = E.depth * (1 - (y - g) / 1.6 * 0.6);
+      if (this.terrain.crater(x, z, E.crater, depth)) this.castle.thawAt(x, y, z, E.crater + 1.5);
+    }
+  }
+
+  private event(kind: EventKind, a: number, b: number, c: number, d: number) {
+    this.events.push(kind, a, b, c, d);
+  }
+
+  /** Everything since the last call, for the renderer. Arrays are fresh copies (transferable). */
+  collect(): FrameData {
+    const b = this.bufs;
+    const stoneCount = this.castle.collectMoving(b.stones);
+    let pc = 0, cc = 0;
+    for (const shot of this.shots) {
+      let first: { x: number; y: number; z: number } | null = null;
+      for (const slot of shot.slots) {
+        const ball = this.castle.balls[slot];
+        if (!ball || !ball.alive || (pc + 1) * PROJECTILE_STRIDE > b.projectiles.length) continue;
+        const t = ball.body.translation();
+        const v = ball.body.linvel();
+        const o = pc * PROJECTILE_STRIDE;
+        b.projectiles.set([shot.kind, shot.id, t.x, t.y, t.z, ball.radius, v.x, v.y, v.z], o);
+        pc++;
+        if (shot.kind === ProjectileKind.Chain) {
+          if (!first) first = t;
+          else if ((cc + 1) * CHAIN_STRIDE <= b.chains.length) {
+            b.chains.set([first.x, first.y, first.z, t.x, t.y, t.z], cc * CHAIN_STRIDE);
+            cc++;
+          }
+        }
+      }
+    }
+    const mc = this.minions.collectUpright(b.minions);
+    const partCount = this.minions.collectParts(b.parts);
+    const terrain: TerrainPatch[] = this.terrain.patches;
+    this.terrain.patches = [];
+    const events = new Float32Array(this.events);
+    this.events.length = 0;
+    return {
+      tick: this.tick,
+      stones: b.stones.slice(0, stoneCount * STONE_STRIDE),
+      stoneCount,
+      projectiles: b.projectiles.slice(0, pc * PROJECTILE_STRIDE),
+      projectileCount: pc,
+      chains: b.chains.slice(0, cc * CHAIN_STRIDE),
+      chainCount: cc,
+      minions: b.minions.slice(0, mc * MINION_STRIDE),
+      minionCount: mc,
+      parts: b.parts.slice(0, partCount * PART_STRIDE),
+      partCount,
+      events,
+      eventCount: events.length / EVENT_STRIDE,
+      terrain,
+      windX: this.wind.x,
+      windZ: this.wind.z,
+    };
+  }
+
+  /** Minions down (ragdoll or frozen) and standing. */
+  minionCounts(): { down: number; standing: number } {
+    let down = 0;
+    for (const m of this.minions.list) if (m.state !== MinionState.Upright) down++;
+    return { down, standing: this.minions.list.length - down };
+  }
+
+  /** Hash of the whole gameplay state: masonry, Rapier's snapshot, terrain, minions, shots, wind. */
+  hash(): { state: string; world: string } {
+    const c = this.castle.hash();
+    const extra: number[] = [this.tick, this.wind.x, this.wind.z, ...this.reload];
+    this.minions.hashInto(extra);
+    for (const s of this.shots) {
+      extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);
+      for (const slot of s.slots) {
+        const ball = this.castle.balls[slot];
+        if (!ball.alive) continue;
+        const t = ball.body.translation();
+        extra.push(t.x, t.y, t.z);
+      }
+    }
+    const f = new Float64Array(extra);
+    let h = hashBytes(new Uint8Array(f.buffer));
+    h = hashBytes(new Uint8Array(this.terrain.h.buffer), h);
+    h = hashBytes(new Uint8Array(new Uint32Array([parseInt(c.state, 16)]).buffer), h);
+    return { state: hex8(h), world: c.snapshot };
+  }
+}
+
+export function spinVector(yaw: number, spin: Spin, rate: number): [number, number, number] | null {
+  if (spin === Spin.None || rate <= 0) return null;
+  const [fx, , fz] = aimDir(yaw, 0);
+  const rx = -fz, rz = fx; // right
+  switch (spin) {
+    case Spin.Back:
+      return [rx * rate, 0, rz * rate];
+    case Spin.Top:
+      return [-rx * rate, 0, -rz * rate];
+    case Spin.Left:
+      return [0, rate, 0];
+    case Spin.Right:
+      return [0, -rate, 0];
+  }
+  return null;
+}
+
+function clampInt(v: number, lo: number, hi: number): number {
+  const r = Math.round(v);
+  return r < lo ? lo : r > hi ? hi : r;
+}
+
+function cosT(t: number): number {
+  return aimDir(t, 0)[2];
+}
+function sinT(t: number): number {
+  return aimDir(t, 0)[0];
+}

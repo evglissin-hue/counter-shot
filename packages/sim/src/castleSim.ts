@@ -47,6 +47,8 @@ export interface SimOptions {
   shatter: number;
   /** Share of a loosened piece's momentum-at-ball-speed given as a push. */
   push: number;
+  /** Build the flat ground slab (the sandbox brings its own terrain instead). */
+  ground?: boolean;
 }
 
 export const DEFAULT_SIM: SimOptions = { span: 2, breakForce: 450_000, iterations: 4, blastBase: 0.8, blastPerSpeed: 0.034, push: 0.25, shatter: 0.65 };
@@ -60,6 +62,28 @@ export interface Ball {
   vz: number;
   age: number;
   alive: boolean;
+  /** Blast strength on masonry (1 = full cannon blast, 0 = none). */
+  blast: number;
+  /** Shallow hits on masonry glance off instead of breaching. */
+  ricochet: boolean;
+  /** Touched anything since launch. */
+  touched: boolean;
+  /** Touched something during the last step. */
+  touchedNow: boolean;
+  /** Lifetime in steps before it is removed. */
+  life: number;
+}
+
+export interface FireOptions {
+  radius?: number;
+  density?: number;
+  restitution?: number;
+  blast?: number;
+  ricochet?: boolean;
+  life?: number;
+  angvel?: { x: number; y: number; z: number };
+  /** Rapier collision groups (membership << 16 | filter). */
+  groups?: number;
 }
 
 export interface Impact {
@@ -71,7 +95,7 @@ export interface Impact {
 
 const BALL_RADIUS = 0.4;
 const BALL_DENSITY = 7800;
-const MAX_BALLS = 16;
+const MAX_BALLS = 64;
 
 export class CastleSim {
   readonly R: Rapier;
@@ -97,6 +121,12 @@ export class CastleSim {
   steps = 0;
   impacts: Impact[] = [];
   toppled: [boolean, boolean] = [false, false];
+  /** Ball contacts with colliders the castle does not own (minions, terrain): [ball index, collider handle]. */
+  foreign: Array<[number, number]> = [];
+  /** Stone contacts with colliders the castle does not own (minions): [stone id, collider handle]. */
+  foreignStones: Array<[number, number]> = [];
+  /** Glancing hits this step: [ball index, stone id]. */
+  glances: Array<[number, number]> = [];
   private grid = new Map<number, number[]>();
   private cost: Int32Array;
   private deque: Int32Array;
@@ -121,8 +151,10 @@ export class CastleSim {
     this.queue = new R.EventQueue(true);
 
     // The field: one big fixed slab whose top is y = 0.
-    const ground = this.world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(0, -1, -75));
-    this.world.createCollider(R.ColliderDesc.cuboid(160, 1, 220).setFriction(0.85), ground);
+    if (opts.ground !== false) {
+      const ground = this.world.createRigidBody(R.RigidBodyDesc.fixed().setTranslation(0, -1, -75));
+      this.world.createCollider(R.ColliderDesc.cuboid(160, 1, 220).setFriction(0.85), ground);
+    }
 
     const wedgePts = layout.wedge.points;
     for (const s of layout.stones) {
@@ -163,23 +195,25 @@ export class CastleSim {
     this.world.free();
   }
 
-  /** Launch a cannonball. Returns false if too many are in flight. */
-  fire(x: number, y: number, z: number, vx: number, vy: number, vz: number): boolean {
+  /** Launch a ball. Returns its slot, or -1 if too many are in flight. Defaults are the lab's cannonball. */
+  fire(x: number, y: number, z: number, vx: number, vy: number, vz: number, o: FireOptions = {}): number {
     let slot = this.balls.findIndex((b) => !b.alive);
     if (slot < 0) {
-      if (this.balls.length >= MAX_BALLS) return false;
+      if (this.balls.length >= MAX_BALLS) return -1;
       slot = this.balls.length;
     }
     const R = this.R;
-    const body = this.world.createRigidBody(
-      R.RigidBodyDesc.dynamic().setTranslation(x, y, z).setLinvel(vx, vy, vz).setCcdEnabled(true).setCanSleep(false),
-    );
+    const radius = o.radius ?? BALL_RADIUS;
+    const bd = R.RigidBodyDesc.dynamic().setTranslation(x, y, z).setLinvel(vx, vy, vz).setCcdEnabled(true).setCanSleep(false);
+    if (o.angvel) bd.setAngvel(o.angvel);
+    const body = this.world.createRigidBody(bd);
     const col = this.world.createCollider(
-      R.ColliderDesc.ball(BALL_RADIUS)
-        .setDensity(BALL_DENSITY)
+      R.ColliderDesc.ball(radius)
+        .setDensity(o.density ?? BALL_DENSITY)
         .setFriction(0.4)
-        .setRestitution(0.1)
-        .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS),
+        .setRestitution(o.restitution ?? 0.1)
+        .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS)
+        .setCollisionGroups(o.groups ?? 0xffffffff),
       body,
     );
     if (slot < this.balls.length) {
@@ -187,8 +221,40 @@ export class CastleSim {
       this.owner.delete(old.handle);
     }
     this.owner.set(col.handle, -(slot + 1));
-    this.balls[slot] = { body, handle: col.handle, radius: BALL_RADIUS, vx, vy, vz, age: 0, alive: true };
-    return true;
+    this.balls[slot] = {
+      body, handle: col.handle, radius, vx, vy, vz, age: 0, alive: true,
+      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, life: o.life ?? 60 * 12,
+    };
+    return slot;
+  }
+
+  /** Remove a ball now (a fuse went off, a pellet spent). */
+  removeBall(slot: number) {
+    const b = this.balls[slot];
+    if (!b || !b.alive) return;
+    this.world.removeRigidBody(b.body);
+    b.alive = false;
+  }
+
+  /** Register a collider this sim does not own, so contacts with balls are reported in `foreign`. */
+  isOwned(handle: number): boolean {
+    return this.owner.has(handle);
+  }
+
+  /**
+   * An explosion at a point: shatters and loosens masonry like a hit with no
+   * direction, thaws rubble around it. `power` plays the role of impact speed.
+   */
+  explode(x: number, y: number, z: number, radius: number, power: number) {
+    this.blast(x, y, z, radius, 0, 0, 0, power);
+    this.impacts.push({ x, y, z, strength: Math.min(1, radius / 3) });
+    this.supportCheck();
+  }
+
+  /** Stone id for a collider handle, or undefined. */
+  stoneOf(handle: number): number | undefined {
+    const o = this.owner.get(handle);
+    return o !== undefined && o >= 0 ? o : undefined;
   }
 
   /** Launch velocity that reaches (tx, ty, tz) from (x, y, z) in `time` seconds (gravity only). */
@@ -207,6 +273,10 @@ export class CastleSim {
       b.vz = v.z;
     }
     this.impacts.length = 0;
+    this.foreign.length = 0;
+    this.foreignStones.length = 0;
+    this.glances.length = 0;
+    for (const b of this.balls) b.touchedNow = false;
     this.world.step(this.queue);
     this.steps++;
 
@@ -216,10 +286,22 @@ export class CastleSim {
       if (!started) return;
       const a = this.owner.get(h1);
       const b = this.owner.get(h2);
+      for (const [o, other] of [[a, h2], [b, h1]] as const) {
+        if (o === undefined || o >= 0) continue;
+        const ball = this.balls[-o - 1];
+        if (!ball) continue;
+        ball.touched = true;
+        ball.touchedNow = true;
+        if (!this.owner.has(other)) this.foreign.push([-o - 1, other]);
+      }
+      if (a !== undefined && a >= 0 && b === undefined) this.foreignStones.push([a, h2]);
+      else if (b !== undefined && b >= 0 && a === undefined) this.foreignStones.push([b, h1]);
       if (a === undefined || b === undefined) return;
       if (a < 0 && b >= 0) hits.push([-a - 1, b]);
       else if (b < 0 && a >= 0) hits.push([-b - 1, a]);
     });
+    this.foreign.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+    this.foreignStones.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
     const breaks: number[] = [];
     this.queue.drainContactForceEvents((e) => {
       const a = this.owner.get(e.collider1());
@@ -241,6 +323,25 @@ export class CastleSim {
       lastBall = bi;
       const speed = dsqrt(speed2);
       const p = ball.body.translation();
+      if (ball.ricochet && this.glancing(ball, stoneId, speed)) {
+        this.glances.push([bi, stoneId]);
+        this.impacts.push({ x: p.x, y: p.y, z: p.z, strength: Math.min(0.5, speed / 160) });
+        continue;
+      }
+      if (ball.blast <= 0) {
+        this.impacts.push({ x: p.x, y: p.y, z: p.z, strength: Math.min(0.3, (speed / 200) * (ball.radius / 0.1)) });
+        continue;
+      }
+      if (ball.blast < 1) {
+        // A weak shot: knocks the piece it hit loose (and maybe a neighbour), no shatter core.
+        const r = (this.opts.blastBase + speed * this.opts.blastPerSpeed) * ball.blast;
+        const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
+        this.loosenAround(p.x + dx * 0.4, p.y + dy * 0.4, p.z + dz * 0.4, r, dx, dy, dz, speed * ball.blast);
+        ball.body.setLinvel({ x: ball.vx * 0.7, y: ball.vy * 0.7, z: ball.vz * 0.7 }, true);
+        this.impacts.push({ x: p.x, y: p.y, z: p.z, strength: Math.min(0.6, speed / 120) });
+        changed = true;
+        continue;
+      }
       const radius = this.opts.blastBase + speed * this.opts.blastPerSpeed;
       const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
       // The ball touches the face; the damage centres inside the masonry, a metre along the shot.
@@ -276,7 +377,7 @@ export class CastleSim {
       if (!b.alive) continue;
       b.age++;
       const p = b.body.translation();
-      if (b.age > 60 * 12 || p.y < -10) {
+      if (b.age > b.life || p.y < -10) {
         this.world.removeRigidBody(b.body);
         b.alive = false;
       }
@@ -332,6 +433,68 @@ export class CastleSim {
       const k = body.mass() * speed * this.opts.push * (0.25 + 0.75 * fall);
       body.applyImpulse({ x: px * k, y: py * k, z: pz * k }, true);
     }
+  }
+
+  /**
+   * Is this a glancing hit? Looks up the contact normal between the ball and
+   * the stone; a shot within about 20 degrees of the face glances off.
+   * The ball is sent on along the face with a little of its normal speed back.
+   */
+  private glancing(ball: Ball, stoneId: number, speed: number): boolean {
+    const stoneCol = this.bodies[stoneId].collider(0);
+    const ballCol = ball.body.collider(0);
+    let nx = 0, ny = 0, nz = 0, found = false;
+    this.world.contactPair(ballCol, stoneCol, (manifold, flipped) => {
+      if (found) return;
+      const n = manifold.normal();
+      const s = flipped ? -1 : 1; // normal from the ball towards the stone
+      nx = n.x * s; ny = n.y * s; nz = n.z * s;
+      found = true;
+    });
+    if (!found) return false;
+    const into = (ball.vx * nx + ball.vy * ny + ball.vz * nz) / speed; // cosine to the normal
+    if (into > 0.34) return false; // steeper than about 20 degrees off the face
+    const vn = ball.vx * nx + ball.vy * ny + ball.vz * nz;
+    const keep = 0.88;
+    ball.body.setLinvel(
+      { x: (ball.vx - vn * nx) * keep - vn * nx * 0.3, y: (ball.vy - vn * ny) * keep - vn * ny * 0.3, z: (ball.vz - vn * nz) * keep - vn * nz * 0.3 },
+      true,
+    );
+    return true;
+  }
+
+  /** Loosen (never shatter) fixed pieces within `radius`, with a push along the shot. */
+  private loosenAround(x: number, y: number, z: number, radius: number, dx: number, dy: number, dz: number, speed: number) {
+    const r2 = radius * radius;
+    const found: number[] = [];
+    const c0x = Math.floor((x - radius) / 2), c1x = Math.floor((x + radius) / 2);
+    const c0y = Math.floor((y - radius) / 2), c1y = Math.floor((y + radius) / 2);
+    const c0z = Math.floor((z - radius) / 2), c1z = Math.floor((z + radius) / 2);
+    for (let cx = c0x; cx <= c1x; cx++)
+      for (let cy = c0y; cy <= c1y; cy++)
+        for (let cz = c0z; cz <= c1z; cz++) {
+          const list = this.grid.get(this.cellKey(cx, cy, cz));
+          if (!list) continue;
+          for (const id of list) {
+            if (this.dynamic[id]) continue;
+            const s = this.layout.stones[id];
+            const ex = s.x - x, ey = s.y - y, ez = s.z - z;
+            if (ex * ex + ey * ey + ez * ez <= r2) found.push(id);
+          }
+        }
+    this.thaw(x, y, z, radius);
+    found.sort((p, q) => p - q);
+    for (const id of found) {
+      this.loosen(id);
+      const body = this.bodies[id];
+      const k = body.mass() * speed * this.opts.push * 0.5;
+      body.applyImpulse({ x: dx * k, y: dy * k + 0.2 * k, z: dz * k }, true);
+    }
+  }
+
+  /** Thaw frozen rubble around a point (craters, explosions near rubble). */
+  thawAt(x: number, y: number, z: number, radius: number) {
+    this.thaw(x, y, z, radius);
   }
 
   /** Loose pieces asleep for 1.5 s become fixed again. The banner never freezes. */

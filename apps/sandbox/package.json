@@ -1,0 +1,24 @@
+{
+  "name": "@keepfall/sandbox",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 1 sandbox: ride the Ashwright weapons against a target castle.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build && node scripts/make-artifact.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-deterministic-compat": "0.21.0",
+    "@keepfall/content": "0.0.0",
+    "@keepfall/core": "0.0.0",
+    "@keepfall/sim": "0.0.0",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.186.0",
+    "@webgpu/types": "0.1.74",
+    "vite": "8.3.4"
+  }
+}

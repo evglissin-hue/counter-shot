@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- artifact-head-start -->
+<title>Keepfall Sandbox</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=Barlow+Semi+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Smoked-glass siege instruments over the scene, one look in light and dark (the game is always dark). */
+:root {
+  --ground: #16140f;
+  --glass: rgba(20, 18, 14, 0.68);
+  --glass-strong: rgba(14, 12, 10, 0.9);
+  --line: rgba(236, 228, 210, 0.16);
+  --ink: #efe8d6;
+  --ink-dim: #b5ab95;
+  --brass: #c99a46;
+  --brass-ink: #221807;
+  --aim: #f4f6f8;
+  --bad: #e2715a;
+  --display: "IM Fell English SC", "Iowan Old Style", Georgia, serif;
+  --ui: "Barlow Semi Condensed", "Avenir Next Condensed", "Arial Narrow", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.4 var(--ui); overflow: hidden; -webkit-font-smoothing: antialiased; user-select: none; -webkit-user-select: none; }
+#app { position: fixed; inset: 0; }
+#scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+.glass { background: var(--glass); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+button { font: 500 14px/1 var(--ui); color: var(--ink); background: transparent; border: 0; border-radius: 7px; padding: 8px 11px; cursor: pointer; }
+button:hover { background: rgba(236, 228, 210, 0.08); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--brass); color: var(--brass-ink); }
+select { font: 500 14px/1 var(--ui); color: var(--ink); background: rgba(0,0,0,0.35); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; }
+label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14px/1 var(--ui); padding: 4px 6px; cursor: pointer; }
+.top { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; pointer-events: none; }
+.top > * { pointer-events: auto; }
+.brand { display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 7px; }
+.brand .mark { font: 22px/1 var(--display); }
+.brand .sub { font: 500 12px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
+.group { display: flex; align-items: center; gap: 2px; padding: 4px; flex-wrap: wrap; }
+.spacer { flex: 1 1 auto; }
+.weapon { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); padding: 12px 14px; min-width: 230px; display: grid; gap: 6px; }
+.weapon .title { display: flex; align-items: baseline; gap: 8px; }
+.weapon .title b { font: 24px/1 var(--display); font-weight: 400; }
+.weapon .title span { font: 500 12px/1 var(--mono); color: var(--ink-dim); }
+.bar { height: 4px; background: rgba(236,228,210,0.14); border-radius: 2px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--brass); transform-origin: left; }
+.small { font: 500 13px/1.2 var(--ui); color: var(--ink-dim); }
+.mono { font: 12px/1.3 var(--mono); color: var(--ink-dim); }
+.wind { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); padding: 10px 14px; display: grid; justify-items: center; gap: 4px; width: 112px; }
+.dial { width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--line); position: relative; }
+.dial::after { content: "ahead"; position: absolute; top: -2px; left: 50%; transform: translate(-50%, -100%); font: 500 10px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); }
+#wind-arrow { position: absolute; inset: 6px; transition: transform 0.3s; }
+#wind-arrow::before { content: ""; position: absolute; left: 50%; top: 2px; bottom: 50%; width: 2px; margin-left: -1px; background: var(--aim); }
+#wind-arrow::after { content: ""; position: absolute; left: 50%; top: -2px; border: 6px solid transparent; border-bottom: 9px solid var(--aim); border-top: 0; margin-left: -6px; }
+.reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+.reticle::before, .reticle::after { content: ""; position: absolute; background: var(--aim); box-shadow: 0 0 0 1px rgba(0,0,0,0.6); }
+.reticle::before { width: 18px; height: 2px; left: -9px; top: -1px; }
+.reticle::after { width: 2px; height: 18px; left: -1px; top: -9px; }
+#want { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--aim); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); pointer-events: none; opacity: 0.8; }
+.hint { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 12px; font: 500 14px/1.2 var(--ui); pointer-events: none; }
+.panel { position: absolute; top: calc(66px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: min(380px, calc(100% - 32px)); max-height: calc(100% - 150px); overflow: auto; padding: 16px; display: grid; gap: 10px; }
+.panel h2 { margin: 0; font: 22px/1.1 var(--display); font-weight: 400; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.keys dt { font: 12px/1.4 var(--mono); color: var(--brass); white-space: nowrap; }
+.keys dd { margin: 0; color: var(--ink); }
+.center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.center > div { padding: 16px 20px; font: 18px/1.3 var(--display); }
+#error { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: 14px 16px; color: var(--bad); background: var(--glass-strong); border: 1px solid var(--line); border-radius: 10px; }
+@media (max-width: 640px) { .weapon { min-width: 0; right: 140px; } .brand .sub { display: none; } }
+</style>
+<!-- artifact-head-end -->
+</head>
+<body>
+<!-- artifact-body-start -->
+<div id="app">
+  <canvas id="scene" aria-label="The battlefield"></canvas>
+  <div class="reticle" aria-hidden="true"></div>
+  <div id="want" hidden aria-hidden="true"></div>
+  <div id="lock-hint" class="hint glass">Click to take the gun (mouse aims; Esc frees the mouse)</div>
+  <div class="top">
+    <div class="brand glass"><span class="mark">Keepfall</span><span class="sub">Sandbox</span></div>
+    <div class="group glass" role="group" aria-label="Weapons">
+      <button data-weapon="0" aria-pressed="true">1 Long gun</button>
+      <button data-weapon="1">2 Mortar</button>
+      <button data-weapon="2">3 Chain shot</button>
+      <button data-weapon="3">4 Swivel</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="group glass">
+      <button id="overview-btn">Overview (Tab)</button>
+      <label class="check"><input type="checkbox" id="shotcam"> Shot camera (V)</label>
+      <button id="help-btn">Controls (H)</button>
+    </div>
+  </div>
+  <div class="weapon glass" aria-live="polite">
+    <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
+    <div class="bar"><i id="w-reload-fill"></i></div>
+    <div class="small" id="w-reload">Ready</div>
+    <div class="small" id="w-extra"></div>
+    <div class="mono" id="minions"></div>
+  </div>
+  <div class="wind glass" aria-label="Wind">
+    <div class="dial"><div id="wind-arrow"></div></div>
+    <div class="small" id="wind-speed">0 m/s</div>
+  </div>
+  <div id="help" class="panel glass" hidden>
+    <h2>Controls</h2>
+    <dl class="keys">
+      <dt>Click</dt><dd>Take the gun (mouse aims), then fire</dd>
+      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly: lead your target</dd>
+      <dt>Shift</dt><dd>Fine aim</dd>
+      <dt>Right mouse, Z</dt><dd>Zoom the sight (scroll sets it)</dd>
+      <dt>Space</dt><dd>Fire</dd>
+      <dt>1 to 4, Q, E</dt><dd>Switch weapon</dd>
+      <dt>[ ] or Alt+scroll</dt><dd>Mortar fuse (below the shortest: burst on impact)</dd>
+      <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
+      <dt>V</dt><dd>Shot camera: follow your shot, slow motion at impact</dd>
+      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
+      <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad fuse, X spin, Y shot camera, View overview</dd>
+    </dl>
+    <div class="row group">
+      <label class="small" for="quality">Quality</label>
+      <select id="quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select>
+      <label class="check"><input type="checkbox" id="gore" checked> Gore</label>
+    </div>
+    <div class="row group">
+      <button id="reset">Rebuild the castles</button>
+      <button id="more">More minions</button>
+      <button id="help-close">Close</button>
+    </div>
+    <div class="mono"><span id="backend"></span>, <span id="perf"></span></div>
+  </div>
+  <div id="loading" class="center"><div class="glass">Raising the walls...</div></div>
+  <div id="error" hidden role="alert"></div>
+</div>
+<!-- artifact-body-end -->
+<script type="module" src="./src/main.ts"></script>
+</body>
+</html>
