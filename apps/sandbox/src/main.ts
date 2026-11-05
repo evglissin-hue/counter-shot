@@ -137,6 +137,8 @@ let ride: Ride | null = null;
 /** What the last burst brought down: stones that started moving (or turned to dust) and minions knocked down, shown a few seconds later. */
 const everMoved = new Uint8Array(layout.stones.length);
 let tally: { until: number; stones: number; down0: number } | null = null;
+/** Minions down as of the frame before the latest one (the latest frame's own knockdowns count for its burst). */
+let lastDown = 0;
 
 // ---- worker -------------------------------------------------------------------
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -191,7 +193,7 @@ function onFrame(f: FrameData) {
       }
       const dist = Math.hypot(a - ear.x, b - ear.y, c - ear.z);
       shake = { at: now, s: Math.max(0.08, Math.min(1, 1.25 - dist / 110)) };
-      if (!tally) tally = { until: now + 4500, stones: 0, down0: stats.down };
+      if (!tally) tally = { until: now + 4500, stones: 0, down0: lastDown };
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
       landing[a] = { x: b, y: c, z: d };
@@ -286,6 +288,7 @@ function onFrame(f: FrameData) {
       }
     }
   }
+  lastDown = stats.down;
   renderer.applyFrame(f);
 }
 
@@ -640,6 +643,9 @@ function describeHit(h: PathHit | null): string {
   const e = EMP[current];
   const dist = Math.hypot(h.x - e.x, h.z - e.z);
   let what = "the ground";
+  for (const c of [0, 1] as const) {
+    if (h.stone < 0 && Math.abs(h.x) < 14 && Math.abs(h.z - layout.castleZ[c]) < 14) what = c === 0 ? "the target courtyard" : "your own courtyard";
+  }
   if (h.stone >= 0) {
     const s = layout.stones[h.stone];
     what = s ? `${s.castle === 0 ? "the target" : "your own"} ${PART_NAMES[s.part]}` : "rubble";

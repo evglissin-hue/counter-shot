@@ -27,7 +27,7 @@ apps/
 ## Determinism and tests
 
 - Same rules as phase 1: fixed 60 Hz ticks, detmath only, ordered iteration, inputs tagged with ticks, no wall-clock time. `RULES_VERSION` goes up whenever the same inputs play out differently.
-- Flow fields use integer costs and a fixed-order queue, and recompute on a fixed tick schedule (a few fields per tick, never "when there is time").
+- Flow fields use integer costs and a fixed-order queue, and recompute on a fixed tick schedule: a few fields per tick, the same on a fast machine and a slow one.
 - Node tests pin the hash of a scripted match session per milestone; from M5, an AI against AI match replays to a pinned hash, and headless Chromium must match Node bit for bit (`npm run check:browser`).
 - The lab's reference hash (35a7603f / 054e5eb0) stays valid throughout.
 
