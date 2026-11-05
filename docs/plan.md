@@ -92,4 +92,6 @@ The lab page: https://claude.ai/artifact/GHqbFzcvN2tPt7wkhSm7NN (private to the 
 - A partial arc gives too little information for a lobbed weapon: the sandbox defaults to the full predicted arc with a landing ring; the partial arc stays as the harder setting.
 - The lab's castle layout mirrored castle 1's tower wedges inside out; the fix is a layout option so the lab's reference hash stays valid.
 - Weapon tabs kept keyboard focus, so Space pressed them: game keys must preventDefault and buttons must blur after a click.
-
+- The mortar as a big event: a burst throws masonry only if pieces below its centre are thrown up too (pushed down they hit fixed stone and stop). With an upward share of 1.1 and 30 m/s at the centre, a shell on a wall top throws 20 to 40 stones high and loosens about 60; on a tower top about 170. The worst single step after a burst was about 20 to 26 ms on the cloud server (once), then 3 to 4 ms.
+- Headless Chromium renders the sandbox at about 1.4 frames per second in software, so real-time camera moves cannot be judged from it. The page has a test clock (`#fixed` in the address: 1/30 s per frame, the sim stepping in lockstep), and `node tools/sandbox-shots.mjs` screenshots every camera view, including a whole shell ride, into `tools/.shots/`.
+- The aim help now casts the predicted flight against the stones (the renderer's own copy, with current positions) and the terrain, near the castles only, in well under a millisecond per frame.

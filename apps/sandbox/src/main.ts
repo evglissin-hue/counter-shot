@@ -2,16 +2,18 @@
 // Aiming runs here at a fixed 60 Hz through the same limiter the sim checks;
 // a fire sends the exact aim to the worker, which owns everything else.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, WEAPONS, type Emplacement } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, WEAPONS, type Emplacement, type Stone } from "@keepfall/content";
 import {
   aimDir,
   clampAim,
   EVENT_STRIDE,
   EventKind,
   flightCoef,
+  G,
   muzzle,
   predictPath,
   PROJECTILE_STRIDE,
+  ProjectileKind,
   restAim,
   Spin,
   spinVector,
@@ -21,8 +23,9 @@ import {
 } from "@keepfall/sim";
 import { Input } from "./input";
 import type { FromWorker, ToWorker } from "./protocol";
-import type { QualityTier } from "./render/api";
+import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
+import { Sound } from "./sound";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -30,6 +33,7 @@ const renderer = new GameRenderer(canvas);
 const worker = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "module" });
 const send = (m: ToWorker) => worker.postMessage(m);
 const input = new Input(canvas);
+const sound = new Sound();
 const layout = buildLayout(1, { mirrorWedges: true });
 const EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
 
@@ -37,6 +41,19 @@ const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
 const SEED = 7;
 const MINIONS = 12;
+const MORTAR = WEAPONS.mortar;
+const SHELL_G = G * MORTAR.projectile.gravity;
+/**
+ * Test clock (#fixed in the address): every rendered frame is 1/30 s of game
+ * time and the sim steps in lockstep with the page, so a slow headless browser
+ * shows exactly what a player sees at full speed.
+ */
+const FIXED = location.hash.includes("fixed");
+let vclock = 0;
+let frames = 0;
+/** Test clock only: hold game time still (for a screenshot). */
+let frozen = false;
+const clock = () => (FIXED ? vclock : performance.now());
 
 // ---- state ------------------------------------------------------------------
 let current = 0;
@@ -47,14 +64,19 @@ const fov: number[] = EMP.map((e) => WEAPONS[e.weapon].fov[1] * 0.8);
 let fuseTicks = 0; // mortar: 0 means burst on impact
 /** Aim help: the whole predicted flight (default in the sandbox) or only its first part, as in ranked play. */
 let aimHelp: "full" | "partial" = "full";
+/** Shot camera per emplacement: on for the mortar (ride the shell), off for the others. */
+let shotCam: boolean[] = EMP.map((e) => e.weapon === "mortar");
 try {
   if (localStorage.getItem("keepfall.aimHelp") === "partial") aimHelp = "partial";
+  const saved = localStorage.getItem("keepfall.shotCam");
+  if (saved && saved.length === EMP.length) shotCam = [...saved].map((c) => c === "1");
 } catch {}
-/** Seconds the current shot is predicted to fly before it lands (full arc only). */
+/** Seconds the current shot is predicted to fly before it lands or bursts. */
 let flightSeconds = 0;
+/** What the current shot is predicted to hit (full aim help). */
+let aimHit: PathHit | null = null;
 let spin: Spin = Spin.None;
 let view: "sight" | "overview" = "sight";
-let shotCam = false;
 let reload: number[] = EMP.map(() => 0);
 let wind = { x: 0, z: 0 };
 let ready = false;
@@ -64,10 +86,57 @@ const recording = new Map<number, { emp: number; pts: number[] }>(); // shot id 
 const landing: Array<{ x: number; y: number; z: number } | null> = EMP.map(() => null);
 let follow: { id: number; lastX: number; lastY: number; lastZ: number; vx: number; vy: number; vz: number; until: number } | null = null;
 let slowUntil = 0;
-/** Camera shake after an explosion (render only). */
-let shakeAt = -1e9;
+/** Sim and effects speed (slow motion around impacts). */
+let timeScale = 1;
+/** Camera shake after a burst: when, and how hard (0..1, by distance). Render only. */
+let shake = { at: -1e9, s: 0 };
 let lastFrameTick = 0;
 let stats = { stepMs: 0, down: 0, standing: 0, awake: 0 };
+
+/** The mortar's observer camera: it eases towards where the shell will land, so small aim changes move the ring, not the world. */
+const obs = { x: 0, y: 0, z: 0, primed: false };
+
+/** Riding a mortar shell: chase it up and over, stop short of the target, watch the burst in slow motion. */
+interface Ride {
+  id: number;
+  emp: number;
+  started: number;
+  /** Latest shell state from the sim, and when it arrived. */
+  sx: number;
+  sy: number;
+  sz: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  seenAt: number;
+  alive: boolean;
+  lostAt: number;
+  /** Predicted impact and seconds to it (sim time), refreshed in flight. */
+  ix: number;
+  iy: number;
+  iz: number;
+  tImpact: number;
+  /** The camera's offset from the shell while it follows (eased), and the camera itself: eye and the point it looks at. */
+  ox: number;
+  oy: number;
+  oz: number;
+  cx: number;
+  cy: number;
+  cz: number;
+  lx: number;
+  ly: number;
+  lz: number;
+  hold: boolean;
+  boomAt: number;
+  bx: number;
+  by: number;
+  bz: number;
+}
+let ride: Ride | null = null;
+
+/** What the last burst brought down: stones that started moving (or turned to dust) and minions knocked down, shown a few seconds later. */
+const everMoved = new Uint8Array(layout.stones.length);
+let tally: { until: number; stones: number; down0: number } | null = null;
 
 // ---- worker -------------------------------------------------------------------
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -83,7 +152,9 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     return;
   }
   if (m.t === "frame") {
+    const was = reload[current];
     reload = m.reload;
+    if (was > 0 && reload[current] === 0) sound.ready(EMP[current].weapon);
     stats = { stepMs: m.stepMs, down: m.down, standing: m.standing, awake: m.awake };
     onFrame(m.frame);
   }
@@ -91,61 +162,151 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
 worker.onerror = (e) => showError(e.message || "The simulation worker failed to start.");
 
 function onFrame(f: FrameData) {
+  const now = clock();
   wind = { x: f.windX, z: f.windZ };
   lastFrameTick = f.tick;
+  const ear = renderer.listener();
+  let impacts = 0;
   for (let k = 0; k < f.eventCount; k++) {
     const o = k * EVENT_STRIDE;
     const kind = f.events[o];
+    const a = f.events[o + 1], b = f.events[o + 2], c = f.events[o + 3], d = f.events[o + 4];
     if (kind === EventKind.Muzzle) {
-      const emp = f.events[o + 1], id = f.events[o + 2];
+      const emp = a, id = b;
       recording.set(id, { emp, pts: [] });
-      if (shotCam && emp === current) follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
+      const e = EMP[emp];
+      if (e) sound.fire(e.weapon, e.x, e.y, e.z, emp === current);
+      if (shotCam[emp] && emp === current && e) {
+        if (e.weapon === "mortar") startRide(id, emp, now);
+        else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
+      }
     } else if (kind === EventKind.Explosion) {
-      shakeAt = performance.now();
+      if (ride && !ride.boomAt && Math.hypot(a - ride.sx, b - ride.sy, c - ride.sz) < 12) {
+        ride.boomAt = now;
+        ride.bx = a;
+        ride.by = b;
+        ride.bz = c;
+        ride.hold = true;
+        setSlow(0.3);
+      }
+      const dist = Math.hypot(a - ear.x, b - ear.y, c - ear.z);
+      shake = { at: now, s: Math.max(0.08, Math.min(1, 1.25 - dist / 110)) };
+      if (!tally) tally = { until: now + 4500, stones: 0, down0: stats.down };
+      sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
-      const emp = f.events[o + 1];
-      landing[emp] = { x: f.events[o + 2], y: f.events[o + 3], z: f.events[o + 4] };
+      landing[a] = { x: b, y: c, z: d };
+    } else if (kind === EventKind.Impact) {
+      if (impacts++ < 3) sound.impact(a, b, c, d);
+    } else if (kind === EventKind.Blood) {
+      sound.thud(a, b, c, d);
     }
   }
-  // Record every live shot's first ball for its ghost trail; follow the chosen one.
+  // Stones moving for the first time count towards the burst's tally.
+  for (let i = 0; i < f.stoneCount; i++) {
+    const id = f.stones[i * 8] | 0;
+    if (id >= 0 && id < everMoved.length && !everMoved[id]) {
+      everMoved[id] = 1;
+      if (tally) tally.stones++;
+    }
+  }
+  if (tally && now > tally.until) showTally();
+  // Where loose masonry is moving, for the rumble and clatter.
+  if (f.stoneCount > 0) {
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    for (let i = 0; i < f.stoneCount; i++) {
+      const o = i * 8;
+      if (f.stones[o + 2] < -100) continue; // shattered
+      sx += f.stones[o + 1];
+      sy += f.stones[o + 2];
+      sz += f.stones[o + 3];
+      n++;
+    }
+    if (n) {
+      const r = sound.rubble, k = Math.min(1, n / 20);
+      r.x += (sx / n - r.x) * k;
+      r.y += (sy / n - r.y) * k;
+      r.z += (sz / n - r.z) * k;
+    }
+  }
+  // Record every live shot's first ball for its ghost trail; follow the chosen one; voices for shells and chains.
   const seen = new Set<number>();
   for (let i = 0; i < f.projectileCount; i++) {
     const o = i * PROJECTILE_STRIDE;
+    const kind = f.projectiles[o];
     const id = f.projectiles[o + 1];
     if (seen.has(id)) continue;
     seen.add(id);
     const x = f.projectiles[o + 2], y = f.projectiles[o + 3], z = f.projectiles[o + 4];
+    const vx = f.projectiles[o + 6], vy = f.projectiles[o + 7], vz = f.projectiles[o + 8];
     const rec = recording.get(id);
     if (rec && rec.pts.length < 3 * 600) rec.pts.push(x, y, z);
     if (follow && follow.id === id) {
       follow.lastX = x;
       follow.lastY = y;
       follow.lastZ = z;
-      follow.vx = f.projectiles[o + 6];
-      follow.vy = f.projectiles[o + 7];
-      follow.vz = f.projectiles[o + 8];
+      follow.vx = vx;
+      follow.vy = vy;
+      follow.vz = vz;
+    }
+    if (ride && ride.id === id) {
+      ride.sx = x;
+      ride.sy = y;
+      ride.sz = z;
+      ride.vx = vx;
+      ride.vy = vy;
+      ride.vz = vz;
+      ride.seenAt = now;
+      ride.alive = true;
+    }
+    if (kind === ProjectileKind.Shell) {
+      // Seconds until it comes down: from the ride's prediction, else from its height and fall.
+      const t = ride && ride.id === id && !ride.hold ? ride.tImpact : (vy + Math.sqrt(Math.max(0, vy * vy + 2 * SHELL_G * Math.max(0, y)))) / SHELL_G;
+      sound.shell(id, x, y, z, vx, vy, vz, t);
+    } else if (kind === ProjectileKind.Chain) {
+      sound.chain(id, x, y, z);
     }
   }
+  sound.endUnseen();
   for (const [id, rec] of recording) {
     if (seen.has(id)) continue;
     if (rec.pts.length >= 6) trails[rec.emp] = new Float32Array(rec.pts);
     recording.delete(id);
   }
-  // The shot camera: slow down when the followed shot lands, then hand back.
+  if (ride && ride.alive && !seen.has(ride.id)) {
+    ride.alive = false;
+    ride.lostAt = now;
+  }
+  // The shot camera (other weapons): slow down when the followed shot lands, then hand back.
   if (follow) {
-    const now = performance.now();
-    if (!seen.has(follow.id) || landedNow(f, follow.id)) {
+    if (!seen.has(follow.id) || landedNow(f)) {
       if (!follow.until) {
         follow.until = now + 1600;
         slowUntil = now + 900;
-        send({ t: "speed", factor: 0.25 });
+        setSlow(0.25);
       }
     }
   }
   renderer.applyFrame(f);
 }
 
-function landedNow(f: FrameData, _id: number): boolean {
+function showTally() {
+  if (!tally) return;
+  const down = Math.max(0, stats.down - tally.down0);
+  const parts = [`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`];
+  if (down) parts.push(`${down} ${down === 1 ? "man" : "men"} down`);
+  tally = null;
+  const el = $("tally");
+  el.textContent = parts.join(", ");
+  el.hidden = false;
+  el.classList.remove("show");
+  void el.offsetWidth; // restart the fade
+  el.classList.add("show");
+  clearTimeout(tallyTimer);
+  tallyTimer = setTimeout(() => (el.hidden = true), 3200);
+}
+let tallyTimer: ReturnType<typeof setTimeout> | undefined;
+
+function landedNow(f: FrameData): boolean {
   for (let k = 0; k < f.eventCount; k++) {
     const kind = f.events[k * EVENT_STRIDE];
     if ((kind === EventKind.Landed && f.events[k * EVENT_STRIDE + 1] === current) || kind === EventKind.Explosion) return true;
@@ -153,9 +314,127 @@ function landedNow(f: FrameData, _id: number): boolean {
   return false;
 }
 
+/** Slow motion for the sim (sandbox only), the effects and new sounds. */
+function setSlow(factor: number) {
+  if (Math.abs(factor - timeScale) < 0.01) return;
+  timeScale = factor;
+  send({ t: "speed", factor });
+  renderer.setTimeScale(factor);
+}
+
+// ---- riding a mortar shell ---------------------------------------------------------
+function startRide(id: number, emp: number, now: number) {
+  const e = EMP[emp], a = aims[emp];
+  const [fx, , fz] = aimDir(a.yaw, 0);
+  follow = null;
+  // Cut to a camera just behind the mortar, looking up along the barrel.
+  ride = {
+    id, emp, started: now,
+    sx: e.x, sy: e.y, sz: e.z, vx: 0, vy: 0, vz: 0, seenAt: now, alive: false, lostAt: 0,
+    ix: predicted?.x ?? e.x + fx * 120, iy: predicted?.y ?? 0, iz: predicted?.z ?? e.z + fz * 120, tImpact: flightSeconds || 4,
+    ox: -fx * 7, oy: 2.5, oz: -fz * 7,
+    cx: e.x - fx * 7, cy: e.y + 2.5, cz: e.z - fz * 7,
+    lx: predicted?.x ?? e.x + fx * 120, ly: predicted?.y ?? 0, lz: predicted?.z ?? e.z + fz * 120,
+    hold: false, boomAt: 0, bx: 0, by: 0, bz: 0,
+  };
+  $("ride-hint").hidden = false;
+}
+
+function endRide() {
+  if (!ride) return;
+  ride = null;
+  setSlow(1);
+  $("ride-hint").hidden = true;
+}
+
+/** Where the ridden shell will come down, from its current state (runs every frame, cheap). */
+function refreshImpact(r: Ride) {
+  if (!r.alive) return;
+  const coef = flightCoef(MORTAR.projectile);
+  const path = predictPath([r.sx, r.sy, r.sz], [r.vx, r.vy, r.vz], null, wind.x, wind.z, coef, 8, 2);
+  const hit = renderer.castPath(path);
+  if (!hit) return;
+  r.ix = hit.x;
+  r.iy = hit.y;
+  r.iz = hit.z;
+  r.tImpact = pathTime(path, hit);
+}
+
+function ridePose(now: number, dt: number): CameraPose | null {
+  const r = ride!;
+  if ((r.boomAt && now > r.boomAt + 2900) || (!r.boomAt && !r.alive && r.lostAt && now > r.lostAt + 900) || now > r.started + 16000) {
+    endRide();
+    return null;
+  }
+  if (r.boomAt) {
+    // Slow motion through the first second of the burst, then ease back to real time.
+    const t = (now - r.boomAt) / 1000;
+    setSlow(t < 1.3 ? 0.3 : t < 1.9 ? 0.3 + ((t - 1.3) / 0.6) * 0.7 : 1);
+  }
+  refreshImpact(r);
+  // The shell between sim frames: carry it on along its velocity.
+  const lag = r.alive ? Math.min(0.05, (now - r.seenAt) / 1000) * timeScale : 0;
+  const sx = r.sx + r.vx * lag, sy = r.sy + r.vy * lag, sz = r.sz + r.vz * lag;
+  let tx: number, ty: number, tz: number;
+  if (!r.hold) {
+    // Fly with the shell: behind it, above it and a little to the side, always looking at where it will land,
+    // so the target grows in the frame as the shell climbs, turns over and dives.
+    let hx = r.ix - sx, hz = r.iz - sz;
+    let hl = Math.hypot(hx, hz);
+    if (hl < 2) {
+      hx = r.vx;
+      hz = r.vz;
+      hl = Math.hypot(hx, hz) || 1;
+    }
+    hx /= hl;
+    hz /= hl;
+    const rx = -hz, rz = hx; // right
+    const sp = Math.hypot(r.vx, r.vy, r.vz) || 1;
+    const dive = Math.max(0, -r.vy / sp); // 0 climbing, 1 straight down
+    const ko = 1 - Math.exp(-dt * 2.5);
+    r.ox += (-hx * 12 + rx * 3 - r.ox) * ko;
+    r.oy += (4.5 + 9 * dive - r.oy) * ko;
+    r.oz += (-hz * 12 + rz * 3 - r.oz) * ko;
+    r.cx = sx + r.ox;
+    r.cy = sy + r.oy;
+    r.cz = sz + r.oz;
+    // Look at where it will land, pulled a little towards the shell so both stay in frame.
+    tx = r.ix + (sx - r.ix) * 0.25;
+    ty = r.iy + (sy - r.iy) * 0.25;
+    tz = r.iz + (sz - r.iz) * 0.25;
+    // Stop short of the target and let the shell go in alone.
+    if (r.alive && (r.tImpact < 0.6 || Math.hypot(sx - r.ix, sy - r.iy, sz - r.iz) < 30)) r.hold = true;
+  } else {
+    // Holding: drift back and up a little to frame the burst, looking at the shell, then the burst.
+    const ax = r.boomAt ? r.bx : r.ix, ay = r.boomAt ? r.by : r.iy, az = r.boomAt ? r.bz : r.iz;
+    const dx = r.cx - ax, dy = r.cy - ay, dz = r.cz - az;
+    const dl = Math.hypot(dx, dy, dz) || 1;
+    const drift = !r.boomAt || now < r.boomAt + 1500 ? 1.6 * dt : 0;
+    r.cx += (dx / dl) * drift;
+    r.cy += (dy / dl) * drift + 0.5 * drift;
+    r.cz += (dz / dl) * drift;
+    if (r.boomAt || !r.alive) {
+      tx = ax;
+      ty = ay + 2;
+      tz = az;
+    } else {
+      tx = (sx + ax) / 2;
+      ty = (sy + ay) / 2;
+      tz = (sz + az) / 2;
+    }
+  }
+  if (r.cy < 1.5) r.cy = 1.5;
+  const kl = 1 - Math.exp(-dt * (r.hold ? 4 : 6));
+  r.lx += (tx - r.lx) * kl;
+  r.ly += (ty - r.ly) * kl;
+  r.lz += (tz - r.lz) * kl;
+  return { mode: "free", x: r.cx, y: r.cy, z: r.cz, tx: r.lx, ty: r.ly, tz: r.lz, fov: 55 };
+}
+
 // ---- aiming at a fixed 60 Hz ------------------------------------------------------
 let aimAcc = 0;
 function aimTick() {
+  if (ride) return; // no blind aiming while the camera rides a shell
   const e = EMP[current];
   const w = WEAPONS[e.weapon];
   const fine = input.down("ShiftLeft") || input.down("ShiftRight");
@@ -191,7 +470,7 @@ function aimTick() {
 }
 
 function applyMouse() {
-  if (!input.locked || view !== "sight") {
+  if (!input.locked || view !== "sight" || ride) {
     input.mouseX = input.mouseY = 0;
     return;
   }
@@ -216,39 +495,98 @@ function fire() {
 }
 
 function select(i: number) {
+  endRide();
   current = ((i % EMP.length) + EMP.length) % EMP.length;
   view = "sight";
+  obs.primed = false;
   updateHud(true);
 }
 
 // ---- camera and aim help ---------------------------------------------------------
-function cameraPose() {
-  const now = performance.now();
+function cameraPose(now: number, dt: number): CameraPose {
+  if (ride) {
+    const p = ridePose(now, dt);
+    if (p) return p;
+  }
   if (follow && (!follow.until || now < follow.until) && follow.lastY) {
     return { mode: "follow" as const, x: follow.lastX, y: follow.lastY, z: follow.lastZ, vx: follow.vx, vy: follow.vy, vz: follow.vz };
   }
   if (follow && follow.until && now >= follow.until) follow = null;
   if (view === "overview") return { mode: "overview" as const };
   const e = EMP[current], a = aims[current];
-  const [fx, , fz] = aimDir(a.yaw, 0);
-  if (e.weapon === "mortar") {
-    // A spotter's view: raised and off to the side, looking at where the shell will come down,
-    // so the arc reads as a curve instead of a line straight up the screen.
-    const rx = -fz, rz = fx; // right
-    const ex = e.x + rx * 26 - fx * 18, ey = e.y + 34, ez = e.z + rz * 26 - fz * 18;
-    const t = predicted ?? { x: e.x + fx * 110, y: 0, z: e.z + fz * 110 };
-    const lx = t.x - ex, ly = t.y + 4 - ey, lz = t.z - ez;
-    const yaw = Math.atan2(lx, lz), pitch = Math.atan2(ly, Math.hypot(lx, lz));
-    return { mode: "sight" as const, x: ex, y: ey, z: ez, yaw, pitch, fov: Math.max(fov[current], 48) };
-  }
+  if (e.weapon === "mortar") return observerPose(dt);
   const [dx, dy, dz] = aimDir(a.yaw, a.pitch);
   return { mode: "sight" as const, x: e.x - dx * 3.2, y: e.y + 1.1 - dy * 3.2, z: e.z - dz * 3.2, yaw: a.yaw, pitch: a.pitch - 0.05, fov: fov[current] };
+}
+
+/**
+ * The mortar's observer: raised over the field, partway to the target, looking
+ * down at where the shell will land (or, with partial aim help, at its range
+ * in still air). Left and right on screen turn the mortar; up the screen is farther.
+ */
+function observerPose(dt: number): CameraPose {
+  const e = EMP[current], a = aims[current];
+  let t = predicted;
+  if (!t || aimHelp === "partial") {
+    // Still-air range at this elevation: a rough cue, not the answer.
+    const v = MORTAR.speed, p = a.pitch;
+    const range = Math.min(240, Math.max(30, (v * v * Math.sin(2 * p)) / SHELL_G));
+    const [fx, , fz] = aimDir(a.yaw, 0);
+    t = { x: e.x + fx * range, y: 0, z: e.z + fz * range };
+  }
+  if (!obs.primed) {
+    obs.x = t.x;
+    obs.y = t.y;
+    obs.z = t.z;
+    obs.primed = true;
+  }
+  const k = 1 - Math.exp(-dt * 3);
+  obs.x += (t.x - obs.x) * k;
+  obs.y += (t.y - obs.y) * k;
+  obs.z += (t.z - obs.z) * k;
+  const dx = obs.x - e.x, dz = obs.z - e.z;
+  const D = Math.max(30, Math.hypot(dx, dz));
+  const ux = dx / D, uz = dz / D;
+  const rx = -uz, rz = ux; // right
+  return {
+    mode: "free",
+    x: e.x + ux * D * 0.42 + rx * D * 0.1,
+    y: e.y + 24 + D * 0.32,
+    z: e.z + uz * D * 0.42 + rz * D * 0.1,
+    tx: obs.x,
+    ty: obs.y + 1,
+    tz: obs.z,
+    fov: fov[current],
+  };
+}
+
+/** Seconds of flight to a hit on a path sampled every 2 ticks. */
+function pathTime(path: Float32Array, hit: PathHit): number {
+  const i = hit.index;
+  const ax = path[i * 3], ay = path[i * 3 + 1], az = path[i * 3 + 2];
+  const bx = path[i * 3 + 3] ?? ax, by = path[i * 3 + 4] ?? ay, bz = path[i * 3 + 5] ?? az;
+  const seg = Math.hypot(bx - ax, by - ay, bz - az);
+  const frac = seg > 0 ? Math.min(1, Math.hypot(hit.x - ax, hit.y - ay, hit.z - az) / seg) : 0;
+  return ((i + frac) * 2) / 60;
+}
+
+/** The path up to its hit, ending exactly at the hit point. */
+function cutPath(path: Float32Array, hit: PathHit): Float32Array {
+  const out = new Float32Array((hit.index + 2) * 3);
+  out.set(path.subarray(0, (hit.index + 1) * 3));
+  out[(hit.index + 1) * 3] = hit.x;
+  out[(hit.index + 1) * 3 + 1] = hit.y;
+  out[(hit.index + 1) * 3 + 2] = hit.z;
+  return out;
 }
 
 let predicted: { x: number; y: number; z: number } | null = null;
 function updateAimHelp() {
   const e = EMP[current], w = WEAPONS[e.weapon], a = aims[current];
-  if (view !== "sight" || follow) {
+  const showing = view === "sight" && !follow && !ride;
+  aimHit = null;
+  let marker: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null = null;
+  if (!showing) {
     renderer.setAimArc(null);
   } else {
     const m = muzzle(e, a.yaw, a.pitch);
@@ -256,26 +594,57 @@ function updateAimHelp() {
     const sv = e.weapon === "longGun" ? spinVector(a.yaw, spin, w.spinRate) : null;
     const v: [number, number, number] = [d[0] * w.speed, d[1] * w.speed, d[2] * w.speed];
     const coef = flightCoef(w.projectile);
+    // The whole flight, stopped where it first hits masonry or the ground. A mortar
+    // fuse shorter than the flight bursts the shell in the air: the arc stops there.
+    const burstAt = e.weapon === "mortar" && fuseTicks > 0 ? fuseTicks / 60 : Infinity;
+    let path = predictPath(m, v, sv, wind.x, wind.z, coef, Math.min(12, burstAt), 2);
+    const hit = renderer.castPath(path);
+    if (hit) path = cutPath(path, hit);
+    flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
+    const n = path.length;
     if (aimHelp === "full") {
-      // The whole flight to the ground; a mortar fuse shorter than the flight cuts it where the shell bursts.
-      const full = predictPath(m, v, sv, wind.x, wind.z, coef, 12, 2);
-      const landed = full.length >= 6 && full[full.length - 2] <= 0.01;
-      flightSeconds = landed ? ((full.length / 3 - 1) * 2) / 60 : 0;
-      const burstAt = e.weapon === "mortar" && fuseTicks > 0 ? fuseTicks / 60 : Infinity;
-      const path = burstAt < flightSeconds || (burstAt < 12 && !landed) ? predictPath(m, v, sv, wind.x, wind.z, coef, burstAt, 2) : full;
       renderer.setAimArc(path);
-      const n = path.length;
-      predicted = n >= 3 ? { x: path[n - 3], y: Math.max(0, path[n - 2]), z: path[n - 1] } : null;
+      aimHit = hit;
+      predicted = hit ? { x: hit.x, y: hit.y, z: hit.z } : burstAt < 12 && n >= 3 ? { x: path[n - 3], y: path[n - 2], z: path[n - 1] } : null;
+      marker = hit ? { x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz } : predicted;
     } else {
-      flightSeconds = 0;
+      // Ranked style: only the first part of the flight (still stopped by walls).
+      const part = predictPath(m, v, sv, wind.x, wind.z, coef, w.arcSeconds, 2);
+      const ph = renderer.castPath(part);
+      renderer.setAimArc(ph ? cutPath(part, ph) : part);
       predicted = null;
-      renderer.setAimArc(predictPath(m, v, sv, wind.x, wind.z, coef, w.arcSeconds, 2));
     }
   }
-  renderer.setGhostTrail(trails[current]);
-  // Full aim help marks where this shot will land (or burst); partial marks where the last one landed.
-  renderer.setLandingMarker(aimHelp === "full" && view === "sight" && !follow ? predicted : landing[current]);
+  renderer.setGhostTrail(showing ? trails[current] : null);
+  // Full aim help marks where this shot will land or burst, with the reach of a burst; partial marks where the last one landed.
+  if (marker) renderer.setLandingMarker(marker, e.weapon === "mortar" && w.burst ? w.burst.radius : 0);
+  else renderer.setLandingMarker(showing ? landing[current] : null);
   for (let i = 0; i < EMP.length; i++) renderer.setWeaponPose(i, aims[i].yaw, aims[i].pitch, i === current);
+}
+
+const PART_NAMES: Record<Stone["part"], string> = {
+  wall: "wall",
+  tower: "tower",
+  keep: "keep",
+  merlon: "battlements",
+  house: "house",
+  roof: "roof",
+  gate: "gate",
+  floor: "keep roof",
+  banner: "banner",
+};
+
+/** "the target keep, 151 m" for the HUD. */
+function describeHit(h: PathHit | null): string {
+  if (!h) return "";
+  const e = EMP[current];
+  const dist = Math.hypot(h.x - e.x, h.z - e.z);
+  let what = "the ground";
+  if (h.stone >= 0) {
+    const s = layout.stones[h.stone];
+    what = s ? `${s.castle === 0 ? "the target" : "your own"} ${PART_NAMES[s.part]}` : "rubble";
+  }
+  return `${what}, ${Math.round(dist)} m`;
 }
 
 // ---- HUD -------------------------------------------------------------------------
@@ -284,14 +653,17 @@ const hud = {
   slot: $("w-slot"),
   reload: $("w-reload"),
   reloadFill: $("w-reload-fill"),
+  target: $("w-target"),
   extra: $("w-extra"),
   windArrow: $("wind-arrow"),
   windSpeed: $("wind-speed"),
   minions: $("minions"),
   perf: $("perf"),
-  crosshair: $("crosshair"),
+  reticle: $("reticle"),
   want: $("want"),
   lock: $("lock-hint"),
+  shotCam: $<HTMLInputElement>("shotcam"),
+  sound: $<HTMLButtonElement>("sound-btn"),
 };
 const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-weapon]")];
 tabs.forEach((b) =>
@@ -311,14 +683,21 @@ function updateHud(force = false) {
   const r = reload[current];
   hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
   hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
+  const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   if (e.weapon === "mortar") {
-    const flight = flightSeconds ? `, flight ${flightSeconds.toFixed(1)} s` : "";
-    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 < flightSeconds ? " (bursts in the air)" : fuseTicks > 0 && flightSeconds ? " (bounces, then bursts)" : "";
-    hud.extra.textContent = (fuseTicks === 0 ? "Fuse: on impact" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s${air}`) + `${flight}  ( [ ] )`;
+    const flight = aimHelp === "full" && flightSeconds ? `, ${flightSeconds.toFixed(1)} s` : "";
+    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : "";
+    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? " (bursts in the air)" : fuseTicks > 0 ? " (bounces, then bursts)" : "";
+    hud.extra.textContent = (fuseTicks === 0 ? "Fuse: on impact" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s${air}`) + "  ( [ ] )";
+  } else {
+    hud.target.textContent = hitText ? `Hits ${hitText}` : "";
+    if (e.weapon === "longGun") hud.extra.textContent = `Spin: ${SPIN_NAMES[spin]}  (R)`;
+    else if (e.weapon === "chainShot") hud.extra.textContent = "Two balls on a spinning chain";
+    else hud.extra.textContent = `${w.pellets} balls of grapeshot`;
   }
-  else if (e.weapon === "longGun") hud.extra.textContent = `Spin: ${SPIN_NAMES[spin]}  (R)`;
-  else if (e.weapon === "chainShot") hud.extra.textContent = "Two balls on a spinning chain";
-  else hud.extra.textContent = `${w.pellets} balls of grapeshot`;
+  hud.shotCam.checked = shotCam[current];
+  hud.sound.textContent = sound.muted ? "Sound off (M)" : "Sound on (M)";
+  hud.sound.setAttribute("aria-pressed", String(!sound.muted));
   // Wind relative to where you look: up on the gauge is straight ahead.
   const a = aims[current];
   const [fx, , fz] = aimDir(a.yaw, 0);
@@ -330,13 +709,14 @@ function updateHud(force = false) {
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms, ${stats.awake} moving, tick ${lastFrameTick}`;
-  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad;
+  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
+  hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
 }
 
 /** Where the wanted aim is on screen, relative to the barrel, for the lead marker. */
 function placeWanted() {
   const a = aims[current], t = wanted[current];
-  if (view !== "sight" || follow || EMP[current].weapon === "mortar" || (Math.abs(a.yaw - t.yaw) < 0.002 && Math.abs(a.pitch - t.pitch) < 0.002)) {
+  if (view !== "sight" || follow || ride || EMP[current].weapon === "mortar" || (Math.abs(a.yaw - t.yaw) < 0.002 && Math.abs(a.pitch - t.pitch) < 0.002)) {
     hud.want.hidden = true;
     return;
   }
@@ -368,9 +748,21 @@ aimHelpSel.addEventListener("change", () => {
 });
 const gore = $<HTMLInputElement>("gore");
 gore.addEventListener("change", () => renderer.setGore(gore.checked));
+const volume = $<HTMLInputElement>("volume");
+volume.value = String(Math.round(sound.volume * 100));
+volume.addEventListener("input", () => sound.setVolume(Number(volume.value) / 100));
+hud.sound.addEventListener("click", () => {
+  sound.unlock();
+  sound.setMuted(!sound.muted);
+  hud.sound.blur();
+  updateHud(true);
+});
 $("reset").addEventListener("click", () => {
+  endRide();
   send({ t: "reset", seed: SEED, minions: MINIONS });
   renderer.resetWorld();
+  everMoved.fill(0);
+  tally = null;
   trails.fill(null);
   landing.fill(null);
   recording.clear();
@@ -380,8 +772,17 @@ $("more").addEventListener("click", () => send({ t: "input", input: { kind: "min
 const help = $("help");
 $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
 $("help-close").addEventListener("click", () => (help.hidden = true));
-$("shotcam").addEventListener("change", (e) => (shotCam = (e.target as HTMLInputElement).checked));
+hud.shotCam.addEventListener("change", () => toggleShotCam(hud.shotCam.checked));
 $("overview-btn").addEventListener("click", () => toggleOverview());
+
+function toggleShotCam(on = !shotCam[current]) {
+  shotCam[current] = on;
+  if (!on) endRide();
+  try {
+    localStorage.setItem("keepfall.shotCam", shotCam.map((b) => (b ? "1" : "0")).join(""));
+  } catch {}
+  updateHud(true);
+}
 
 // First launch: a quick graphics test. Starting at Ultra, each tier renders
 // the live scene for about 1.5 seconds; the first whose 95th-percentile frame
@@ -440,6 +841,7 @@ function guard(dt: number) {
 }
 
 function toggleOverview() {
+  endRide();
   view = view === "sight" ? "overview" : "sight";
   if (view === "overview") document.exitPointerLock?.();
 }
@@ -450,20 +852,55 @@ function showError(msg: string) {
   el.textContent = msg;
 }
 
+/** Shake and a quick widening of the view after a burst, stronger when it is close. */
+function applyShake(pose: CameraPose, now: number) {
+  const age = (now - shake.at) / 1000;
+  if (age > 1.1 || (pose.mode !== "sight" && pose.mode !== "free")) return;
+  const fall = Math.exp(-age / 0.22);
+  const amp = 0.03 * shake.s * fall;
+  const jx = amp * (Math.sin(now * 0.083) + 0.5 * Math.sin(now * 0.191));
+  const jy = amp * (Math.sin(now * 0.109 + 1.7) + 0.5 * Math.sin(now * 0.157 + 0.4));
+  const kick = 7 * shake.s * Math.exp(-age / 0.12) * Math.min(1, age / 0.03);
+  if (pose.mode === "sight") {
+    pose.yaw += jx;
+    pose.pitch += jy;
+    pose.fov += kick;
+  } else {
+    const dx = pose.tx - pose.x, dy = pose.ty - pose.y, dz = pose.tz - pose.z;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    // Turn the look point sideways and up by the shake angle.
+    const rx = -dz / d, rz = dx / d;
+    pose.tx += rx * jx * d;
+    pose.tz += rz * jx * d;
+    pose.ty += jy * d;
+    pose.fov += kick;
+  }
+}
+
 // ---- main loop ----------------------------------------------------------------------
 let last = performance.now();
-function frame(now: number) {
-  const dt = Math.min(0.1, (now - last) / 1000);
-  last = now;
+function frame(wall: number) {
+  let dt = Math.min(0.1, (wall - last) / 1000);
+  last = wall;
+  if (FIXED) {
+    dt = frozen ? 0 : 1 / 30;
+    if (!frozen) {
+      vclock += 1000 / 30;
+      send({ t: "advance", seconds: dt });
+      frames++;
+    }
+  } else frames++;
+  const now = clock();
   const p = input.read();
   if (p.weapon >= 0) select(p.weapon);
   if (p.next) select(current + 1);
   if (p.prev) select(current - 1);
   if (p.overview) toggleOverview();
   if (p.help) help.hidden = !help.hidden;
-  if (p.shotCam) {
-    shotCam = !shotCam;
-    ($("shotcam") as HTMLInputElement).checked = shotCam;
+  if (p.shotCam) toggleShotCam();
+  if (p.mute) {
+    sound.setMuted(!sound.muted);
+    updateHud(true);
   }
   if (p.spin && EMP[current].weapon === "longGun") spin = ((spin + 1) % 5) as Spin;
   const w = WEAPONS[EMP[current].weapon];
@@ -483,11 +920,14 @@ function frame(now: number) {
   const pad = input.gamepad();
   const zoomIn = input.zoomHeld || input.down("KeyZ") || (pad ? (pad.buttons[6]?.value ?? 0) > 0.5 : false);
   if (input.wheel) {
-    fov[current] = Math.max(w.fov[0], Math.min(w.fov[1], fov[current] * (input.wheel > 0 ? 1.12 : 1 / 1.12)));
+    if (!ride) fov[current] = Math.max(w.fov[0], Math.min(w.fov[1], fov[current] * (input.wheel > 0 ? 1.12 : 1 / 1.12)));
     input.wheel = 0;
   }
   const shownFov = zoomIn ? w.fov[0] : fov[current];
-  if (p.fire && view === "sight") fire();
+  if (ride) {
+    // Any fire or skip key takes you back to the gun; it never fires.
+    if (p.fire || p.skip) endRide();
+  } else if (p.fire && view === "sight") fire();
 
   applyMouse();
   aimAcc += dt;
@@ -497,24 +937,17 @@ function frame(now: number) {
   }
   if (slowUntil && now > slowUntil) {
     slowUntil = 0;
-    send({ t: "speed", factor: 1 });
+    if (!ride) setSlow(1);
   }
-  const pose = cameraPose();
-  if (pose.mode === "sight") {
-    if (EMP[current].weapon !== "mortar") pose.fov = shownFov;
-    else pose.fov = Math.max(shownFov, 40);
-    const age = (now - shakeAt) / 1000;
-    if (age < 0.6) {
-      const amp = 0.012 * Math.exp(-age / 0.15);
-      pose.yaw += amp * Math.sin(now * 0.09);
-      pose.pitch += amp * Math.sin(now * 0.13 + 1.7);
-    }
-  }
+  const pose = cameraPose(now, dt);
+  if (pose.mode === "sight" || (pose.mode === "free" && !ride)) pose.fov = shownFov;
+  applyShake(pose, now);
   renderer.setCamera(pose);
   updateAimHelp();
   updateHud();
   placeWanted();
   if (!paused) renderer.render(dt);
+  sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: timeScale });
   calibrate(dt);
   guard(dt);
   requestAnimationFrame(frame);
@@ -523,7 +956,12 @@ function frame(now: number) {
 document.addEventListener("visibilitychange", () => {
   paused = document.hidden;
   send({ t: "pause", paused });
+  sound.setPaused(paused);
 });
+// Browsers start sound only after a click or a key press on the page.
+const unlock = () => sound.unlock();
+window.addEventListener("pointerdown", unlock, { capture: true });
+window.addEventListener("keydown", unlock, { capture: true });
 
 // ---- start ------------------------------------------------------------------------------
 async function start() {
@@ -557,7 +995,44 @@ async function start() {
   renderer.resize();
   window.addEventListener("resize", () => renderer.resize());
   send({ t: "init", seed: SEED, minions: MINIONS });
+  if (FIXED) send({ t: "manual" });
   updateHud(true);
   requestAnimationFrame(frame);
 }
 void start();
+
+// Test hook for the headless screenshot script: read-only views of the page state.
+(window as unknown as { __sandbox: unknown }).__sandbox = {
+  get ride() {
+    return ride ? { hold: ride.hold, boom: !!ride.boomAt, tImpact: ride.tImpact, alive: ride.alive } : null;
+  },
+  get aimHit() {
+    return aimHit;
+  },
+  get flightSeconds() {
+    return flightSeconds;
+  },
+  get timeScale() {
+    return timeScale;
+  },
+  get reload() {
+    return reload.slice();
+  },
+  /** Rendered frames so far (with #fixed, 30 per game second). */
+  get frames() {
+    return frames;
+  },
+  /** With #fixed: stop or restart game time. */
+  freeze(on: boolean) {
+    frozen = on;
+  },
+  aimAt(emp: number, yaw: number, pitch: number) {
+    aims[emp] = clampAim({ yaw, pitch }, EMP[emp], WEAPONS[EMP[emp].weapon]);
+    wanted[emp] = { ...aims[emp] };
+  },
+  select,
+  fire,
+  setFov(emp: number, f: number) {
+    fov[emp] = f;
+  },
+};

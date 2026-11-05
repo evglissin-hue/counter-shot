@@ -45,6 +45,7 @@ import {
 import { chipGeometry } from "./geometry";
 import type { StyleName, StylePreset } from "./styles";
 import type { ClearView } from "./clearview";
+import type { FlashLight } from "./bursts";
 import { N, qrot } from "./tslUtils";
 
 const SLOTS = 16;
@@ -97,6 +98,8 @@ export class Effects {
   readonly wind = uniform(new THREE.Vector2(0, 0));
   /** Thins the dust near the aim line (set before the first setStyle). */
   clear: ClearView | null = null;
+  /** Lights the dust near a burst's flash (set before the first setStyle). */
+  flash: FlashLight | null = null;
 
   constructor(time: N, sunDir: N, noise: THREE.Texture) {
     this.time = time;
@@ -249,6 +252,7 @@ export class Effects {
     const vuv: N = varying(qp.mul(2.0), "vDustUV");
     const vAlpha: N = varying(smoothstep(0.0, 0.12, t).mul(float(1).sub(smoothstep(life.mul(0.35), life, t))).mul(mix(0.45, 0.8, r2)).mul(clearFade), "vDustA");
     const vSeed: N = varying(r1, "vDustSeed");
+    const vFlash: N = this.flash ? varying(this.flash.at(centre), "vDustFlash") : float(0);
     const sunView: N = normalize(cameraViewMatrix.mul(vec4(this.sunDir, 0.0)).xyz);
     const dustCol = color(style.dust);
     m.colorNode = Fn(() => {
@@ -256,7 +260,7 @@ export class Effects {
       const nz = sqrt(max(float(1).sub(r2d), 0.0));
       const n = vec3(vuv.x, vuv.y, nz);
       const lit = clamp(dot(n, sunView).mul(0.5).add(0.5), 0.0, 1.0);
-      const c = dustCol.mul(mix(0.5, 1.05, lit)).mul(mix(0.85, 1.0, nz));
+      const c = dustCol.mul(mix(0.5, 1.05, lit)).mul(mix(0.85, 1.0, nz)).add(color(0xff8f45).mul(vFlash));
       return vec4(c, 1.0);
     })();
     m.opacityNode = Fn(() => {
@@ -329,7 +333,7 @@ export class Effects {
   spawnImpact(x: number, y: number, z: number, strength: number) {
     const k = this.nextSlot;
     this.nextSlot = (k + 1) % SLOTS;
-    const s = Math.max(0, Math.min(1, strength));
+    const s = Math.max(0, Math.min(2.5, strength));
     this.impA[k].set(x, y, z, this.now);
     // Bias the debris back towards where the shot came from.
     const bx = this.bias.x, bz = this.bias.z;

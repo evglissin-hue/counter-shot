@@ -17,7 +17,7 @@ export interface AimInput {
 }
 
 export function restAim(e: Emplacement, w: WeaponDef): AimState {
-  return { yaw: e.baseYaw, pitch: clamp(0.06, w.minPitch, w.maxPitch) };
+  return { yaw: e.baseYaw, pitch: clamp(w.restPitch, w.minPitch, w.maxPitch) };
 }
 
 /** One tick (1/60 s) of turning: each axis moves at most its rate. */

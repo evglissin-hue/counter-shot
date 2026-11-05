@@ -1,6 +1,7 @@
-// Camera control for the three poses the page asks for: the weapon sight
-// (position and aim follow at once, only the field of view eases), a free
-// orbit overview of both castles, and a chase camera behind a projectile.
+// Camera control for the poses the page asks for: the weapon sight (position
+// and aim follow at once, only the field of view eases), a free orbit
+// overview of both castles, a chase camera behind a projectile, and a free
+// camera the page places itself (the mortar's observer and its ride).
 
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
@@ -64,6 +65,13 @@ export class Views {
       this.tmp.set(pose.x + Math.sin(pose.yaw) * cp, pose.y + Math.sin(pose.pitch), pose.z + Math.cos(pose.yaw) * cp);
       cam.up.set(0, 1, 0);
       cam.lookAt(this.tmp);
+    } else if (pose.mode === "free") {
+      // The page places and smooths this camera itself; only the zoom eases here.
+      this.fovTarget = pose.fov;
+      if (was !== "free" && was !== "sight") this.setFov(pose.fov);
+      cam.position.set(pose.x, pose.y, pose.z);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(this.tmp.set(pose.tx, pose.ty, pose.tz));
     } else if (pose.mode === "overview") {
       this.fovTarget = OVERVIEW_FOV;
       if (was !== "overview") {

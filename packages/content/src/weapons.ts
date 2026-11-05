@@ -48,6 +48,8 @@ export interface WeaponDef {
   minSpeed: number;
   minPitch: number;
   maxPitch: number;
+  /** Elevation the weapon starts at (render and page only). */
+  restPitch: number;
   /** Top turning speeds, rad/s. Fine aim multiplies them by `fine`. */
   yawRate: number;
   pitchRate: number;
@@ -84,6 +86,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     minSpeed: 115,
     minPitch: -0.2,
     maxPitch: 0.35,
+    restPitch: 0.06,
     yawRate: 0.35,
     pitchRate: 0.25,
     fine: 0.2,
@@ -107,6 +110,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     minSpeed: 36,
     minPitch: 0.68,
     maxPitch: 1.35,
+    restPitch: 1.0,
     yawRate: 0.5,
     pitchRate: 0.3,
     fine: 0.2,
@@ -121,7 +125,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     spinRate: 0,
     arcSeconds: 1.0,
     burst: { radius: 4.6, shatter: 0.45, power: 30, lift: 1.1, bite: 0.9, knock: 12, knockSpeed: 18, crater: 4.0, depth: 1.6 },
-    fov: [20, 60],
+    fov: [12, 55],
   },
   chainShot: {
     kind: "chainShot",
@@ -130,6 +134,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     minSpeed: 80,
     minPitch: -0.3,
     maxPitch: 0.45,
+    restPitch: 0.06,
     yawRate: 0.6,
     pitchRate: 0.4,
     fine: 0.25,
@@ -153,6 +158,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     minSpeed: 70,
     minPitch: -0.6,
     maxPitch: 0.4,
+    restPitch: 0.06,
     yawRate: 1.6,
     pitchRate: 1.2,
     fine: 0.25,

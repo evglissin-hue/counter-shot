@@ -332,13 +332,13 @@ export class StoneSet {
    * per stone (6 planes) after a bounding sphere reject. Returns t or -1.
    * No allocations.
    */
-  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, castle: 0 | 1): number {
+  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, castle: 0 | 1, maxT = Infinity): number {
     const ids = this.castleIds[castle];
     const half = this.half;
     const P = this.wedgePlanes;
     const wedgeR2 = 0.9 * 0.9;
     const L = this.local;
-    let best = Infinity;
+    let best = maxT;
     for (let k = 0; k < ids.length; k++) {
       const id = ids[k];
       const g = this.groups[this.groupOf[id]];
@@ -398,7 +398,7 @@ export class StoneSet {
         this.lastHitId = id;
       }
     }
-    return best === Infinity ? -1 : best;
+    return best === maxT ? -1 : best;
   }
 
   /** Stone id of the nearest hit of the last raycast that hit something. */

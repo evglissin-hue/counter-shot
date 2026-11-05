@@ -6,11 +6,11 @@
 // and render(dt) every frame. Every call is safe before init() resolves.
 
 import * as THREE from "three/webgpu";
-import { uniform } from "three/tsl";
+import { float, uniform } from "three/tsl";
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
-import type { CameraPose, GameRendererApi, QualityTier, RenderStats } from "./api";
-import { Burst } from "./bursts";
+import type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
+import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
 import { Decals } from "./decals";
 import { Effects } from "./effects";
@@ -21,6 +21,7 @@ import { getNoiseTexture } from "./noiseTexture";
 import { Post, TIERS } from "./post";
 import { Projectiles } from "./projectiles";
 import { Scatter } from "./scatter";
+import { Shock } from "./shock";
 import { fitShadowCamera, makeSoftShadowFilter } from "./shadows";
 import { Sky } from "./sky";
 import { SHADOW_LAYER, StoneSet } from "./stones";
@@ -28,7 +29,7 @@ import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
 
-export type { CameraPose, GameRendererApi, QualityTier, RenderStats } from "./api";
+export type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
 
 const STYLE = GRITTY;
 
@@ -43,8 +44,13 @@ export class GameRenderer implements GameRendererApi {
   private suns = new Map<QualityTier, THREE.DirectionalLight>();
   private sun: THREE.DirectionalLight | null = null;
   /** One pooled light for muzzle flashes and explosions. */
-  private flash = new THREE.PointLight(0xffa860, 0, 45, 2);
+  private flash = new THREE.PointLight(0xffa860, 0, 60, 2);
   private flashLevel = 0;
+  /** The flash as uniforms, so smoke and dust near it glow. */
+  private flashPos = uniform(new THREE.Vector3(0, -100, 0));
+  private flashGlow = uniform(0);
+  /** How fast the flash light dies (1/s): fast for muzzles, slower for big bursts. */
+  private flashDecay = 14;
   private sky: Sky;
   private terrain: Terrain;
   private scatter: Scatter;
@@ -53,7 +59,11 @@ export class GameRenderer implements GameRendererApi {
   private minions: Minions;
   private guns: Guns;
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "smoke" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
+  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
+  private shock: Shock;
+  /** Slow motion for everything cosmetic (the camera keeps real time). */
+  private timeScale = 1;
+  private blastRing: THREE.Group;
   private clear = new ClearView();
   /** Per stone: last reported position and tick, and when it last shed dust (rule 5). */
   private prevPos = new Float32Array(0);
@@ -107,8 +117,15 @@ export class GameRenderer implements GameRendererApi {
     this.views = new Views(canvas, (x, z) => this.terrain.heightAt(x, z));
     this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir);
     this.scene.add(this.scatter.root);
+    const glow: FlashLight = {
+      at: (p) => {
+        const d = (p as typeof this.flashPos).sub(this.flashPos).length();
+        return this.flashGlow.div(float(1).add(d.mul(d).div(144)));
+      },
+    };
     this.effects = new Effects(this.time, this.sky.sunDir, this.noise);
     this.effects.clear = this.clear;
+    this.effects.flash = glow;
     this.scene.add(this.effects.root);
     this.projectiles = new Projectiles(STYLE, this.time, this.noise);
     this.scene.add(this.projectiles.root);
@@ -119,21 +136,31 @@ export class GameRenderer implements GameRendererApi {
     this.decals = new Decals(this.time, this.noise);
     this.scene.add(this.decals.mesh);
     const mk = (cfg: ConstructorParameters<typeof Burst>[0]) => {
-      const b = new Burst(cfg, this.time, this.wind, this.sky.sunDir, this.noise, this.clear);
+      const b = new Burst(cfg, this.time, this.wind, this.sky.sunDir, this.noise, this.clear, glow);
       this.scene.add(b.mesh);
       return b;
     };
     this.bursts = {
       flash: mk({ name: "flash", slots: 12, per: 8, life: [0.08, 0.18], color: 0xffd9a0, colorEnd: 0xff7a2a, additive: true, glow: 4, speed: [1, 5], size: [0.5, 1.3], grow: 12, gravity: 0, rise: 0, drag: 8, windScale: 0, spread: 0.6, opacity: 1, floor: false }),
       fire: mk({ name: "fire", slots: 8, per: 18, life: [0.35, 0.8], color: 0xffb060, colorEnd: 0x8a2a0a, additive: true, glow: 2.6, speed: [2, 7], size: [0.4, 1.2], grow: 4, gravity: 0, rise: 1.5, drag: 4, windScale: 0.2, spread: 1.2, opacity: 0.85, floor: true }),
+      // A powder burst's fireball: big, short, rolling upwards.
+      fireball: mk({ name: "fireball", slots: 4, per: 24, life: [0.45, 1.0], color: 0xffd08a, colorEnd: 0x9a3010, additive: true, glow: 3.2, speed: [2, 8], size: [1.2, 3.4], grow: 5, gravity: 0, rise: 2.5, drag: 3.5, windScale: 0.1, spread: 1.0, opacity: 0.9, floor: true }),
       smoke: mk({ name: "smoke", slots: 10, per: 26, life: [4.5, 7.5], color: 0x232120, colorEnd: 0x383633, additive: false, glow: 1, speed: [1.5, 5], size: [0.6, 2.0], grow: 0.8, gravity: 0, rise: 1.0, drag: 1.6, windScale: 0.6, spread: 1.0, opacity: 0.85, floor: true, lighting: 0.3, clearAim: true }),
+      // A tall column of dark smoke that leans with the wind and lingers.
+      column: mk({ name: "column", slots: 4, per: 32, life: [6, 11], color: 0x1c1a18, colorEnd: 0x423e39, additive: false, glow: 1, speed: [1.5, 6], size: [1.0, 4.2], grow: 0.55, gravity: 0, rise: 3.2, drag: 1.0, windScale: 0.85, spread: 0.55, opacity: 0.82, floor: true, lighting: 0.35, clearAim: true }),
+      // Dust thrown out along the ground by the blast.
+      skirt: mk({ name: "skirt", slots: 4, per: 36, life: [2.2, 4.2], color: 0x857762, colorEnd: 0x9a8f80, additive: false, glow: 1, speed: [10, 22], size: [0.8, 3.2], grow: 1.4, gravity: 0, rise: 0.35, drag: 2.6, windScale: 0.5, spread: 1.0, opacity: 0.62, floor: true, lighting: 0.6, clearAim: true }),
       muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true, clearAim: true }),
       dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
       trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
       spray: mk({ name: "spray", slots: 24, per: 14, life: [0.5, 0.9], color: 0x2c0d0a, additive: false, glow: 0.6, speed: [1.5, 4.5], size: [0.06, 0.12], grow: 3, gravity: 9.8, rise: 0, drag: 1, windScale: 0, spread: 0.9, opacity: 0.95, floor: true }),
     };
+    this.shock = new Shock(this.noise);
+    this.scene.add(this.shock.root);
     this.marker = this.buildMarker();
     this.scene.add(this.marker);
+    this.blastRing = this.buildBlastRing();
+    this.scene.add(this.blastRing);
   }
 
   async init(opts: { forceWebGL?: boolean } = {}): Promise<{ backend: "WebGPU" | "WebGL2" }> {
@@ -242,6 +269,7 @@ export class GameRenderer implements GameRendererApi {
     this.decals.clear();
     this.minions.clear();
     for (const b of Object.values(this.bursts)) b.clear();
+    this.shock.clear();
   }
 
   /** Readability rule 5: slow-moving masonry (settling, about to go) sheds a thin dust trickle. */
@@ -282,13 +310,22 @@ export class GameRenderer implements GameRendererApi {
     this.effects.spawnImpact(x, y, z, strength);
   }
 
+  /** A powder burst: fireball, a fountain of chips, dust thrown along the ground, a shock, a smoke column. */
   private spawnExplosion(x: number, y: number, z: number, radius: number) {
     const r = Math.max(0.5, radius || 3);
-    this.spawnImpact(x, y, z, 1);
-    this.bursts.flash.spawn(this.now, x, y + 0.3, z, r * 0.9, 0, 0.4, 0);
-    this.bursts.fire.spawn(this.now, x, y + 0.2, z, r * 0.45, 0, 0.6, 0);
-    this.bursts.smoke.spawn(this.now, x, y + 0.3, z, r * 0.45, 0, 0.5, 0);
-    this.pulseLight(x, y + 1.5, z, Math.min(3, r * 0.5), 0xffa860);
+    const g = this.terrain.heightAt(x, z);
+    const nearGround = y - g < 4;
+    // Two rings of chips and dust: one thrown hard, one heavier and lower.
+    this.spawnImpact(x, y, z, 2.2);
+    this.spawnImpact(x, y + 0.6, z, 1.5);
+    this.bursts.flash.spawn(this.now, x, y + 0.4, z, r * 0.6, 0, 0.4, 0);
+    this.bursts.fireball.spawn(this.now, x, y + 0.5, z, r * 0.32, 0, 0.7, 0);
+    this.bursts.fire.spawn(this.now, x, y + 0.2, z, r * 0.5, 0, 0.6, 0);
+    this.bursts.smoke.spawn(this.now, x, y + 0.3, z, r * 0.5, 0, 0.5, 0);
+    this.bursts.column.spawn(this.now, x, y + 1, z, r * 0.35, 0, 1, 0);
+    if (nearGround) this.bursts.skirt.spawn(this.now, x, g + 0.3, z, r * 0.3, 0, -0.5, 0);
+    this.shock.spawn(this.now, x, y, z, r, nearGround ? g : null);
+    this.pulseLight(x, y + 2, z, Math.min(6, r * 1.2), 0xffa050, 5);
   }
 
   private spawnMuzzle(em: number) {
@@ -296,7 +333,7 @@ export class GameRenderer implements GameRendererApi {
     if (!this.guns.muzzle(em, p, d)) return;
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
-    this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070);
+    this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070, 14);
   }
 
   private spawnBlood(x: number, y: number, z: number, strength: number) {
@@ -354,10 +391,12 @@ export class GameRenderer implements GameRendererApi {
     return true;
   }
 
-  private pulseLight(x: number, y: number, z: number, level: number, hex: number) {
+  private pulseLight(x: number, y: number, z: number, level: number, hex: number, decay: number) {
+    if (level < this.flashLevel * 0.5) return; // a small flash does not steal the light from a big one
     this.flash.position.set(x, y, z);
     this.flash.color.setHex(hex);
     this.flashLevel = Math.max(this.flashLevel, level);
+    this.flashDecay = decay;
   }
 
   // --- weapons, camera, aim help --------------------------------------------
@@ -380,10 +419,118 @@ export class GameRenderer implements GameRendererApi {
     this.effects.setGhostTrail(points);
   }
 
-  setLandingMarker(p: { x: number; y: number; z: number } | null): void {
+  setLandingMarker(p: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null, blastRadius = 0): void {
     this.markerOn = !!p;
     this.marker.visible = !!p;
-    if (p) this.marker.position.set(p.x, Math.max(p.y, this.terrain.heightAt(p.x, p.z)) + 0.06, p.z);
+    this.blastRing.visible = !!p && blastRadius > 0;
+    if (!p) return;
+    const nx = p.nx ?? 0, ny = p.ny ?? 1, nz = p.nz ?? 0;
+    const onGround = p.nx === undefined || p.y <= this.terrain.heightAt(p.x, p.z) + 0.05;
+    const y = onGround ? Math.max(p.y, this.terrain.heightAt(p.x, p.z)) : p.y;
+    // Lie on the surface it hits (a wall face, a roof slope), lifted a little off it.
+    this.marker.position.set(p.x + nx * 0.06, y + ny * 0.06, p.z + nz * 0.06);
+    this.tmpA.set(nx, ny, nz).normalize();
+    this.marker.quaternion.setFromUnitVectors(this.tmpB.set(0, 1, 0), this.tmpA);
+    if (blastRadius > 0) {
+      this.blastRing.position.set(p.x, y + 0.1, p.z);
+      this.blastRing.scale.setScalar(blastRadius);
+    }
+  }
+
+  castPath(points: Float32Array): PathHit | null {
+    const n = Math.floor(points.length / 3);
+    const stones = this.stones;
+    const cz = this.layout ? this.layout.castleZ : [0, -150];
+    for (let i = 1; i < n; i++) {
+      const ax = points[i * 3 - 3], ay = points[i * 3 - 2], az = points[i * 3 - 1];
+      const bx = points[i * 3], by = points[i * 3 + 1], bz = points[i * 3 + 2];
+      const dx = bx - ax, dy = by - ay, dz = bz - az;
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (len < 1e-6) continue;
+      const ux = dx / len, uy = dy / len, uz = dz / len;
+      let best = len;
+      let stone = -1;
+      let hit = false;
+      if (stones) {
+        for (const c of [0, 1] as const) {
+          // Only near a castle (its stones and the rubble around it).
+          const z0 = cz[c] - 26, z1 = cz[c] + 26;
+          if (Math.max(az, bz) < z0 || Math.min(az, bz) > z1 || Math.min(ax, bx) > 26 || Math.max(ax, bx) < -26 || Math.min(ay, by) > 27) continue;
+          const t = stones.raycast(ax, ay, az, ux, uy, uz, c, best);
+          if (t >= 0 && t < best) {
+            best = t;
+            stone = stones.lastHitId;
+            hit = true;
+          }
+        }
+      }
+      const h = (x: number, z: number) => this.terrain.heightAt(x, z);
+      if (by <= h(bx, bz)) {
+        let lo = 0, hi = len;
+        for (let k = 0; k < 22; k++) {
+          const m = (lo + hi) / 2;
+          if (ay + uy * m > h(ax + ux * m, az + uz * m)) lo = m;
+          else hi = m;
+        }
+        const tg = (lo + hi) / 2;
+        if (!hit || tg < best) {
+          best = tg;
+          stone = -1;
+          hit = true;
+        }
+      }
+      if (!hit) continue;
+      const x = ax + ux * best, y = ay + uy * best, z = az + uz * best;
+      let nx = 0, ny = 1, nz = 0;
+      if (stone >= 0 && stones) {
+        stones.faceNormal(stone, x, y, z, ux, uy, uz, this.normal);
+        [nx, ny, nz] = this.normal;
+      } else {
+        const e = 0.6;
+        const gx = (h(x + e, z) - h(x - e, z)) / (2 * e), gz = (h(x, z + e) - h(x, z - e)) / (2 * e);
+        const l = Math.sqrt(gx * gx + 1 + gz * gz);
+        nx = -gx / l;
+        ny = 1 / l;
+        nz = -gz / l;
+      }
+      return { index: i - 1, x, y, z, stone, nx, ny, nz };
+    }
+    return null;
+  }
+
+  setTimeScale(scale: number): void {
+    this.timeScale = Math.max(0.02, Math.min(1, scale));
+  }
+
+  listener(): Listener {
+    const cam = this.views.camera;
+    const e = cam.matrixWorld.elements;
+    return { x: cam.position.x, y: cam.position.y, z: cam.position.z, rx: e[0], ry: e[1], rz: e[2], fx: -e[8], fy: -e[9], fz: -e[10] };
+  }
+
+  /** The area a burst reaches: a thin cold ring over a faint disc (readability rule 4). */
+  private buildBlastRing(): THREE.Group {
+    const g = new THREE.Group();
+    g.name = "blast-ring";
+    const mk = (geo: THREE.BufferGeometry, hex: number, opacity: number, order: number) => {
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.MeshBasicNodeMaterial();
+      m.color = new THREE.Color(hex);
+      m.transparent = true;
+      m.opacity = opacity;
+      m.depthWrite = false;
+      m.fog = false;
+      m.side = THREE.DoubleSide;
+      m.polygonOffset = true;
+      m.polygonOffsetFactor = -4;
+      m.polygonOffsetUnits = -4;
+      const mesh = new THREE.Mesh(geo, m);
+      mesh.renderOrder = order;
+      return mesh;
+    };
+    g.add(mk(new THREE.CircleGeometry(1, 64), 0xeef4ff, 0.07, 20), mk(new THREE.RingGeometry(0.965, 1.0, 96, 1), 0x07090b, 0.6, 21), mk(new THREE.RingGeometry(0.975, 0.99, 96, 1), 0xeef4ff, 0.75, 22));
+    g.visible = false;
+    return g;
   }
 
   /** Two flat rings: cold white over a dark outline (readability rule 4). */
@@ -477,12 +624,14 @@ export class GameRenderer implements GameRendererApi {
 
   render(dtSeconds: number): void {
     if (!this.initialized) return;
-    const dt = Math.max(0, Math.min(0.25, dtSeconds || 0));
+    const real = Math.max(0, Math.min(0.25, dtSeconds || 0));
+    const dt = real * this.timeScale;
     this.now += dt;
     this.time.value = this.now;
     this.sky.time.value = this.now;
     this.effects.setTime(this.now);
-    this.views.update(dt);
+    this.shock.update(this.now);
+    this.views.update(real);
     const cam = this.views.camera;
     cam.updateMatrixWorld();
     this.clear.update(cam);
@@ -496,9 +645,11 @@ export class GameRenderer implements GameRendererApi {
     this.terrain.flush();
     this.guns.update(dt);
     // Flash light decays fast.
-    this.flashLevel *= Math.exp(-dt * 14);
+    this.flashLevel *= Math.exp(-dt * this.flashDecay);
     if (this.flashLevel < 0.01) this.flashLevel = 0;
     this.flash.intensity = this.flashLevel * 900;
+    this.flashPos.value.copy(this.flash.position);
+    this.flashGlow.value = Math.min(1.4, this.flashLevel * 0.25);
     if (this.markerOn) {
       // Keep the marker readable from far away.
       const dist = cam.position.distanceTo(this.marker.position);
@@ -556,13 +707,15 @@ export class GameRenderer implements GameRendererApi {
     this.guns.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
-    this.marker.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        m.geometry.dispose();
-        (m.material as THREE.Material).dispose();
-      }
-    });
+    this.shock.dispose();
+    for (const group of [this.marker, this.blastRing])
+      group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (m.isMesh) {
+          m.geometry.dispose();
+          (m.material as THREE.Material).dispose();
+        }
+      });
     this.views.dispose();
     for (const l of this.suns.values()) l.shadow.dispose();
     this.renderer?.dispose();

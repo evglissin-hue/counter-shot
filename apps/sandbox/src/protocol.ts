@@ -8,7 +8,10 @@ export type ToWorker =
   | { t: "reset"; seed: number; minions: number }
   /** Sim speed for the shot camera's slow motion (1 = real time). Sandbox only. */
   | { t: "speed"; factor: number }
-  | { t: "pause"; paused: boolean };
+  | { t: "pause"; paused: boolean }
+  /** Test clock: stop following wall time and step only when the page says how far to go. */
+  | { t: "manual" }
+  | { t: "advance"; seconds: number };
 
 export type FromWorker =
   | { t: "ready"; stones: number; setupMs: number; terrain: TerrainPatch; rulesVersion: number }

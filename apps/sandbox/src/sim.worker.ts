@@ -17,6 +17,8 @@ let acc = 0;
 let speed = 1;
 let paused = false;
 let stepEma = 0;
+/** Test clock: the page advances the sim itself, frame by frame. */
+let manual = false;
 
 async function load(): Promise<Rapier> {
   if (R) return R;
@@ -35,14 +37,19 @@ function build(seed: number, minions: number) {
   post({ t: "ready", stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
 
-function tick() {
+function tick(advanceMs = -1) {
   if (!sim || paused) return;
-  const now = performance.now();
-  acc += (now - last) * speed;
-  last = now;
-  if (acc > 250) acc = DT; // the tab slept: do not catch up
+  if (manual) {
+    if (advanceMs < 0) return;
+    acc += advanceMs * speed;
+  } else {
+    const now = performance.now();
+    acc += (now - last) * speed;
+    last = now;
+    if (acc > 250) acc = DT; // the tab slept: do not catch up
+  }
   let steps = 0;
-  while (acc >= DT && steps < 3) {
+  while (acc >= DT && steps < (manual ? 12 : 3)) {
     const t0 = performance.now();
     sim.step();
     const ms = performance.now() - t0;
@@ -87,6 +94,13 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       case "pause":
         paused = msg.paused;
         last = performance.now();
+        break;
+      case "manual":
+        manual = true;
+        acc = 0;
+        break;
+      case "advance":
+        tick(msg.seconds * 1000);
         break;
     }
   } catch (err) {

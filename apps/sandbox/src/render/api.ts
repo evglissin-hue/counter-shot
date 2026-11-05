@@ -15,7 +15,37 @@ export type CameraPose =
   /** Free overview: orbit controls around both castles (mouse drag, wheel, touch). */
   | { mode: "overview" }
   /** Chase a projectile: its position and velocity. */
-  | { mode: "follow"; x: number; y: number; z: number; vx: number; vy: number; vz: number };
+  | { mode: "follow"; x: number; y: number; z: number; vx: number; vy: number; vz: number }
+  /** Placed by the page (the mortar's observer and its ride): eye position, the point it looks at, field of view. */
+  | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number };
+
+/** The first thing a predicted flight hits. */
+export interface PathHit {
+  /** Index of the path point just before the hit. */
+  index: number;
+  x: number;
+  y: number;
+  z: number;
+  /** Stone id, or -1 for the ground. */
+  stone: number;
+  /** Surface normal at the hit. */
+  nx: number;
+  ny: number;
+  nz: number;
+}
+
+/** Where the camera is, for sound: position, right and forward unit vectors. */
+export interface Listener {
+  x: number;
+  y: number;
+  z: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  fx: number;
+  fy: number;
+  fz: number;
+}
 
 export interface RenderStats {
   backend: "WebGPU" | "WebGL2";
@@ -53,8 +83,14 @@ export interface GameRendererApi {
   setAimArc(points: Float32Array | null): void;
   /** The last shot's flight from this emplacement (faint). */
   setGhostTrail(points: Float32Array | null): void;
-  /** Where the last shot from this emplacement first landed. */
-  setLandingMarker(p: { x: number; y: number; z: number } | null): void;
+  /** Where the shot will land (or the last one landed). A blast radius (m) adds a faint ring for the area it reaches. */
+  setLandingMarker(p: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null, blastRadius?: number): void;
+  /** The first stone or ground a path (xyz triples) runs into, or null. */
+  castPath(points: Float32Array): PathHit | null;
+  /** Slow motion for the cosmetic layer (1 = real time). The camera keeps real time. */
+  setTimeScale(scale: number): void;
+  /** The camera, for positional sound. */
+  listener(): Listener;
 
   /** World point under a screen point (terrain or masonry), for the overview. */
   pick(clientX: number, clientY: number): { x: number; y: number; z: number } | null;

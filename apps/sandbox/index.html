@@ -66,6 +66,14 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 .reticle::after { width: 2px; height: 18px; left: -1px; top: -9px; }
 #want { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--aim); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); pointer-events: none; opacity: 0.8; }
 .hint { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 12px; font: 500 14px/1.2 var(--ui); pointer-events: none; }
+.hint.ride { top: auto; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+.hint.tally { top: 14%; font: 22px/1.1 var(--display); padding: 10px 16px; }
+.hint.tally.show { animation: tally 3.2s ease-out forwards; }
+@keyframes tally { 0% { opacity: 0; transform: translate(-50%, 6px); } 8% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .hint.tally.show { animation: none; } }
+.weapon .target { color: var(--ink); }
+.weapon .target:empty { display: none; }
+input[type="range"] { accent-color: var(--brass); width: 120px; }
 .panel { position: absolute; top: calc(66px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: min(380px, calc(100% - 32px)); max-height: calc(100% - 150px); overflow: auto; padding: 16px; display: grid; gap: 10px; }
 .panel h2 { margin: 0; font: 22px/1.1 var(--display); font-weight: 400; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
@@ -83,9 +91,10 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 <!-- artifact-body-start -->
 <div id="app">
   <canvas id="scene" aria-label="The battlefield"></canvas>
-  <div class="reticle" aria-hidden="true"></div>
+  <div id="reticle" class="reticle" aria-hidden="true"></div>
   <div id="want" hidden aria-hidden="true"></div>
   <div id="lock-hint" class="hint glass">Click to take the gun (mouse aims; Esc frees the mouse)</div>
+  <div id="ride-hint" class="hint glass ride" hidden>Riding the shell. Click, Space or Enter goes back to the mortar</div>
   <div class="top">
     <div class="brand glass"><span class="mark">Keepfall</span><span class="sub">Sandbox</span></div>
     <div class="group glass" role="group" aria-label="Weapons">
@@ -98,6 +107,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
     <div class="group glass">
       <button id="overview-btn">Overview (Tab)</button>
       <label class="check"><input type="checkbox" id="shotcam"> Shot camera (V)</label>
+      <button id="sound-btn" aria-pressed="true">Sound on (M)</button>
       <button id="help-btn">Controls (H)</button>
     </div>
   </div>
@@ -105,6 +115,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
     <div class="bar"><i id="w-reload-fill"></i></div>
     <div class="small" id="w-reload">Ready</div>
+    <div class="small target" id="w-target"></div>
     <div class="small" id="w-extra"></div>
     <div class="mono" id="minions"></div>
   </div>
@@ -116,16 +127,18 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
     <h2>Controls</h2>
     <dl class="keys">
       <dt>Click</dt><dd>Take the gun (mouse aims), then fire</dd>
-      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly: lead your target. On the mortar, forward sends the shell farther</dd>
+      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly: lead your target. The mortar is aimed from an observer's view: move the ring onto the target; forward sends the shell farther</dd>
       <dt>Shift</dt><dd>Fine aim</dd>
-      <dt>Right mouse, Z</dt><dd>Zoom the sight (scroll sets it)</dd>
+      <dt>Right mouse, Z</dt><dd>Zoom the sight or the observer's view (scroll sets it)</dd>
       <dt>Space</dt><dd>Fire</dd>
       <dt>1 to 4, Q, E</dt><dd>Switch weapon</dd>
       <dt>[ ] or Alt+scroll</dt><dd>Mortar fuse. Starts on impact; a fuse shorter than the flight bursts in the air (the arc stops there), a longer one lets the shell bounce first</dd>
       <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
-      <dt>V</dt><dd>Shot camera: follow your shot, slow motion at impact</dd>
+      <dt>V</dt><dd>Shot camera for this weapon: follow your shot, slow motion at impact. On for the mortar: ride the shell down</dd>
+      <dt>Click, Space, Enter</dt><dd>While riding a shell: back to the mortar</dd>
+      <dt>M</dt><dd>Sound on or off (volume below)</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
-      <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad fuse, X spin, Y shot camera, View overview</dd>
+      <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad fuse, X spin, Y shot camera, B back from the shot camera, View overview</dd>
     </dl>
     <div class="row group">
       <label class="small" for="quality">Quality</label>
@@ -135,6 +148,10 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
       <label class="check"><input type="checkbox" id="gore" checked> Gore</label>
     </div>
     <div class="row group">
+      <label class="small" for="volume">Volume</label>
+      <input type="range" id="volume" min="0" max="100" step="5" value="80">
+    </div>
+    <div class="row group">
       <button id="reset">Rebuild the castles</button>
       <button id="more">More minions</button>
       <button id="help-close">Close</button>
@@ -142,6 +159,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
     <div class="mono"><span id="backend"></span>, <span id="perf"></span></div>
   </div>
   <div id="note" class="hint glass" hidden role="status"></div>
+  <div id="tally" class="hint glass tally" hidden role="status"></div>
   <div id="loading" class="center"><div class="glass">Raising the walls...</div></div>
   <div id="error" hidden role="alert"></div>
 </div>

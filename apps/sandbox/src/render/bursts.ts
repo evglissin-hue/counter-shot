@@ -74,6 +74,12 @@ export interface BurstConfig {
   clearAim?: boolean;
 }
 
+/** The flash light of muzzles and bursts, for particles that should glow near it. */
+export interface FlashLight {
+  /** Warm glow (0..~1.5) at a world point. */
+  at(p: N): N;
+}
+
 function rnd(i: N, salt: number): N {
   return hash(i.toUint().mul(9781).add(salt));
 }
@@ -85,7 +91,7 @@ export class Burst {
   private next = 0;
   private cfg: BurstConfig;
 
-  constructor(cfg: BurstConfig, time: N, wind: N, sunDir: N, noise: THREE.Texture, clear: ClearView | null = null) {
+  constructor(cfg: BurstConfig, time: N, wind: N, sunDir: N, noise: THREE.Texture, clear: ClearView | null = null, flash: FlashLight | null = null) {
     this.cfg = cfg;
     for (let i = 0; i < cfg.slots; i++) {
       this.a.push(new THREE.Vector4(0, -100, 0, -1000));
@@ -146,6 +152,8 @@ export class Burst {
       `v${cfg.name}A`,
     );
     const vSeed: N = varying(r1, `v${cfg.name}Seed`);
+    // Lit from inside by a burst's flash: warm, falling off over about 12 m.
+    const vFlash: N = flash && !cfg.additive ? varying(flash.at(centre), `v${cfg.name}Flash`) : float(0);
     const sunView: N = normalize(cameraViewMatrix.mul(vec4(sunDir, 0.0)).xyz);
     const c0 = color(cfg.color);
     const c1 = color(cfg.colorEnd ?? cfg.color);
@@ -157,7 +165,7 @@ export class Burst {
       const n = vec3(vuv.x, vuv.y, nz);
       const lit = clamp(dot(n, sunView).mul(0.5).add(0.5), 0.0, 1.0);
       const L = cfg.lighting ?? 1;
-      return vec4(base.mul(mix(1.0 - 0.5 * L, 1.0 + 0.05 * L, lit)).mul(cfg.glow), 1.0);
+      return vec4(base.mul(mix(1.0 - 0.5 * L, 1.0 + 0.05 * L, lit)).mul(cfg.glow).add(color(0xff8f45).mul(vFlash)), 1.0);
     })();
     m.opacityNode = Fn(() => {
       const r2d = dot(vuv, vuv);
