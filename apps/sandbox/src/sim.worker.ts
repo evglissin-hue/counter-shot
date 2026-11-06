@@ -2,7 +2,7 @@
 // The page sends inputs; the worker tags each with the next tick, steps the
 // sim and posts what changed.
 
-import { buildLayout } from "@keepfall/content";
+import { buildLayout, type CastleLayout } from "@keepfall/content";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import type { FromWorker, ToWorker } from "./protocol";
 
@@ -11,12 +11,15 @@ const DT = 1000 / 60;
 
 let R: Rapier | null = null;
 let sim: SandboxSim | null = null;
+let layout: CastleLayout | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let last = 0;
 let acc = 0;
 let speed = 1;
 let paused = false;
 let stepEma = 0;
+/** The slowest step in the current and the previous second, for the HUD. */
+let peakNow = 0, peakLast = 0, peakTicks = 0;
 /** Test clock: the page advances the sim itself, frame by frame. */
 let manual = false;
 
@@ -29,11 +32,27 @@ async function load(): Promise<Rapier> {
   return r;
 }
 
+/**
+ * A throwaway sim bursts two shells and steps a little at load, so the
+ * JavaScript and WebAssembly behind a burst are compiled before the player's
+ * first one (that first burst used to stall the frames for about 100 ms).
+ * It never touches the real sim.
+ */
+function rehearse() {
+  if (!R || !layout) return;
+  const r = new SandboxSim(R, layout, { seed: 1, minions: 2 });
+  r.explode(0, 19.3, -0.6);
+  r.explode(15, 11.6, -15);
+  for (let i = 0; i < 45; i++) r.step();
+  r.free();
+}
+
 function build(seed: number, minions: number) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
-  sim = new SandboxSim(R, buildLayout(1, { mirrorWedges: true }), { seed, minions });
+  layout ??= buildLayout(1, { mirrorWedges: true });
+  sim = new SandboxSim(R, layout, { seed, minions });
   post({ t: "ready", stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
 
@@ -46,14 +65,22 @@ function tick(advanceMs = -1) {
     const now = performance.now();
     acc += (now - last) * speed;
     last = now;
-    if (acc > 250) acc = DT; // the tab slept: do not catch up
+    // After a slow step (a big collapse), fall a little behind real time rather
+    // than stall and then rush through the backlog: at most two steps per tick.
+    if (acc > DT * 2) acc = DT * 2;
   }
   let steps = 0;
-  while (acc >= DT && steps < (manual ? 12 : 3)) {
+  while (acc >= DT && steps < (manual ? 12 : 2)) {
     const t0 = performance.now();
     sim.step();
     const ms = performance.now() - t0;
     stepEma = stepEma === 0 ? ms : stepEma * 0.9 + ms * 0.1;
+    if (ms > peakNow) peakNow = ms;
+    if (++peakTicks >= 60) {
+      peakLast = peakNow;
+      peakNow = 0;
+      peakTicks = 0;
+    }
     acc -= DT;
     steps++;
   }
@@ -62,7 +89,7 @@ function tick(advanceMs = -1) {
   const counts = sim.minionCounts();
   const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.events.buffer];
   for (const p of frame.terrain) transfer.push(p.h.buffer);
-  post({ t: "frame", frame, reload: sim.reload.slice(), stepMs: Math.round(stepEma * 100) / 100, down: counts.down, standing: counts.standing, awake: sim.castle.awakeCount() }, transfer as Transferable[]);
+  post({ t: "frame", frame, reload: sim.reload.slice(), stepMs: Math.round(stepEma * 100) / 100, stepPeak: Math.round(Math.max(peakNow, peakLast) * 10) / 10, down: counts.down, standing: counts.standing, awake: sim.castle.awakeCount() }, transfer as Transferable[]);
 }
 
 function start() {
@@ -78,6 +105,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
     switch (msg.t) {
       case "init":
         await load();
+        layout ??= buildLayout(1, { mirrorWedges: true });
+        rehearse();
         build(msg.seed, msg.minions);
         start();
         break;

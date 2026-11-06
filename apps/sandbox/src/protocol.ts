@@ -15,5 +15,6 @@ export type ToWorker =
 
 export type FromWorker =
   | { t: "ready"; stones: number; setupMs: number; terrain: TerrainPatch; rulesVersion: number }
-  | { t: "frame"; frame: FrameData; reload: number[]; stepMs: number; down: number; standing: number; awake: number }
+  /** stepMs: average physics step; stepPeak: the slowest step in about the last second. */
+  | { t: "frame"; frame: FrameData; reload: number[]; stepMs: number; stepPeak: number; down: number; standing: number; awake: number }
   | { t: "error"; message: string };

@@ -132,6 +132,33 @@ export class Projectiles {
     this.root.add(this.balls, this.chains, this.sparks);
   }
 
+  private primed = false;
+  /** Draw shells, sparks and chains once out of sight, so their shaders compile while loading. */
+  prime(on: boolean) {
+    const g = this.balls.geometry as THREE.InstancedBufferGeometry;
+    const sg = this.sparks.geometry as THREE.InstancedBufferGeometry;
+    if (on) {
+      if (this.balls.visible || this.sparks.visible || this.chains.count) return;
+      this.primed = true;
+      this.ballArr.set([0, -500, 0, 0.1], 0);
+      this.sparkArr.set([0, -500, 0, 0], 0);
+      g.instanceCount = 1;
+      sg.instanceCount = 1;
+      this.ballAttr.needsUpdate = this.kindAttr.needsUpdate = this.sparkAttr.needsUpdate = true;
+      this.balls.visible = this.sparks.visible = true;
+      _m.makeTranslation(0, -500, 0);
+      this.chains.setMatrixAt(0, _m);
+      this.chains.count = 1;
+      this.chains.instanceMatrix.needsUpdate = true;
+    } else if (this.primed) {
+      this.primed = false;
+      g.instanceCount = 0;
+      sg.instanceCount = 0;
+      this.balls.visible = this.sparks.visible = false;
+      this.chains.count = 0;
+    }
+  }
+
   update(proj: Float32Array, count: number, chains: Float32Array, chainCount: number) {
     const n = Math.max(0, Math.min(MAX_BALLS, count | 0));
     let ns = 0;

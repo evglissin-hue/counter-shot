@@ -117,6 +117,20 @@ export class Shock {
     for (const s of this.slots) s.born = -100;
   }
 
+  /** Draw every mesh once, invisible, so its shader compiles now (loading) and not at the first burst. */
+  prime(on: boolean) {
+    for (const s of this.slots) {
+      if (on) {
+        s.sphereO.value = 0;
+        s.ringO.value = 0;
+        s.sphere.position.set(0, -500, 0);
+        s.ring.position.set(0, -500, 0);
+      }
+      s.sphere.visible = on;
+      s.ring.visible = on;
+    }
+  }
+
   dispose() {
     for (const s of this.slots) {
       (s.sphere.material as THREE.Material).dispose();

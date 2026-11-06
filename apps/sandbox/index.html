@@ -134,7 +134,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
       <dt>1 to 4, Q, E</dt><dd>Switch weapon</dd>
       <dt>[ ] or Alt+scroll</dt><dd>Mortar fuse. Starts on impact; a fuse shorter than the flight bursts in the air (the arc stops there), a longer one lets the shell bounce first</dd>
       <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
-      <dt>V</dt><dd>Shot camera for this weapon: follow your shot, slow motion at impact. On for the mortar: ride the shell down</dd>
+      <dt>V</dt><dd>Shot camera for this weapon: follow your shot (slow motion at impact if you turn it on below). On for the mortar: ride the shell down</dd>
       <dt>Click, Space, Enter</dt><dd>While riding a shell: back to the mortar</dd>
       <dt>M</dt><dd>Sound on or off (volume below)</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
@@ -146,6 +146,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
       <label class="small" for="aimhelp">Aim help</label>
       <select id="aimhelp"><option value="full">Full arc</option><option value="partial">First part only</option></select>
       <label class="check"><input type="checkbox" id="gore" checked> Gore</label>
+      <label class="check"><input type="checkbox" id="slowmo"> Slow motion at impacts</label>
     </div>
     <div class="row group">
       <label class="small" for="volume">Volume</label>

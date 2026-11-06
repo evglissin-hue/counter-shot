@@ -134,6 +134,16 @@ export class CastleSim {
   private grid = new Map<number, number[]>();
   private cost: Int32Array;
   private deque: Int32Array;
+  /** The neighbour graph as flat arrays (offsets per stone, then ids), for a fast support check. */
+  private nbAbove: { off: Int32Array; ids: Int32Array };
+  private nbSide: { off: Int32Array; ids: Int32Array };
+  private nbBelow: { off: Int32Array; ids: Int32Array };
+  private grounded: Uint8Array;
+  private castleOf: Uint8Array;
+  /** First and one-past-last stone id of each castle (stones are numbered castle by castle). */
+  private castleRange: Array<[number, number]>;
+  /** Castles whose fixed masonry changed since their last support check (bit per castle). Both at first. */
+  private supportDirty = 3;
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -148,6 +158,29 @@ export class CastleSim {
     this.restSteps = new Uint16Array(n);
     this.cost = new Int32Array(n);
     this.deque = new Int32Array(n * 4 + 16);
+    const flat = (lists: number[][]) => {
+      const off = new Int32Array(n + 1);
+      for (let i = 0; i < n; i++) off[i + 1] = off[i] + lists[i].length;
+      const ids = new Int32Array(off[n]);
+      for (let i = 0; i < n; i++) ids.set(lists[i], off[i]);
+      return { off, ids };
+    };
+    this.nbAbove = flat(layout.above);
+    this.nbSide = flat(layout.side);
+    this.nbBelow = flat(layout.below);
+    this.grounded = new Uint8Array(n);
+    this.castleOf = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      this.grounded[i] = layout.stones[i].grounded ? 1 : 0;
+      this.castleOf[i] = layout.stones[i].castle;
+    }
+    // Stones come castle by castle; if they ever did not, check everything as one range.
+    let split = 0;
+    while (split < n && this.castleOf[split] === 0) split++;
+    let contiguous = true;
+    for (let i = split; i < n; i++) if (this.castleOf[i] !== 1) contiguous = false;
+    this.castleRange = contiguous ? [[0, split], [split, n]] : [[0, n], [n, n]];
+    if (!contiguous) this.castleOf.fill(0);
 
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
     this.world.timestep = 1 / 60;
@@ -625,6 +658,7 @@ export class CastleSim {
     if (!this.dynamic[id]) {
       this.dynamic[id] = 1;
       this.dynList.push(id);
+      this.supportDirty |= 1 << this.castleOf[id];
     }
     this.shattered[id] = 1;
     this.frozen[id] = 0;
@@ -635,6 +669,7 @@ export class CastleSim {
     if (this.dynamic[id]) return;
     this.dynamic[id] = 1;
     this.dynList.push(id);
+    this.supportDirty |= 1 << this.castleOf[id];
     const body = this.bodies[id];
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();
@@ -645,18 +680,44 @@ export class CastleSim {
    * Support flows up from grounded fixed pieces. Resting on a supported piece
    * keeps full support; a sideways bond (or hanging under a piece) costs one
    * step. Pieces with no path within the span come loose.
+   *
+   * Only castles whose fixed masonry changed since their last check are
+   * walked: a castle nothing happened to cannot have lost support (frozen
+   * rubble never carries support). The result is the same as walking both.
    */
   private supportCheck() {
-    const { below, above, side, stones } = this.layout;
-    const n = stones.length;
+    for (let c = 0; c < 2; c++) {
+      if (!(this.supportDirty & (1 << c))) continue;
+      const [s, e] = this.castleRange[c];
+      this.supportPass(s, e, true);
+      this.supportDirty &= ~(1 << c);
+    }
+  }
+
+  /**
+   * Compiles the support check ahead of the first hit (it is slow the first
+   * few times a JavaScript engine runs it). Walks both castles and changes nothing.
+   */
+  warmUp() {
+    for (let k = 0; k < 4; k++) for (const [s, e] of this.castleRange) this.supportPass(s, e, false);
+  }
+
+  /** 0-1 breadth-first search over stones s..e-1; loosens what has no support if `apply`. */
+  private supportPass(s: number, e: number, apply: boolean) {
+    if (e <= s) return;
     const INF = 1 << 30;
     const cost = this.cost;
     const dq = this.deque;
     const cap = dq.length;
+    const dynamic = this.dynamic;
+    const grounded = this.grounded;
+    const aOff = this.nbAbove.off, aIds = this.nbAbove.ids;
+    const sOff = this.nbSide.off, sIds = this.nbSide.ids;
+    const bOff = this.nbBelow.off, bIds = this.nbBelow.ids;
     let head = 0, tail = 0; // ring buffer: front at head, back at tail
-    cost.fill(INF);
-    for (let i = 0; i < n; i++) {
-      if (!this.dynamic[i] && stones[i].grounded) {
+    cost.fill(INF, s, e);
+    for (let i = s; i < e; i++) {
+      if (!dynamic[i] && grounded[i]) {
         cost[i] = 0;
         dq[tail] = i;
         tail = (tail + 1) % cap;
@@ -667,35 +728,33 @@ export class CastleSim {
       const u = dq[head];
       head = (head + 1) % cap;
       const cu = cost[u];
-      const up = above[u];
-      for (let k = 0; k < up.length; k++) {
-        const v = up[k];
-        if (this.dynamic[v] || cost[v] <= cu) continue;
+      for (let k = aOff[u], k1 = aOff[u + 1]; k < k1; k++) {
+        const v = aIds[k];
+        if (dynamic[v] || cost[v] <= cu) continue;
         cost[v] = cu;
         head = (head - 1 + cap) % cap; // push front: zero cost
         dq[head] = v;
       }
       const c1 = cu + 1;
       if (c1 > span) continue;
-      const sd = side[u];
-      for (let k = 0; k < sd.length; k++) {
-        const v = sd[k];
-        if (this.dynamic[v] || cost[v] <= c1) continue;
+      for (let k = sOff[u], k1 = sOff[u + 1]; k < k1; k++) {
+        const v = sIds[k];
+        if (dynamic[v] || cost[v] <= c1) continue;
         cost[v] = c1;
         dq[tail] = v;
         tail = (tail + 1) % cap;
       }
-      const dn = below[u];
-      for (let k = 0; k < dn.length; k++) {
-        const v = dn[k];
-        if (this.dynamic[v] || cost[v] <= c1) continue;
+      for (let k = bOff[u], k1 = bOff[u + 1]; k < k1; k++) {
+        const v = bIds[k];
+        if (dynamic[v] || cost[v] <= c1) continue;
         cost[v] = c1;
         dq[tail] = v;
         tail = (tail + 1) % cap;
       }
     }
-    for (let i = 0; i < n; i++) {
-      if (!this.dynamic[i] && cost[i] === INF) this.loosen(i);
+    if (!apply) return;
+    for (let i = s; i < e; i++) {
+      if (!dynamic[i] && cost[i] === INF) this.loosen(i);
     }
   }
 

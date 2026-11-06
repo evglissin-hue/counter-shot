@@ -53,7 +53,8 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 - **Real ballistics**: gravity, air drag (heavier and smaller shots carry further), wind, spin for some projectiles (they curve), ricochets off stone at shallow angles, skipping across water, rolling down slopes.
 - **Aim help**: the first part of the flight path, its length set by the weapon and upgrades; a ghost trail of your last shot from this emplacement; a marker where it landed. Co-op and casual games show more of the path.
 - **Reloads** are per weapon (about 3 to 10 seconds). Weapons nobody is manning fire at minions on their own, slower and much less accurately.
-- **Shot camera**: optionally follow your shot, with slow motion on impact. It only changes your own camera; the match runs on. Replays come free, because a match is just its inputs.
+- **Shot camera**: optionally follow your shot (on by default for lobbed shells: you ride the shell down), with optional slow motion on impact. It only changes your own camera; the match runs on. Replays come free, because a match is just its inputs.
+- **Kill cams and replays** (after the MVP; the owner's request): the best physics moments come back as short replays from a cinematic angle, with a tally of the damage: a minion thrown across the valley, a limb taken off, a wall dropped on a wave, a tower brought down. In the spirit of Porrasturvat, where the fun is watching a body take every step of the fall. A replay re-runs the sim from a recent snapshot with the recorded inputs, so it shows exactly what happened, and it can slow down and circle the moment freely.
 - **Trick shots** are recognised and pay gold: ricochet kills, collapse kills (masonry you dropped landing on minions), multi-kills, skip shots, long-range keep hits.
 
 ## 6. Physics and destruction
@@ -317,6 +318,7 @@ The owner and Kat chose Gritty from the three lab styles. The game ships Gritty 
 - Blood is dark, desaturated red-brown, never bright. Hits leave sprays and decals on ground and stone that fade over about a minute.
 - Heavy hits (a direct cannonball, a falling block, a giant's blow) can take off limbs: the ragdoll splits at a joint, the limb becomes its own small body, and the stump gets a dark cap. No organs, no slow lingering.
 - Gore is cosmetic: it never changes the simulation, so the switch is safe in online matches.
+- Kill cams (section 5) favour the gruesome moments: severed limbs, bodies thrown far, collapse kills. With gore off they show the same falls without blood.
 
 ### Assets and sound
 
@@ -361,7 +363,7 @@ Each phase ends with a playable, deployed version.
 3. **Online 1v1** (completes the MVP): lockstep over Cloudflare rooms, invite links, desync checks.
 4. **Graniteborn**: the second race, with landslides and quakes.
 5. **Co-op wave defence**: the roster, the wave director, both roles.
-6. **Polish**: sound, gore, more maps, 2v2.
+6. **Polish**: sound, gore, kill cams and replays of the best moments, more maps, 2v2.
 
 ## 16. Open questions
 

@@ -26,6 +26,7 @@ import type { FromWorker, ToWorker } from "./protocol";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { Sound } from "./sound";
+import { Timeline } from "./timeline";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -35,12 +36,17 @@ const send = (m: ToWorker) => worker.postMessage(m);
 const input = new Input(canvas);
 const sound = new Sound();
 const layout = buildLayout(1, { mirrorWedges: true });
+/** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
+const timeline = new Timeline(layout);
 const EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
 
 const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
 const SEED = 7;
 const MINIONS = 12;
+// The worker loads the physics and rehearses a burst while the renderer starts up.
+send({ t: "init", seed: SEED, minions: MINIONS });
+if (location.hash.includes("fixed")) send({ t: "manual" });
 const MORTAR = WEAPONS.mortar;
 const SHELL_G = G * MORTAR.projectile.gravity;
 /**
@@ -64,10 +70,13 @@ const fov: number[] = EMP.map((e) => WEAPONS[e.weapon].fov[1] * 0.8);
 let fuseTicks = 0; // mortar: 0 means burst on impact
 /** Aim help: the whole predicted flight (default in the sandbox) or only its first part, as in ranked play. */
 let aimHelp: "full" | "partial" = "full";
+/** Slow motion when a followed shot lands or a ridden shell bursts (off: the physics plays in real time). */
+let slowMo = false;
 /** Shot camera per emplacement: on for the mortar (ride the shell), off for the others. */
 let shotCam: boolean[] = EMP.map((e) => e.weapon === "mortar");
 try {
   if (localStorage.getItem("keepfall.aimHelp") === "partial") aimHelp = "partial";
+  slowMo = localStorage.getItem("keepfall.slowmo") === "1";
   const saved = localStorage.getItem("keepfall.shotCam");
   if (saved && saved.length === EMP.length) shotCam = [...saved].map((c) => c === "1");
 } catch {}
@@ -91,7 +100,7 @@ let timeScale = 1;
 /** Camera shake after a burst: when, and how hard (0..1, by distance). Render only. */
 let shake = { at: -1e9, s: 0 };
 let lastFrameTick = 0;
-let stats = { stepMs: 0, down: 0, standing: 0, awake: 0 };
+let stats = { stepMs: 0, stepPeak: 0, down: 0, standing: 0, awake: 0 };
 
 /** The mortar's observer camera: it eases towards where the shell will land, so small aim changes move the ring, not the world. */
 const obs = { x: 0, y: 0, z: 0, primed: false };
@@ -137,8 +146,11 @@ let ride: Ride | null = null;
 /** What the last burst brought down: stones that started moving (or turned to dust) and minions knocked down, shown a few seconds later. */
 const everMoved = new Uint8Array(layout.stones.length);
 let tally: { until: number; stones: number; down0: number } | null = null;
-/** Minions down as of the frame before the latest one (the latest frame's own knockdowns count for its burst). */
+/** Minions down as of the frame before the one being applied (a burst's own knockdowns count for it). */
 let lastDown = 0;
+/** Minions down as of each frame not yet applied, by tick. */
+const downAt = new Map<number, number>();
+let rendererReady = false;
 
 // ---- worker -------------------------------------------------------------------
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -146,7 +158,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   if (m.t === "ready") {
     renderer.applyTerrain([m.terrain]);
     ready = true;
-    $("loading").hidden = true;
+    if (rendererReady) $("loading").hidden = true;
     return;
   }
   if (m.t === "error") {
@@ -157,8 +169,9 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     const was = reload[current];
     reload = m.reload;
     if (was > 0 && reload[current] === 0) sound.ready(EMP[current].weapon);
-    stats = { stepMs: m.stepMs, down: m.down, standing: m.standing, awake: m.awake };
-    onFrame(m.frame);
+    stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
+    downAt.set(m.frame.tick, m.down);
+    timeline.push(m.frame);
   }
 };
 worker.onerror = (e) => showError(e.message || "The simulation worker failed to start.");
@@ -189,7 +202,7 @@ function onFrame(f: FrameData) {
         ride.by = b;
         ride.bz = c;
         ride.hold = true;
-        setSlow(0.3);
+        if (slowMo) setSlow(0.3);
       }
       const dist = Math.hypot(a - ear.x, b - ear.y, c - ear.z);
       shake = { at: now, s: Math.max(0.08, Math.min(1, 1.25 - dist / 110)) };
@@ -283,18 +296,21 @@ function onFrame(f: FrameData) {
     if (!seen.has(follow.id) || landedNow(f)) {
       if (!follow.until) {
         follow.until = now + 1600;
-        slowUntil = now + 900;
-        setSlow(0.25);
+        if (slowMo) {
+          slowUntil = now + 900;
+          setSlow(0.25);
+        }
       }
     }
   }
-  lastDown = stats.down;
+  lastDown = downAt.get(f.tick) ?? stats.down;
+  downAt.delete(f.tick);
   renderer.applyFrame(f);
 }
 
 function showTally() {
   if (!tally) return;
-  const down = Math.max(0, stats.down - tally.down0);
+  const down = Math.max(0, lastDown - tally.down0);
   const parts = [`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`];
   if (down) parts.push(`${down} ${down === 1 ? "man" : "men"} down`);
   tally = null;
@@ -369,15 +385,24 @@ function ridePose(now: number, dt: number): CameraPose | null {
     endRide();
     return null;
   }
-  if (r.boomAt) {
+  if (r.boomAt && slowMo) {
     // Slow motion through the first second of the burst, then ease back to real time.
     const t = (now - r.boomAt) / 1000;
     setSlow(t < 1.3 ? 0.3 : t < 1.9 ? 0.3 + ((t - 1.3) / 0.6) * 0.7 : 1);
   }
   refreshImpact(r);
-  // The shell between sim frames: carry it on along its velocity.
-  const lag = r.alive ? Math.min(0.05, (now - r.seenAt) / 1000) * timeScale : 0;
-  const sx = r.sx + r.vx * lag, sy = r.sy + r.vy * lag, sz = r.sz + r.vz * lag;
+  // The shell as it is drawn now (between sim frames), so the camera and the shell move together.
+  let sx = r.sx, sy = r.sy, sz = r.sz, vx = r.vx, vy = r.vy, vz = r.vz;
+  const drawn = timeline.find(r.id);
+  if (drawn >= 0) {
+    const o = drawn * PROJECTILE_STRIDE, p = timeline.proj;
+    sx = p[o + 2];
+    sy = p[o + 3];
+    sz = p[o + 4];
+    vx = p[o + 6];
+    vy = p[o + 7];
+    vz = p[o + 8];
+  }
   let tx: number, ty: number, tz: number;
   if (!r.hold) {
     // Fly with the shell: behind it, above it and a little to the side, always looking at where it will land,
@@ -385,15 +410,15 @@ function ridePose(now: number, dt: number): CameraPose | null {
     let hx = r.ix - sx, hz = r.iz - sz;
     let hl = Math.hypot(hx, hz);
     if (hl < 2) {
-      hx = r.vx;
-      hz = r.vz;
+      hx = vx;
+      hz = vz;
       hl = Math.hypot(hx, hz) || 1;
     }
     hx /= hl;
     hz /= hl;
     const rx = -hz, rz = hx; // right
-    const sp = Math.hypot(r.vx, r.vy, r.vz) || 1;
-    const dive = Math.max(0, -r.vy / sp); // 0 climbing, 1 straight down
+    const sp = Math.hypot(vx, vy, vz) || 1;
+    const dive = Math.max(0, -vy / sp); // 0 climbing, 1 straight down
     const ko = 1 - Math.exp(-dt * 2.5);
     r.ox += (-hx * 12 + rx * 3 - r.ox) * ko;
     r.oy += (4.5 + 9 * dive - r.oy) * ko;
@@ -714,7 +739,7 @@ function updateHud(force = false) {
   const ws = Math.hypot(wind.x, wind.z);
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = `${stats.down} down, ${stats.standing} standing`;
-  hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms, ${stats.awake} moving, tick ${lastFrameTick}`;
+  hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}`;
   hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
   hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
 }
@@ -752,6 +777,15 @@ aimHelpSel.addEventListener("change", () => {
     localStorage.setItem("keepfall.aimHelp", aimHelp);
   } catch {}
 });
+const slowBox = $<HTMLInputElement>("slowmo");
+slowBox.checked = slowMo;
+slowBox.addEventListener("change", () => {
+  slowMo = slowBox.checked;
+  if (!slowMo) setSlow(1);
+  try {
+    localStorage.setItem("keepfall.slowmo", slowMo ? "1" : "0");
+  } catch {}
+});
 const gore = $<HTMLInputElement>("gore");
 gore.addEventListener("change", () => renderer.setGore(gore.checked));
 const volume = $<HTMLInputElement>("volume");
@@ -767,6 +801,8 @@ $("reset").addEventListener("click", () => {
   endRide();
   send({ t: "reset", seed: SEED, minions: MINIONS });
   renderer.resetWorld();
+  timeline.reset();
+  downAt.clear();
   everMoved.fill(0);
   tally = null;
   trails.fill(null);
@@ -945,6 +981,23 @@ function frame(wall: number) {
     slowUntil = 0;
     if (!ride) setSlow(1);
   }
+  // Sim frames due on the render clock, then shells and stones between frames.
+  for (const f of timeline.advance(dt, timeScale)) onFrame(f);
+  timeline.interpolate();
+  renderer.setProjectiles(timeline.proj, timeline.projCount, timeline.chains, timeline.chainCount);
+  if (timeline.stoneCount) renderer.setStones(timeline.stones, timeline.stoneCount);
+  if (follow) {
+    const i = timeline.find(follow.id);
+    if (i >= 0) {
+      const o = i * PROJECTILE_STRIDE, p = timeline.proj;
+      follow.lastX = p[o + 2];
+      follow.lastY = p[o + 3];
+      follow.lastZ = p[o + 4];
+      follow.vx = p[o + 6];
+      follow.vy = p[o + 7];
+      follow.vz = p[o + 8];
+    }
+  }
   const pose = cameraPose(now, dt);
   if (pose.mode === "sight" || (pose.mode === "free" && !ride)) pose.fov = shownFov;
   applyShake(pose, now);
@@ -1000,8 +1053,8 @@ async function start() {
   renderer.setGore(gore.checked);
   renderer.resize();
   window.addEventListener("resize", () => renderer.resize());
-  send({ t: "init", seed: SEED, minions: MINIONS });
-  if (FIXED) send({ t: "manual" });
+  rendererReady = true;
+  if (ready) $("loading").hidden = true;
   updateHud(true);
   requestAnimationFrame(frame);
 }
@@ -1020,6 +1073,9 @@ void start();
   },
   get timeScale() {
     return timeScale;
+  },
+  get stats() {
+    return { ...stats };
   },
   get reload() {
     return reload.slice();

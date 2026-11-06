@@ -68,8 +68,12 @@ export interface GameRendererApi {
   setGore(on: boolean): void;
   resize(): void;
 
-  /** Everything the sim reported since the last frame. Events are fired once. */
+  /** Everything the sim reported in one frame (stones at their exact positions, minions, events). Events are fired once. Projectiles come through setProjectiles. */
   applyFrame(frame: FrameData): void;
+  /** Projectiles to draw now (drawn between sim frames by the page), in the frame format. */
+  setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void;
+  /** Loose stones drawn between sim frames: [id, x, y, z, qx, qy, qz, qw] each. */
+  setStones(data: Float32Array, count: number): void;
   /** Applied once at start and again for craters. */
   applyTerrain(patches: TerrainPatch[]): void;
   /** Rebuild stones after a sandbox reset. */

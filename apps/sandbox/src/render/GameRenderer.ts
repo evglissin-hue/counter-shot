@@ -64,6 +64,12 @@ export class GameRenderer implements GameRendererApi {
   /** Slow motion for everything cosmetic (the camera keeps real time). */
   private timeScale = 1;
   private blastRing: THREE.Group;
+  /**
+   * The first frames also draw, out of sight, the meshes that otherwise only
+   * appear in a burst or a hit, so their shaders compile while loading rather
+   * than stalling the player's first burst.
+   */
+  private primeFrames = 3;
   private clear = new ClearView();
   /** Per stone: last reported position and tick, and when it last shed dust (rule 5). */
   private prevPos = new Float32Array(0);
@@ -238,7 +244,6 @@ export class GameRenderer implements GameRendererApi {
       this.stones.updateBodies(frame.stones, frame.stoneCount);
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
-    this.projectiles.update(frame.projectiles, frame.projectileCount, frame.chains, frame.chainCount);
     this.minions.update(frame.minions, frame.minionCount, frame.parts, frame.partCount);
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
@@ -255,6 +260,14 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Blood) this.spawnBlood(x, y, z, v);
       // EventKind.Landed: the page handles the landing marker.
     }
+  }
+
+  setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void {
+    this.projectiles.update(proj, count, chains, chainCount);
+  }
+
+  setStones(data: Float32Array, count: number): void {
+    this.stones?.updateBodies(data, count);
   }
 
   applyTerrain(patches: TerrainPatch[]): void {
@@ -661,7 +674,21 @@ export class GameRenderer implements GameRendererApi {
       this.postDirty = false;
     }
     this.renderer.info.reset();
+    const priming = this.primeFrames > 0 && !!this.stones;
+    if (priming) {
+      this.primeFrames--;
+      this.shock.prime(true);
+      this.projectiles.prime(true);
+      this.decals.prime(true);
+      this.minions.prime(true);
+    }
     post.render(this.now);
+    if (priming) {
+      this.shock.prime(false);
+      this.projectiles.prime(false);
+      this.decals.prime(false);
+      this.minions.prime(false);
+    }
     this.lastDraw = this.renderer.info.render.drawCalls;
     this.lastTris = this.renderer.info.render.triangles;
     this.framesSinceResolve++;

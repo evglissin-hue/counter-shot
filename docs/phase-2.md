@@ -85,7 +85,7 @@ Kat's laptop (Apple M3) is the floor: about 550 moving stones in 6 ms. Upright m
 
 ## Not in phase 2
 
-Online play (phase 3), Graniteborn and landslides (phase 4), co-op (phase 5), random maps (one seeded map for now), the castle designer, fire on timber, 2v2.
+Online play (phase 3), Graniteborn and landslides (phase 4), co-op (phase 5), kill cams and replays of the best moments (phase 6; the match keeps its inputs from M1, so they stay possible), random maps (one seeded map for now), the castle designer, fire on timber, 2v2.
 
 ## Questions for the owner
 

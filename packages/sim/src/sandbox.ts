@@ -114,6 +114,7 @@ export class SandboxSim {
     this.reload = this.emplacements.map(() => 0);
     this.minions.spawnPatrol(this.rng.fork("patrol"), opts.minions);
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
+    this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
 
   free() {

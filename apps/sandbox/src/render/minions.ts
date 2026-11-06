@@ -133,6 +133,22 @@ export class Minions {
     this.root.add(this.helmet, this.pike, this.stumps);
   }
 
+  /** Draw the stump caps and helmets once out of sight, so their shaders compile while loading, not at the first severed limb. */
+  prime(on: boolean) {
+    for (const mesh of [this.stumps, this.helmet]) {
+      if (on && mesh.count === 0) {
+        _m.makeTranslation(0, -500, 0);
+        mesh.setMatrixAt(0, _m);
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.count = 1;
+        mesh.userData.primed = true;
+      } else if (!on && mesh.userData.primed) {
+        mesh.count = 0;
+        mesh.userData.primed = false;
+      }
+    }
+  }
+
   setGore(on: boolean) {
     this.gore = on;
   }

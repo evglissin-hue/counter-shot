@@ -128,6 +128,19 @@ export class Decals {
     this.attrN.needsUpdate = true;
   }
 
+  /** Draw one long-faded decal out of sight, so the shader compiles while loading, not at the first hit. */
+  prime(on: boolean) {
+    const g = this.mesh.geometry as THREE.InstancedBufferGeometry;
+    if (this.used > 0) return;
+    if (on) {
+      this.a.set([0, -500, 0, -1e6], 0);
+      this.b.set([0.1, 0, 0, 0], 0);
+      this.attrA.needsUpdate = this.attrB.needsUpdate = true;
+    }
+    g.instanceCount = on ? 1 : 0;
+    this.mesh.visible = on;
+  }
+
   /** Move decals that sit on stones along with them (once per frame). */
   follow(stones: StoneSet | null, now: number) {
     if (!stones) return;
