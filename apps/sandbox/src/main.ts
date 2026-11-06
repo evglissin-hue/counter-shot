@@ -26,6 +26,7 @@ import type { FromWorker, ToWorker } from "./protocol";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { Sound } from "./sound";
+import { Pacer, SCALES } from "./pacing";
 import { Timeline } from "./timeline";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -196,6 +197,7 @@ function onFrame(f: FrameData) {
         else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
       }
     } else if (kind === EventKind.Explosion) {
+      pacer.burst(now);
       if (ride && !ride.boomAt && Math.hypot(a - ride.sx, b - ride.sy, c - ride.sz) < 12) {
         ride.boomAt = now;
         ride.bx = a;
@@ -739,7 +741,7 @@ function updateHud(force = false) {
   const ws = Math.hypot(wind.x, wind.z);
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = `${stats.down} down, ${stats.standing} standing`;
-  hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}`;
+  hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}, frame ${pacer.frameMs.toFixed(1)} ms, resolution ${Math.round(SCALES[pacer.scaleIdx] * 100)}%`;
   hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
   hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
 }
@@ -765,8 +767,13 @@ const quality = $<HTMLSelectElement>("quality");
 quality.addEventListener("change", () => {
   renderer.setQuality(quality.value as QualityTier);
   renderer.resize();
+  // Your own pick is kept: the frame guard never lowers it (dynamic resolution still helps in heavy moments).
+  pacer.tierChosen = true;
+  pacer.reset(performance.now());
+  renderer.setRenderScale(SCALES[0]);
   try {
     localStorage.setItem("keepfall.quality", quality.value);
+    localStorage.setItem("keepfall.qualityChosen", "1");
   } catch {}
 });
 const aimHelpSel = $<HTMLSelectElement>("aimhelp");
@@ -860,26 +867,26 @@ function calibrate(dt: number) {
   renderer.resize();
 }
 
-// Frame-time guard: after 5 seconds of missed frames, drop one quality tier and say so.
+// ---- frame pacing: dynamic resolution first, the quality tier last (see pacing.ts) ----------
 const TIER_ORDER: QualityTier[] = ["low", "medium", "high", "ultra"];
-let slowFrames = 0, guardFrames = 0;
-function guard(dt: number) {
-  if (!ready || paused || calib) return;
-  guardFrames++;
-  if (dt > 1 / 45) slowFrames++;
-  if (guardFrames < 300) return;
-  const share = slowFrames / guardFrames;
-  guardFrames = slowFrames = 0;
-  const i = TIER_ORDER.indexOf(quality.value as QualityTier);
-  if (share > 0.5 && i > 0) {
-    quality.value = TIER_ORDER[i - 1];
-    renderer.setQuality(quality.value as QualityTier);
-    renderer.resize();
-    const note = $("note");
-    note.textContent = `Frames were slow, so quality dropped to ${quality.value}. Change it under Controls.`;
-    note.hidden = false;
-    setTimeout(() => (note.hidden = true), 6000);
+const pacer = new Pacer();
+
+function pace(dt: number, now: number) {
+  if (!ready || paused || calib || FIXED) return;
+  const r = pacer.frame(dt * 1000, renderer.gpuTime(), now);
+  if (r.dropTier) {
+    const i = TIER_ORDER.indexOf(quality.value as QualityTier);
+    if (i > 0) {
+      quality.value = TIER_ORDER[i - 1];
+      renderer.setQuality(quality.value as QualityTier);
+      renderer.resize();
+      const note = $("note");
+      note.textContent = `Frames stayed slow, so quality dropped to ${quality.value}. Change it under Controls.`;
+      note.hidden = false;
+      setTimeout(() => (note.hidden = true), 6000);
+    }
   }
+  if (r.scaleChanged) renderer.setRenderScale(SCALES[pacer.scaleIdx]);
 }
 
 function toggleOverview() {
@@ -1008,7 +1015,7 @@ function frame(wall: number) {
   if (!paused) renderer.render(dt);
   sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: timeScale });
   calibrate(dt);
-  guard(dt);
+  pace(dt, now);
   requestAnimationFrame(frame);
 }
 
@@ -1038,6 +1045,7 @@ async function start() {
   let storage = true;
   try {
     saved = localStorage.getItem("keepfall.quality") as QualityTier | null;
+    pacer.tierChosen = !!saved && localStorage.getItem("keepfall.qualityChosen") === "1";
   } catch {
     storage = false;
   }

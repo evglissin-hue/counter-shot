@@ -91,6 +91,10 @@ export interface GameRendererApi {
   setLandingMarker(p: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null, blastRadius?: number): void;
   /** The first stone or ground a path (xyz triples) runs into, or null. */
   castPath(points: Float32Array): PathHit | null;
+  /** Dynamic resolution: the share of the full resolution the scene is drawn at (0.4..1). */
+  setRenderScale(scale: number): void;
+  /** GPU time per frame in ms when the browser can measure it, else null. */
+  gpuTime(): number | null;
   /** Slow motion for the cosmetic layer (1 = real time). The camera keeps real time. */
   setTimeScale(scale: number): void;
   /** The camera, for positional sound. */

@@ -8,6 +8,7 @@
 import * as THREE from "three/webgpu";
 import {
   Fn,
+  cameraProjectionMatrix,
   cameraViewMatrix,
   cameraWorldMatrix,
   clamp,
@@ -19,6 +20,7 @@ import {
   hash,
   instanceIndex,
   max,
+  min,
   mix,
   normalize,
   positionGeometry,
@@ -80,6 +82,21 @@ export interface FlashLight {
   at(p: N): N;
 }
 
+/** Largest share of the screen's height one particle may cover. Close up, big puffs would otherwise fill the screen many times over. */
+export const MAX_SCREEN_SHARE = 0.3;
+
+/**
+ * A particle's size, capped so it covers at most MAX_SCREEN_SHARE of the
+ * screen's height, and a fade for particles right at the camera. Overdraw
+ * (the same pixel drawn under many transparent puffs) is what makes a burst
+ * seen close up expensive; at normal distances nothing changes.
+ */
+export function screenCap(centre: N, size: N): { size: N; near: N } {
+  const depth: N = cameraViewMatrix.mul(vec4(centre, 1.0)).z.negate().max(0.1);
+  const focal: N = (cameraProjectionMatrix as N).element(1).y; // 1 / tan(fov / 2)
+  return { size: min(size, depth.mul(2 * MAX_SCREEN_SHARE).div(focal)), near: smoothstep(1.5, 5.0, depth) };
+}
+
 function rnd(i: N, salt: number): N {
   return hash(i.toUint().mul(9781).add(salt));
 }
@@ -139,10 +156,11 @@ export class Burst {
     // Spin each quad a little so overlapping puffs do not line up.
     const ang: N = r5.mul(6.283);
     const rq: N = vec2(qp.x.mul(cos(ang)).sub(qp.y.mul(sin(ang))), qp.x.mul(sin(ang)).add(qp.y.mul(cos(ang))));
-    const s: N = select(alive, size, float(0.0));
+    const cap = screenCap(centre, size);
+    const s: N = select(alive, cap.size, float(0.0));
     const wpos: N = centre.add(right.mul(rq.x.mul(s))).add(up.mul(rq.y.mul(s)));
     m.positionNode = wpos;
-    const clearFade: N = clear && cfg.clearAim ? clear.fade(wpos) : float(1);
+    const clearFade: N = (clear && cfg.clearAim ? clear.fade(wpos) : float(1)).mul(cap.near);
 
     const vuv: N = varying(qp.mul(2.0), `v${cfg.name}UV`);
     const age: N = clamp(t.div(life), 0.0, 1.0);

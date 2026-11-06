@@ -70,6 +70,8 @@ export class Post {
   };
   private aoNode: N = null;
   private bloomNode: N = null;
+  private scenePass: N = null;
+  private aoBase = 1;
   private disposables: N[] = [];
 
   constructor(renderer: THREE.WebGPURenderer) {
@@ -83,6 +85,7 @@ export class Post {
     this.bloomNode = null;
 
     const scenePass: N = pass(scene, camera);
+    this.scenePass = scenePass;
     this.disposables.push(scenePass);
     let colorNode: N;
     if (tier.ao !== "off") {
@@ -95,6 +98,7 @@ export class Post {
       const sceneDepth: N = scenePass.getTextureNode("depth");
       const aoPass: N = ao(sceneDepth, sceneNormal, camera);
       aoPass.resolutionScale = tier.ao === "half" ? 0.5 : 1;
+      this.aoBase = aoPass.resolutionScale;
       aoPass.samples.value = tier.ao === "half" ? 12 : 16;
       this.aoNode = aoPass;
       this.disposables.push(aoPass);
@@ -152,6 +156,15 @@ export class Post {
       this.bloomNode.radius.value = style.bloom.radius;
       this.bloomNode.threshold.value = style.bloom.threshold;
     }
+  }
+
+  /**
+   * Dynamic resolution: draw the scene (and its ambient occlusion) at this share
+   * of the full resolution. Shadows, bloom, anti-aliasing and the grade are unchanged.
+   */
+  setScale(scale: number) {
+    this.scenePass?.setResolutionScale(scale);
+    if (this.aoNode) this.aoNode.resolutionScale = this.aoBase * scale;
   }
 
   render(time: number) {

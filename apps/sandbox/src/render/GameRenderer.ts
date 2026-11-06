@@ -63,6 +63,8 @@ export class GameRenderer implements GameRendererApi {
   private shock: Shock;
   /** Slow motion for everything cosmetic (the camera keeps real time). */
   private timeScale = 1;
+  /** Dynamic resolution: the share of the full resolution the scene is drawn at (the page sets it). */
+  private renderScale = 1;
   private blastRing: THREE.Group;
   /**
    * The first frames also draw, out of sight, the meshes that otherwise only
@@ -150,12 +152,12 @@ export class GameRenderer implements GameRendererApi {
       flash: mk({ name: "flash", slots: 12, per: 8, life: [0.08, 0.18], color: 0xffd9a0, colorEnd: 0xff7a2a, additive: true, glow: 4, speed: [1, 5], size: [0.5, 1.3], grow: 12, gravity: 0, rise: 0, drag: 8, windScale: 0, spread: 0.6, opacity: 1, floor: false }),
       fire: mk({ name: "fire", slots: 8, per: 18, life: [0.35, 0.8], color: 0xffb060, colorEnd: 0x8a2a0a, additive: true, glow: 2.6, speed: [2, 7], size: [0.4, 1.2], grow: 4, gravity: 0, rise: 1.5, drag: 4, windScale: 0.2, spread: 1.2, opacity: 0.85, floor: true }),
       // A powder burst's fireball: big, short, rolling upwards.
-      fireball: mk({ name: "fireball", slots: 4, per: 24, life: [0.45, 1.0], color: 0xffd08a, colorEnd: 0x9a3010, additive: true, glow: 3.2, speed: [2, 8], size: [1.2, 3.4], grow: 5, gravity: 0, rise: 2.5, drag: 3.5, windScale: 0.1, spread: 1.0, opacity: 0.9, floor: true }),
+      fireball: mk({ name: "fireball", slots: 4, per: 18, life: [0.45, 1.0], color: 0xffd08a, colorEnd: 0x9a3010, additive: true, glow: 3.2, speed: [2, 8], size: [1.2, 3.4], grow: 5, gravity: 0, rise: 2.5, drag: 3.5, windScale: 0.1, spread: 1.0, opacity: 0.9, floor: true }),
       smoke: mk({ name: "smoke", slots: 10, per: 26, life: [4.5, 7.5], color: 0x232120, colorEnd: 0x383633, additive: false, glow: 1, speed: [1.5, 5], size: [0.6, 2.0], grow: 0.8, gravity: 0, rise: 1.0, drag: 1.6, windScale: 0.6, spread: 1.0, opacity: 0.85, floor: true, lighting: 0.3, clearAim: true }),
       // A tall column of dark smoke that leans with the wind and lingers.
-      column: mk({ name: "column", slots: 4, per: 32, life: [6, 11], color: 0x1c1a18, colorEnd: 0x423e39, additive: false, glow: 1, speed: [1.5, 6], size: [1.0, 4.2], grow: 0.55, gravity: 0, rise: 3.2, drag: 1.0, windScale: 0.85, spread: 0.55, opacity: 0.82, floor: true, lighting: 0.35, clearAim: true }),
+      column: mk({ name: "column", slots: 4, per: 22, life: [6, 11], color: 0x1c1a18, colorEnd: 0x423e39, additive: false, glow: 1, speed: [1.5, 6], size: [1.0, 4.2], grow: 0.55, gravity: 0, rise: 3.2, drag: 1.0, windScale: 0.85, spread: 0.55, opacity: 0.82, floor: true, lighting: 0.35, clearAim: true }),
       // Dust thrown out along the ground by the blast.
-      skirt: mk({ name: "skirt", slots: 4, per: 36, life: [2.2, 4.2], color: 0x857762, colorEnd: 0x9a8f80, additive: false, glow: 1, speed: [10, 22], size: [0.8, 3.2], grow: 1.4, gravity: 0, rise: 0.35, drag: 2.6, windScale: 0.5, spread: 1.0, opacity: 0.62, floor: true, lighting: 0.6, clearAim: true }),
+      skirt: mk({ name: "skirt", slots: 4, per: 24, life: [2.2, 4.2], color: 0x857762, colorEnd: 0x9a8f80, additive: false, glow: 1, speed: [10, 22], size: [0.8, 3.2], grow: 1.4, gravity: 0, rise: 0.35, drag: 2.6, windScale: 0.5, spread: 1.0, opacity: 0.62, floor: true, lighting: 0.6, clearAim: true }),
       muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true, clearAim: true }),
       dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
       trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
@@ -316,11 +318,11 @@ export class GameRenderer implements GameRendererApi {
     }
   }
 
-  private spawnImpact(x: number, y: number, z: number, strength: number) {
+  private spawnImpact(x: number, y: number, z: number, strength: number, dust = 1) {
     // Debris is thrown back towards the shooter (the player's castle).
     const cz = this.layout ? this.layout.castleZ[1] : -150;
     this.effects.bias.set(0 - x, 0, cz - z);
-    this.effects.spawnImpact(x, y, z, strength);
+    this.effects.spawnImpact(x, y, z, strength, dust);
   }
 
   /** A powder burst: fireball, a fountain of chips, dust thrown along the ground, a shock, a smoke column. */
@@ -328,9 +330,10 @@ export class GameRenderer implements GameRendererApi {
     const r = Math.max(0.5, radius || 3);
     const g = this.terrain.heightAt(x, z);
     const nearGround = y - g < 4;
-    // Two rings of chips and dust: one thrown hard, one heavier and lower.
-    this.spawnImpact(x, y, z, 2.2);
-    this.spawnImpact(x, y + 0.6, z, 1.5);
+    // Two rings of chips: one thrown hard, one heavier and lower. The smoke and the ground dust
+    // below carry most of the cloud, so the impact dust is thinner than a single hit's.
+    this.spawnImpact(x, y, z, 2.2, 0.55);
+    this.spawnImpact(x, y + 0.6, z, 1.5, 0);
     this.bursts.flash.spawn(this.now, x, y + 0.4, z, r * 0.6, 0, 0.4, 0);
     this.bursts.fireball.spawn(this.now, x, y + 0.5, z, r * 0.32, 0, 0.7, 0);
     this.bursts.fire.spawn(this.now, x, y + 0.2, z, r * 0.5, 0, 0.6, 0);
@@ -511,6 +514,15 @@ export class GameRenderer implements GameRendererApi {
     return null;
   }
 
+  setRenderScale(scale: number): void {
+    this.renderScale = Math.max(0.4, Math.min(1, scale));
+    this.post?.setScale(this.renderScale);
+  }
+
+  gpuTime(): number | null {
+    return this.canTime ? this.gpuMs : null;
+  }
+
   setTimeScale(scale: number): void {
     this.timeScale = Math.max(0.02, Math.min(1, scale));
   }
@@ -671,6 +683,7 @@ export class GameRenderer implements GameRendererApi {
     const post = this.post!;
     if (this.postDirty) {
       post.build(this.scene, cam, TIERS[this.tier], STYLE);
+      post.setScale(this.renderScale);
       this.postDirty = false;
     }
     this.renderer.info.reset();

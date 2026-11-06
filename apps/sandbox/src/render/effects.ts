@@ -45,7 +45,7 @@ import {
 import { chipGeometry } from "./geometry";
 import type { StyleName, StylePreset } from "./styles";
 import type { ClearView } from "./clearview";
-import type { FlashLight } from "./bursts";
+import { screenCap, type FlashLight } from "./bursts";
 import { N, qrot } from "./tslUtils";
 
 const SLOTS = 16;
@@ -224,10 +224,13 @@ export class Effects {
     m.depthWrite = false;
     const idx: N = instanceIndex;
     const slot: N = idx.div(PUFFS_PER);
+    const local: N = idx.mod(PUFFS_PER);
     const A: N = this.uImpA.element(slot);
     const B: N = this.uImpB.element(slot);
     const t: N = this.time.sub(A.w);
     const strength: N = B.x;
+    // B.y: share of the slot's puffs to show (a burst brings its own smoke and needs fewer).
+    const puffs: N = floor(B.y.mul(PUFFS_PER));
     const r1: N = rnd(idx, 101);
     const r2: N = rnd(idx, 131);
     const r3: N = rnd(idx, 151);
@@ -238,17 +241,18 @@ export class Effects {
     const dir: N = vec3(cos(el).mul(cos(az)), sin(el).mul(0.8), cos(el).mul(sin(az))).add(vec3(B.z, 0.0, B.w).mul(0.5));
     const speed: N = mix(1.2, 4.5, r3).mul(strength.mul(0.8).add(0.5));
     const travel: N = float(1).sub(exp(t.mul(-1.7))).div(1.7);
-    const size: N = mix(0.7, 1.6, r3).mul(strength.mul(1.4).add(0.6)).mul(float(1).sub(exp(t.mul(-1.3))).mul(1.7).add(0.35));
+    const size: N = mix(0.7, 1.6, r3).mul(min(strength, 1.3).mul(1.4).add(0.6)).mul(float(1).sub(exp(t.mul(-1.3))).mul(1.7).add(0.35));
     const centre0: N = A.xyz.add(dir.mul(speed).mul(travel)).add(vec3(this.wind.x.mul(0.3), 0.45, this.wind.y.mul(0.3)).mul(t));
     const centre: N = vec3(centre0.x, max(centre0.y, size.mul(0.42)), centre0.z);
-    const alive: N = t.greaterThanEqual(0.0).and(t.lessThan(life));
+    const alive: N = t.greaterThanEqual(0.0).and(t.lessThan(life)).and(float(local).lessThan(puffs));
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
     const up: N = (cameraWorldMatrix as N).element(1).xyz;
     const qp: N = positionGeometry.xy;
-    const s: N = select(alive, size, float(0.0));
+    const cap = screenCap(centre, size);
+    const s: N = select(alive, cap.size, float(0.0));
     const wpos: N = centre.add(right.mul(qp.x.mul(s))).add(up.mul(qp.y.mul(s)));
     m.positionNode = wpos;
-    const clearFade: N = this.clear ? this.clear.fade(wpos) : float(1);
+    const clearFade: N = (this.clear ? this.clear.fade(wpos) : float(1)).mul(cap.near);
     const vuv: N = varying(qp.mul(2.0), "vDustUV");
     const vAlpha: N = varying(smoothstep(0.0, 0.12, t).mul(float(1).sub(smoothstep(life.mul(0.35), life, t))).mul(mix(0.45, 0.8, r2)).mul(clearFade), "vDustA");
     const vSeed: N = varying(r1, "vDustSeed");
@@ -330,7 +334,8 @@ export class Effects {
     this.now = now;
   }
 
-  spawnImpact(x: number, y: number, z: number, strength: number) {
+  /** One impact: chips and dust. `dust` is the share of dust puffs to show (0..1). */
+  spawnImpact(x: number, y: number, z: number, strength: number, dust = 1) {
     const k = this.nextSlot;
     this.nextSlot = (k + 1) % SLOTS;
     const s = Math.max(0, Math.min(2.5, strength));
@@ -338,7 +343,7 @@ export class Effects {
     // Bias the debris back towards where the shot came from.
     const bx = this.bias.x, bz = this.bias.z;
     const bl = Math.hypot(bx, bz) || 1;
-    this.impB[k].set(s, k * 0.137, bx / bl, bz / bl);
+    this.impB[k].set(s, Math.max(0, Math.min(1, dust)), bx / bl, bz / bl);
   }
 
   private fillDots(points: Float32Array | null, arr: Float32Array, attr: THREE.InstancedBufferAttribute, mesh: THREE.Mesh, max: number, spacing: number, lenU: N) {
