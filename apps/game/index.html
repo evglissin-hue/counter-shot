@@ -89,7 +89,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .bridges { position: absolute; left: 50%; top: calc(108px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
 .bridges b { font-weight: 600; }
 .bridges .down { color: var(--bad); }
-.overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; background: rgba(10, 9, 7, 0.38); }
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: rgba(10, 9, 7, 0.38); overflow: auto; }
 .card { width: min(560px, 100%); padding: 24px 24px 20px; display: grid; gap: 14px; background: var(--glass-strong); }
 .card h1 { margin: 0; font: 44px/1 var(--display); font-weight: 400; letter-spacing: 0.01em; }
 .card h2 { margin: 0; font: 34px/1.05 var(--display); font-weight: 400; }
