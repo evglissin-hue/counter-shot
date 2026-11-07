@@ -9,7 +9,7 @@ import { NavKind, NAV_GRID, NAV_STEP, navCell } from "@keepfall/sim";
 
 const COLORS: Record<number, [number, number, number, number]> = {
   // r, g, b (0..1), opacity weight
-  [NavKind.Ground]: [0.42, 0.78, 0.5, 0.3],
+  [NavKind.Ground]: [0.42, 0.78, 0.5, 0.2],
   [NavKind.Raised]: [0.55, 0.92, 0.62, 0.5],
   [NavKind.Water]: [0.3, 0.55, 0.9, 0.45],
   [NavKind.Steep]: [0.48, 0.4, 0.32, 0.2],
@@ -32,7 +32,7 @@ export class NavOverlay {
     const pos = new Float32Array(n * 4 * 3);
     const col = new Float32Array(n * 4 * 4);
     const idx = new Uint32Array(n * 6);
-    const m = 0.06; // a hairline between tiles
+    const m = 0; // seamless: hairlines turn into moire at a distance
     for (let j = 0; j < nz; j++) {
       for (let i = 0; i < nx; i++) {
         const c = j * nx + i;

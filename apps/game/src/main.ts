@@ -918,8 +918,9 @@ function showEnd() {
   $("end-line").textContent = r.winner === 1 ? "The enemy keep's banner is on the ground." : r.winner === 0 ? "Your keep's banner is on the ground." : "Both banners came down together.";
   $("end-time").textContent = clockText(r.tick);
   const mas = info.masonry;
-  $("end-enemy").textContent = mas ? `${mas[0]} pieces` : "";
-  $("end-yours").textContent = mas ? `${mas[1]} pieces` : "";
+  const pieces = (n: number) => `${n} ${n === 1 ? "piece" : "pieces"}`;
+  $("end-enemy").textContent = mas ? pieces(mas[0]) : "";
+  $("end-yours").textContent = mas ? pieces(mas[1]) : "";
   $("end-shots").textContent = `${info.shots[1]}`;
   $("end").hidden = false;
   document.exitPointerLock?.();
