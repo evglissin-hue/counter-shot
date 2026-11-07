@@ -1,6 +1,8 @@
-// Replays the scripted sandbox session in this browser and compares its hash
-// with the one pinned from Node. Used by the headless check and on devices.
+// Replays the scripted sandbox session and the scripted match in this browser
+// and compares their hashes with the ones pinned from Node. Used by the
+// headless check and on devices.
 
+import { MATCH_HASH, runMatchSession } from "@keepfall/rules";
 import { runSession, SESSION_HASH, type Rapier } from "@keepfall/sim";
 
 const out = document.getElementById("out")!;
@@ -11,10 +13,15 @@ const out = document.getElementById("out")!;
     await R.init();
     const t0 = performance.now();
     const r = runSession(R);
-    const ms = performance.now() - t0;
-    const match = r.hash.state === SESSION_HASH.state && r.hash.world === SESSION_HASH.world;
-    out.textContent = `${match ? "MATCH" : "MISMATCH"} state ${r.hash.state} world ${r.hash.world} (Node: ${SESSION_HASH.state} ${SESSION_HASH.world}), ${r.down} down, ${Math.round(ms)} ms`;
-    out.dataset.result = match ? "match" : "mismatch";
+    const t1 = performance.now();
+    const g = runMatchSession(R);
+    const t2 = performance.now();
+    const same = (a: { state: string; world: string }, b: { state: string; world: string }) => a.state === b.state && a.world === b.world;
+    const ok = same(r.hash, SESSION_HASH) && same(g.hash, MATCH_HASH);
+    out.textContent =
+      `${ok ? "MATCH" : "MISMATCH"} session state ${r.hash.state} world ${r.hash.world} (Node: ${SESSION_HASH.state} ${SESSION_HASH.world}), ${r.down} down, ${Math.round(t1 - t0)} ms; ` +
+      `match state ${g.hash.state} world ${g.hash.world} (Node: ${MATCH_HASH.state} ${MATCH_HASH.world}), won at tick ${g.result?.tick ?? "none"}, ${Math.round(t2 - t1)} ms`;
+    out.dataset.result = ok ? "match" : "mismatch";
   } catch (err) {
     out.textContent = `ERROR ${err instanceof Error ? err.message : String(err)}`;
     out.dataset.result = "error";

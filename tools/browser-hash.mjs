@@ -1,5 +1,5 @@
-// Replays the scripted sandbox session in headless Chromium and checks that it
-// matches the hash pinned from Node. Usage: node tools/browser-hash.mjs
+// Replays the scripted sandbox session and the scripted match in headless Chromium and checks that they
+// match the hashes pinned from Node. Usage: node tools/browser-hash.mjs
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

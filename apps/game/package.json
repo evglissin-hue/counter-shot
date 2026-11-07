@@ -13,6 +13,7 @@
     "@dimforge/rapier3d-deterministic-compat": "0.21.0",
     "@keepfall/content": "0.0.0",
     "@keepfall/core": "0.0.0",
+    "@keepfall/rules": "0.0.0",
     "@keepfall/sim": "0.0.0",
     "three": "0.186.1"
   },

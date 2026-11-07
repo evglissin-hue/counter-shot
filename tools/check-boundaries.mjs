@@ -4,8 +4,8 @@
 //    path that leaves its own folder.
 // 2. Every bare import is declared in that workspace's package.json.
 // 3. Packages under packages/ are DOM-free.
-// 4. core, content and sim avoid maths and clocks that differ between engines.
-// 5. Direction: core <- content <- sim <- apps and lab. Nothing imports an app.
+// 4. core, content, sim and rules avoid maths and clocks that differ between engines.
+// 5. Direction: core <- content <- sim <- rules <- apps and lab. Nothing imports an app.
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative, resolve, dirname, sep } from "node:path";
@@ -22,8 +22,8 @@ for (const group of ["packages", "apps"]) {
 }
 workspaces.push({ dir: join(root, "lab"), group: "lab" });
 
-const RANK = { "@keepfall/core": 0, "@keepfall/content": 1, "@keepfall/sim": 2 };
-const DETERMINISTIC = new Set(["@keepfall/core", "@keepfall/content", "@keepfall/sim"]);
+const RANK = { "@keepfall/core": 0, "@keepfall/content": 1, "@keepfall/sim": 2, "@keepfall/rules": 3 };
+const DETERMINISTIC = new Set(["@keepfall/core", "@keepfall/content", "@keepfall/sim", "@keepfall/rules"]);
 const BANNED_MATHS = /\bMath\.(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|exp|expm1|log|log2|log10|log1p|pow|sqrt|cbrt|hypot|random)\b|\bDate\b|\bperformance\b/;
 const DOM = /\b(window|document|navigator|requestAnimationFrame|localStorage|sessionStorage|HTMLElement|HTMLCanvasElement)\b/;
 const IMPORT = /(?:import|export)\s[^'"]*?from\s*["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)|import\s+["']([^"']+)["']/g;
