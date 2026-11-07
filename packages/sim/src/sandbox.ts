@@ -27,7 +27,7 @@ import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
 
 export const enum Spin {
   None = 0,
@@ -96,6 +96,8 @@ export class SandboxSim {
   private events: number[] = [];
   private rng: Rng;
   private pelletRng: Rng;
+  /** Each shot's scatter, drawn in the order shots are fired. */
+  private scatterRng: Rng;
   private bufs = {
     stones: new Float32Array(MAX_STONES * STONE_STRIDE),
     projectiles: new Float32Array(64 * PROJECTILE_STRIDE),
@@ -118,6 +120,7 @@ export class SandboxSim {
     this.emplacements = opts.emplacements ?? ASHWRIGHT_EMPLACEMENTS;
     this.reload = this.emplacements.map(() => 0);
     this.minions.spawnPatrol(this.rng.fork("patrol"), opts.minions);
+    this.scatterRng = this.rng.fork("scatter");
     this.nav = new NavGrid(this.castle, this.terrain);
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
@@ -166,9 +169,15 @@ export class SandboxSim {
     const e = this.emplacements[input.emplacement];
     if (!e || this.reload[e.id] > 0) return;
     const w = WEAPONS[e.weapon];
-    const a = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
+    const aim = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
     const charge = input.charge < 0 ? 0 : input.charge > 1 ? 1 : input.charge;
-    const speed = w.minSpeed + (w.speed - w.minSpeed) * charge;
+    // The shot leaves a little off the aim, and the charge is never quite the same twice.
+    const sc = w.scatter;
+    const r = sc.angle * dsqrt(this.scatterRng.next());
+    const turn = this.scatterRng.range(0, 6.283185307179586);
+    const kick = 1 + sc.speed * (this.scatterRng.next() * 2 - 1);
+    const a = { yaw: aim.yaw + r * cosT(turn), pitch: aim.pitch + r * sinT(turn) };
+    const speed = (w.minSpeed + (w.speed - w.minSpeed) * charge) * kick;
     this.reload[e.id] = w.reload;
     const id = this.nextShot++;
     this.event(EventKind.Muzzle, e.id, id, 0, 0);

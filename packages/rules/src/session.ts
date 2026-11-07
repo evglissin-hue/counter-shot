@@ -11,7 +11,7 @@ import { Match, Team, type MatchInput, type MatchResult } from "./match";
 export const MATCH_TICKS = 1200;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "7307c90c", world: "900c326e" } as const;
+export const MATCH_HASH = { state: "8fd8ce35", world: "e6e81c57" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 

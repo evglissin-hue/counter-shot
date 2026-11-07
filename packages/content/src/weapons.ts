@@ -70,6 +70,13 @@ export interface WeaponDef {
   spinRate: number;
   /** Seconds of the predicted arc the aim help shows. */
   arcSeconds: number;
+  /**
+   * Shot to shot scatter, so two identical aims do not land on the same
+   * stone: the barrel throws up to `angle` (radians) off the aim and the
+   * charge varies by up to `speed` (a share of the muzzle speed). Rifled
+   * barrels (a Foundry upgrade) will tighten it.
+   */
+  scatter: { angle: number; speed: number };
   /** The shell's powder burst, for weapons whose shot explodes. */
   burst: BurstDef | null;
   /** Sight field of view range in degrees (render only). */
@@ -100,6 +107,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 0,
     spinRate: 40,
     arcSeconds: 0.5,
+    scatter: { angle: 0.004, speed: 0.008 },
     burst: null,
     fov: [14, 55],
   },
@@ -124,6 +132,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 0,
     spinRate: 0,
     arcSeconds: 1.0,
+    scatter: { angle: 0.006, speed: 0.008 },
     burst: { radius: 4.6, shatter: 0.45, power: 30, lift: 1.1, bite: 0.9, knock: 12, knockSpeed: 18, crater: 4.0, depth: 1.6 },
     fov: [12, 55],
   },
@@ -148,6 +157,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 14,
     spinRate: 0,
     arcSeconds: 0.4,
+    scatter: { angle: 0.008, speed: 0.01 },
     burst: null,
     fov: [18, 55],
   },
@@ -172,6 +182,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     chainSpin: 0,
     spinRate: 0,
     arcSeconds: 0.3,
+    scatter: { angle: 0.004, speed: 0.01 },
     burst: null,
     fov: [30, 65],
   },

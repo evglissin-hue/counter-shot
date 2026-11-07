@@ -24,8 +24,9 @@ You are continuing work on Keepfall (working title), a physics-heavy 3D castle d
 - Phase 2 answers (November 7): the sandbox became the game page with a start menu at the same link; the first map is the valley with a stream and three bridges; abilities wait until after phase 2; the keep has timber floors (a shell caves in one level, the banner drops a floor at a time); fallen minions stay all match with a cap. The owner also asked for a more beautiful, more detailed map.
 
 ## State and open questions
-- Phase 2 M1 (the battlefield) is built and published; see the Status in `docs/phase-2.md`. Rules version 4.
-- Open for the owner: (1) the keep can still fall to two or three good hits (a long gun hit and two shells; two long gun hits near the top; once a shell and one low long gun hit, 42 s in): make it sturdier now, or judge once the AI fights back and repairs? (2) The enemy keep sits at the edge of the mortar's reach at full charge; a strong headwind can put it out of range for a while: raise the mortar's speed a little? (3) Their verdict on the valley's look and on Versus AI.
+- Phase 2 M1 (the battlefield) and the aiming round are built and published; see the Status in `docs/phase-2.md`. Rules version 5.
+- The owner's answers after M1: aiming was far too easy and predictable (done: the standard aim help is the first part of the arc, last shot's trail and landing marker; seeded shot scatter; wind gusts); the mortar's reach is fine; make the keep harder to hit rather than sturdier (judge the keep again with the new aiming).
+- Open for the owner: how aiming feels now (too hard, about right?), and their verdict on the valley's look.
 - Unmeasured: the renderer now draws about 1.15M triangles at High in the overview (the 192 by 266 m ground and the forests): check 60 fps at High on Kat's M3 before adding more.
 - Known gaps: upright minions follow the raw ground (`terrain.heightAt`), not the nav grid's floors, so they would walk through a bridge deck instead of over it; the patrol never goes near a bridge, but M2's waves must walk on the nav floor. Turn rates and wind strength are first pass; WebGPU, Safari and Firefox are untested on real machines; the sound has not been heard on real speakers.
 

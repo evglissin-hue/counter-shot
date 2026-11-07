@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { buildLayout, DECK_TOP, GAME_LAYOUT, KEEP_STOREYS, STREAM, streamWidth, WEAPONS } from "@keepfall/content";
-import { EventKind, runSession, SESSION_HASH, SandboxSim, Spin, Wind, stepAim, restAim, type Rapier } from "@keepfall/sim";
+import { EventKind, GUST_STRENGTH, runSession, SESSION_HASH, SandboxSim, Spin, Wind, stepAim, restAim, type Rapier } from "@keepfall/sim";
 import { Rng } from "@keepfall/core";
 import { ASHWRIGHT_EMPLACEMENTS } from "@keepfall/content";
 
@@ -20,18 +20,63 @@ test("the scripted sandbox session replays to its pinned hash", () => {
   assert.deepEqual(a.hash, SESSION_HASH);
 });
 
-test("wind follows its seed and stays in range", () => {
+test("wind follows its seed, gusts, and stays in range", () => {
   const w = new Wind(new Rng(3).fork("wind"));
   let changes = 0, last = w.nextChangeIn(0);
+  const top = 11 * (1 + GUST_STRENGTH);
+  // Within one steady stretch the gusts still move the wind: track its spread over every 10 s window.
+  let widest = 0, lo = Infinity, hi = -Infinity;
   for (let t = 0; t < 60 * 300; t++) {
     w.step(t);
     const s = w.x * w.x + w.z * w.z;
-    assert.ok(s <= 11 * 11 + 1e-9);
+    assert.ok(s <= top * top + 1e-9, `wind ${Math.sqrt(s)}`);
     const next = w.nextChangeIn(t);
     if (next > last) changes++;
     last = next;
+    lo = Math.min(lo, Math.sqrt(s));
+    hi = Math.max(hi, Math.sqrt(s));
+    if (t % 600 === 599) {
+      widest = Math.max(widest, hi - lo);
+      lo = Infinity;
+      hi = -Infinity;
+    }
   }
   assert.ok(changes >= 4 && changes <= 10, `changes ${changes}`);
+  assert.ok(widest > 1, `gusts move the wind by ${widest.toFixed(2)} m/s within 10 s`);
+  const a = new Wind(new Rng(3).fork("wind")), b = new Wind(new Rng(3).fork("wind"));
+  for (let t = 0; t < 2000; t++) {
+    a.step(t);
+    b.step(t);
+  }
+  assert.deepEqual([a.x, a.z], [b.x, b.z], "the same seed blows the same");
+});
+
+test("shots scatter a little: the same aim lands nearby but never on the same spot twice", () => {
+  const land = (seed: number, shots: number) => {
+    const sim = new SandboxSim(R, buildLayout(1, GAME_LAYOUT), { seed, minions: 0 });
+    const out: Array<[number, number]> = [];
+    for (let k = 0; k < shots; k++) {
+      // The long gun into the open ground in front of the target castle, the same aim each time.
+      sim.queue(sim.tick, { kind: "fire", emplacement: 0, yaw: 0.2, pitch: 0.02, charge: 1, fuse: 0, spin: Spin.None });
+      let hit: [number, number] | null = null;
+      for (let i = 0; i < 300 && !hit; i++) {
+        sim.step();
+        const f = sim.collect();
+        for (let e = 0; e < f.eventCount; e++) if (f.events[e * 5] === EventKind.Landed) hit = [f.events[e * 5 + 2], f.events[e * 5 + 4]];
+      }
+      assert.ok(hit, "the ball landed");
+      out.push(hit);
+      while (sim.reload[0] > 0) sim.step();
+    }
+    sim.free();
+    return out;
+  };
+  const a = land(5, 3);
+  assert.deepEqual(land(5, 3), a, "the same seed scatters the same way");
+  for (let i = 1; i < a.length; i++) {
+    const d = Math.hypot(a[i][0] - a[0][0], a[i][1] - a[0][1]);
+    assert.ok(d > 0.02 && d < 8, `shot ${i} landed ${d.toFixed(2)} m from the first`);
+  }
 });
 
 test("aiming is limited by the weapon's turn rate and arc", () => {

@@ -11,7 +11,7 @@ import { SandboxSim, Spin, type SandboxInput } from "./sandbox";
 export const SESSION_TICKS = 900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION when gameplay changes. */
-export const SESSION_HASH = { state: "beadc162", world: "723480b8" } as const;
+export const SESSION_HASH = { state: "33aaaa59", world: "cd4a576a" } as const;
 
 export const SESSION_SCRIPT: Array<[number, SandboxInput]> = [
   [5, { kind: "fire", emplacement: 0, yaw: 0, pitch: 0.035, charge: 1, fuse: 0, spin: Spin.None }],

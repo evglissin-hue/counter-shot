@@ -78,14 +78,18 @@ const aims: AimState[] = EMP.map((e) => restAim(e, WEAPONS[e.weapon]));
 const wanted: AimState[] = aims.map((a) => ({ ...a }));
 const fov: number[] = EMP.map((e) => WEAPONS[e.weapon].fov[1] * 0.8);
 let fuseTicks = 0; // mortar: 0 means burst on impact
-/** Aim help: the whole predicted flight (default in the sandbox) or only its first part, as in ranked play. */
-let aimHelp: "full" | "partial" = "full";
+/**
+ * Aim help: the first part of the flight, your last shot's trail and where it
+ * landed (the standard: you learn by correcting), or the whole predicted
+ * flight with the landing ring (easy).
+ */
+let aimHelp: "full" | "partial" = "partial";
 /** Slow motion when a followed shot lands or a ridden shell bursts (off: the physics plays in real time). */
 let slowMo = false;
 /** Shot camera per emplacement: on for the mortar (ride the shell), off for the others. */
 let shotCam: boolean[] = EMP.map((e) => e.weapon === "mortar");
 try {
-  if (localStorage.getItem("keepfall.aimHelp") === "partial") aimHelp = "partial";
+  if (localStorage.getItem("keepfall.aimHelp2") === "full") aimHelp = "full";
   slowMo = localStorage.getItem("keepfall.slowmo") === "1";
   const saved = localStorage.getItem("keepfall.shotCam");
   if (saved && saved.length === EMP.length) shotCam = [...saved].map((c) => c === "1");
@@ -571,9 +575,8 @@ function observerPose(dt: number): CameraPose {
   const e = EMP[current], a = aims[current];
   let t = predicted;
   if (!t || aimHelp === "partial") {
-    // Still-air range at this elevation: a rough cue, not the answer.
-    const v = MORTAR.speed, p = a.pitch;
-    const range = Math.min(240, Math.max(30, (v * v * Math.sin(2 * p)) / SHELL_G));
+    // Where it would come down in still air on level ground: a rough cue, not the answer.
+    const range = Math.min(240, Math.max(30, stillAirRange(a.pitch)));
     const [fx, , fz] = aimDir(a.yaw, 0);
     t = { x: e.x + fx * range, y: 0, z: e.z + fz * range };
   }
@@ -601,6 +604,23 @@ function observerPose(dt: number): CameraPose {
     tz: obs.z,
     fov: fov[current],
   };
+}
+
+/** Horizontal distance a mortar shell flies at this elevation in still air, down to level ground (y = 0). */
+const rangeCache = new Map<number, number>();
+function stillAirRange(pitch: number): number {
+  const key = Math.round(pitch * 2000);
+  const hit = rangeCache.get(key);
+  if (hit !== undefined) return hit;
+  const e = EMP.find((m) => m.weapon === "mortar")!;
+  const m = muzzle(e, 0, pitch);
+  const d = aimDir(0, pitch);
+  const path = predictPath(m, [d[0] * MORTAR.speed, d[1] * MORTAR.speed, d[2] * MORTAR.speed], null, 0, 0, flightCoef(MORTAR.projectile), 12, 1);
+  const n = path.length;
+  const range = Math.hypot(path[n - 3] - m[0], path[n - 1] - m[2]);
+  if (rangeCache.size > 4000) rangeCache.clear();
+  rangeCache.set(key, range);
+  return range;
 }
 
 /** Seconds of flight to a hit on a path sampled every 2 ticks. */
@@ -738,13 +758,15 @@ function updateHud(force = false) {
   hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
   hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
+  // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).
+  const elevation = `Elevation ${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
   if (e.weapon === "mortar") {
     const flight = aimHelp === "full" && flightSeconds ? `, ${flightSeconds.toFixed(1)} s` : "";
-    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : "";
+    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : `${elevation}, ${Math.round(stillAirRange(aims[current].pitch))} m in still air`;
     const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? " (bursts in the air)" : fuseTicks > 0 ? " (bounces, then bursts)" : "";
     hud.extra.textContent = (fuseTicks === 0 ? "Fuse: on impact" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s${air}`) + "  ( [ ] )";
   } else {
-    hud.target.textContent = hitText ? `Hits ${hitText}` : "";
+    hud.target.textContent = hitText ? `Hits ${hitText}` : elevation;
     if (e.weapon === "longGun") hud.extra.textContent = `Spin: ${SPIN_NAMES[spin]}  (R)`;
     else if (e.weapon === "chainShot") hud.extra.textContent = "Two balls on a spinning chain";
     else hud.extra.textContent = `${w.pellets} balls of grapeshot`;
@@ -802,7 +824,7 @@ aimHelpSel.value = aimHelp;
 aimHelpSel.addEventListener("change", () => {
   aimHelp = aimHelpSel.value === "partial" ? "partial" : "full";
   try {
-    localStorage.setItem("keepfall.aimHelp", aimHelp);
+    localStorage.setItem("keepfall.aimHelp2", aimHelp);
   } catch {}
 });
 const slowBox = $<HTMLInputElement>("slowmo");

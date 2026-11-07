@@ -43,6 +43,8 @@ A browser game where two castles face each other across a field. You fire siege 
 | The keep | Timber floors inside (7 and 13.5 m under the 20 m roof): each shell caves in one level and the banner drops a floor at a time. Toppled means the banner reaches the ground floor (or the ground outside). |
 | Fallen minions | Stay all match as frozen bodies (cover, ramps, blockages); past a few hundred the oldest sink into the ground. |
 | Abilities | After phase 2. |
+| Aiming takes skill | The owner found aiming far too easy and the game predictable with the full predicted arc. Now: the standard aim help is the first part of the arc, your last shot's trail and where it landed (you learn by correcting); the full arc is an easy setting. Every shot scatters a little (seeded, so replays and lockstep hold; rifled barrels will tighten it), and the wind gusts on top of its slow changes. The keep stays as it is until we see how it holds up against harder aiming. |
+| Mortar reach | The enemy keep at the edge of the mortar's reach (a headwind can put it out of range for a while) is fine. |
 
 ## Race proposals (for review)
 
