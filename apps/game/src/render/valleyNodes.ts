@@ -5,23 +5,28 @@
 // never feed the physics.
 
 import { abs, clamp, cos, float, max, min, select, sin, smoothstep, sqrt } from "three/tsl";
-import { BRIDGES, MID_Z, ROUTE_HALF, STREAM, flankX, roadX, streamOffset, streamSlope, streamWidth } from "@keepfall/content";
+import { BRIDGES, MID_Z, ROUTE_HALF, STREAM, STREAM_BEND, flankX, roadX, streamOffset, streamSlope, streamWidth } from "@keepfall/content";
 import type { N } from "./tslUtils";
 
 const SK = (2 * Math.PI) / 144;
 
-/** Offset of the stream's centreline from MID_Z at x (as content's streamOffset). */
+/** Offset of the stream's centreline from MID_Z at x (as content's streamOffset, with its bend beyond the valley). */
 export function streamOffsetNode(x: N): N {
   const a: N = x.mul(SK);
   const s1 = sin(a), s2 = sin(a.mul(2)), s4 = sin(a.mul(4)), s8 = sin(a.mul(8));
-  return s1.sub(s2.mul(0.5)).mul(4).add(s2.sub(s4.mul(0.5)).mul(1.5)).add(s4.sub(s8.mul(0.5)).mul(0.6));
+  const e: N = max(abs(x).sub(STREAM_BEND.x), 0);
+  const bend: N = e.mul(e).mul(STREAM_BEND.slope).div(e.add(STREAM_BEND.ease)).mul(select(x.lessThan(0), float(-1), float(1)));
+  return s1.sub(s2.mul(0.5)).mul(4).add(s2.sub(s4.mul(0.5)).mul(1.5)).add(s4.sub(s8.mul(0.5)).mul(0.6)).add(bend);
 }
 
 /** Slope dz/dx of the centreline. */
 export function streamSlopeNode(x: N): N {
   const a: N = x.mul(SK);
   const c1 = cos(a), c2 = cos(a.mul(2)), c4 = cos(a.mul(4)), c8 = cos(a.mul(8));
-  return c1.sub(c2).mul(4).add(c2.sub(c4).mul(3)).add(c4.sub(c8).mul(2.4)).mul(SK);
+  const e: N = max(abs(x).sub(STREAM_BEND.x), 0);
+  const q: N = e.add(STREAM_BEND.ease);
+  const bend: N = e.mul(e.add(2 * STREAM_BEND.ease)).mul(STREAM_BEND.slope).div(q.mul(q));
+  return c1.sub(c2).mul(4).add(c2.sub(c4).mul(3)).add(c4.sub(c8).mul(2.4)).mul(SK).add(bend);
 }
 
 export function streamWidthNode(x: N): N {

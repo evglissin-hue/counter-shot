@@ -101,19 +101,40 @@ export const STREAM = { level: -0.8, depth: 1.1, bank: 3 } as const;
 const SK = (2 * DPI) / 144;
 
 /**
+ * Beyond the valley the stream turns away (towards +z on the +x side, -z on
+ * the -x side: point symmetric), so its gorge does not run straight to the
+ * horizon. Zero for |x| <= BEND_X, outside the physics grid (|x| <= 96).
+ */
+export const STREAM_BEND = { x: 100, slope: 0.9, ease: 60 } as const;
+
+function bend(x: number): number {
+  const e = Math.abs(x) - STREAM_BEND.x;
+  if (e <= 0) return 0;
+  const b = (STREAM_BEND.slope * e * e) / (e + STREAM_BEND.ease);
+  return x < 0 ? -b : b;
+}
+
+function bendSlope(x: number): number {
+  const e = Math.abs(x) - STREAM_BEND.x;
+  if (e <= 0) return 0;
+  const q = e + STREAM_BEND.ease;
+  return (STREAM_BEND.slope * e * (e + 2 * STREAM_BEND.ease)) / (q * q);
+}
+
+/**
  * The stream's centreline: z = MID_Z + streamOffset(x). Odd in x (point
  * symmetric), and each term has zero slope at x = 0 and x = +-48, so the
  * stream runs straight across where the routes cross it.
  */
 export function streamOffset(x: number): number {
   const a = SK * x;
-  return 4 * (dsin(a) - 0.5 * dsin(2 * a)) + 1.5 * (dsin(2 * a) - 0.5 * dsin(4 * a)) + 0.6 * (dsin(4 * a) - 0.5 * dsin(8 * a));
+  return 4 * (dsin(a) - 0.5 * dsin(2 * a)) + 1.5 * (dsin(2 * a) - 0.5 * dsin(4 * a)) + 0.6 * (dsin(4 * a) - 0.5 * dsin(8 * a)) + bend(x);
 }
 
 /** Slope dz/dx of the centreline. */
 export function streamSlope(x: number): number {
   const a = SK * x;
-  return SK * (4 * (dcos(a) - dcos(2 * a)) + 1.5 * (2 * dcos(2 * a) - 2 * dcos(4 * a)) + 0.6 * (4 * dcos(4 * a) - 4 * dcos(8 * a)));
+  return SK * (4 * (dcos(a) - dcos(2 * a)) + 1.5 * (2 * dcos(2 * a) - 2 * dcos(4 * a)) + 0.6 * (4 * dcos(4 * a) - 4 * dcos(8 * a))) + bendSlope(x);
 }
 
 /** Width of the water at x (even in x). */
