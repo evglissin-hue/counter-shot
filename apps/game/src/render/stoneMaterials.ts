@@ -15,6 +15,7 @@ import {
   floor,
   fract,
   hash,
+  length,
   max,
   min,
   mix,
@@ -25,6 +26,7 @@ import {
   positionWorld,
   cameraPosition,
   select,
+  sin,
   smoothstep,
   step,
   texture,
@@ -192,6 +194,20 @@ function wood(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   mat.name = `${style.name}-wood`;
   const I = applyInstancing(mat, false);
   const p: N = I.vLocal;
+  const n: N = I.vN;
+  const sz: N = I.vSize.xyz;
+  // Boards and gate leaves show planks; beams (one long axis, a squarish section:
+  // stringers, sills, posts, rails) show grain along their length and end grain on the cuts.
+  const isX: N = sz.x.greaterThan(sz.y).and(sz.x.greaterThan(sz.z));
+  const isY: N = sz.y.greaterThan(sz.x).and(sz.y.greaterThan(sz.z));
+  const L: N = select(isX, sz.x, select(isY, sz.y, sz.z));
+  const S: N = min(sz.x, min(sz.y, sz.z));
+  const M: N = sz.x.add(sz.y).add(sz.z).sub(L).sub(S);
+  const isBeam: N = L.greaterThan(M.mul(3.0)).and(M.lessThan(S.mul(2.3)));
+  const beamAlong: N = select(isX, p.x, select(isY, p.y, p.z));
+  const beamA: N = select(isX, p.y, p.x);
+  const beamB: N = select(isX.or(isY), p.z, p.y);
+  const endFace: N = abs(select(isX, n.x, select(isY, n.y, n.z))).greaterThan(0.5);
   const isGate: N = I.vSize.y.greaterThan(I.vSize.x);
   const across: N = select(isGate, p.x, p.z);
   const along: N = select(isGate, p.y, p.x);
@@ -200,16 +216,27 @@ function wood(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   const plank: N = floor(pc);
   const seamDist: N = float(0.5).sub(abs(fract(pc).sub(0.5))).mul(plankW);
   mat.colorNode = Fn(() => {
+    // Planks.
     const grain = texture(noise, vec2(across.mul(2.2).add(plank.mul(0.37)), along.mul(0.18))).g;
     const tint = hash(plank.add(I.vShade.mul(97.0)).add(13.0)).mul(0.3).add(0.85);
     const c: N = mix(color(style.woodDark), color(style.wood), grain.mul(0.9).add(0.25)).mul(tint).toVar();
     c.assign(mix(c, color(style.woodDark).mul(0.55), aaLine(seamDist, 0.014)));
-    // Weathered grey timber: silvered on top, darker and damp low down.
-    c.mulAssign(mix(0.7, 1.0, smoothstep(0.0, 1.5, positionWorld.y)));
     // Iron bands across the gate leaves.
     const band = max(aaLine(abs(p.y.sub(1.35)), 0.09), aaLine(abs(p.y.add(1.35)), 0.09)).mul(select(isGate, 1.0, 0.0));
     c.assign(mix(c, color(style.iron), band));
-    return c;
+    // Beams: long streaks of grain, checks (cracks) along the length, darker arrises; pale end grain with rings.
+    const bg = texture(noise, vec2(beamAlong.mul(0.12).add(I.vShade.mul(17.0)), beamA.add(beamB).mul(2.6))).g;
+    const check = aaLine(abs(fract(beamA.add(beamB).mul(3.1).add(bg.mul(0.6))).sub(0.5)), 0.03).mul(0.6);
+    const edge = smoothstep(0.6, 1.0, max(abs(beamA).div(max(sz.x, 0.01)), abs(beamB).div(max(sz.z, 0.01))));
+    const beam: N = mix(color(style.woodDark), color(style.wood), bg.mul(0.85).add(0.2)).mul(hash(I.vShade.mul(131.0)).mul(0.25).add(0.85)).toVar();
+    beam.assign(mix(beam, color(style.woodDark).mul(0.6), check.add(edge.mul(0.25))));
+    const rings = sin(length(vec2(beamA, beamB)).mul(70.0).add(bg.mul(4.0))).mul(0.5).add(0.5);
+    const endGrain = mix(color(0x8a7a62), color(0x5f5141), rings.mul(0.55)).mul(0.9);
+    beam.assign(mix(beam, endGrain, select(endFace, 1.0, 0.0)));
+    const w: N = mix(c, beam, select(isBeam, 1.0, 0.0)).toVar();
+    // Weathered grey timber: silvered on top, darker and damp low down (and just above the water).
+    w.mulAssign(mix(0.62, 1.0, smoothstep(-0.9, 1.2, positionWorld.y)));
+    return w;
   })();
   mat.roughness = 0.88;
   return mat;

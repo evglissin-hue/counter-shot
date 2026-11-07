@@ -116,7 +116,20 @@ export interface StylePreset {
   dirt: number;
   road: number;
   mud: number;
-  flowers: number;
+  /** Dry grass in drifts, heath on the valley sides. */
+  straw: number;
+  heath: number;
+  /** Specks of flowers in the grass (muted: pale, ochre, a little purple). */
+  flowerA: number;
+  flowerB: number;
+  flowerC: number;
+  /** Crags: the light strata, lichen on the tops, moss low down. */
+  rockLight: number;
+  lichen: number;
+  moss: number;
+  /** The stream's banks: gravel and pebbles at the water line, wet mud above. */
+  gravel: number;
+  wetMud: number;
   roughness: number;
 };
   water: { shallow: number; deep: number; reflect: number };
@@ -127,6 +140,10 @@ export interface StylePreset {
   leafDark: number;
   trunk: number;
 };
+  /** Broadleaf stands late in the year, bushes and gorse, reeds at the water: leaf, light, dark, wood. */
+  broadleaf: { leaf: number; leafLight: number; leafDark: number; trunk: number };
+  bushes: { leaf: number; leafLight: number; leafDark: number; trunk: number };
+  reeds: { leaf: number; leafLight: number; leafDark: number; trunk: number };
   rock: number;
   iron: number;
   dust: number;
@@ -225,11 +242,23 @@ export const GRITTY: StylePreset = {
     dirt: 0x4a3d2e,
     road: 0x51463a,
     mud: 0x3b3128,
-    flowers: 0,
+    straw: 0x7b7046,
+    heath: 0x4e3f3c,
+    flowerA: 0xb4b19c,
+    flowerB: 0x9c8a4a,
+    flowerC: 0x6c5a70,
+    rockLight: 0x7d7a71,
+    lichen: 0x8f8f62,
+    moss: 0x3d4a29,
+    gravel: 0x64604f,
+    wetMud: 0x231e19,
     roughness: 0.9,
   },
   water: { shallow: 0x3c4a46, deep: 0x1c2628, reflect: 0.7 },
   trees: { kind: "conifer", leaf: 0x24382a, leafLight: 0x3a5238, leafDark: 0x15241a, trunk: 0x2e251d },
+  broadleaf: { leaf: 0x434626, leafLight: 0x5d5832, leafDark: 0x232816, trunk: 0x352e26 },
+  bushes: { leaf: 0x3a4424, leafLight: 0x56592f, leafDark: 0x1f2714, trunk: 0x2e271f },
+  reeds: { leaf: 0x67663d, leafLight: 0x8f8455, leafDark: 0x34391f, trunk: 0x3a3a24 },
   rock: 0x5a5852,
   iron: 0x2a2928,
   dust: 0x8f877b,
