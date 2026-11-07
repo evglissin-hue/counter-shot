@@ -1,3 +1,5 @@
+import { VALLEY_GRID } from "@keepfall/content";
+
 // What the simulation reports to the renderer every frame, as flat arrays so
 // the worker can transfer them without copying. Strides are fixed here.
 
@@ -43,8 +45,8 @@ export interface TerrainPatch {
   h: Float32Array;
 }
 
-/** The physics terrain grid: vertex (i, j) is at x = x0 + i * cell, z = z0 + j * cell. */
-export const TERRAIN_GRID = { x0: -48, z0: -192, cell: 1, nx: 97, nz: 235 } as const;
+/** The physics terrain grid (the valley's): vertex (i, j) is at x = x0 + i * cell, z = z0 + j * cell. */
+export const TERRAIN_GRID = VALLEY_GRID;
 
 export interface FrameData {
   tick: number;

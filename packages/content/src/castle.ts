@@ -8,6 +8,8 @@
 // wall and fires along +Z.
 
 import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
+import { DIST } from "./field";
+import { BRIDGES, bridgePieces, valleyHeight, type BridgeSite } from "./map";
 
 export type Shape = "box" | "wedge";
 export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
@@ -16,12 +18,13 @@ export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
  * keep's timber floors (layout option keepFloors): only bursts and direct hits
  * break one, not falling rubble, so each shell caves in one level.
  */
-export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner";
+export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge";
 export type Quat = [number, number, number, number];
 
 export interface Stone {
   id: number;
-  castle: 0 | 1;
+  /** 0 the enemy castle, 1 the player's, 2 the field (bridges): each group has its own support check. */
+  castle: 0 | 1 | 2;
   part: Part;
   material: Material;
   shape: Shape;
@@ -38,6 +41,8 @@ export interface Stone {
   grounded: boolean;
   /** 0..1, stable per stone, for colour variation. */
   shade: number;
+  /** A beam that falls as soon as either of its supports goes (bridge stringers), not only when both do. */
+  span?: boolean;
 }
 
 export interface WedgeSpec {
@@ -70,6 +75,8 @@ export interface CastleLayout {
   keepTop: number;
   /** A keep is toppled when its banner's centre falls below this height. */
   bannerFallY: number;
+  /** The bridges (group 2), each with the id range of its pieces. */
+  bridges: Array<{ site: BridgeSite; first: number; count: number }>;
   /**
    * The keep has timber floors (layout option keepFloors). The sim then lets
    * each banner touch only its keep's intact walls and floors, the ground and
@@ -78,7 +85,7 @@ export interface CastleLayout {
   keepFloors: boolean;
 }
 
-export const DIST = 150; // metres between castle centres
+export { DIST } from "./field";
 const T = 15; // half distance between tower centres
 const COURSE = 0.5; // course height
 const GAP = 0.004; // shrink per side, so neighbours never overlap
@@ -428,10 +435,12 @@ export interface LayoutOptions {
    * keep takes a siege. Off in the lab, whose reference hash predates them.
    */
   keepFloors?: boolean;
+  /** Timber bridges to build across the stream (the valley's BRIDGES), after both castles. */
+  bridges?: BridgeSite[];
 }
 
-/** The game's castles (practice range and matches): wedges mirrored properly, timber floors in the keeps. */
-export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true };
+/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges. */
+export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
@@ -450,11 +459,26 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
     stones.push({ ...s, id: stones.length, castle: 1, z: -DIST - s.z, q });
   }
   const bannerIds: [number, number] = [enemy.bannerId, offset + player.bannerId];
+  const bridges: CastleLayout["bridges"] = [];
+  if (opts.bridges) {
+    const rng = new Rng(seed + 77);
+    for (const site of opts.bridges) {
+      const first = stones.length;
+      for (const p of bridgePieces(site)) {
+        stones.push({ id: stones.length, castle: 2, part: "bridge", material: "wood", shape: "box", hx: p.hx, hy: p.hy, hz: p.hz, x: p.x, y: p.y, z: p.z, q: IDENTITY, course: 0, grounded: false, shade: rng.next(), ...(p.span ? { span: true } : {}) });
+      }
+      bridges.push({ site, first, count: stones.length - first });
+    }
+  }
 
   // Neighbour graph from bounds overlap.
   const n = stones.length;
   const bounds = stones.map((s) => stoneBounds(s, wedge));
   for (let i = 0; i < n; i++) stones[i].grounded = bounds[i][1] < 0.02;
+  // Bridge pieces stand on the valley's ground, not on y = 0: a pier cap over the water is held up by its posts.
+  for (const b of bridges) {
+    for (let i = b.first; i < b.first + b.count; i++) stones[i].grounded = bounds[i][1] < valleyHeight(stones[i].x, stones[i].z) + 0.02;
+  }
   const below: number[][] = Array.from({ length: n }, () => []);
   const above: number[][] = Array.from({ length: n }, () => []);
   const side: number[][] = Array.from({ length: n }, () => []);
@@ -523,6 +547,7 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
     // With floors the banner must come down to the ground floor (the lowest storey is at 7 m).
     bannerFallY: floors ? 3.5 : KEEP_COURSES * COURSE * 0.6,
     keepFloors: floors,
+    bridges,
   };
 }
 

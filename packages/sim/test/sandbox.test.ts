@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, KEEP_STOREYS, WEAPONS } from "@keepfall/content";
+import { buildLayout, DECK_TOP, GAME_LAYOUT, KEEP_STOREYS, STREAM, streamWidth, WEAPONS } from "@keepfall/content";
 import { EventKind, runSession, SESSION_HASH, SandboxSim, Spin, Wind, stepAim, restAim, type Rapier } from "@keepfall/sim";
 import { Rng } from "@keepfall/core";
 import { ASHWRIGHT_EMPLACEMENTS } from "@keepfall/content";
@@ -118,5 +118,34 @@ test("a keep with timber floors comes down a storey per shell, and the banner wi
   sim.explode(0.4, (low / 2) - 0.9, 4.3);
   settle();
   assert.ok(sim.castle.toppled[0], `the third shell brings the banner down: ${banner.translation().y}`);
+  sim.free();
+});
+
+test("a shell on a bridge drops its deck into the stream", () => {
+  const sim = new SandboxSim(R, buildLayout(1, GAME_LAYOUT), { seed: 3, minions: 0 });
+  const layout = sim.castle.layout;
+  const centre = layout.bridges.find((b) => b.site.name === "centre")!;
+  const { site, first, count } = centre;
+  const half = streamWidth(site.x) / 2;
+  // Deck planks over the water, and whether each still stands.
+  const overWater: number[] = [];
+  for (let i = first; i < first + count; i++) {
+    const s = layout.stones[i];
+    if (Math.abs(s.y - (DECK_TOP - 0.04)) < 0.05 && Math.abs(s.z - site.z) < half) overWater.push(i);
+  }
+  assert.ok(overWater.length >= 12, `${overWater.length} planks span the water`);
+  for (let i = 0; i < 60; i++) sim.step();
+  assert.ok(overWater.every((i) => !sim.castle.dynamic[i]), "the bridge stands until it is hit");
+  sim.explode(site.x + 0.3, DECK_TOP - 0.4, site.z + 0.5);
+  for (let i = 0; i < 300; i++) sim.step();
+  let down = 0, inStream = 0;
+  for (const i of overWater) {
+    if (!sim.castle.dynamic[i]) continue;
+    down++;
+    if (sim.castle.shattered[i]) continue;
+    if (sim.castle.bodies[i].translation().y < STREAM.level + 0.5) inStream++;
+  }
+  assert.equal(down, overWater.length, "no plank is left over the water");
+  assert.ok(inStream >= 3, `${inStream} planks lie in the stream`);
   sim.free();
 });

@@ -1,9 +1,11 @@
-// The physics ground: a height grid over the field, split into tiles of
+// The physics ground: a height grid over the valley, split into tiles of
 // height-field colliders so a crater rebuilds only the tiles it touches.
 // Below the grid a slab catches anything that falls through or leaves it.
-// Heights start at 0 (the field is flat today). Deterministic: heights are
-// changed only by + - * / and comparisons, and tiles rebuild in a fixed order.
+// Heights start as the valley's (content's valleyGrid: the same bits on every
+// machine). Deterministic: heights are changed only by + - * / and
+// comparisons, and tiles rebuild in a fixed order.
 
+import { NO_DIG, valleyGrid } from "@keepfall/content";
 import { dsqrt } from "@keepfall/core";
 import type { Rapier } from "./castleSim";
 import { TERRAIN_GRID, type TerrainPatch } from "./frame";
@@ -12,13 +14,12 @@ type World = InstanceType<Rapier["World"]>;
 type Collider = ReturnType<World["createCollider"]>;
 
 const TILE = 16; // cells per tile side
-const MIN_H = -4;
+/** Craters never dig below this. */
+const MIN_H = -6;
+/** Top of the catch slab under the grid. */
+const SLAB_TOP = -8;
 
-/** Where craters may not dig: under the castles, whose stones stand on y = 0. */
-export const NO_DIG: Array<{ x0: number; x1: number; z0: number; z1: number }> = [
-  { x0: -18, x1: 18, z0: -18, z1: 18 },
-  { x0: -18, x1: 18, z0: -168, z1: -132 },
-];
+export { NO_DIG };
 
 export class Terrain {
   readonly h: Float32Array;
@@ -34,12 +35,14 @@ export class Terrain {
   private dirty = new Set<number>();
 
   constructor(private R: Rapier, private world: World) {
-    this.h = new Float32Array(this.nx * this.nz);
+    this.h = valleyGrid().slice();
     this.tilesX = Math.ceil((this.nx - 1) / TILE);
     this.tilesZ = Math.ceil((this.nz - 1) / TILE);
     this.body = world.createRigidBody(R.RigidBodyDesc.fixed());
-    // The catch slab: top at y = -6, wide enough for shots that leave the field.
-    const slab = world.createCollider(R.ColliderDesc.cuboid(200, 1, 260).setTranslation(0, -7, -75).setFriction(0.85), this.body);
+    // The catch slab below the grid, wide enough for shots that leave it.
+    const G = TERRAIN_GRID;
+    const cx = G.x0 + ((G.nx - 1) * G.cell) / 2, cz = G.z0 + ((G.nz - 1) * G.cell) / 2;
+    const slab = world.createCollider(R.ColliderDesc.cuboid(((G.nx - 1) * G.cell) / 2 + 120, 1, ((G.nz - 1) * G.cell) / 2 + 120).setTranslation(cx, SLAB_TOP - 1, cz).setFriction(0.85), this.body);
     this.handles.add(slab.handle);
     for (let t = 0; t < this.tilesX * this.tilesZ; t++) this.colliders.push(this.buildTile(t));
   }

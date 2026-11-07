@@ -154,10 +154,15 @@ export class CastleSim {
   private nbBelow: { off: Int32Array; ids: Int32Array };
   private grounded: Uint8Array;
   private castleOf: Uint8Array;
-  /** First and one-past-last stone id of each castle (stones are numbered castle by castle). */
+  /** Beams that need all their supports (bridge stringers), in id order. */
+  private spans: Int32Array;
+  /**
+   * First and one-past-last stone id of each support group: the two castles,
+   * then the field's bridges (stones are numbered group by group).
+   */
   private castleRange: Array<[number, number]>;
-  /** Castles whose fixed masonry changed since their last support check (bit per castle). Both at first. */
-  private supportDirty = 3;
+  /** Groups whose fixed pieces changed since their last support check (bit per group). All at first. */
+  private supportDirty = 7;
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -184,16 +189,23 @@ export class CastleSim {
     this.nbBelow = flat(layout.below);
     this.grounded = new Uint8Array(n);
     this.castleOf = new Uint8Array(n);
+    const spans: number[] = [];
     for (let i = 0; i < n; i++) {
       this.grounded[i] = layout.stones[i].grounded ? 1 : 0;
       this.castleOf[i] = layout.stones[i].castle;
+      if (layout.stones[i].span) spans.push(i);
     }
-    // Stones come castle by castle; if they ever did not, check everything as one range.
-    let split = 0;
-    while (split < n && this.castleOf[split] === 0) split++;
+    this.spans = Int32Array.from(spans);
+    // Stones come group by group (castle 0, castle 1, bridges); if they ever did not, check everything as one range.
+    const ends = [0, 0, 0];
+    let k = 0;
     let contiguous = true;
-    for (let i = split; i < n; i++) if (this.castleOf[i] !== 1) contiguous = false;
-    this.castleRange = contiguous ? [[0, split], [split, n]] : [[0, n], [n, n]];
+    for (let g = 0; g < 3; g++) {
+      while (k < n && this.castleOf[k] === g) k++;
+      ends[g] = k;
+    }
+    if (k !== n) contiguous = false;
+    this.castleRange = contiguous ? [[0, ends[0]], [ends[0], ends[1]], [ends[1], ends[2]]] : [[0, n], [n, n], [n, n]];
     if (!contiguous) this.castleOf.fill(0);
 
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
@@ -735,7 +747,7 @@ export class CastleSim {
    * rubble never carries support). The result is the same as walking both.
    */
   private supportCheck() {
-    for (let c = 0; c < 2; c++) {
+    for (let c = 0; c < 3; c++) {
       if (!(this.supportDirty & (1 << c))) continue;
       const [s, e] = this.castleRange[c];
       this.supportPass(s, e, true);
@@ -763,6 +775,18 @@ export class CastleSim {
     const aOff = this.nbAbove.off, aIds = this.nbAbove.ids;
     const sOff = this.nbSide.off, sIds = this.nbSide.ids;
     const bOff = this.nbBelow.off, bIds = this.nbBelow.ids;
+    // A beam that lost either of its supports falls, whatever else holds it.
+    if (apply) {
+      for (const i of this.spans) {
+        if (i < s || i >= e || dynamic[i]) continue;
+        for (let k = bOff[i], k1 = bOff[i + 1]; k < k1; k++) {
+          if (dynamic[bIds[k]]) {
+            this.loosen(i);
+            break;
+          }
+        }
+      }
+    }
     let head = 0, tail = 0; // ring buffer: front at head, back at tail
     cost.fill(INF, s, e);
     for (let i = s; i < e; i++) {
