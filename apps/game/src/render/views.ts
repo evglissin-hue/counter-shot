@@ -8,8 +8,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { CameraPose } from "./api";
 
 /** Midpoint between the castles: the overview orbits around it. */
-const OVERVIEW_TARGET = new THREE.Vector3(0, 5, -75);
-const OVERVIEW_START = new THREE.Vector3(135, 72, -58);
+const OVERVIEW_TARGET = new THREE.Vector3(0, 2, -75);
+/** From over the player's left flank: both castles, the stream and its three bridges, the valley sides. */
+const OVERVIEW_START = new THREE.Vector3(128, 96, -142);
+/** Where the overview may look: the valley and a margin round it. */
+const TARGET_BOX = { x0: -120, x1: 120, y0: -2, y1: 40, z0: -260, z1: 110 };
 const OVERVIEW_FOV = 45;
 const FOLLOW_FOV = 55;
 
@@ -35,8 +38,8 @@ export class Views {
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
-    this.controls.minDistance = 20;
-    this.controls.maxDistance = 280;
+    this.controls.minDistance = 12;
+    this.controls.maxDistance = 420;
     this.controls.maxPolarAngle = Math.PI * 0.47;
     this.controls.zoomSpeed = 0.8;
     this.controls.rotateSpeed = 0.6;
@@ -118,6 +121,15 @@ export class Views {
       this.setFov(cam.fov + (this.fovTarget - cam.fov) * k);
     }
     if (this.mode === "overview") {
+      // Keep the orbit's centre over the valley, however far it is panned.
+      const t = this.controls.target, b = TARGET_BOX;
+      const cx = Math.min(b.x1, Math.max(b.x0, t.x)), cy = Math.min(b.y1, Math.max(b.y0, t.y)), cz = Math.min(b.z1, Math.max(b.z0, t.z));
+      if (cx !== t.x || cy !== t.y || cz !== t.z) {
+        cam.position.x += cx - t.x;
+        cam.position.y += cy - t.y;
+        cam.position.z += cz - t.z;
+        t.set(cx, cy, cz);
+      }
       this.controls.update();
       // Never below the ground.
       const p = cam.position;
