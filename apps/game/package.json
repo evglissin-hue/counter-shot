@@ -1,9 +1,9 @@
 {
-  "name": "@keepfall/sandbox",
+  "name": "@keepfall/game",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Phase 1 sandbox: ride the Ashwright weapons against a target castle.",
+  "description": "The game page: a start menu, the Practice range (the phase 1 sandbox) and a match versus the AI.",
   "scripts": {
     "dev": "vite --host",
     "build": "vite build && node scripts/make-artifact.mjs",

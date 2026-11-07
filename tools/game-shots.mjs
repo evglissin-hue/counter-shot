@@ -2,7 +2,7 @@
 // (WebGL2, Low): each weapon's sight, the mortar's observer (and zoomed), a
 // mortar shell ride from launch to the burst and back, the long gun's shot
 // camera and the overview. Writes tools/.shots/*.png and prints what the page
-// reported. Usage: node tools/sandbox-shots.mjs [names...]
+// reported. Usage: node tools/game-shots.mjs [names...]
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
-const root = fileURLToPath(new URL("../apps/sandbox", import.meta.url));
+const root = fileURLToPath(new URL("../apps/game", import.meta.url));
 const out = fileURLToPath(new URL("./.shots/", import.meta.url));
 mkdirSync(out, { recursive: true });
 const only = process.argv.slice(2);
