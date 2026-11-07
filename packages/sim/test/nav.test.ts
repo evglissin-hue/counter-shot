@@ -22,6 +22,8 @@ test("the nav grid: water blocks, bridges cross, walls and a closed gate keep yo
   assert.equal(nav.kind[deck], NavKind.Raised, "the centre bridge's deck");
   assert.ok(Math.abs(nav.floor[deck] - DECK_TOP) < 0.02, `deck floor ${nav.floor[deck]}`);
   assert.equal(nav.kind[navCell(30, -100)], NavKind.Ground, "open field");
+  // The deck's edge over the bank, where a stringer runs under it: still the deck.
+  for (const z of [-80.5, -78.5, -71.5, -69.5]) assert.equal(nav.kind[navCell(1.5, z)], NavKind.Raised, `deck edge at z ${z}`);
   assert.deepEqual(sim.bridgesOpen(), [true, true, true]);
   const r = reachable(sim);
   assert.equal(r[navCell(0.3, -24)], 1, "in front of the enemy gate, across the stream");

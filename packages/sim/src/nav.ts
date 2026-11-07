@@ -335,10 +335,11 @@ export class NavGrid {
     }
     for (let k = 0; k < m; k++) {
       if (D[k]) {
-        // A deck plank is a floor, whatever is under it.
-        if (T[k] > floor || water) floor = T[k];
+        // A deck plank is a floor, whatever is under it (water, a bank, the beams that carry it).
+        if (T[k] > floor || water || blocked) floor = T[k];
         water = false;
         steep = false;
+        blocked = false;
         raised = true;
         continue;
       }
