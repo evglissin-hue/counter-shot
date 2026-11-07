@@ -97,6 +97,20 @@ export interface Impact {
   strength: number;
 }
 
+/** Contact force (N) that breaks a keep storey board: far above any falling rubble. */
+const STOREY_BREAK = 8_000_000;
+/**
+ * Collision groups (membership << 16 | filter) for layouts with keep floors.
+ * Intact keep walls and storeys carry the STRUCTURE bit and lose it when they
+ * come loose; a banner collides only with colliders that have it (the ground,
+ * shots and intact keep structure), so rubble never lifts it off its keep.
+ */
+const STRUCTURE = 0x0010;
+const BANNER = 0x0008;
+const STRUCTURE_GROUPS = 0xffffffff;
+const RUBBLE_GROUPS = (((0xffff & ~STRUCTURE) << 16) | 0xffff) >>> 0;
+const BANNER_GROUPS = ((BANNER << 16) | STRUCTURE) >>> 0;
+
 const BALL_RADIUS = 0.4;
 const BALL_DENSITY = 7800;
 const MAX_BALLS = 64;
@@ -202,8 +216,11 @@ export class CastleSim {
       const body = this.world.createRigidBody(desc);
       const cd = s.shape === "wedge" ? R.ColliderDesc.convexHull(wedgePts)! : R.ColliderDesc.cuboid(s.hx, s.hy, s.hz);
       cd.setDensity(DENSITY[s.material]).setFriction(FRICTION[s.material]).setRestitution(0.02);
+      if (layout.keepFloors) cd.setCollisionGroups(s.part === "banner" ? BANNER_GROUPS : s.part === "keep" || s.part === "storey" ? STRUCTURE_GROUPS : RUBBLE_GROUPS);
       if (!loose) {
-        cd.setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(opts.breakForce);
+        // Keep floors carry falling rubble: only a burst or a direct hit breaks a storey board.
+        const threshold = s.part === "storey" ? STOREY_BREAK : opts.breakForce;
+        cd.setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(threshold);
       }
       const col = this.world.createCollider(cd, body);
       this.owner.set(col.handle, s.id);
@@ -318,8 +335,10 @@ export class CastleSim {
     // Rubble already lying loose nearby is thrown too: thaw it first.
     this.thaw(x, y, z, reach);
     const rubble: number[] = [];
+    const banners = this.layout.bannerIds;
     for (const id of this.dynList) {
-      if (this.shattered[id] || this.frozen[id]) continue;
+      // A banner is never thrown: it comes down with the floor under it.
+      if (this.shattered[id] || this.frozen[id] || id === banners[0] || id === banners[1]) continue;
       const p = this.bodies[id].translation();
       const ex = p.x - x, ey = p.y - y, ez = p.z - z;
       if (ex * ex + ey * ey + ez * ez <= reach2) rubble.push(id);
@@ -502,7 +521,7 @@ export class CastleSim {
     for (let c = 0; c < 2; c++) {
       if (this.toppled[c]) continue;
       const p = this.bodies[this.layout.bannerIds[c]].translation();
-      if (p.y < this.layout.keepTop * 0.6) this.toppled[c] = true;
+      if (p.y < this.layout.bannerFallY) this.toppled[c] = true;
     }
     void R;
   }
@@ -663,6 +682,7 @@ export class CastleSim {
     this.shattered[id] = 1;
     this.frozen[id] = 0;
     this.bodies[id].setEnabled(false);
+    if (this.layout.stones[id].part === "storey") this.thawAbove(id);
   }
 
   private loosen(id: number) {
@@ -674,6 +694,35 @@ export class CastleSim {
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();
     body.wakeUp();
+    const part = this.layout.stones[id].part;
+    if (this.layout.keepFloors && (part === "keep" || part === "storey")) body.collider(0).setCollisionGroups(RUBBLE_GROUPS);
+    if (part === "storey") this.thawAbove(id);
+  }
+
+  /**
+   * Frozen rubble lying on a storey board that just gave way falls with it:
+   * thaw everything frozen over the board's footprint, up to 3 m above it.
+   */
+  private thawAbove(id: number) {
+    if (!this.frozenList.length) return;
+    const s = this.layout.stones[id];
+    const x0 = s.x - s.hx - 0.5, x1 = s.x + s.hx + 0.5;
+    const z0 = s.z - s.hz - 0.5, z1 = s.z + s.hz + 0.5;
+    const y0 = s.y - s.hy, y1 = s.y + s.hy + 3;
+    const keep: number[] = [];
+    for (const f of this.frozenList) {
+      const p = this.bodies[f].translation();
+      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0 && p.y <= y1) {
+        this.frozen[f] = 0;
+        const body = this.bodies[f];
+        body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+        body.recomputeMassPropertiesFromColliders();
+        body.wakeUp();
+      } else {
+        keep.push(f);
+      }
+    }
+    this.frozenList = keep;
   }
 
   /**

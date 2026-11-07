@@ -2,7 +2,7 @@
 // The page sends inputs; the worker tags each with the next tick, steps the
 // sim and posts what changed.
 
-import { buildLayout, type CastleLayout } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT, type CastleLayout } from "@keepfall/content";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import type { FromWorker, ToWorker } from "./protocol";
 
@@ -51,7 +51,7 @@ function build(seed: number, minions: number) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
-  layout ??= buildLayout(1, { mirrorWedges: true });
+  layout ??= buildLayout(1, GAME_LAYOUT);
   sim = new SandboxSim(R, layout, { seed, minions });
   post({ t: "ready", stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
@@ -105,7 +105,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
     switch (msg.t) {
       case "init":
         await load();
-        layout ??= buildLayout(1, { mirrorWedges: true });
+        layout ??= buildLayout(1, GAME_LAYOUT);
         rehearse();
         build(msg.seed, msg.minions);
         start();

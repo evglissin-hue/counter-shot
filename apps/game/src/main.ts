@@ -2,7 +2,7 @@
 // Aiming runs here at a fixed 60 Hz through the same limiter the sim checks;
 // a fire sends the exact aim to the worker, which owns everything else.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, WEAPONS, type Emplacement, type Stone } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, GAME_LAYOUT, KEEP_STOREYS, WEAPONS, type Emplacement, type Stone } from "@keepfall/content";
 import {
   aimDir,
   clampAim,
@@ -36,7 +36,7 @@ const worker = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "
 const send = (m: ToWorker) => worker.postMessage(m);
 const input = new Input(canvas);
 const sound = new Sound();
-const layout = buildLayout(1, { mirrorWedges: true });
+const layout = buildLayout(1, GAME_LAYOUT);
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
 const EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
@@ -652,6 +652,8 @@ function updateAimHelp() {
   for (let i = 0; i < EMP.length; i++) renderer.setWeaponPose(i, aims[i].yaw, aims[i].pitch, i === current);
 }
 
+/** The keep's top storey is its roof. */
+const KEEP_TOP_COURSE = KEEP_STOREYS[KEEP_STOREYS.length - 1] - 1;
 const PART_NAMES: Record<Stone["part"], string> = {
   wall: "wall",
   tower: "tower",
@@ -661,6 +663,7 @@ const PART_NAMES: Record<Stone["part"], string> = {
   roof: "roof",
   gate: "gate",
   floor: "keep roof",
+  storey: "keep floor",
   banner: "banner",
 };
 
@@ -675,7 +678,8 @@ function describeHit(h: PathHit | null): string {
   }
   if (h.stone >= 0) {
     const s = layout.stones[h.stone];
-    what = s ? `${s.castle === 0 ? "the target" : "your own"} ${PART_NAMES[s.part]}` : "rubble";
+    const part = s && s.part === "storey" && s.course === KEEP_TOP_COURSE ? "keep roof" : s ? PART_NAMES[s.part] : "";
+    what = s ? `${s.castle === 0 ? "the target" : "your own"} ${part}` : "rubble";
   }
   return `${what}, ${Math.round(dist)} m`;
 }

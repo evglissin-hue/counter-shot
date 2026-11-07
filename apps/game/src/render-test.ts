@@ -8,7 +8,7 @@
 // URL: ?cam=overview|sight|follow|mortar &quality=low|medium|high|ultra
 //      &shot=1 (hide text) &dt=0.05 (fixed step) ; #webgl forces WebGL2.
 
-import { ASHWRIGHT_EMPLACEMENTS, WEAPONS, buildLayout } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, WEAPONS, buildLayout } from "@keepfall/content";
 import {
   CHAIN_STRIDE,
   EVENT_STRIDE,
@@ -33,7 +33,7 @@ if (params.get("shot") === "1") document.body.classList.add("shot");
 window.addEventListener("error", (e) => (errorEl.textContent += `${e.message}\n`));
 window.addEventListener("unhandledrejection", (e) => (errorEl.textContent += `${String(e.reason)}\n`));
 
-const layout = buildLayout(1, { mirrorWedges: true });
+const layout = buildLayout(1, GAME_LAYOUT);
 const ems = ASHWRIGHT_EMPLACEMENTS;
 const r = new GameRenderer(canvas);
 const state = { ready: false, frames: 0, backend: "", lost: "" };

@@ -3,7 +3,7 @@
 // Node tests pin its hash; the browser hash page replays it so devices and
 // browsers can be compared with Node bit for bit.
 
-import { buildLayout } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import type { Rapier } from "./castleSim";
 import { EVENT_STRIDE } from "./frame";
 import { SandboxSim, Spin, type SandboxInput } from "./sandbox";
@@ -11,7 +11,7 @@ import { SandboxSim, Spin, type SandboxInput } from "./sandbox";
 export const SESSION_TICKS = 900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION when gameplay changes. */
-export const SESSION_HASH = { state: "202bb255", world: "9dd9b9db" } as const;
+export const SESSION_HASH = { state: "80ae780b", world: "3c155023" } as const;
 
 export const SESSION_SCRIPT: Array<[number, SandboxInput]> = [
   [5, { kind: "fire", emplacement: 0, yaw: 0, pitch: 0.035, charge: 1, fuse: 0, spin: Spin.None }],
@@ -34,7 +34,7 @@ export interface SessionResult {
 
 /** Replays the scripted session. `onTick` may observe the sim (timing, progress). */
 export function runSession(R: Rapier, ticks = SESSION_TICKS, onTick?: (sim: SandboxSim, tick: number) => void): SessionResult {
-  const sim = new SandboxSim(R, buildLayout(1, { mirrorWedges: true }), { seed: 7, minions: 12 });
+  const sim = new SandboxSim(R, buildLayout(1, GAME_LAYOUT), { seed: 7, minions: 12 });
   for (const [t, input] of SESSION_SCRIPT) sim.queue(t, input);
   const events: number[] = [];
   for (let i = 0; i < ticks; i++) {

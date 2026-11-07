@@ -11,7 +11,12 @@ import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
 
 export type Shape = "box" | "wedge";
 export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
-export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "banner";
+/**
+ * "floor" is the lab layout's single keep platform. "storey" is a board of the
+ * keep's timber floors (layout option keepFloors): only bursts and direct hits
+ * break one, not falling rubble, so each shell caves in one level.
+ */
+export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner";
 export type Quat = [number, number, number, number];
 
 export interface Stone {
@@ -61,8 +66,16 @@ export interface CastleLayout {
   /** Centre z of each castle. */
   castleZ: [number, number];
   dist: number;
-  /** Height of the top of the enemy keep's walls, for the win check. */
+  /** Height of the top of the enemy keep's walls. */
   keepTop: number;
+  /** A keep is toppled when its banner's centre falls below this height. */
+  bannerFallY: number;
+  /**
+   * The keep has timber floors (layout option keepFloors). The sim then lets
+   * each banner touch only its keep's intact walls and floors, the ground and
+   * shots, so loose rubble never carries it off: it drops a floor at a time.
+   */
+  keepFloors: boolean;
 }
 
 export const DIST = 150; // metres between castle centres
@@ -82,6 +95,10 @@ const KEEP_THICK = 1.4;
 const KEEP_Z = 4;
 const GATE_HALF = 2.0; // gate opening is 4 m wide
 const GATE_COURSES = 10; // and 5 m tall
+/** keepFloors: timber storeys at 7 and 13.5 m under the roof platform (20 m), each laid as boards. Wider apart than a burst reaches (4.6 m), so a shell caves in one level. */
+export const KEEP_STOREYS = [14, 27, KEEP_COURSES];
+const BOARDS = 6;
+const BOARD_THICK = 0.3;
 
 const IDENTITY: Quat = [0, 0, 0, 1];
 
@@ -194,7 +211,7 @@ class Builder {
     }
   }
 
-  keep(): { platformTop: number } {
+  keep(floors: boolean): { platformTop: number } {
     const h = KEEP_SIZE / 2;
     const t = KEEP_THICK;
     for (let c = 0; c < KEEP_COURSES; c++) {
@@ -212,22 +229,45 @@ class Builder {
         this.run("keep", "x", -h + t, h - t, KEEP_Z + h - t / 2, t, c, c + 1);
       }
     }
-    // A timber platform inside the top course carries the banner.
     const inner = h - t;
     const topY = KEEP_COURSES * COURSE;
-    this.add({
-      part: "floor",
-      material: "wood",
-      shape: "box",
-      hx: inner - GAP,
-      hy: 0.15,
-      hz: inner - GAP,
-      x: 0,
-      y: topY - 0.15 - GAP,
-      z: KEEP_Z,
-      q: IDENTITY,
-      course: KEEP_COURSES - 1,
-    });
+    if (floors) {
+      // Timber floors, as in a real keep: boards spanning wall to wall at each storey,
+      // the top one carrying the banner. A shell caves in one storey; the banner drops to the next.
+      const bw = (2 * inner) / BOARDS;
+      for (const c of KEEP_STOREYS) {
+        for (let k = 0; k < BOARDS; k++) {
+          this.add({
+            part: "storey",
+            material: "wood",
+            shape: "box",
+            hx: inner - GAP,
+            hy: BOARD_THICK / 2 - GAP,
+            hz: bw / 2 - GAP,
+            x: 0,
+            y: c * COURSE - BOARD_THICK / 2,
+            z: KEEP_Z - inner + bw * (k + 0.5),
+            q: IDENTITY,
+            course: c - 1,
+          });
+        }
+      }
+    } else {
+      // The lab layout: one timber platform inside the top course carries the banner.
+      this.add({
+        part: "floor",
+        material: "wood",
+        shape: "box",
+        hx: inner - GAP,
+        hy: 0.15,
+        hz: inner - GAP,
+        x: 0,
+        y: topY - 0.15 - GAP,
+        z: KEEP_Z,
+        q: IDENTITY,
+        course: KEEP_COURSES - 1,
+      });
+    }
     this.merlons("x", -h, h, KEEP_Z - h + t / 2, t, -1, KEEP_COURSES);
     this.merlons("x", -h, h, KEEP_Z + h - t / 2, t, 1, KEEP_COURSES);
     this.merlons("z", KEEP_Z - h + 1.2, KEEP_Z + h - 1.2, -h + t / 2, t, -1, KEEP_COURSES);
@@ -320,7 +360,7 @@ export function stoneBounds(s: Stone, wedge: WedgeSpec): [number, number, number
   return [x0, y0, z0, x1, y1, z1];
 }
 
-function oneCastle(seed: number, wedge: WedgeSpec): { stones: Stone[]; bannerId: number; platformTop: number } {
+function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean): { stones: Stone[]; bannerId: number; platformTop: number } {
   const b = new Builder(seed);
   const e = TOWER_R_OUT - 0.13; // wall ends just inside the tower's skin
   // Front wall (z = -T) with the gate, back wall, and the two side walls.
@@ -351,7 +391,7 @@ function oneCastle(seed: number, wedge: WedgeSpec): { stones: Stone[]; bannerId:
     });
   }
   for (const [tx, tz] of [[-T, -T], [T, -T], [-T, T], [T, T]] as const) b.tower(tx, tz, wedge);
-  const { platformTop } = b.keep();
+  const { platformTop } = b.keep(floors);
   b.house(-7.5, -8.5, 6, 4, 3); // barracks
   b.house(7.5, -8.5, 6, 4, 3); // workshop
   b.house(-9.2, 6, 3, 5, 2.6);
@@ -382,12 +422,22 @@ export interface LayoutOptions {
    * it, castle 1's tower wedges are turned inside out.
    */
   mirrorWedges?: boolean;
+  /**
+   * Timber floors inside the keep (the owner's choice for matches): one shell
+   * caves in one storey and the banner drops a floor at a time, so toppling a
+   * keep takes a siege. Off in the lab, whose reference hash predates them.
+   */
+  keepFloors?: boolean;
 }
+
+/** The game's castles (practice range and matches): wedges mirrored properly, timber floors in the keeps. */
+export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
-  const enemy = oneCastle(seed, wedge);
-  const player = oneCastle(seed + 1, wedge);
+  const floors = opts.keepFloors === true;
+  const enemy = oneCastle(seed, wedge, floors);
+  const player = oneCastle(seed + 1, wedge, floors);
   const stones: Stone[] = [];
   for (const s of enemy.stones) stones.push({ ...s, id: stones.length, castle: 0 });
   const offset = stones.length;
@@ -470,6 +520,9 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
     castleZ: [0, -DIST],
     dist: DIST,
     keepTop: KEEP_COURSES * COURSE,
+    // With floors the banner must come down to the ground floor (the lowest storey is at 7 m).
+    bannerFallY: floors ? 3.5 : KEEP_COURSES * COURSE * 0.6,
+    keepFloors: floors,
   };
 }
 

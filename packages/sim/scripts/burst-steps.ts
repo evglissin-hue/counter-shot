@@ -1,12 +1,12 @@
 // Step-by-step cost of the ticks after a mortar burst: where does the spike sit?
 // npx rolldown packages/sim/scripts/burst-steps.ts --format esm --platform node -o node_modules/.scratch/burst-steps.mjs && node node_modules/.scratch/burst-steps.mjs
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { SandboxSim, type Rapier } from "@keepfall/sim";
 
 await RD.init();
 const R = RD as unknown as Rapier;
-const layout = buildLayout(1, { mirrorWedges: true });
+const layout = buildLayout(1, GAME_LAYOUT);
 const cases: Array<[string, number, number, number]> = [
   ["keep top, south face", 0, 19.3, -0.6],
   ["front wall top", 6, 7.6, -15.2],

@@ -26,7 +26,7 @@ import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 
 export const enum Spin {
   None = 0,

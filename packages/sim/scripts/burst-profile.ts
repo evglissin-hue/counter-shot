@@ -1,12 +1,12 @@
 // Where does the time go in and after a burst? Wraps CastleSim internals with timers.
 // npx rolldown packages/sim/scripts/burst-profile.ts --format esm --platform node -o node_modules/.scratch/burst-profile.mjs && node node_modules/.scratch/burst-profile.mjs
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { CastleSim, SandboxSim, type Rapier } from "@keepfall/sim";
 
 await RD.init();
 const R = RD as unknown as Rapier;
-const layout = buildLayout(1, { mirrorWedges: true });
+const layout = buildLayout(1, GAME_LAYOUT);
 const P = CastleSim.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
 const totals: Record<string, { ms: number; n: number }> = {};
 for (const name of ["supportCheck", "loosen", "thaw", "throwPiece", "freezeResting", "shatter"]) {

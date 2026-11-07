@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLayout } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { PROJECTILE_STRIDE, ProjectileKind, STONE_STRIDE, type FrameData } from "@keepfall/sim";
 import { Timeline } from "../src/timeline";
 
-const layout = buildLayout(1, { mirrorWedges: true });
+const layout = buildLayout(1, GAME_LAYOUT);
 const V = 80; // m/s along z
 
 /** A frame at `tick` with one shell flying at V along z and one stone sliding at 3 m/s along x. */
