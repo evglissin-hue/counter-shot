@@ -761,7 +761,7 @@ function updateHud(force = false) {
   hud.windArrow.style.transform = `rotate(${ang}deg)`;
   const ws = Math.hypot(wind.x, wind.z);
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
-  hud.minions.textContent = `${stats.down} down, ${stats.standing} standing`;
+  hud.minions.textContent = mode === "versus" ? "" : `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}, frame ${pacer.frameMs.toFixed(1)} ms, resolution ${Math.round(SCALES[pacer.scaleIdx] * 100)}%`;
   hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
   hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
