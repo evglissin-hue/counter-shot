@@ -256,7 +256,7 @@ export const GRITTY: StylePreset = {
   },
   water: { shallow: 0x3c4a46, deep: 0x1c2628, reflect: 0.7 },
   trees: { kind: "conifer", leaf: 0x24382a, leafLight: 0x3a5238, leafDark: 0x15241a, trunk: 0x2e251d },
-  broadleaf: { leaf: 0x4f5228, leafLight: 0x77683a, leafDark: 0x2c3119, trunk: 0x3a3229 },
+  broadleaf: { leaf: 0x434626, leafLight: 0x5d5832, leafDark: 0x232816, trunk: 0x352e26 },
   bushes: { leaf: 0x3a4424, leafLight: 0x56592f, leafDark: 0x1f2714, trunk: 0x2e271f },
   reeds: { leaf: 0x67663d, leafLight: 0x8f8455, leafDark: 0x34391f, trunk: 0x3a3a24 },
   rock: 0x5a5852,

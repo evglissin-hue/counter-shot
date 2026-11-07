@@ -118,7 +118,7 @@ export function makeStreamMaterial(style: StylePreset, sky: Sky, noise: THREE.Te
   mat.colorNode = Fn(() => {
     const viewDir = normalize(wp.sub(cameraPosition));
     const r: N = reflect(viewDir, nrm);
-    const fres = pow(float(1).sub(max(dot(viewDir.negate(), nrm), 0.0)), 5.0).mul(0.75).add(0.17);
+    const fres = pow(float(1).sub(max(dot(viewDir.negate(), nrm), 0.0)), 5.0).mul(0.55).add(0.15);
     // The overcast sky in the water, a little darker than the sky itself.
     const sky0 = sky.skyColor(normalize(vec3(r.x, max(r.y, 0.02), r.z)), false).mul(0.85);
     // Murky, peaty water: the gravel shows through brown at the edges, dark green-brown in the middle.

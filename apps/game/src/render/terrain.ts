@@ -116,10 +116,10 @@ function analyticNormal(x: number, z: number, out: Float32Array, o: number) {
 export function buildTerrainGeometry(): { outer: THREE.BufferGeometry; field: TerrainGeometry } {
   const EXT = 2300;
   const cz = MID_Z;
-  const xs = axisLines(-EXT, EXT, TG.x0, GX1, 4, 2.2, 1.05);
+  const xs = axisLines(-EXT, EXT, TG.x0, GX1, 4, 2.4, 1.06);
   // Fine lines across the stream, so its channel and gorges survive in the coarse surround.
-  const zs = axisLines(cz - EXT, cz + EXT, TG.z0, GZ1, 4, 2.2, 1.05).filter((z) => Math.abs(z - cz) > 15);
-  for (let z = cz - 15; z <= cz + 15; z += 1) zs.push(z);
+  const zs = axisLines(cz - EXT, cz + EXT, TG.z0, GZ1, 4, 2.4, 1.06).filter((z) => Math.abs(z - cz) > 15);
+  for (let z = cz - 15; z <= cz + 15; z += 1.5) zs.push(z);
   zs.sort((a, b) => a - b);
   const outer = buildOuter(xs, zs);
   return { outer, field: buildField() };

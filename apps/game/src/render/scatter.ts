@@ -93,7 +93,8 @@ const KNOLLS: Array<[number, number, number]> = [
 ].flatMap(([x, u, r]) => [[x, u + MID_Z, r], [-x, -u + MID_Z, r]] as Array<[number, number, number]>);
 
 function nearBattlefield(x: number, z: number): boolean {
-  return Math.abs(x) < 150 && z > MID_Z - 200 && z < MID_Z + 200;
+  // Full detail and shadows (the sun's shadow map covers the battlefield only); the outer slopes are seen from afar.
+  return Math.abs(x) < 112 && z > MID_Z - 172 && z < MID_Z + 172;
 }
 
 /** Forests on the valley sides and hills, groves on the outer floor, copses on the knolls. */
@@ -166,7 +167,7 @@ function placeBushes(count: number): Spot[] {
 function placeReeds(): Spot[] {
   const rng = new Rng(9104).fork("reeds");
   const out: Spot[] = [];
-  for (let x = -240; x <= 240; x += 0.55) {
+  for (let x = -170; x <= 170; x += 0.55) {
     for (const side of [-1, 1]) {
       const r0 = rng.next(), r1 = rng.next(), r2 = rng.next(), r3 = rng.next(), r4 = rng.next();
       const clump = vnoise(x / 9 + side * 13.7, 4.4) * 0.8 + vnoise(x / 2.3, side * 3.1) * 0.2;
@@ -254,7 +255,8 @@ function conifer(seed: number, tiers: number, sides = 10): THREE.BufferGeometry 
   let r = 2.1;
   for (let i = 0; i < tiers; i++) {
     const h = 3.0 - i * 0.35;
-    const cone = new THREE.ConeGeometry(r, h, sides, 2, true);
+    // Far trees (few sides) get one segment per tier.
+    const cone = new THREE.ConeGeometry(r, h, sides, sides <= 6 ? 1 : 2, true);
     // Ragged lower rim.
     const pos = cone.attributes.position as THREE.BufferAttribute;
     for (let k = 0; k < pos.count; k++) {
@@ -296,7 +298,7 @@ function deadTree(seed: number): THREE.BufferGeometry {
 function blob(seed: number, detail: number, rx: number, ry: number, rz: number, rough = 0.28): THREE.BufferGeometry {
   // A low sphere (detail 0: 6 by 4 segments, about 40 triangles; 1: 9 by 6, about 100), closed at its seam,
   // its underside flattened, each vertex pushed in or out a little.
-  const s = detail <= 0 ? new THREE.SphereGeometry(1, 6, 4) : new THREE.SphereGeometry(1, 9, 6);
+  const s = detail < 0 ? new THREE.SphereGeometry(1, 5, 3) : detail === 0 ? new THREE.SphereGeometry(1, 6, 4) : new THREE.SphereGeometry(1, 9, 6);
   s.deleteAttribute("uv");
   s.deleteAttribute("normal");
   const g = mergeByPosition(s);
@@ -318,10 +320,12 @@ function blob(seed: number, detail: number, rx: number, ry: number, rz: number, 
 function broadleaf(seed: number, lobes: number, detail: number): THREE.BufferGeometry {
   const rng = new Rng(seed);
   const parts: THREE.BufferGeometry[] = [];
-  const trunk = new THREE.CylinderGeometry(0.22, 0.36, 3.2, 7, 1);
+  const far = detail <= 0;
+  const trunk = new THREE.CylinderGeometry(0.22, 0.36, 3.2, far ? 5 : 7, 1);
   trunk.translate(0, 1.6, 0);
   parts.push(withPart(trunk, 0, () => 0.6));
-  for (let i = 0; i < 3; i++) {
+  // Far away the limbs are hidden by the crown anyway.
+  for (let i = 0; i < (far ? 0 : 3); i++) {
     const limb = new THREE.CylinderGeometry(0.07, 0.17, 2.6, 5, 1);
     limb.translate(0, 1.3, 0);
     limb.rotateZ(0.55 + rng.next() * 0.35);
@@ -330,16 +334,17 @@ function broadleaf(seed: number, lobes: number, detail: number): THREE.BufferGeo
     parts.push(withPart(limb, 0, () => 0.6));
   }
   const shade = (_x: number, yy: number) => 0.3 + Math.min(1, Math.max(0, (yy - 2.6) / 5.4)) * 0.7;
-  // The crown: a central mass and a ring of lower, overlapping ones.
-  const top = blob(seed * 7, detail, 2.5, 2.8, 2.4, 0.32);
-  top.translate(0, 6.0, 0);
+  // The crown: a ragged central mass and masses of different sizes round it, at different heights.
+  // Far away a single broad, low crown reads as a tree; close up a taller, ragged one.
+  const top = far ? blob(seed * 7, detail, 3.1, 2.3, 3.0, 0.45) : blob(seed * 7, detail, 2.3, 2.6, 2.2, 0.5);
+  top.translate(rng.next() - 0.5, far ? 4.6 : 6.1, rng.next() - 0.5);
   parts.push(withPart(top, 1, shade));
-  for (let i = 1; i < lobes + 2; i++) {
-    const a = (i / (lobes + 1)) * Math.PI * 2 + rng.next() * 0.7;
-    const rr = 1.6 + rng.next() * 0.8;
-    const r = 1.5 + rng.next() * 0.8;
-    const b = blob(seed * 7 + i, 0, r, r * 1.0, r, 0.34);
-    b.translate(Math.cos(a) * rr, 3.9 + rng.next() * 2.4, Math.sin(a) * rr);
+  for (let i = 1; i <= lobes; i++) {
+    const a = (i / lobes) * Math.PI * 2 + rng.next() * 0.9;
+    const rr = 1.4 + rng.next() * 1.1;
+    const r = 1.1 + rng.next() * 1.0;
+    const b = blob(seed * 7 + i, 0, r * (0.9 + rng.next() * 0.3), r * (0.75 + rng.next() * 0.35), r, 0.5);
+    b.translate(Math.cos(a) * rr, 3.8 + rng.next() * 2.8, Math.sin(a) * rr);
     parts.push(withPart(b, 1, shade));
   }
   return mergeGeometries(parts);
@@ -365,9 +370,9 @@ function gorse(seed: number, detail = 1): THREE.BufferGeometry {
   const core = blob(seed * 3, detail, 0.55, 0.42, 0.55, 0.4);
   core.translate(0, 0.3, 0);
   parts.push(withPart(core, 1, () => 0.35));
-  for (let i = 0; i < 11; i++) {
+  for (let i = 0; i < 6; i++) {
     const h = 0.8 + rng.next() * 0.7;
-    const shoot = new THREE.ConeGeometry(0.11, h, 4, 1, true);
+    const shoot = new THREE.ConeGeometry(0.13, h, 4, 1, true);
     shoot.translate(0, h / 2, 0);
     shoot.rotateZ((rng.next() - 0.5) * 0.9);
     shoot.rotateX((rng.next() - 0.5) * 0.9);
@@ -378,13 +383,13 @@ function gorse(seed: number, detail = 1): THREE.BufferGeometry {
 }
 
 /** A reed clump: thin curved blades and a few seed heads, leaning out. */
-function reeds(seed: number): THREE.BufferGeometry {
+function reeds(seed: number, blades = 12): THREE.BufferGeometry {
   const rng = new Rng(seed);
   const pos: number[] = [];
   const nrm: number[] = [];
   const shade: number[] = [];
   const idx: number[] = [];
-  for (let b = 0; b < 12; b++) {
+  for (let b = 0; b < blades; b++) {
     const h = 0.9 + rng.next() * 0.9;
     const a = rng.next() * Math.PI * 2;
     const lean = 0.08 + rng.next() * 0.28;
@@ -476,8 +481,12 @@ function rockMaterial(style: StylePreset, noise: THREE.Texture): THREE.MeshStand
   const n2: N = texture(noise, vec2(p.x.sub(p.z), p.y.add(p.x)).mul(1.7));
   const moss = smoothstep(0.35, 0.9, p.y).mul(0.55);
   const lichen = smoothstep(0.66, 0.8, n2.g).mul(smoothstep(0.2, 0.8, p.y)).mul(0.6);
-  const base = mix(color(style.rock).mul(n.g.mul(0.35).add(0.8)), color(style.stone.mossColor), moss.mul(smoothstep(0.45, 0.7, n.r)));
+  // Weathered grey stone, lighter on the faces the rain washes, so boulders in shadow stay grey, not black.
+  const stone: N = mix(color(style.rock), color(style.ground.rockLight), n.g.mul(0.45).add(0.25)).mul(n.r.mul(0.25).add(0.85));
+  const base = mix(stone, color(style.stone.mossColor), moss.mul(smoothstep(0.45, 0.7, n.r)));
   mat.colorNode = mix(base, color(style.ground.lichen), lichen);
+  // Light bounced from the ground: a backlit boulder reads as dark stone, not a hole.
+  mat.emissiveNode = base.mul(0.07);
   return mat;
 }
 
@@ -531,7 +540,7 @@ export class Scatter {
     this.time = time;
     this.sunDir = sunDir;
     this.trees = placeTrees(3400);
-    this.bushes = placeBushes(1900);
+    this.bushes = placeBushes(1600);
     this.reeds = placeReeds();
     this.rocks = placeRocks(1700);
     this.logs = placeLogs(28);
@@ -584,11 +593,12 @@ export class Scatter {
     const leaf = this.trees.filter((s) => s.variant >= 0.6 && s.variant < 0.95);
     const dead = this.trees.filter((s) => s.variant >= 0.95);
     const conA = con.filter((_, i) => i % 2 === 0), conB = con.filter((_, i) => i % 2 === 1);
-    this.instance(`trees-${style.name}-conifer-a`, conifer(31, 4, 9), conMat, conA, tree, out, conifer(31, 3, 6));
-    this.instance(`trees-${style.name}-conifer-b`, conifer(47, 5, 8), conMat, conB, tree, out, conifer(47, 3, 6));
+    // Far away (beyond the valley) the same trees in fewer pieces: two tiers, or a crown of three masses.
+    this.instance(`trees-${style.name}-conifer-a`, conifer(31, 4, 9), conMat, conA, tree, out, conifer(31, 3, 5));
+    this.instance(`trees-${style.name}-conifer-b`, conifer(47, 5, 8), conMat, conB, tree, out, conifer(47, 3, 5));
     const leafA = leaf.filter((_, i) => i % 2 === 0), leafB = leaf.filter((_, i) => i % 2 === 1);
-    this.instance(`trees-${style.name}-broadleaf-a`, broadleaf(12, 4, 1), leafMat, leafA, tree, out, broadleaf(12, 2, 0));
-    this.instance(`trees-${style.name}-broadleaf-b`, broadleaf(29, 3, 1), leafMat, leafB, tree, out, broadleaf(29, 2, 0));
+    this.instance(`trees-${style.name}-broadleaf-a`, broadleaf(12, 5, 1), leafMat, leafA, tree, out, broadleaf(12, 1, 0));
+    this.instance(`trees-${style.name}-broadleaf-b`, broadleaf(29, 4, 1), leafMat, leafB, tree, out, broadleaf(29, 1, 0));
     this.instance(`trees-${style.name}-dead`, deadTree(5), conMat, dead, tree, out);
 
     const bush: Placer = (s, m, c) => {
@@ -600,8 +610,8 @@ export class Scatter {
       c.multiplyScalar(0.78 + s.tint * 0.35);
     };
     const shrubs = this.bushes.filter((s) => s.variant < 0.62), gorses = this.bushes.filter((s) => s.variant >= 0.62);
-    this.instance(`bushes-${style.name}-shrub`, shrub(51, 0), bushMat, shrubs, bush, out);
-    this.instance(`bushes-${style.name}-gorse`, gorse(52, 0), bushMat, gorses, bush, out);
+    this.instance(`bushes-${style.name}-shrub`, shrub(51, 0), bushMat, shrubs, bush, out, shrub(51, -1));
+    this.instance(`bushes-${style.name}-gorse`, gorse(52, -1), bushMat, gorses, bush, out);
 
     const reed: Placer = (s, m, c) => {
       _p.set(s.x, s.y, s.z);
@@ -611,7 +621,7 @@ export class Scatter {
       c.offsetHSL((s.tint - 0.5) * 0.05, 0, 0);
       c.multiplyScalar(0.8 + s.tint * 0.3);
     };
-    this.instance(`reeds-${style.name}`, reeds(61), reedMat, this.reeds, reed, out);
+    this.instance(`reeds-${style.name}`, reeds(61), reedMat, this.reeds, reed, out, reeds(61, 6));
 
     const rock: Placer = (s, m, c) => {
       _p.set(s.x, s.y, s.z);
@@ -620,8 +630,11 @@ export class Scatter {
       m.compose(_p, _q, _s);
       c.multiplyScalar(0.8 + s.tint * 0.35);
     };
-    const rocksA = this.rocks.filter((s) => s.variant < 0.5), rocksB = this.rocks.filter((s) => s.variant >= 0.5);
-    this.instance(`rocks-${style.name}-a`, rockGeometry(1, 5, true), rmat, rocksA, rock, out);
+    // Boulders get a finely faceted rock of their own; stones in the grass are rounder or blockier.
+    const boulders = this.rocks.filter((s) => s.s > 1.2);
+    const rocksA = this.rocks.filter((s) => s.s <= 1.2 && s.variant < 0.5), rocksB = this.rocks.filter((s) => s.s <= 1.2 && s.variant >= 0.5);
+    this.instance(`rocks-${style.name}-boulders`, rockGeometry(2, 13, true), rmat, boulders, rock, out, rockGeometry(1, 13, true));
+    this.instance(`rocks-${style.name}-a`, rockGeometry(1, 5, true), rmat, rocksA, rock, out, rockGeometry(0, 5, true));
     this.instance(`rocks-${style.name}-b`, rockGeometry(0, 9, true), rmat, rocksB, rock, out);
 
     const log: Placer = (s, m, c) => {
