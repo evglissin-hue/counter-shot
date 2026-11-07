@@ -32,6 +32,8 @@ export class Terrain {
   /** Collider handles of the ground, for telling ground contacts apart. */
   readonly handles = new Set<number>();
   patches: TerrainPatch[] = [];
+  /** Vertex rectangles [i0, j0, i1, j1] changed since the nav grid last looked (it empties this). */
+  navDirty: number[] = [];
   private dirty = new Set<number>();
 
   constructor(private R: Rapier, private world: World) {
@@ -106,6 +108,7 @@ export class Terrain {
     const patch = new Float32Array((i1 - i0 + 1) * (j1 - j0 + 1));
     for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) patch[(j - j0) * (i1 - i0 + 1) + (i - i0)] = this.h[j * this.nx + i];
     this.patches.push({ i0, j0, ni: i1 - i0 + 1, nj: j1 - j0 + 1, h: patch });
+    this.navDirty.push(i0, j0, i1, j1);
     // Every tile that holds a changed vertex (tiles share their edge vertices).
     for (let tj = Math.floor(Math.max(0, j0 - 1) / TILE); tj <= Math.min(this.tilesZ - 1, Math.floor(j1 / TILE)); tj++)
       for (let ti = Math.floor(Math.max(0, i0 - 1) / TILE); ti <= Math.min(this.tilesX - 1, Math.floor(i1 / TILE)); ti++) this.dirty.add(tj * this.tilesX + ti);

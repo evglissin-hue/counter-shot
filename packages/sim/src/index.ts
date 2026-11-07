@@ -7,5 +7,6 @@ export * from "./flight";
 export * from "./wind";
 export * from "./terrain";
 export * from "./minions";
+export * from "./nav";
 export * from "./sandbox";
 export * from "./session";

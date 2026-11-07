@@ -22,6 +22,7 @@ import {
   type TerrainPatch,
 } from "./frame";
 import { Minions, MinionState } from "./minions";
+import { NavGrid } from "./nav";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 
@@ -69,7 +70,9 @@ export interface SandboxOptions {
   emplacements?: Emplacement[];
 }
 
-const MAX_STONES = 9000;
+const MAX_STONES = 9600;
+/** Ticks between nav grid refreshes (four a second). */
+const NAV_EVERY = 15;
 /** Grapeshot pellets do not collide with each other. */
 const PELLET_GROUPS = (0x0004 << 16) | (0xffff & ~0x0004);
 /** The mortar shell's burst: the default for explode(). */
@@ -81,6 +84,8 @@ export class SandboxSim {
   readonly terrain: Terrain;
   readonly minions: Minions;
   readonly wind: Wind;
+  /** Where minions can walk; refreshed every NAV_EVERY ticks for whatever changed. */
+  readonly nav: NavGrid;
   readonly emplacements: Emplacement[];
   tick = 0;
   /** Ticks until each emplacement can fire again. */
@@ -113,6 +118,7 @@ export class SandboxSim {
     this.emplacements = opts.emplacements ?? ASHWRIGHT_EMPLACEMENTS;
     this.reload = this.emplacements.map(() => 0);
     this.minions.spawnPatrol(this.rng.fork("patrol"), opts.minions);
+    this.nav = new NavGrid(this.castle, this.terrain);
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -142,8 +148,14 @@ export class SandboxSim {
     this.terrain.rebuild();
     this.castle.step();
     this.afterStep();
+    if (tick % NAV_EVERY === NAV_EVERY - 1) this.nav.update();
     for (let i = 0; i < this.reload.length; i++) if (this.reload[i] > 0) this.reload[i]--;
     this.tick++;
+  }
+
+  /** For each bridge in the layout (in order): can minions still cross it? */
+  bridgesOpen(): boolean[] {
+    return this.castle.layout.bridges.map((b) => this.nav.bridgeOpen(b.site));
   }
 
   private apply(input: SandboxInput) {

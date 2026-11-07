@@ -43,6 +43,8 @@ export interface Stone {
   shade: number;
   /** A beam that falls as soon as either of its supports goes (bridge stringers), not only when both do. */
   span?: boolean;
+  /** A bridge deck plank: the nav grid walks on it whatever lies below. */
+  deck?: boolean;
 }
 
 export interface WedgeSpec {
@@ -465,7 +467,7 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
     for (const site of opts.bridges) {
       const first = stones.length;
       for (const p of bridgePieces(site)) {
-        stones.push({ id: stones.length, castle: 2, part: "bridge", material: "wood", shape: "box", hx: p.hx, hy: p.hy, hz: p.hz, x: p.x, y: p.y, z: p.z, q: IDENTITY, course: 0, grounded: false, shade: rng.next(), ...(p.span ? { span: true } : {}) });
+        stones.push({ id: stones.length, castle: 2, part: "bridge", material: "wood", shape: "box", hx: p.hx, hy: p.hy, hz: p.hz, x: p.x, y: p.y, z: p.z, q: IDENTITY, course: 0, grounded: false, shade: rng.next(), ...(p.span ? { span: true } : {}), ...(p.deck ? { deck: true } : {}) });
       }
       bridges.push({ site, first, count: stones.length - first });
     }

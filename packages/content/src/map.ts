@@ -379,6 +379,8 @@ export interface BridgePiece {
   z: number;
   /** A beam that needs both of its supports (a stringer between the bank and the pier). */
   span: boolean;
+  /** A deck plank: something to walk on, whatever is under it. */
+  deck: boolean;
 }
 
 const BGAP = 0.004;
@@ -387,7 +389,7 @@ export const DECK_TOP = 0.52;
 
 export function bridgePieces(b: BridgeSite): BridgePiece[] {
   const out: BridgePiece[] = [];
-  const add = (hx: number, hy: number, hz: number, x: number, y: number, z: number, span = false) => out.push({ hx: hx - BGAP, hy: hy - BGAP, hz: hz - BGAP, x, y, z, span });
+  const add = (hx: number, hy: number, hz: number, x: number, y: number, z: number, span = false, deck = false) => out.push({ hx: hx - BGAP, hy: hy - BGAP, hz: hz - BGAP, x, y, z, span, deck });
   const W = b.width, L = b.length;
   const zs = b.z - L / 2, ze = b.z + L / 2;
   // Sills on both banks, and the pier's cap: tops at 0.2.
@@ -408,7 +410,7 @@ export function bridgePieces(b: BridgeSite): BridgePiece[] {
   const deck0 = zs - 0.3, deck1 = ze + 0.3;
   const n = Math.round((deck1 - deck0) / 0.5);
   const pw = (deck1 - deck0) / n;
-  for (let i = 0; i < n; i++) add(W / 2 + 0.1, 0.04, pw / 2, b.x, 0.48, deck0 + pw * (i + 0.5));
+  for (let i = 0; i < n; i++) add(W / 2 + 0.1, 0.04, pw / 2, b.x, 0.48, deck0 + pw * (i + 0.5), false, true);
   // Railings: posts on the planks along both edges, a rail from post to post.
   const m = Math.max(2, Math.floor(L / 2.2) + 1);
   const step = L / (m - 1);
