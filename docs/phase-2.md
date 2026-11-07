@@ -87,10 +87,30 @@ Kat's laptop (Apple M3) is the floor: about 550 moving stones in 6 ms. Upright m
 
 Online play (phase 3), Graniteborn and landslides (phase 4), co-op (phase 5), kill cams and replays of the best moments (phase 6; the match keeps its inputs from M1, so they stay possible), random maps (one seeded map for now), the castle designer, fire on timber, 2v2.
 
-## Questions for the owner
+## Decisions (the owner's answers, November 7)
 
-1. The sandbox becomes the game page (`apps/game`) with a start menu, at the same artifact link. Fine?
-2. One map for phase 2: a valley with a road, two flank paths and a stream with three bridges. Is that the right first battlefield, or do you have a picture in mind?
-3. Abilities (the Signal Tower's Barrage, Smoke screen and Powder trail) are not in the phase 2 list in the spec. Add them in M4, or leave them for later?
-4. A mortar shell on the keep's roof can bring the banner down in one shot today. In a match that is an instant win. Should the keep get a timber roof that takes the first hits, a sturdier top, or should it stay a rare skill shot?
-5. Do fallen minions stay on the field all match (as frozen debris that shapes the routes) or clear away after a minute?
+1. The sandbox became the game page (`apps/game`) with a start menu, at the same artifact link. (Default taken; say if not.)
+2. The first map is the valley with a stream: a central road, two flank paths between low ridges, and a stream across the middle with three timber bridges.
+3. Abilities (Barrage, Smoke screen, Powder trail) wait until after phase 2. (Default taken; the Signal Tower leaves the M3 build wheel until then.)
+4. The keep gets timber floors inside: each shell caves in one level and the banner drops a floor at a time, so toppling it takes a siege.
+5. Fallen minions stay on the field all match as frozen bodies (cover, ramps, blockages), with a cap: past a few hundred the oldest sink into the ground, so the physics budget holds on Kat's laptop. (For M2.)
+
+## Status
+
+### M1. The battlefield
+
+- **Rules version 4.** The session hash and the lab's reference hash (35a7603f / 054e5eb0, unchanged) are pinned in Node; a scripted match is pinned too, and headless Chromium replays both bit for bit (`npm run check:browser`).
+- **The keep's timber floors** (`GAME_LAYOUT`, `keepFloors`): board floors at 7 and 13.5 m under the 20 m roof, wider apart than a burst reaches. Storey boards break only under bursts and direct hits, not falling rubble; rubble lying on a board falls when it goes. A banner now touches only its keep's intact walls and floors, the ground and shots, and bursts no longer throw it: before, rubble thrown by a burst on the roof carried the light banner 50 m up and off the keep (the real one-shot). Three shells straight down the shaft bring it to the ground floor, which is what counts as toppled now. The lab keeps the old single platform.
+- **The valley** (`packages/content/src/map.ts`): one deterministic height function, point symmetric about the middle of the field (each player sees the same valley from their own walls, left is left), shared by the physics and the renderer. Flat castle pads, the centre road with an S-bend, flank paths that sweep out to x = +-48, ridges with rocky crests between them, a meandering stream with a gravel bed and real banks that runs square across every route, gorges through the ridges and the valley sides, crags, knolls, hills behind both castles, swells and hummocks. The physics grid covers 192 by 266 m at 1 m (about 120 ms to compute, once, shared by every sim in the worker). The Practice range plays in the same valley.
+- **Bridges**: three timber bridges (sills, a pier of two posts and a cap, stringers, a plank deck, railings: 187 pieces) built like masonry as a third support group after the two castles. Stringers fall as soon as either support goes (beams need both ends), so a shell in the middle drops the deck into the stream. Grounded pieces stand on the real ground under them, not on y = 0.
+- **The nav grid** (`packages/sim/src/nav.ts`): a floor height and a kind per square metre (ground, raised, water, steep, blocked), from the ground, the water and every standing or settled piece: walls stack the floor up beyond a 0.6 m step, intact deck planks are floors over the water, anything 1.9 m overhead (the wall over a broken gate) leaves the way open. Refreshed four times a second for the cells around what changed (under 0.3 ms after two bursts). Tests: the stream blocks, bridges cross, closed gates keep you out, a blown bridge closes its crossing, all three cut the valley in two.
+- **`@keepfall/rules`**: the match wraps the world with two teams, gold from each standing keep (5 a second, 150 to start), the clock and the result (the other team wins when a banner falls; a draw if both fall on one tick). Inputs carry team and tick and are judged on that tick: own emplacements only, loaded only, nothing after the end.
+- **The page**: a start menu (Practice range, Versus AI), the match bar (clock, gold), a note when a bridge goes down, the end screen a moment after a keep falls (time, masonry down on both sides, shots fired; Play again, Practice range, Look around), N for where minions can walk (green from your gate, amber cut off, blue water, red in the way) with the bridges' status, and the aim help and hit readout know the bridges.
+- **The look of the valley** (terrain material, the stream's water, forests, bushes, reeds, rocks): see the next status update.
+
+Findings for the owner:
+
+- The keep is still quicker to topple than a siege when the shots are good: in tests it took a long gun hit and two shells, two long gun hits near the top, or a shell and one low long gun hit (a lucky pair, 42 s into a match). A long gun blast (4.7 m) is about half the keep's width, and the face above a hole that wide comes down. Options: a sturdier keep (better bonded or thicker walls), a smaller blast against the keep, or leave it until the AI fights back and repairs (M4, M5), then judge.
+- At full charge the enemy keep sits at the edge of the mortar's reach (about 150 m): a strong headwind can put it out of range for a while. The mortar's speed (82 m/s) could rise a little if that is unwelcome.
+
+Next: merge the valley's look, look at every camera view, publish; then M2 (waves).

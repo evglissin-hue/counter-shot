@@ -1,6 +1,6 @@
 # Keepfall: planning notes
 
-Working notes from the planning conversation. The spec is `SPEC.md` (draft 0.2); the phase 1 plan is `docs/phase-1.md`.
+Working notes from the planning conversation. The spec is `SPEC.md` (draft 0.3); the phase plans are `docs/phase-1.md` and `docs/phase-2.md`.
 
 ## The game in one paragraph
 
@@ -37,6 +37,12 @@ A browser game where two castles face each other across a field. You fire siege 
 | Quality tiers | Picked on first launch by the quick graphics test; High without one; drop a tier after 5 s of missed frames. |
 | Art assets | No artist: code-built castles and terrain, free asset packs and AI-generated models. |
 | Stack | Same as Castle Artillery: TypeScript monorepo, Cloudflare, a preview link per branch, several Claude sessions in parallel. |
+| Phase 1 verdict | The quality round held the best tier through mortar bursts on the M4 ("feels good"): phase 1 is done. |
+| The game page | The sandbox became the game page with a start menu (Practice range, Versus AI), at the same artifact link. |
+| First map | A valley with a stream: central road, two flank paths between low ridges, a stream across the middle with three timber bridges. Point symmetric, so both players see the same valley from their own walls. The Practice range plays in it too. The owner asked for a more beautiful, more detailed map. |
+| The keep | Timber floors inside (7 and 13.5 m under the 20 m roof): each shell caves in one level and the banner drops a floor at a time. Toppled means the banner reaches the ground floor (or the ground outside). |
+| Fallen minions | Stay all match as frozen bodies (cover, ramps, blockages); past a few hundred the oldest sink into the ground. |
+| Abilities | After phase 2. |
 
 ## Race proposals (for review)
 

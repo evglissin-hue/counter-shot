@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.2)
+# Keepfall: Game Spec (draft 0.3)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -32,6 +32,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 
 - Two castles about 150 m apart (to be tuned in playtests), on terrain generated from a seed and mirrored for fairness.
 - **2 to 3 routes** between the castles (a central road and flank paths), shaped by hills, a river or ravine, and bridges. Physics can open or close a route: blow a bridge, drop a tower across a pass, start a landslide.
+- **The first map** is a valley with a stream: a central road and two flank paths between low ridges, a stream across the middle with three timber bridges (one per route), crags and knolls on the valley sides. Point symmetric about the middle of the field, so each player sees the same valley from their own walls.
 - **Deformable terrain**: big impacts leave craters. Steep slopes slide when disturbed (a deterministic landslide simulation on a terrain grid). Loose boulders can be knocked rolling.
 - **Wind** changes every 30 to 60 seconds. Flags, smoke and a wind gauge show it, and it pushes every shot in flight.
 
@@ -42,7 +43,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 - **Weapon emplacements** sit on towers and walls (6 to 8 per castle). Each holds one weapon you buy and upgrade.
 - **Courtyard plots** (6 to 8) hold buildings.
 - **Repairs**: masons rebuild destroyed sections over time, for gold, wherever the space is clear. Auto-repair can be switched on per section.
-- **The keep** is the tallest structure, with the banner on top. Upgrades can reinforce it (buttresses, thicker base).
+- **The keep** is the tallest structure, with the banner on top. It has timber floors inside: a shell caves in one level and the banner drops a floor at a time, so toppling it takes a siege (or bringing its walls down). Upgrades can reinforce it (buttresses, thicker base).
 - **Physics picks no sides.** Your own falling tower crushes your own buildings and minions.
 
 ## 5. Shooting
@@ -126,6 +127,7 @@ You spend it on buildings, weapons, upgrades, repairs and abilities. There are n
 - **Orders** go to all your waves, by hotkey: **Advance** (default), **Hold** (stop at the midfield marker), **Push the breach** (head for the nearest gap in the enemy walls).
 - **Pathfinding** uses a flow field over the terrain that updates as rubble and craters change it. Minions climb small rubble and go around big piles. Intact walls stop them, so they ram the gate, climb ladders, blow walls with sappers, or pour through breaches.
 - **Fighting** is simple contact combat. Minions inside the enemy courtyard count towards storming it.
+- **Bodies stay** all match as frozen physics debris (cover, ramps, blockages on the routes); past a few hundred the oldest sink into the ground to keep the physics budget.
 - **Numbers**: up to about 60 to 100 alive per side at the peak. Dozens, not hundreds, so each one is a proper physics body when it matters.
 
 ## 9. Winning
