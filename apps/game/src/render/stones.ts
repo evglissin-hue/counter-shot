@@ -54,8 +54,8 @@ export class StoneSet {
   slotOf: Int32Array;
   private noise: THREE.Texture;
   private styleName: StyleName | null = null;
-  /** Stone ids per castle, for picking. */
-  private castleIds: [Int32Array, Int32Array];
+  /** Stone ids per group (castle 0, castle 1, the bridges), for picking. */
+  private castleIds: [Int32Array, Int32Array, Int32Array];
   /** Half extents per stone id (x is negative for wedges). */
   private half: Float32Array;
   private wedgePlanes = new Float64Array(24);
@@ -70,15 +70,14 @@ export class StoneSet {
     this.slotOf = new Int32Array(n).fill(-1);
     this.root.name = "stones";
     this.half = new Float32Array(n * 3);
-    const c0: number[] = [];
-    const c1: number[] = [];
+    const groups: [number[], number[], number[]] = [[], [], []];
     for (const s of layout.stones) {
-      (s.castle === 0 ? c0 : c1).push(s.id);
+      groups[s.castle].push(s.id);
       this.half[s.id * 3] = s.shape === "wedge" ? -1 : s.hx;
       this.half[s.id * 3 + 1] = s.hy;
       this.half[s.id * 3 + 2] = s.hz;
     }
-    this.castleIds = [Int32Array.from(c0), Int32Array.from(c1)];
+    this.castleIds = [Int32Array.from(groups[0]), Int32Array.from(groups[1]), Int32Array.from(groups[2])];
     {
       const w = layout.wedge;
       const sa = Math.sin(w.halfAngle);
@@ -332,7 +331,7 @@ export class StoneSet {
    * per stone (6 planes) after a bounding sphere reject. Returns t or -1.
    * No allocations.
    */
-  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, castle: 0 | 1, maxT = Infinity): number {
+  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, castle: 0 | 1 | 2, maxT = Infinity): number {
     const ids = this.castleIds[castle];
     const half = this.half;
     const P = this.wedgePlanes;

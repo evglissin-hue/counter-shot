@@ -1,4 +1,5 @@
-// The sandbox page: ride the four Ashwright weapons against the target castle.
+// The game page: a start menu, the Practice range (ride the four Ashwright
+// weapons against the target castle) and a match against the AI castle.
 // Aiming runs here at a fixed 60 Hz through the same limiter the sim checks;
 // a fire sends the exact aim to the worker, which owns everything else.
 
@@ -22,7 +23,7 @@ import {
   type FrameData,
 } from "@keepfall/sim";
 import { Input } from "./input";
-import type { FromWorker, ToWorker } from "./protocol";
+import type { FromWorker, MatchInfo, Mode, ToWorker } from "./protocol";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { Sound } from "./sound";
@@ -45,8 +46,6 @@ const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
 const SEED = 7;
 const MINIONS = 12;
-// The worker loads the physics and rehearses a burst while the renderer starts up.
-send({ t: "init", seed: SEED, minions: MINIONS });
 if (location.hash.includes("fixed")) send({ t: "manual" });
 const MORTAR = WEAPONS.mortar;
 const SHELL_G = G * MORTAR.projectile.gravity;
@@ -56,6 +55,16 @@ const SHELL_G = G * MORTAR.projectile.gravity;
  * shows exactly what a player sees at full speed.
  */
 const FIXED = location.hash.includes("fixed");
+/** The mode being played (null while the start menu is up). #practice or #versus in the address skips the menu (tests use #fixed: the Practice range). */
+let mode: Mode | null = null;
+const hashMode: Mode | null = location.hash.includes("versus") ? "versus" : location.hash.includes("practice") || FIXED ? "practice" : null;
+/** The match as the worker last reported it (Versus AI only). */
+let matchInfo: MatchInfo | null = null;
+let endShownFor = -1;
+let endTimer: ReturnType<typeof setTimeout> | undefined;
+/** Can each bridge still be crossed (layout order), and is the walk overlay on. */
+let bridgesOpen: boolean[] = layout.bridges.map(() => true);
+let navOn = false;
 let vclock = 0;
 let frames = 0;
 /** Test clock only: hold game time still (for a screenshot). */
@@ -160,6 +169,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     renderer.applyTerrain([m.terrain]);
     ready = true;
     if (rendererReady) $("loading").hidden = true;
+    if (navOn) send({ t: "nav", on: true });
     return;
   }
   if (m.t === "error") {
@@ -173,6 +183,9 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
     downAt.set(m.frame.tick, m.down);
     timeline.push(m.frame);
+    if (m.match) onMatch(m.match);
+    if (m.bridges) onBridges(m.bridges);
+    if (m.nav) renderer.updateNav(m.nav.kind, m.nav.floor);
   }
 };
 worker.onerror = (e) => showError(e.message || "The simulation worker failed to start.");
@@ -517,7 +530,7 @@ function applyMouse() {
 }
 
 function fire() {
-  if (!ready || reload[current] > 0) return;
+  if (!ready || reload[current] > 0 || matchInfo?.result) return;
   const e = EMP[current];
   const a = aims[current];
   send({ t: "input", input: { kind: "fire", emplacement: current, yaw: a.yaw, pitch: a.pitch, charge: 1, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
@@ -677,7 +690,10 @@ function describeHit(h: PathHit | null): string {
   for (const c of [0, 1] as const) {
     if (h.stone < 0 && Math.abs(h.x) < 14 && Math.abs(h.z - layout.castleZ[c]) < 14) what = c === 0 ? "the target courtyard" : "your own courtyard";
   }
-  if (h.stone >= 0) {
+  const bridge = h.stone >= 0 ? layout.bridges.find((b) => h.stone >= b.first && h.stone < b.first + b.count) : undefined;
+  if (bridge) {
+    what = `the ${bridge.site.name} bridge`;
+  } else if (h.stone >= 0) {
     const s = layout.stones[h.stone];
     const part = s && s.part === "storey" && s.course === KEEP_TOP_COURSE ? "keep roof" : s ? PART_NAMES[s.part] : "";
     what = s ? `${s.castle === 0 ? "the target" : "your own"} ${part}` : "rubble";
@@ -809,9 +825,36 @@ hud.sound.addEventListener("click", () => {
   hud.sound.blur();
   updateHud(true);
 });
-$("reset").addEventListener("click", () => {
+/** Start (or restart) a mode: the worker builds a fresh world for it. */
+function startMode(m: Mode) {
+  const first = mode === null;
+  mode = m;
+  $("menu").hidden = true;
+  $("end").hidden = true;
+  $("mode-name").textContent = m === "versus" ? "Versus AI" : "Practice range";
+  $("matchbar").hidden = m !== "versus";
+  $("more").hidden = m !== "practice";
+  $("reset").textContent = m === "versus" ? "Restart the match" : "Rebuild the castles";
+  $("menu-back").hidden = false;
+  matchInfo = null;
+  endShownFor = -1;
+  clearTimeout(endTimer);
+  bridgesOpen = layout.bridges.map(() => true);
+  updateBridges();
+  view = "sight";
+  ready = false;
+  if (rendererReady) $("loading").hidden = false;
+  if (first) send({ t: "init", mode: m, seed: SEED, minions: MINIONS });
+  else {
+    resetLocal();
+    send({ t: "reset", mode: m, seed: SEED, minions: MINIONS });
+  }
+  if (m === "versus") showNote("The enemy castle does not fight back yet. Bring its keep's banner to the ground.", 6000);
+}
+
+/** Forget everything drawn from the old world. */
+function resetLocal() {
   endRide();
-  send({ t: "reset", seed: SEED, minions: MINIONS });
   renderer.resetWorld();
   timeline.reset();
   downAt.clear();
@@ -821,7 +864,103 @@ $("reset").addEventListener("click", () => {
   landing.fill(null);
   recording.clear();
   follow = null;
+}
+
+$("reset").addEventListener("click", () => {
+  if (mode) startMode(mode);
 });
+
+// ---- the start menu, the match and the end screen ----------------------------------
+document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
+  b.addEventListener("click", () => {
+    b.blur();
+    startMode(b.dataset.mode === "versus" ? "versus" : "practice");
+  }),
+);
+$("menu-btn").addEventListener("click", () => {
+  $("menu").hidden = false;
+  $<HTMLButtonElement>("menu-btn").blur();
+  document.exitPointerLock?.();
+});
+$("menu-back").addEventListener("click", () => ($("menu").hidden = true));
+$("end-again").addEventListener("click", () => startMode("versus"));
+$("end-practice").addEventListener("click", () => startMode("practice"));
+$("end-look").addEventListener("click", () => {
+  $("end").hidden = true;
+  view = "overview";
+});
+
+function clockText(ticks: number): string {
+  const s = Math.floor(ticks / 60);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function onMatch(info: MatchInfo) {
+  const prev = matchInfo;
+  matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null };
+  $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
+  $("gold").textContent = `${info.gold[1]} gold`;
+  const r = info.result;
+  $("match-note").textContent = r ? (r.winner === 1 ? "The enemy keep has fallen" : r.winner === 0 ? "Your keep has fallen" : "Both keeps fell") : "Topple the enemy keep";
+  // The end screen a moment after the banner falls, so the collapse can be seen.
+  if (r && endShownFor !== r.tick) {
+    endShownFor = r.tick;
+    clearTimeout(endTimer);
+    endTimer = setTimeout(showEnd, FIXED ? 0 : 2600);
+  }
+}
+
+function showEnd() {
+  const info = matchInfo;
+  if (!info || !info.result || mode !== "versus") return;
+  const r = info.result;
+  $("end-title").textContent = r.winner === 1 ? "Victory" : r.winner === 0 ? "Defeat" : "Draw";
+  $("end-line").textContent = r.winner === 1 ? "The enemy keep's banner is on the ground." : r.winner === 0 ? "Your keep's banner is on the ground." : "Both banners came down together.";
+  $("end-time").textContent = clockText(r.tick);
+  const mas = info.masonry;
+  $("end-enemy").textContent = mas ? `${mas[0]} pieces` : "";
+  $("end-yours").textContent = mas ? `${mas[1]} pieces` : "";
+  $("end-shots").textContent = `${info.shots[1]}`;
+  $("end").hidden = false;
+  document.exitPointerLock?.();
+}
+
+/** The bridges from the player's left to right, as the overlay's status line shows them. */
+function updateBridges() {
+  const parts = layout.bridges
+    .map((b, k) => ({ name: b.site.name, open: bridgesOpen[k] ?? true, x: b.site.x }))
+    .sort((a, b) => b.x - a.x)
+    .map((b) => `${b.name} <b class="${b.open ? "" : "down"}">${b.open ? "open" : "down"}</b>`);
+  $("bridges").innerHTML = `Bridges: ${parts.join(", ")}`;
+}
+
+function onBridges(open: boolean[]) {
+  const was = bridgesOpen;
+  bridgesOpen = open;
+  updateBridges();
+  for (let k = 0; k < open.length; k++) {
+    if (was[k] && !open[k]) showNote(`The ${layout.bridges[k].site.name} bridge is down: that route is closed.`, 4500);
+  }
+}
+
+function toggleNav(on = !navOn) {
+  navOn = on;
+  send({ t: "nav", on });
+  renderer.setNavOverlay(on);
+  $("bridges").hidden = !on;
+  navBox.checked = on;
+}
+const navBox = $<HTMLInputElement>("navbox");
+navBox.addEventListener("change", () => toggleNav(navBox.checked));
+
+let noteTimer: ReturnType<typeof setTimeout> | undefined;
+function showNote(text: string, ms: number) {
+  const note = $("note");
+  note.textContent = text;
+  note.hidden = false;
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => (note.hidden = true), ms);
+}
 $("more").addEventListener("click", () => send({ t: "input", input: { kind: "minions", count: 6 } }));
 const help = $("help");
 $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
@@ -956,6 +1095,7 @@ function frame(wall: number) {
     sound.setMuted(!sound.muted);
     updateHud(true);
   }
+  if (p.nav) toggleNav();
   if (p.spin && EMP[current].weapon === "longGun") spin = ((spin + 1) % 5) as Spin;
   const w = WEAPONS[EMP[current].weapon];
   const fuseStep = (dir: number) => {
@@ -1068,10 +1208,13 @@ async function start() {
   window.addEventListener("resize", () => renderer.resize());
   rendererReady = true;
   if (ready) $("loading").hidden = true;
+  else if (mode) $("loading").hidden = false;
   updateHud(true);
   requestAnimationFrame(frame);
 }
 void start();
+if (hashMode) startMode(hashMode);
+else view = "overview";
 
 // Test hook for the headless screenshot script: read-only views of the page state.
 (window as unknown as { __sandbox: unknown }).__sandbox = {
@@ -1093,6 +1236,17 @@ void start();
   get reload() {
     return reload.slice();
   },
+  get mode() {
+    return mode;
+  },
+  get match() {
+    return matchInfo;
+  },
+  get bridges() {
+    return bridgesOpen.slice();
+  },
+  startMode,
+  toggleNav,
   /** Rendered frames so far (with #fixed, 30 per game second). */
   get frames() {
     return frames;

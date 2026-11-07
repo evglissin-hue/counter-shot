@@ -17,6 +17,7 @@ import { Effects } from "./effects";
 import { Flags } from "./flags";
 import { Guns } from "./guns";
 import { Minions } from "./minions";
+import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
 import { Post, TIERS } from "./post";
 import { Projectiles } from "./projectiles";
@@ -66,6 +67,8 @@ export class GameRenderer implements GameRendererApi {
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (the page sets it). */
   private renderScale = 1;
   private blastRing: THREE.Group;
+  /** Where minions can walk (debug overlay, N). */
+  private navOverlay = new NavOverlay();
   /**
    * The first frames also draw, out of sight, the meshes that otherwise only
    * appear in a burst or a hit, so their shaders compile while loading rather
@@ -169,6 +172,15 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.marker);
     this.blastRing = this.buildBlastRing();
     this.scene.add(this.blastRing);
+    this.scene.add(this.navOverlay.mesh);
+  }
+
+  setNavOverlay(on: boolean): void {
+    this.navOverlay.mesh.visible = on;
+  }
+
+  updateNav(kind: Uint8Array, floor: Float32Array): void {
+    this.navOverlay.update(kind, floor);
   }
 
   async init(opts: { forceWebGL?: boolean } = {}): Promise<{ backend: "WebGPU" | "WebGL2" }> {
@@ -479,6 +491,20 @@ export class GameRenderer implements GameRendererApi {
             hit = true;
           }
         }
+        // The bridges, and the timber fallen around them.
+        if (Math.min(ay, by) < 6 && this.layout) {
+          for (const b of this.layout.bridges) {
+            const s = b.site, rx = s.width / 2 + 7, rz = s.length / 2 + 7;
+            if (Math.max(ax, bx) < s.x - rx || Math.min(ax, bx) > s.x + rx || Math.max(az, bz) < s.z - rz || Math.min(az, bz) > s.z + rz) continue;
+            const t = stones.raycast(ax, ay, az, ux, uy, uz, 2, best);
+            if (t >= 0 && t < best) {
+              best = t;
+              stone = stones.lastHitId;
+              hit = true;
+            }
+            break;
+          }
+        }
       }
       const h = (x: number, z: number) => this.terrain.heightAt(x, z);
       if (by <= h(bx, bz)) {
@@ -596,7 +622,7 @@ export class GameRenderer implements GameRendererApi {
     const d = this.ray.ray.direction;
     let best = Infinity;
     if (this.stones) {
-      for (const c of [0, 1] as const) {
+      for (const c of [0, 1, 2] as const) {
         const t = this.stones.raycast(o.x, o.y, o.z, d.x, d.y, d.z, c);
         if (t >= 0 && t < best) best = t;
       }

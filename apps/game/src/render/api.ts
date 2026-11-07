@@ -100,6 +100,11 @@ export interface GameRendererApi {
   /** The camera, for positional sound. */
   listener(): Listener;
 
+  /** Show or hide where minions can walk. */
+  setNavOverlay(on: boolean): void;
+  /** The nav grid as the worker sent it: kind and walking height per cell. */
+  updateNav(kind: Uint8Array, floor: Float32Array): void;
+
   /** World point under a screen point (terrain or masonry), for the overview. */
   pick(clientX: number, clientY: number): { x: number; y: number; z: number } | null;
   render(dtSeconds: number): void;

@@ -13,6 +13,8 @@ export interface Pressed {
   fuseDown: boolean;
   help: boolean;
   mute: boolean;
+  /** Show or hide where minions can walk. */
+  nav: boolean;
   /** Leave the shot camera and go back to the gun. */
   skip: boolean;
 }
@@ -110,6 +112,7 @@ export class Input {
       fuseDown: e.has("BracketLeft") || edge(13),
       help: e.has("KeyH") || edge(9),
       mute: e.has("KeyM"),
+      nav: e.has("KeyN"),
       skip: e.has("Escape") || e.has("Enter") || e.has("Backspace") || edge(1),
     };
     this.padPrev = b;

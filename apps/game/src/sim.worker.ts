@@ -1,16 +1,19 @@
-// The sandbox simulation runs here at a fixed 60 Hz, off the main thread.
-// The page sends inputs; the worker tags each with the next tick, steps the
-// sim and posts what changed.
+// The simulation runs here at a fixed 60 Hz, off the main thread: the
+// Practice range (the sandbox) or a match against the AI castle. The page
+// sends inputs; the worker tags each with the next tick, steps the sim and
+// posts what changed.
 
 import { buildLayout, GAME_LAYOUT, type CastleLayout } from "@keepfall/content";
+import { Match, Team } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
-import type { FromWorker, ToWorker } from "./protocol";
+import type { FromWorker, MatchInfo, Mode, NavInfo, ToWorker } from "./protocol";
 
 const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
 const DT = 1000 / 60;
 
 let R: Rapier | null = null;
 let sim: SandboxSim | null = null;
+let match: Match | null = null;
 let layout: CastleLayout | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let last = 0;
@@ -22,6 +25,13 @@ let stepEma = 0;
 let peakNow = 0, peakLast = 0, peakTicks = 0;
 /** Test clock: the page advances the sim itself, frame by frame. */
 let manual = false;
+/** Nav overlay: send the grid when it changes, at most a few times a second. */
+let navOn = false;
+let navSent = -1;
+let navAt = 0;
+let bridgesSent = -1;
+/** The match's end is reported once with the masonry counts. */
+let endSent = false;
 
 async function load(): Promise<Rapier> {
   if (R) return R;
@@ -47,13 +57,36 @@ function rehearse() {
   r.free();
 }
 
-function build(seed: number, minions: number) {
+function build(mode: Mode, seed: number, minions: number) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
   layout ??= buildLayout(1, GAME_LAYOUT);
-  sim = new SandboxSim(R, layout, { seed, minions });
-  post({ t: "ready", stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
+  if (mode === "versus") {
+    match = new Match(R, layout, { seed });
+    sim = match.world;
+  } else {
+    match = null;
+    sim = new SandboxSim(R, layout, { seed, minions });
+  }
+  navSent = -1;
+  bridgesSent = -1;
+  endSent = false;
+  post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
+}
+
+function matchInfo(): MatchInfo | null {
+  if (!match) return null;
+  const ended = !!match.result;
+  const info: MatchInfo = {
+    tick: match.tick,
+    gold: [match.gold[0], match.gold[1]],
+    result: match.result,
+    shots: [match.shots[0], match.shots[1]],
+    masonry: ended && !endSent ? [match.masonryDown(0), match.masonryDown(1)] : null,
+  };
+  if (info.masonry) endSent = true;
+  return info;
 }
 
 function tick(advanceMs = -1) {
@@ -72,7 +105,8 @@ function tick(advanceMs = -1) {
   let steps = 0;
   while (acc >= DT && steps < (manual ? 12 : 2)) {
     const t0 = performance.now();
-    sim.step();
+    if (match) match.step();
+    else sim.step();
     const ms = performance.now() - t0;
     stepEma = stepEma === 0 ? ms : stepEma * 0.9 + ms * 0.1;
     if (ms > peakNow) peakNow = ms;
@@ -89,7 +123,36 @@ function tick(advanceMs = -1) {
   const counts = sim.minionCounts();
   const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.events.buffer];
   for (const p of frame.terrain) transfer.push(p.h.buffer);
-  post({ t: "frame", frame, reload: sim.reload.slice(), stepMs: Math.round(stepEma * 100) / 100, stepPeak: Math.round(Math.max(peakNow, peakLast) * 10) / 10, down: counts.down, standing: counts.standing, awake: sim.castle.awakeCount() }, transfer as Transferable[]);
+  // Bridges: whenever the nav grid changed.
+  let bridges: boolean[] | null = null;
+  if (sim.nav.version !== bridgesSent) {
+    bridgesSent = sim.nav.version;
+    bridges = sim.bridgesOpen();
+  }
+  let nav: NavInfo | null = null;
+  const now = performance.now();
+  if (navOn && sim.nav.version !== navSent && (manual || now - navAt > 250)) {
+    navSent = sim.nav.version;
+    navAt = now;
+    nav = { version: sim.nav.version, kind: sim.nav.kind.slice(), floor: sim.nav.floor.slice() };
+    transfer.push(nav.kind.buffer, nav.floor.buffer);
+  }
+  post(
+    {
+      t: "frame",
+      frame,
+      reload: sim.reload.slice(),
+      stepMs: Math.round(stepEma * 100) / 100,
+      stepPeak: Math.round(Math.max(peakNow, peakLast) * 10) / 10,
+      down: counts.down,
+      standing: counts.standing,
+      awake: sim.castle.awakeCount(),
+      match: matchInfo(),
+      bridges,
+      nav,
+    },
+    transfer as Transferable[],
+  );
 }
 
 function start() {
@@ -107,15 +170,17 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         await load();
         layout ??= buildLayout(1, GAME_LAYOUT);
         rehearse();
-        build(msg.seed, msg.minions);
+        build(msg.mode, msg.seed, msg.minions);
         start();
         break;
       case "reset":
-        build(msg.seed, msg.minions);
+        build(msg.mode, msg.seed, msg.minions);
         start();
         break;
       case "input":
-        if (sim) sim.queue(sim.tick, msg.input);
+        if (match) {
+          if (msg.input.kind === "fire") match.queue(match.tick, Team.Player, msg.input);
+        } else if (sim) sim.queue(sim.tick, msg.input);
         break;
       case "speed":
         speed = msg.factor;
@@ -123,6 +188,10 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       case "pause":
         paused = msg.paused;
         last = performance.now();
+        break;
+      case "nav":
+        navOn = msg.on;
+        navSent = -1;
         break;
       case "manual":
         manual = true;
