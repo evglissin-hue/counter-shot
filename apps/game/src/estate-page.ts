@@ -27,7 +27,9 @@ const TRICK_NAMES: Partial<Record<Earn, string>> = {
 };
 const FEED_NAMES: Partial<Record<Earn, string>> = { [Earn.Bounty]: "bounties", [Earn.Masonry]: "masonry", [Earn.KeepHit]: "keep hit" };
 /** Gold of one kind earned this close (metres) and this soon after (ms) adds to the number already rising there. */
-const MERGE_M = 15, MERGE_MS = 800;
+const MERGE_M = 15, MERGE_MS = 1200;
+/** A number rises this far (px) over its life (ms); two never start closer than the gap (px). */
+const FLOAT_RISE = 46, FLOAT_MS = 1700, FLOAT_GAP = 22;
 
 interface Float {
   el: HTMLSpanElement;
@@ -277,12 +279,17 @@ export class Estate {
         return true;
       }
     }
-    // Above any number still rising from the same spot on screen.
-    let lift = 0;
+    // Clear of every number still rising nearby, where it is now: they all rise at one pace, so one placed clear
+    // stays clear. From the lowest up, a number in the way moves this one above it.
+    const near: number[] = [];
     for (const f of this.floats) {
       const p = this.renderer.project(f.x, f.y, f.z);
-      if (p && Math.abs(p.x - s.x) < 90 && Math.abs(p.y - s.y) < 40) lift = Math.max(lift, f.lift + (f.label ? 28 : 21));
+      if (p && Math.abs(p.x - s.x) < 90) near.push(p.y - FLOAT_RISE * ((now - f.born) / FLOAT_MS) - f.lift);
     }
+    near.sort((a, b) => b - a);
+    let at = s.y;
+    for (const fy of near) if (Math.abs(at - fy) < FLOAT_GAP) at = fy - FLOAT_GAP;
+    const lift = s.y - at;
     if (this.floats.length > 28) {
       const old = this.floats.shift()!;
       old.el.remove();
@@ -304,7 +311,7 @@ export class Estate {
   update(now: number) {
     for (let i = this.floats.length - 1; i >= 0; i--) {
       const f = this.floats[i];
-      const t = (now - f.born) / 1700;
+      const t = (now - f.born) / FLOAT_MS;
       const s = t < 1 ? this.renderer.project(f.x, f.y, f.z) : null;
       if (!s || t >= 1) {
         f.el.remove();
@@ -312,7 +319,7 @@ export class Estate {
         continue;
       }
       f.el.style.opacity = String(t < 0.12 ? t / 0.12 : t > 0.7 ? (1 - t) / 0.3 : 1);
-      f.el.style.transform = `translate(${s.x}px, ${s.y - 46 * t - f.lift}px) translate(-50%, -50%)`;
+      f.el.style.transform = `translate(${s.x}px, ${s.y - FLOAT_RISE * t - f.lift}px) translate(-50%, -50%)`;
     }
     if (this.feedSum.size && now - this.feedAt > 900) {
       // Gold earned out of view: one line under the match bar (it never grows into the notes below it).
