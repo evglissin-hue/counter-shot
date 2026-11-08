@@ -1278,6 +1278,8 @@ let buildKey = "";
 function openBuild(at?: { plot?: number; slot?: number }) {
   if (mode !== "versus" || !matchInfo) return;
   endRide();
+  // While you build, the gun you were riding fires on its own like the rest.
+  if (!buildOpen && view === "sight") man(-1, current);
   buildOpen = true;
   buildFocus = at ?? null;
   $("build").hidden = false;
@@ -1298,6 +1300,8 @@ function closeBuild() {
   $("build").hidden = true;
   input.muted = false;
   (document.activeElement as HTMLElement | null)?.blur?.();
+  // Back to the gun you were riding.
+  if (mode === "versus" && view === "sight" && usable(current)) man(current, -1);
 }
 
 function toggleBuild() {
@@ -1512,10 +1516,14 @@ function updateLabels() {
   }
 }
 
-/** A view over your own courtyard while the build menu is open: from over the field, the castle left of the menu. */
+/**
+ * A view over your own courtyard while the build menu is open: from high
+ * behind the keep, looking towards the enemy as you do from your guns (so a
+ * plot on your left is on the left), the castle to the left of the menu.
+ */
 function castlePose(): CameraPose {
   const cz = layout.castleZ[1];
-  return { mode: "free", x: 12, y: 50, z: cz + 40, tx: 12, ty: 0, tz: cz + 1, fov: 50 };
+  return { mode: "free", x: -11, y: 66, z: cz - 26, tx: -11, ty: 0, tz: cz + 3, fov: 48 };
 }
 
 // ---- pause -------------------------------------------------------------------------
@@ -1852,7 +1860,7 @@ function frame(wall: number) {
     }
   }
   const pose = cameraPose(now, dt);
-  if (!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride))) pose.fov = shownFov;
+  if (!testCamera && !buildOpen && (pose.mode === "sight" || (pose.mode === "free" && !ride))) pose.fov = shownFov;
   applyShake(pose, now);
   renderer.setCamera(pose);
   updateAimHelp();

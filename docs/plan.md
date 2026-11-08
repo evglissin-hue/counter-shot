@@ -50,6 +50,8 @@ A browser game where two castles face each other across a field. You fire siege 
 | Key aiming | The owner found key aiming too sharp. Keys now have weight per gun: the gun gathers speed while a key is held (up to about half its top turning speed, a third for the swivel) and coasts to a stop; a tap is a fine correction. The mouse and sticks are unchanged. |
 | Mortar reload | The owner found the mortar a bit strong: it reloads in 12 s (was 6). Reloads: long gun 4 s, mortar 12 s, chain shot 5 s, swivel 2 s. |
 | M2 shipped | The owner's go on November 8: `main` holds phase 2 up to M2. M3 starts in a new session. |
+| Gold and building (M3) | My choices, for the owner to confirm (details in `docs/phase-2.md`): six plots per courtyard for a Barracks (300), a Powder Mill (200, 2 gold a second, sappers) or a Foundry (250, upgrades, musketeers); buildings are brick and timber physics pieces raised course by course and stop working under 60% standing. Eight gun slots per castle (four empty to start); guns are bought for gold and fall with the masonry under them. Foundry upgrades are trade-offs (heavy shot, rifled barrel). Gold from the keep, mills, bounties, enemy masonry, knocked down buildings and trick shots by hand. Sappers blow gates with kegs (a felled sapper's keg goes off among its wave); musketeers shoot from 22 m. A mix and a route per barracks. Until the AI, the enemy builds by a fixed plan. |
+| UX round (M3) | The owner asked for some UX and quality of life improvements with M3: the gun bar at the bottom with every slot's reload, gold income and pop-ups with coin sounds, both keeps' banner floors in the match bar, notes for what matters, P to pause, clicks on guns and plots in the overview, plot numbers, a fuller key list, and the fix for the pillar in front of the enemy gate (a drawing bug). |
 
 ## Race proposals (for review)
 
@@ -113,6 +115,13 @@ The lab page: https://claude.ai/artifact/GHqbFzcvN2tPt7wkhSm7NN (private to the 
 - Frame pacing: the worker posts frames at uneven moments (a 4 ms timer, catch-up steps), so drawing each frame as it arrives makes fast shells jump and a camera tied to them shake. Drawing on a render clock two ticks behind the newest frame, between frames, fixes it for 33 ms of display delay; aiming is unaffected (it runs on the page).
 - The first burst of a session was the slowest: engines compile hot code lazily. The support check took 20 ms on its first run and 1 to 3 ms after; Rapier's first contact-heavy steps took about 20 ms, later 5. A throwaway rehearsal at load (about 0.6 s on the cloud server, overlapping the renderer's start) makes the first burst as quick as any other.
 - Drawing cost of a burst: overdraw, not geometry. Seen from the ride camera (about 40 m), the impact dust alone covered the screen about twice over (44 puffs up to 12 m wide) and the smoke column, ground dust and fireball added more, at Ultra's doubled pixel density. Capping a puff at 30% of the screen's height and thinning the layers keeps the look; dynamic resolution (the scene pass's `setResolutionScale`, applied next frame) absorbs what is left, so the tier never has to drop for a burst. Software rendering in headless Chromium measures before/after ratios only (`node tools/burst-cost.mjs ultra`).
+
+## Findings from phase 2 M3 (gold and building)
+
+- Laying out every kind of building on every plot keeps ids, the neighbour graph, the nav grid's index and the renderer's instances fixed for a match. But Rapier charges for bodies that are switched off: about 1.5 ms a step for the 1,900 parked pieces on the cloud server. Creating a piece's body when its course goes up (and removing it when a wreck is cleared) brings a match step back to within about 0.2 ms of M2's.
+- A building's courses carry its roof only through bonds sideways (the slabs' undersides sit on the walls' outer top edges); every piece of all three kinds stands once raised.
+- Bounties and trick shots need to know what felled a minion: every knock carries its cause (a ball, a ball that glanced first, a burst, falling masonry, a pike, a musket, a floor giving way) and the shot behind it; masonry remembers the blast that brought it down, and a keg remembers the shot that felled its carrier.
+- One mortar shell wrecks a building (its burst covers a whole one), and walls hide buildings from flat fire: the mortar is the building breaker.
 
 ## Findings from phase 2 M2 (waves)
 

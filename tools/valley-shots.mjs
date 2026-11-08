@@ -35,6 +35,8 @@ const VIEWS = {
   // The render test's staged pikemen: two pairs fighting, three battering the target gate.
   fight: [-0.5, 2.4, -36.5, -4.6, 1.1, -31],
   gate: [5, 3.2, -22, 0, 1.6, -16],
+  // M3's units on the render test: sappers (one marching with his keg, one planting it at the gate) and musketeers.
+  units: [11, 2.6, -22.5, 5, 1.1, -29],
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });

@@ -79,7 +79,10 @@ async function tour() {
 
   // Find an elevation that lands on the target keep's roof (else anywhere on the keep), then ride a shell into it.
   // The search reads where the shell lands, which only the full aim help shows (the standard is the first part of the arc).
+  // The setting lives in the Controls panel: open it for the change.
+  await page.evaluate(() => (document.getElementById("help").hidden = false));
   await page.selectOption("#aimhelp", "full");
+  await page.evaluate(() => (document.getElementById("help").hidden = true));
   let aim = null, fallback = null;
   for (let p = 1.34; p >= 0.7 && !aim; p -= 0.005) {
     await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), p);
@@ -93,7 +96,9 @@ async function tour() {
     await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), aim.pitch);
   }
   console.log("aim at the keep:", JSON.stringify(aim));
+  await page.evaluate(() => (document.getElementById("help").hidden = false));
   await page.selectOption("#aimhelp", "partial");
+  await page.evaluate(() => (document.getElementById("help").hidden = true));
   await frames(45);
   await shot("04-mortar-on-keep");
   await page.evaluate(() => window.__sandbox.fire());

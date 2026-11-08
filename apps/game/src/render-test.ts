@@ -184,7 +184,7 @@ function buildFrame(dt: number): FrameData {
     const z = team === 0 ? -22 - ((t * speed) % 10) - col * 1.6 : -40 + Math.sin(t * 0.3 + k) * 2;
     const x = team === 0 ? -3 + row * 1.6 : 6 + k;
     const yaw = team === 0 ? Math.PI : Math.PI / 2;
-    minions.set([k, x, 0, z, yaw, (t * 0.9 + k * 0.13) % 1, team, 0, 0], nm * MINION_STRIDE);
+    minions.set([k, x, 0, z, yaw, (t * 0.9 + k * 0.13) % 1, team, 0, 0, 0, 0], nm * MINION_STRIDE);
     nm++;
   }
   // Two pairs fighting with levelled pikes (a thrust every 1.5 s), three battering the target castle's gate, one standing.
@@ -200,7 +200,21 @@ function buildFrame(dt: number): FrameData {
     [4, -31, Math.PI, 0, 1],
   ];
   staged.forEach(([x, z, yaw, team, action], j) => {
-    minions.set([20 + j, x, 0, z, yaw, 0, team, action, (t * 60 + j * 23) % 90], nm * MINION_STRIDE);
+    minions.set([20 + j, x, 0, z, yaw, 0, team, action, (t * 60 + j * 23) % 90, 0, 0], nm * MINION_STRIDE);
+    nm++;
+  });
+  // M3's units: a sapper marching with his keg and one kneeling to plant his at the gate; a musketeer
+  // marching, one firing (a kick every 4 s) and one fighting hand to hand.
+  const units: Array<[number, number, number, number, number, number, number]> = [
+    // x, z, yaw, team, action (0 walk, 2 fight, 4 plant, 5 shoot), unit (1 sapper, 2 musketeer), carry
+    [7, -26 - ((t * 1.4) % 6), Math.PI, 0, 0, 1, 1],
+    [2.6, -16.9, 0, 1, 4, 1, 1],
+    [9, -27 - ((t * 1.5) % 6), Math.PI, 0, 0, 2, 0],
+    [5.2, -33, Math.PI * 0.85, 1, 5, 2, 0],
+    [-8.4, -32.2, 0, 1, 2, 2, 0],
+  ];
+  units.forEach(([x, z, yaw, team, action, unit, carry], j) => {
+    minions.set([40 + j, x, 0, z, yaw, (t * 0.9 + j * 0.3) % 1, team, action, (t * 60 + j * 37) % 240, unit, carry], nm * MINION_STRIDE);
     nm++;
   });
 
