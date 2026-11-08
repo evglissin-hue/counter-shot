@@ -99,6 +99,7 @@ Status (branch `claude/epic-hopper-0nsw4v-polish`; game page only, every hash an
 - **Tools**: the headless tools take a PORT from the environment, so several runs can share a machine.
 - **Cost**: three more draws when nothing is happening (the splash droplets, the spray, the marks); triangles in the overview at High 1,186,450 before and 1,187,446 after (+0.1%); draw calls 214 before, 217 after.
 - **Merged with M4** on this branch (no conflicts left in gameplay code: hooks only): 46 Node tests pass, all 44 sounds render clean (M4's and these), and headless Chromium replays the Practice session and both scripted matches to Node's hashes. The page plays both modes without errors; M4's repair chips and storm meter take the new key and glass styling.
+- **Preview** (M4 with this polish, private to the owner, separate from the main game link): https://claude.ai/artifact/S2v78qLwYYB8Y394JMB9vZ
 - **Open**: seen from low down towards the sun, a stretch of the valley floor by the stream renders as a white sheet that reads as snow (it was there before this work; not specular, not the water or an overlay: still to find).
 
 ### M5. The AI castle (open: a full match)
