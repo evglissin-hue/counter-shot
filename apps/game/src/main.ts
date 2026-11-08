@@ -941,8 +941,13 @@ function buildTabs() {
   tabs = EMP.map((e, i) => {
     const b = document.createElement("button");
     b.dataset.weapon = String(i);
-    b.textContent = `${i + 1} ${e.empty ? "Empty" : WEAPONS[e.weapon].name}`;
-    if (e.empty) b.className = "emptyslot";
+    b.textContent = e.empty ? `${i + 1} +` : `${i + 1} ${WEAPONS[e.weapon].name}`;
+    if (e.empty) {
+      // Empty slots stay short, so eight tabs and the buttons beside them fit one row on a laptop.
+      b.className = "emptyslot";
+      b.title = `Slot ${i + 1}: empty (buy a gun for it in the build menu, B)`;
+      b.setAttribute("aria-label", `Slot ${i + 1}, empty`);
+    }
     b.addEventListener("click", () => {
       select(i);
       b.blur(); // keep keys like Space for the game, not the button
@@ -952,6 +957,16 @@ function buildTabs() {
   });
 }
 buildTabs();
+
+// The match bar and the Controls panel sit below the top bar, however many rows it wraps into.
+{
+  const topBar = document.querySelector<HTMLElement>(".top");
+  if (topBar) {
+    const sync = () => document.documentElement.style.setProperty("--top-h", `${topBar.offsetHeight}px`);
+    sync();
+    if (typeof ResizeObserver !== "undefined") new ResizeObserver(sync).observe(topBar);
+  }
+}
 
 let hudFrame = 0;
 function updateHud(force = false) {
