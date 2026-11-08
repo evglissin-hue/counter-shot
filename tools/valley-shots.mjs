@@ -17,6 +17,8 @@ mkdirSync(out, { recursive: true });
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `--${k}=${d}`).split("=")[1];
 const quality = opt("quality", "low");
+/** Scene objects to hide by name (comma separated), to see what draws what. */
+const hide = opt("hide", "");
 const tag = opt("tag", quality);
 const only = args.filter((a) => !a.startsWith("--"));
 /** The dev server's port (PORT in the environment overrides it). */
@@ -59,7 +61,7 @@ try {
   const t0 = Date.now();
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto(`http://127.0.0.1:${port}/render-test.html?quality=${quality}&shot=1&dt=0.05#webgl`, { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${port}/render-test.html?quality=${quality}&shot=1&dt=0.05${hide ? `&hide=${hide}` : ""}#webgl`, { waitUntil: "load" });
       await page.waitForFunction(() => window.__test && window.__test.state.frames > 2, null, { timeout: 600000, polling: 200 });
       break;
     } catch (e) {
@@ -87,7 +89,7 @@ try {
     }, v);
     await frames(4);
     await sleep(300);
-    await page.screenshot({ path: `${out}valley-${tag}-${name}.png` });
+    await page.screenshot({ path: `${out}valley-${tag}-${name}.png`, timeout: 300000 });
     const s = await page.evaluate(() => window.__test.r.getStats());
     console.log(`valley-${tag}-${name}: ${s.drawCalls} draws, ${s.triangles} triangles`);
   }

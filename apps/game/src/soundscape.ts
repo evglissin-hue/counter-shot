@@ -77,7 +77,8 @@ export class Soundscape {
 
   /** A shot's first touch: into the ground it thumps (masonry, timber and water have their own sounds). */
   landed(x: number, y: number, z: number, weapon: WeaponKind | null) {
-    if (this.material(x, y, z) !== "earth") return;
+    // Only a touch at the ground itself: a ball that first meets a man has its thud already.
+    if (y - valleyHeight(x, z) > 0.45 || this.material(x, y, z) !== "earth") return;
     const s = weapon === "swivel" ? 0.3 : weapon === "chainShot" ? 0.6 : weapon === "mortar" ? 0.7 : 0.85;
     this.sound.earthHit(x, y, z, s);
   }

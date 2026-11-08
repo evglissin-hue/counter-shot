@@ -34,11 +34,11 @@ export class Splashes {
   constructor(time: N, wind: N, sunDir: N, noise: THREE.Texture, clear: ClearView, flash: FlashLight) {
     this.root.name = "splashes";
     this.drops = new Burst(
-      { name: "splash", slots: 12, per: 30, life: [0.55, 1.35], color: 0xcdd4d2, colorEnd: 0xa9b3b3, additive: false, glow: 1.08, speed: [2.2, 7.5], size: [0.05, 0.2], grow: 3, gravity: 9.8, rise: 0, drag: 0.5, windScale: 0.12, spread: 0.42, opacity: 0.92, floor: false, lighting: 0.75, clearAim: true, sink: STREAM.level - 0.05 },
+      { name: "splash", slots: 12, per: 40, life: [0.6, 1.4], color: 0xd3d9d7, colorEnd: 0xaab4b4, additive: false, glow: 1.05, speed: [2.8, 8.5], size: [0.05, 0.16], grow: 2, gravity: 9.8, rise: 0, drag: 0.45, windScale: 0.12, spread: 0.3, opacity: 0.95, floor: false, lighting: 0.8, clearAim: true, sink: STREAM.level - 0.05 },
       time, wind, sunDir, noise, clear, flash,
     );
     this.spray = new Burst(
-      { name: "splashmist", slots: 12, per: 10, life: [0.9, 2.4], color: 0xbcc4c5, additive: false, glow: 1.0, speed: [0.6, 2.6], size: [0.35, 1.7], grow: 2.2, gravity: 0, rise: 0.3, drag: 2.4, windScale: 0.55, spread: 1.0, opacity: 0.38, floor: false, lighting: 0.6, clearAim: true, sink: STREAM.level - 0.3 },
+      { name: "splashmist", slots: 12, per: 8, life: [0.8, 2.0], color: 0xa9b2b3, additive: false, glow: 1.0, speed: [0.8, 2.6], size: [0.25, 1.1], grow: 2.0, gravity: 0, rise: 0.25, drag: 2.4, windScale: 0.55, spread: 1.0, opacity: 0.16, floor: false, lighting: 0.85, clearAim: true, sink: STREAM.level - 0.3 },
       time, wind, sunDir, noise, clear, flash,
     );
     this.root.add(this.drops.mesh, this.spray.mesh);
@@ -55,8 +55,8 @@ export class Splashes {
   /** A splash of a size (0.1 a grapeshot ball, 1 a stone or a shell, 2.5 a shell bursting in the water). */
   spawn(now: number, x: number, z: number, size: number, sound = true) {
     const y = STREAM.level + 0.04;
-    this.drops.spawn(now, x, y, z, 0.35 + size * 0.65, 0, 1, 0);
-    if (size > 0.25) this.spray.spawn(now, x, y + 0.2, z, 0.3 + size * 0.6, 0, 0.6, 0);
+    this.drops.spawn(now, x, y, z, 0.4 + size * 0.6, 0, 1, 0);
+    if (size > 0.4) this.spray.spawn(now, x, y + 0.2, z, 0.3 + size * 0.5, 0, 0.6, 0);
     if (sound) this.onSplash?.(x, y, z, size);
   }
 

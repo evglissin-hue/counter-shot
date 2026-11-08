@@ -816,10 +816,12 @@ function describeHit(h: PathHit | null): string {
  */
 function titlePose(now: number): CameraPose {
   const t = now / 1000;
-  const a = 0.35 + t * 0.022;
-  const x = Math.sin(a) * 70, z = -75 - Math.cos(a) * 105;
-  const y = 30 + 7 * Math.sin(t * 0.05);
-  return { mode: "free", x, y, z, tx: Math.sin(a + 0.9) * 22, ty: 3, tz: -75 - Math.cos(a + 0.9) * 30, fov: 46 };
+  const a = 0.35 + t * 0.02;
+  // Above the trees on a loop round the valley floor; looking ahead along the valley, so the hills and the sky fill the top of the frame.
+  const x = Math.sin(a) * 58, z = -75 - Math.cos(a) * 100;
+  const y = 24 + 4 * Math.sin(t * 0.05);
+  const b = a + 1.1;
+  return { mode: "free", x, y, z, tx: Math.sin(b) * 29, ty: 5, tz: -75 - Math.cos(b) * 50, fov: 50 };
 }
 
 /** The weapon panel's reload bar lights up for a moment when the gun is loaded. */

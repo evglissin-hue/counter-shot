@@ -752,6 +752,11 @@ export class Sound {
     const c = this.out(this.place(x, y, z, 12), 0.12, 0.5);
     this.burstNoise(c.input, c.t0, this.brown, "lowpass", 340 + Math.random() * 120, 0.7, 0.003, 0.06, 0.32 * g);
     this.burstNoise(c.input, c.t0 + 0.004, this.white, "bandpass", 2300 + Math.random() * 1200, 1.4, 0.001, 0.022, 0.06 * g);
+    // Now and then the kit: a helmet or a pike's iron knocking as he walks.
+    if (Math.random() < 0.3) {
+      const f = 2900 + Math.random() * 1400;
+      this.tone(c.input, c.t0 + 0.02 + Math.random() * 0.05, f, f * 0.99, 0.08, 0.001, 0.07, 0.03 * g);
+    }
   }
 
   /** A man shouting somewhere in the fighting: a rough vowel, heard far off. */

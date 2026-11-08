@@ -295,6 +295,11 @@ async function main() {
   const { backend } = await r.init({ forceWebGL: location.hash === "#webgl" });
   state.backend = backend;
   r.setLayout(layout, ems);
+  // Test only: hide scene objects by name (?hide=stream,ground) to see what draws what.
+  for (const name of (params.get("hide") ?? "").split(",").filter(Boolean)) {
+    const o = (r as unknown as { scene: { getObjectByName(n: string): { visible: boolean } | undefined } }).scene.getObjectByName(name);
+    if (o) o.visible = false;
+  }
   r.setQuality(quality);
   r.setGore(gore);
   r.resize();
