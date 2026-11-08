@@ -22,6 +22,10 @@ export interface Pressed {
   orderNext: boolean;
   /** Next route for your barracks' waves (L). */
   route: boolean;
+  /** M3: the build wheel (B), and Backspace and Esc on their own (the wheel goes back or closes). */
+  build: boolean;
+  back: boolean;
+  esc: boolean;
 }
 
 export class Input {
@@ -110,7 +114,7 @@ export class Input {
     const edge = (i: number) => !!b[i] && !this.padPrev[i];
     if (pad && b.some(Boolean)) this.usedPad = true;
     let weapon = -1;
-    for (let i = 0; i < 4; i++) if (e.has(`Digit${i + 1}`)) weapon = i;
+    for (let i = 0; i < 8; i++) if (e.has(`Digit${i + 1}`)) weapon = i;
     const out: Pressed = {
       fire: e.has("Space") || e.has("Mouse0") || edge(7),
       next: e.has("KeyE") || edge(5),
@@ -128,6 +132,9 @@ export class Input {
       order: e.has("Order1") ? 0 : e.has("Order2") ? 1 : e.has("Order3") ? 2 : -1,
       orderNext: edge(14),
       route: e.has("KeyL") || edge(15),
+      build: e.has("KeyB"),
+      back: e.has("Backspace"),
+      esc: e.has("Escape"),
     };
     this.padPrev = b;
     e.clear();

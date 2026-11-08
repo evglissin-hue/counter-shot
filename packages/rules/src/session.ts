@@ -20,7 +20,7 @@ import { Match, Team, type MatchInput, type MatchResult } from "./match";
 export const MATCH_TICKS = 1700;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "c5447bd9", world: "d93df00e" } as const;
+export const MATCH_HASH = { state: "cc6764db", world: "823d3894" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 
@@ -66,7 +66,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "cbc1d318", world: "b4b87f6f" } as const;
+export const WAVE_MATCH_HASH = { state: "be50057a", world: "e5cf7f1a" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -88,7 +88,9 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 }
 
 // The estate match (phase 2 M3): the player builds a Powder Mill, sets the
-// barracks to send sappers down the right flank, fires at the enemy keep,
+// barracks to send Mixed waves (pikemen, sappers and musketeers, so musket
+// rolls are pinned too; its sappers are still on the way when it ends) down
+// the right flank, fires at the enemy keep,
 // buys a swivel for an empty slot, builds a Foundry and a second barracks
 // (musketeers, down the left), upgrades the long gun to heavy shot and
 // breaches the wall with it, while the enemy castle follows its build order.
@@ -96,12 +98,12 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 export const ESTATE_MATCH_TICKS = 6600;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "0ab52706", world: "33a9364d" } as const;
+export const ESTATE_MATCH_HASH = { state: "e128e24d", world: "ded12401" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
   [130, Team.Player, { kind: "build", plot: 1, building: "mill" }],
-  [200, Team.Player, { kind: "barracks", plot: 0, mix: "breach", route: "right" }],
+  [200, Team.Player, { kind: "barracks", plot: 0, mix: "mixed", route: "right" }],
   [900, Team.Player, fire(0, 0, 0.03)],
   [1700, Team.Player, { kind: "buy", emplacement: 4, weapon: "swivel" }],
   [3000, Team.Player, { kind: "build", plot: 3, building: "foundry" }],

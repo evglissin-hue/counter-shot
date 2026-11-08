@@ -14,6 +14,7 @@ import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
 import { Decals } from "./decals";
 import { Effects } from "./effects";
+import { EstateView } from "./estate";
 import { Flags } from "./flags";
 import { Guns } from "./guns";
 import { Markers } from "./markers";
@@ -63,7 +64,11 @@ export class GameRenderer implements GameRendererApi {
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
+  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark", Burst>;
+  /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
+  private estate = new EstateView();
+  private raising = new Map<number, number>();
+  private raiseBuf = new Float32Array(8);
   private shock: Shock;
   /** Slow motion for everything cosmetic (the camera keeps real time). */
   private timeScale = 1;
@@ -168,7 +173,11 @@ export class GameRenderer implements GameRendererApi {
       dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
       trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
       spray: mk({ name: "spray", slots: 24, per: 14, life: [0.5, 0.9], color: 0x2c0d0a, additive: false, glow: 0.6, speed: [1.5, 4.5], size: [0.06, 0.12], grow: 3, gravity: 9.8, rise: 0, drag: 1, windScale: 0, spread: 0.9, opacity: 0.95, floor: true }),
+      // M3: a Foundry's chimney smoke, and the sparks off a burning fuse.
+      chimney: mk({ name: "chimney", slots: 40, per: 3, life: [3.5, 6], color: 0x2a2826, colorEnd: 0x56524c, additive: false, glow: 1, speed: [0.2, 0.6], size: [0.35, 1.8], grow: 0.7, gravity: 0, rise: 1.4, drag: 1.2, windScale: 0.9, spread: 0.5, opacity: 0.55, floor: true, lighting: 0.4, clearAim: true }),
+      spark: mk({ name: "spark", slots: 32, per: 4, life: [0.12, 0.32], color: 0xffd28a, colorEnd: 0xff6a20, additive: true, glow: 3, speed: [0.8, 2.2], size: [0.03, 0.07], grow: 1, gravity: 4, rise: 0, drag: 2, windScale: 0, spread: 1.2, opacity: 1, floor: true }),
     };
+    this.scene.add(this.estate.root);
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
     this.marker = this.buildMarker();
@@ -183,6 +192,25 @@ export class GameRenderer implements GameRendererApi {
   showEmplacements(n: number): void {
     this.guns.showN = n;
     this.guns.setShown(n);
+  }
+
+  /** M3: what each emplacement holds now (guns bought for empty slots appear). */
+  setArms(emplacements: Emplacement[]): void {
+    this.guns.arm(emplacements);
+  }
+
+  /** M3: a world point on screen (CSS pixels from the canvas's top left), or null behind the camera. */
+  project(x: number, y: number, z: number): { x: number; y: number } | null {
+    const cam = this.views.camera;
+    this.tmpA.set(x, y, z).project(cam);
+    if (this.tmpA.z > 1 || this.tmpA.z < -1) return null;
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    return { x: ((this.tmpA.x + 1) / 2) * w, y: ((1 - this.tmpA.y) / 2) * h };
+  }
+
+  /** M3: where an upright sapper or musketeer stood in the last frame (for a musket's report), or null. */
+  minionAt(id: number): [number, number, number, number] | null {
+    return this.minions.positionOf(id);
   }
 
   /** Show the midfield markers (a match). */
@@ -275,6 +303,9 @@ export class GameRenderer implements GameRendererApi {
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
     this.minions.update(frame);
+    // M3: the plots and the kegs at the walls.
+    if (frame.plots && frame.plotCount) this.estate.setPlots(frame.plots, frame.plotCount);
+    if (frame.kegs) this.estate.setKegs(frame.kegs, frame.kegCount);
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
@@ -288,8 +319,46 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Explosion) this.spawnExplosion(x, y, z, v);
       else if (kind === EventKind.Muzzle) this.spawnMuzzle(x | 0);
       else if (kind === EventKind.Blood) this.spawnBlood(x, y, z, v);
+      // M3: building pieces rising, rubble carried off a plot, musket shots, kegs set, buildings finished.
+      else if (kind === EventKind.Raised) this.spawnRaised(x | 0, y, z, v);
+      else if (kind === EventKind.Musket) this.spawnMusket(x | 0, y, z, v);
+      else if (kind === EventKind.Keg) this.minions.kegSet(x | 0);
+      else if (kind === EventKind.Built) this.spawnBuilt(x | 0, y | 0);
       // EventKind.Landed: the page handles the landing marker.
     }
+  }
+
+  /** M3: a building's piece rose into its place (it eases up the last half metre and settles in a puff); id -1: rubble carried off. */
+  private spawnRaised(id: number, x: number, y: number, z: number) {
+    if (id < 0) {
+      this.bursts.dust.spawn(this.now, x, y, z, 0.9, 0, 0.6, 0);
+      return;
+    }
+    this.raising.set(id, this.now);
+    const s = this.layout?.stones[id];
+    if (s) this.bursts.dust.spawn(this.now, x, y - s.hy, z, 0.5 + Math.min(1, s.hx * 0.3), 0, 0.4, 0);
+  }
+
+  /** M3: a musketeer fired at (x, y, z): a flash and a puff of white smoke at his muzzle, a little dust where a miss lands. */
+  private spawnMusket(shooter: number, x: number, y: number, z: number) {
+    const p = this.minions.positionOf(shooter);
+    if (!p) return;
+    const dx = x - p[0], dz = z - p[2];
+    const d = Math.hypot(dx, dz) || 1;
+    const ux = dx / d, uz = dz / d;
+    const mx = p[0] + ux * 1.05 - uz * 0.1, my = p[1] + 1.45, mz = p[2] + uz * 1.05 + ux * 0.1;
+    this.bursts.flash.spawn(this.now, mx, my, mz, 0.32, ux, 0, uz);
+    this.bursts.muzzleSmoke.spawn(this.now, mx, my, mz, 0.4, ux, 0.1, uz);
+    this.pulseLight(mx, my, mz, 0.6, 0xffb070, 18);
+  }
+
+  /** M3: a building finished: a settling puff of dust round its foot. */
+  private spawnBuilt(castle: number, plot: number) {
+    if (!this.layout) return;
+    const r = this.layout.plots.find((p) => p.castle === castle && p.plot === plot);
+    if (!r) return;
+    const s = this.layout.stones[r.first];
+    this.bursts.skirt.spawn(this.now, s.x, 0.3, s.z, 0.35, 0, -0.5, 0);
   }
 
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void {
@@ -305,6 +374,8 @@ export class GameRenderer implements GameRendererApi {
   }
 
   resetWorld(): void {
+    this.estate.clear();
+    this.raising.clear();
     this.stones?.resetStones();
     this.prevTick.fill(-1);
     this.lastTrickle.fill(-100);
@@ -705,6 +776,18 @@ export class GameRenderer implements GameRendererApi {
     this.minions.step(dt, (x, z) => this.terrain.heightAt(x, z));
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
+    // M3: plots' trades at work, and building pieces easing into place.
+    this.estate.update(dt, this.now, (kind, x, y, z, s) => this.bursts[kind === "smoke" ? "chimney" : kind === "spark" ? "spark" : "dust"].spawn(this.now, x, y, z, s, 0, 0.6, 0));
+    if (this.raising.size && this.stones && this.layout) {
+      for (const [id, t0] of this.raising) {
+        const s = this.layout.stones[id];
+        const t = (this.now - t0) / 0.45;
+        const k = t >= 1 ? 0 : (1 - t) * (1 - t);
+        this.raiseBuf.set([id, s.x, s.y - 0.55 * k, s.z, s.q[0], s.q[1], s.q[2], s.q[3]]);
+        this.stones.updateBodies(this.raiseBuf, 1);
+        if (t >= 1) this.raising.delete(id);
+      }
+    }
     if (this.stones) {
       this.stones.flush();
       this.flags?.update(this.stones, dt);
@@ -788,6 +871,7 @@ export class GameRenderer implements GameRendererApi {
     this.minions.dispose();
     this.guns.dispose();
     this.markers.dispose();
+    this.estate.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();

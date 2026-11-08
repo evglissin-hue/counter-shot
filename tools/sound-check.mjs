@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const root = fileURLToPath(new URL("../apps/game", import.meta.url));
-const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: 5196, host: "127.0.0.1" }, logLevel: "error" });
+const port = Number(process.env.PORT ?? 5196); // PORT overrides it, so two checkouts can run at once
+const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
 const browser = await chromium.launch();
 let code = 1;
@@ -17,7 +18,7 @@ try {
   page.on("pageerror", (e) => errors.push(String(e)));
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto("http://127.0.0.1:5196/sound-test.html", { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${port}/sound-test.html`, { waitUntil: "load" });
       await page.waitForSelector("#out[data-done]", { state: "attached", timeout: 180000 });
       break;
     } catch (e) {

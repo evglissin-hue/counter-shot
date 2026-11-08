@@ -87,6 +87,10 @@ export const UPGRADES: Record<UpgradeKind, UpgradeDef> = {
   longBarrel: { kind: "longBarrel", weapon: "swivel", name: "Long barrel", blurb: "A tighter cone and 15% faster; reloads 25% slower", cost: 140, spread: 0.6, speed: 1.15, reload: 1.25 },
 };
 
+/** Weapon and upgrade kinds in a fixed order, wherever they are numbered (the page's messages, hashes). */
+export const WEAPON_KINDS: WeaponKind[] = ["longGun", "mortar", "chainShot", "swivel"];
+export const UPGRADE_KINDS: UpgradeKind[] = ["heavyShot", "rifled", "heavyShell", "quickLoader", "longChain", "heavyBalls", "canister", "longBarrel"];
+
 /** The two upgrades a weapon kind can take. */
 export function upgradesFor(kind: WeaponKind): UpgradeDef[] {
   return Object.values(UPGRADES).filter((u) => u.weapon === kind);

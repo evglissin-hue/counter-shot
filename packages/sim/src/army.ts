@@ -308,9 +308,13 @@ export class Army {
         const ux = this.dir[0], uz = this.dir[1];
         const door = f < 6 && fieldTeam(f) === m.team ? this.flow.doorAhead(f, m.x, m.z, ux, uz, DOOR_REACH) : -1;
         if (door >= 0) {
-          action = Action.Batter;
           face = yawOf(ux, uz);
-          if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
+          // M3: sappers and musketeers leave a gate to the pikes and wait at it.
+          if (unit.batters === false) action = Action.Stand;
+          else {
+            action = Action.Batter;
+            if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
+          }
         } else {
           mx = ux;
           mz = uz;

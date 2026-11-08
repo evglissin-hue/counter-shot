@@ -27,6 +27,15 @@ const CASES: Case[] = [
   { name: "stone hit", seconds: 2, run: (s) => s.impact(3, 5, -20, 0.8) },
   { name: "body hit", seconds: 1, run: (s) => s.thud(2, 1, -30, 0.7) },
   { name: "loaded clack", seconds: 1, run: (s) => s.ready("mortar") },
+  // M3: gold, building, the trades at work, muskets and kegs.
+  { name: "coins", seconds: 1.2, run: (s) => s.coin(12) },
+  { name: "trick shot", seconds: 2.5, run: (s) => s.trick() },
+  { name: "mallet on timber", seconds: 1, run: (s) => s.knock(-3, 1, -32) },
+  { name: "building finished", seconds: 3.5, run: (s) => s.built(-3, 1, -32) },
+  { name: "musket shot", seconds: 3, run: (s) => s.musket(5, 1.4, -30) },
+  { name: "keg fuse", seconds: 5, run: (s) => s.fuse(2, 0.4, -34, 4) },
+  { name: "anvil", seconds: 2.5, run: (s) => s.anvil(-6, 1, -30) },
+  { name: "mill grinding", seconds: 3, run: (s) => s.grind(-6, 1, -30) },
   {
     name: "falling shell whistle",
     seconds: 4,

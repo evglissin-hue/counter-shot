@@ -3,10 +3,10 @@
 // sends inputs; the worker tags each with the next tick, steps the sim and
 // posts what changed.
 
-import { buildLayout, GAME_LAYOUT, type CastleLayout } from "@keepfall/content";
+import { buildLayout, Earn, GAME_LAYOUT, MIX_NAMES, PLOTS, ROUTE_NAMES, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
 import { Match, Team } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
-import type { FromWorker, MatchInfo, Mode, NavInfo, ToWorker } from "./protocol";
+import { EARN_STRIDE, type FromWorker, type MatchInfo, type Mode, type NavInfo, type ToWorker } from "./protocol";
 
 const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
 const DT = 1000 / 60;
@@ -103,9 +103,40 @@ function matchInfo(): MatchInfo | null {
     guns,
     gateHits: [hits(0), hits(1)],
     gateOpen: [open(0), open(1)],
+    ...estateInfo(match),
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/** M3: gold coming in, earnings since the last frame, the player's barracks and every gun. */
+function estateInfo(m: Match): Pick<MatchInfo, "income" | "earned" | "goldEarned" | "goldSpent" | "tricks" | "barracks" | "arms" | "foundry"> {
+  const ec = m.economy, es = m.estate;
+  const feed = ec.feed;
+  const earned = new Float32Array(feed.length * EARN_STRIDE);
+  feed.forEach((e, i) => earned.set([e.team, e.amount, e.kind, e.x, e.y, e.z], i * EARN_STRIDE));
+  ec.feed = [];
+  const barracks = new Int8Array(PLOTS.length * 2);
+  es.barracks[Team.Player].forEach((b, p) => {
+    barracks[p * 2] = MIX_NAMES.indexOf(b.mix);
+    barracks[p * 2 + 1] = ROUTE_NAMES.indexOf(b.route);
+  });
+  const arms = new Int8Array(m.emplacements.length * 2);
+  m.emplacements.forEach((e, i) => {
+    arms[i * 2] = e.empty ? -1 : WEAPON_KINDS.indexOf(e.weapon);
+    arms[i * 2 + 1] = e.upgrade ? UPGRADE_KINDS.indexOf(e.upgrade) : -1;
+  });
+  const tricks = (t: number) => ec.tricks[t].slice(Earn.Ricochet, Earn.KeepHit + 1);
+  return {
+    income: [ec.incomeRate(es.mills(0)), ec.incomeRate(es.mills(1))],
+    earned,
+    goldEarned: [ec.earned[0], ec.earned[1]],
+    goldSpent: [ec.spent[0], ec.spent[1]],
+    tricks: [tricks(0), tricks(1)],
+    barracks,
+    arms,
+    foundry: [es.foundry(0), es.foundry(1)],
+  };
 }
 
 function tick(advanceMs = -1) {
@@ -140,9 +171,9 @@ function tick(advanceMs = -1) {
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
-  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer];
+  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer, frame.plots.buffer, frame.kegs.buffer];
   const info = matchInfo();
-  if (info) transfer.push(info.guns.buffer);
+  if (info) transfer.push(info.guns.buffer, info.earned.buffer, info.barracks.buffer, info.arms.buffer);
   for (const p of frame.terrain) transfer.push(p.h.buffer);
   // Bridges: whenever the nav grid changed.
   let bridges: boolean[] | null = null;

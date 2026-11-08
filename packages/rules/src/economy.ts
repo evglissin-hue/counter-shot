@@ -26,6 +26,8 @@ export interface Earning {
 
 interface Tally {
   team: number;
+  /** Knockdowns that make it a multi-kill for the gun that fired it. */
+  min: number;
   kills: number;
   last: number;
   x: number;
@@ -109,7 +111,11 @@ export class Economy {
         if (!info || info.auto || this.teamOfEmp(info.emplacement) !== team) continue;
         if (cause === Cause.Ball && info.glanced) this.earn(team, T.ricochet, Earn.Ricochet, m.x, y, m.z);
         let t = this.tallies.get(shot);
-        if (!t) this.tallies.set(shot, (t = { team, kills: 0, last: tick, x: m.x, y, z: m.z }));
+        if (!t) {
+          const gun = w.emplacements[info.emplacement];
+          t = { team, min: gun && !gun.empty ? T.multiMin[gun.weapon] : T.multiMin.longGun, kills: 0, last: tick, x: m.x, y, z: m.z };
+          this.tallies.set(shot, t);
+        }
         t.kills++;
         t.last = tick;
       } else if (cause === Cause.Masonry && stone >= 0) {
@@ -126,7 +132,7 @@ export class Economy {
         const t = this.tallies.get(id)!;
         if (tick - t.last < T.multiWait) continue;
         this.tallies.delete(id);
-        if (t.kills >= T.multiMin) this.earn(t.team, t.kills * T.multiPer, Earn.MultiKill, t.x, t.y + 1, t.z);
+        if (t.kills >= t.min) this.earn(t.team, t.kills * T.multiPer, Earn.MultiKill, t.x, t.y + 1, t.z);
       }
     }
     // Masonry brought down: each castle's pays the other side.

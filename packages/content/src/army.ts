@@ -48,6 +48,8 @@ export interface UnitDef {
   hit: number;
   /** Speed (m/s) a knockdown throws the loser at, along the blow. */
   knock: number;
+  /** M3: false for those who leave a closed gate to the pikes and wait at it (sappers, musketeers). */
+  batters?: boolean;
 }
 
 export const UNITS: Record<UnitKind, UnitDef> = {
@@ -111,8 +113,9 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     readyMax: 50,
     hit: 0.12,
     knock: 2.4,
+    batters: false,
   },
-  // A musketeer fires from range (MUSKET); close in he swings the butt, and rarely knocks anyone down.
+  // A musketeer fires from range (MUSKET); close in he jabs with the musket, and rarely knocks anyone down.
   musketeer: {
     kind: "musketeer",
     name: "Musketeer",
@@ -127,6 +130,7 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     readyMax: 50,
     hit: 0.12,
     knock: 2.4,
+    batters: false,
   },
 };
 
@@ -169,17 +173,22 @@ export const KEG = {
  * they can see, a shot every reloadMin..reloadMax ticks after aiming for `aim`
  * ticks; a hit (more likely close in: from `hitNear` at `near` metres down to
  * `hitFar` at `range`) knocks the target down at `knock` m/s. Closer than
- * `close` they fight like anyone else. Their rolls come from their own stream.
+ * `close` they jab with the musket, weakly (UNITS.musketeer). Their rolls come
+ * from their own stream.
  */
 export const MUSKET = {
   range: 26,
   near: 6,
   close: 3,
   aim: 30,
-  reloadMin: 240,
-  reloadMax: 320,
-  hitNear: 0.6,
-  hitFar: 0.14,
+  // Tuned on open-field clashes on the centre road (5 or 6 seeds, from both
+  // sides): with these a Volley wave beats a Pikemen wave 7 times in 12 and a
+  // Mixed wave breaks even. At 0.6 and a 4 to 5.3 s reload Volley won 8 in 10
+  // and left the pikemen almost nobody; at 0.42 and 4.5 to 6 s it lost 7 in 10.
+  reloadMin: 255,
+  reloadMax: 340,
+  hitNear: 0.5,
+  hitFar: 0.12,
   knock: 3.4,
   /** Eye height (m) the line of sight runs at. */
   eye: 1.5,

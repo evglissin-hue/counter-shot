@@ -15,9 +15,11 @@ import {
   ROUTE_NAMES,
   SLOTS_PER_CASTLE,
   UNIT_NUMBER,
+  UPGRADE_KINDS,
   UPGRADES,
   WAVE_MIXES,
   WEAPON_COST,
+  WEAPON_KINDS,
   BARREL,
   type BuildingKind,
   type Emplacement,
@@ -183,6 +185,6 @@ export class Estate {
   hashInto(out: number[]) {
     out.push(this.planStep);
     for (const team of [0, 1]) for (const b of this.barracks[team]) out.push(MIX_NAMES.indexOf(b.mix), ROUTE_NAMES.indexOf(b.route));
-    for (const e of this.emplacements) out.push(e.empty ? 1 : 0, ["longGun", "mortar", "chainShot", "swivel"].indexOf(e.weapon), e.upgrade ? Object.keys(UPGRADES).indexOf(e.upgrade) : -1);
+    for (const e of this.emplacements) out.push(e.empty ? 1 : 0, WEAPON_KINDS.indexOf(e.weapon), e.upgrade ? UPGRADE_KINDS.indexOf(e.upgrade) : -1);
   }
 }

@@ -106,6 +106,8 @@ export interface GameRendererApi {
   showEmplacements(n: number): void;
   /** Show the midfield markers, where each team's waves hold (a match). */
   setMarkers(on: boolean): void;
+  /** M3: what each emplacement holds now (a gun bought for an empty slot appears; an empty one shows nothing). */
+  setArms(emplacements: Emplacement[]): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */
   updateNav(kind: Uint8Array, floor: Float32Array): void;
 

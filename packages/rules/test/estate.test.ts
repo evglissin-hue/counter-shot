@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MATCH, MUSTER, PLOTS, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
-import { Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Spin, type Rapier } from "@keepfall/sim";
+import { Action, Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Spin, type Rapier } from "@keepfall/sim";
 import { ESTATE_MATCH_HASH, Match, runEstateMatch, Team } from "@keepfall/rules";
 
 await RD.init();
@@ -260,6 +260,26 @@ test("every working barracks sends its own mix down its own route, side by side 
   const cx = waves.map((w) => w.reduce((n, x) => n + x.x, 0) / w.length);
   assert.ok(Math.abs(cx[0] - cx[1]) > 4, `formed up side by side (${cx.map((v) => v.toFixed(1)).join(", ")})`);
   void MUSTER;
+  m.free();
+});
+
+test("only pikes batter a gate: the musketeers of a wave wait at it", () => {
+  const m = quiet(4);
+  const P = Unit.Pikeman, M = Unit.Musketeer;
+  m.army.spawnMix(Team.Player, 1, [P, P, P, P, M, M, M, M], 0, { x: 0, z: -26 });
+  let pikes = 0, muskets = 0, near = 0;
+  run(m, 25 * 60, (mm) => {
+    for (const x of mm.world.minions.list) {
+      if (x.team !== Team.Player || x.state !== MinionState.Upright) continue;
+      if (x.action === Action.Batter) {
+        if (x.unit === M) muskets++;
+        else pikes++;
+      } else if (x.unit === M && x.z > -18) near++;
+    }
+  });
+  assert.ok(pikes > 200, `pikemen battered (${pikes} minion-ticks)`);
+  assert.equal(muskets, 0, "no musketeer battered");
+  assert.ok(near > 100, `musketeers stood by at the gate (${near} minion-ticks)`);
   m.free();
 });
 

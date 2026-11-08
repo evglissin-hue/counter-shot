@@ -119,6 +119,8 @@ export interface BuildingPiece {
 const GAP = 0.004;
 const IDENTITY: Quat = [0, 0, 0, 1];
 const WALL = 0.3;
+/** Stone buildings' blocks: about this long (m). */
+const BLOCK_LEN = 1.4;
 
 /**
  * The pieces of a building of this kind on a plot, lowest first (the order
@@ -146,6 +148,36 @@ export function buildingPieces(kind: BuildingKind, plot: Plot): BuildingPiece[] 
     const zs = d / 2 - (inset > WALL ? inset : WALL);
     for (const side of [-1, 1]) add("house", material, WALL / 2, hy, zs, cx + side * (w / 2 - WALL / 2), y, cz, c);
   };
+  /**
+   * Stone courses from y0 to y1 in `n` courses of blocks about `BLOCK_LEN`
+   * long, in running bond (every other course starts with a half block): the
+   * front and back walls along x, the side walls along z between them. Laid
+   * as masonry, they come down as masonry.
+   */
+  const stone = (y0: number, y1: number, n: number, c0: number) => {
+    const h = (y1 - y0) / n;
+    const run = (along: "x" | "z", from: number, to: number, fixed: number, y: number, odd: boolean, c: number) => {
+      const len = to - from;
+      const count = Math.max(1, Math.round(len / BLOCK_LEN));
+      const b = len / count;
+      const cuts: Array<[number, number]> = [];
+      if (odd && count > 1) {
+        cuts.push([from, from + b / 2]);
+        for (let i = 0; i < count - 1; i++) cuts.push([from + b / 2 + i * b, from + b / 2 + (i + 1) * b]);
+        cuts.push([to - b / 2, to]);
+      } else for (let i = 0; i < count; i++) cuts.push([from + i * b, from + (i + 1) * b]);
+      for (const [a0, a1] of cuts) {
+        const half = (a1 - a0) / 2, mid = (a0 + a1) / 2;
+        if (along === "x") add("house", "stone", half, h / 2, WALL / 2, mid, y, fixed, c);
+        else add("house", "stone", WALL / 2, h / 2, half, fixed, y, mid, c);
+      }
+    };
+    for (let k = 0; k < n; k++) {
+      const y = y0 + h * (k + 0.5), odd = (k & 1) === 1;
+      for (const side of [-1, 1]) run("x", cx - w / 2, cx + w / 2, cz + side * (d / 2 - WALL / 2), y, odd, c0 + k);
+      for (const side of [-1, 1]) run("z", cz - d / 2 + WALL, cz + d / 2 - WALL, cx + side * (w / 2 - WALL / 2), y, !odd, c0 + k);
+    }
+  };
   const roof = (h: number) => {
     // A gabled roof: two slabs pitched at 35 degrees, ridge along x, as the old houses had.
     const pitch = (35 / 180) * DPI;
@@ -167,13 +199,12 @@ export function buildingPieces(kind: BuildingKind, plot: Plot): BuildingPiece[] 
     roof(H);
   } else if (kind === "mill") {
     // A stone ground floor under a plastered upper one.
-    course("stone", 0, 1.2, 0, 0);
-    course("plaster", 1.2, 2.6, 1, 0);
+    stone(0, 1.2, 2, 0);
+    course("plaster", 1.2, 2.6, 2, 0);
     roof(2.6);
   } else {
     // The foundry: stone throughout, and a tall stone chimney against the back wall.
-    course("stone", 0, 1.3, 0, 0);
-    course("stone", 1.3, 2.7, 1, 0);
+    stone(0, 2.7, 4, 0);
     roof(2.7);
     const bx = cx - w / 2 + 0.8, bz = cz + d / 2 + 0.46;
     for (let k = 0; k < 6; k++) add("house", "stone", 0.45, 0.55, 0.45, bx, 0.55 + k * 1.1, bz, 2 + k);

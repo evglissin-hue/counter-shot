@@ -2,6 +2,7 @@
 // income; mills, bounties, masonry and trick shots join in M3.
 
 import { KEEP_STOREYS, type Stone } from "./castle";
+import type { WeaponKind } from "./weapons";
 
 /** Is this piece part of a keep (its walls, its floors, its battlements)? */
 export function isKeepPiece(s: Stone): boolean {
@@ -33,8 +34,13 @@ export const GOLD = {
     ricochet: 15,
     /** An enemy knocked down by his own castle's masonry falling. */
     collapse: 10,
-    /** One shot, at least `multiMin` enemies down: `multiPer` a man. A shot's tally closes `multiWait` ticks after its last knockdown. */
-    multiMin: 3,
+    /**
+     * One shot, at least `multiMin` enemies down (by the gun that fired it):
+     * `multiPer` a man. A shell in the middle of a wave downs most of it by
+     * design, so the mortar needs more for a trick. A shot's tally closes
+     * `multiWait` ticks after its last knockdown.
+     */
+    multiMin: { longGun: 3, chainShot: 3, swivel: 4, mortar: 6 } as Record<WeaponKind, number>,
     multiPer: 5,
     multiWait: 45,
     /** A shot whose first touch is the enemy keep. */

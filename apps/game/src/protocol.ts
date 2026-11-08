@@ -45,7 +45,26 @@ export interface MatchInfo {
   /** Blows each castle's gate has taken (both leaves), and whether it is open (a leaf down). */
   gateHits: [number, number];
   gateOpen: [boolean, boolean];
+  // M3: gold coming in, what is built and bought.
+  /** Gold a second each team earns now (its keep and its working mills). */
+  income: [number, number];
+  /** Earnings since the last frame, EARN_STRIDE each: [team, amount, kind (content Earn), x, y, z]. */
+  earned: Float32Array;
+  /** Gold each team has earned (income included) and spent so far. */
+  goldEarned: [number, number];
+  goldSpent: [number, number];
+  /** Trick shots each team has made, by kind (Earn.Ricochet .. Earn.KeepHit: four numbers). */
+  tricks: [number[], number[]];
+  /** The player's barracks settings per plot: [mix index, route index] (MIX_NAMES, ROUTE_NAMES). */
+  barracks: Int8Array;
+  /** Every emplacement's gun, match order: [weapon index (-1: empty), upgrade index (-1: none)] (WEAPON_KINDS, UPGRADE_KINDS). */
+  arms: Int8Array;
+  /** Does each team have a working Foundry? */
+  foundry: [boolean, boolean];
 }
+
+/** Floats per earning in MatchInfo.earned. */
+export const EARN_STRIDE = 6;
 
 /** The nav grid for the overlay: kind and floor height per cell. */
 export interface NavInfo {

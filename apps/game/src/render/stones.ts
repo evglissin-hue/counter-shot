@@ -106,7 +106,8 @@ export class StoneSet {
         this.slotOf[s.id] = i;
         const o = i * 8;
         dynArray[o] = s.x;
-        dynArray[o + 1] = s.y;
+        // M3: plot buildings start out of sight; the sim's first frame puts up what stands.
+        dynArray[o + 1] = s.plot !== undefined ? -1000 : s.y;
         dynArray[o + 2] = s.z;
         dynArray[o + 3] = s.shade;
         dynArray[o + 4] = s.q[0];
@@ -232,8 +233,10 @@ export class StoneSet {
         _c.multiplyScalar(v);
       } else if (g.kind === "roof") {
         if (roofPairs.length === 0) for (let k = 0; k < g.count; k++) roofPairs.push(k >> 1);
-        const house = roofPairs[i];
-        const pal = style.roof;
+        // M3: a building's roof tells its trade from above (both halves alike).
+        const b = s.building;
+        const house = b !== undefined ? (s.plot ?? 0) * 3 + b + s.castle * 7 : roofPairs[i];
+        const pal = b !== undefined ? (style.buildingRoofs[b] ?? style.roof) : style.roof;
         const pick = Math.floor(frac(house * 0.618 + 0.13) * pal.length);
         _c.setHex(pal[pick]);
         _c.multiplyScalar(1 + (frac(shade * 5.7) - 0.5) * 0.12);

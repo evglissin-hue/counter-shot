@@ -19,7 +19,7 @@ const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `--${k}=${d}
 const quality = opt("quality", "low");
 const tag = opt("tag", quality);
 const only = args.filter((a) => !a.startsWith("--"));
-const port = 5298;
+const port = Number(process.env.PORT ?? 5298); // PORT overrides it, so two checkouts can run at once
 
 /** name: [eye x, y, z, target x, y, z] (metres; the player's castle is at z = -150, the enemy's at 0). */
 const VIEWS = {
@@ -35,6 +35,12 @@ const VIEWS = {
   // The render test's staged pikemen: two pairs fighting, three battering the target gate.
   fight: [-0.5, 2.4, -36.5, -4.6, 1.1, -31],
   gate: [5, 3.2, -22, 0, 1.6, -16],
+  // M3, staged by the render test: musketeers aiming and jabbing, sappers with kegs, a keg burning at the target wall,
+  // and the target castle's plots (a barracks, a Foundry, a Powder Mill rising and one standing, two empty).
+  muskets: [-14.5, 2.2, -43, -8, 1.2, -35],
+  keg: [9.5, 2.0, -21.5, 6, 0.8, -16.6],
+  courtyard: [0, 30, 26, 0, 0, -4],
+  "courtyard-front": [-1, 9, -3.5, -5, 1.5, -10],
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });
