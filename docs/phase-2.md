@@ -155,3 +155,30 @@ The owner's verdict on M2 (November 8): everything feels pretty good; aiming wit
 - **Shipped**: `main` holds phase 2 up to M2 (with the lab, phase 1 and M1 before it), and the game link has this build.
 
 Next: M3 (gold and building), in a new session. Still to hear: the laptops on Versus AI with a full field (Kat's M3 at High especially: the HUD's step and frame numbers), and whether guns nobody rides should hold the walls better or worse.
+
+### M3. Gold and building (in progress)
+
+The owner's go on November 8, with a request to add some UX and quality of life improvements in this round (nothing fancy, just more enjoyable). My choices below, for the owner to confirm; numbers are first pass and live in data.
+
+- **Plots**: six in each courtyard, three down each side (front, middle, beside the keep), clear of the gate and of the space in front of it where attackers gather. The old decorative houses leave the match castles (the Practice range keeps them). Each castle starts with a Barracks on its front left plot, as in M2.
+- **Building** (B, or click a plot in the overview): a build menu lists your plots and gun slots with what each can take, its cost and what it needs. Buildings are brick and timber physics pieces like the castle's, raised course by course over 12 to 15 s; a building works once complete and stops for good when fewer than 60% of its pieces still stand (you can build again on the plot: the wreck is cleared first). Masonry that falls on a building can knock it down, your own included.
+  - Barracks (300 gold, 15 s): a wave every 25 s on the shared wave clock, with its own route and mix.
+  - Powder Mill (200 gold, 12 s): 2 gold a second; sappers need one standing.
+  - Foundry (250 gold, 15 s, a tall chimney): gun upgrades and musketeers need one standing.
+  - The Signal Tower waits for the abilities (after phase 2).
+- **Gun slots**: eight per castle. The four guns of M2 come with the castle; four slots start empty: the wall walk either side of the gate and the two back towers. Buy a swivel (100), chain shot (175), long gun (250) or mortar (350; the courtyard pit or a tower). Keys 1 to 8 ride a slot; an empty one opens the menu on it. A gun stops for good when the masonry under it comes down (the known gap from M2), and its model falls.
+- **Upgrades** at the Foundry (150 each, both can be fitted): heavy shot (a heavier ball breaches more but leaves slower and drops sooner; the mortar's heavy shell bursts wider but reaches less far; the swivel's heavy charge throws more, wider balls) and a rifled barrel (half the scatter, a third slower to reload; the swivel's choke tightens its spread instead).
+- **Gold**: start with 250; the keep 5 a second; mills 2 a second each; a bounty for every enemy minion that falls (pikeman 5, sapper and musketeer 8); 1 for every 4 pieces of enemy masonry brought down (castle and buildings); a third of a building's cost when you knock one down; trick shots by your own hand (not the guns nobody rides): ricochet kill 20, collapse kill (masonry your shot brought down lands on them) 10 each, multi-kill (3 or more from one shot) 15 plus 5 for each beyond, keep hit 10, a sapper's keg set off on the way 20. Each shows as it happens.
+- **Sappers** (15 gold each as their wave leaves; need a mill): carry a keg, do not fight, plant it against the enemy gate (or, once inside, the keep), light it and back off; it bursts 3 s later and opens a breach. A sapper knocked down by anything drops its keg, which goes off half a second later among whoever is near (kegs can set off kegs).
+- **Musketeers** (10 gold each; need a foundry): stop and shoot enemy minions within 22 m every 4 to 5.5 s (better odds when close), and fight hand to hand if one gets within reach.
+- **Mixes**, per barracks: Pikemen (8), Sappers (5 pikemen and 3 sappers), Musketeers (4 and 4), Mixed (4 pikemen, 2 sappers, 2 musketeers). A place whose unit is locked or unaffordable when the wave leaves goes to a pikeman. L still turns all your barracks to the next route; the menu sets one.
+- **The enemy castle** until the AI (M5): a scripted plan in data, sent as ordinary inputs on fixed times (a mill, a second barracks with sappers, a swivel, a foundry with musketeers and upgrades); a step it cannot afford waits until it can.
+- **UX and quality of life**:
+  - The dark pillar in front of the enemy gate is gone: a drawing bug built the enemy long gun's platform down to the ground (only the drawing; shots and pikemen passed through it).
+  - The gun bar shows all eight slots with their reload, so you see at a glance which guns are loaded.
+  - Gold shows its income per second, and every gain pops up with its reason and a coin sound.
+  - The match bar tracks both keeps: which floor each banner stands on.
+  - Notes when it matters: a building finished or knocked down, a gun knocked out, enemy sappers at your gate, an enemy gun silenced.
+  - P pauses a match against the AI.
+  - In the overview, click one of your guns to ride it, or a plot to build on it.
+  - The help panel (H) lists every key.

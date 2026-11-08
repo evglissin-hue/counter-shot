@@ -101,8 +101,10 @@ function supportHeight(layout: CastleLayout, x: number, y: number, z: number): {
   let under = 0;
   let ring = 0;
   const R = layout.wedge.rOut + 0.6;
+  // The castle on the gun's own side of the field (the enemy's guns stand on castle 0).
+  const castle = z < -layout.dist / 2 ? 1 : 0;
   for (const s of layout.stones) {
-    if (s.castle !== 1 || s.material !== "stone" || s.part === "merlon") continue;
+    if (s.castle !== castle || s.material !== "stone" || s.part === "merlon") continue;
     const b = stoneBounds(s, layout.wedge);
     const top = b[4];
     if (top > y + 0.05) continue;
@@ -158,7 +160,7 @@ export class Guns {
         addAll(root, [deck], this.wood);
       }
       const drop = Math.max(0.3, em.y - floor);
-      this.model(em.weapon, em.barrel, drop, root, yaw, pitch, iron);
+      this.model(em.weapon, em.barrel, drop, em.baseYaw, root, yaw, pitch, iron);
       this.root.add(root);
       const gun: Gun = { em, root, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0 };
       this.guns.push(gun);
@@ -166,7 +168,7 @@ export class Guns {
     }
   }
 
-  private model(kind: WeaponKind, len: number, drop: number, root: THREE.Group, yaw: THREE.Group, pitch: THREE.Group, iron: THREE.Material) {
+  private model(kind: WeaponKind, len: number, drop: number, base: number, root: THREE.Group, yaw: THREE.Group, pitch: THREE.Group, iron: THREE.Material) {
     const wood = this.wood;
     if (kind === "longGun" || kind === "chainShot") {
       const chain = kind === "chainShot";
@@ -181,9 +183,9 @@ export class Guns {
       const wr = 0.2;
       addAll(yaw, [wheel(wr, 0.1, 0.42, -ch + wr, 0.25), wheel(wr, 0.1, -0.42, -ch + wr, 0.25), wheel(wr * 0.85, 0.1, 0.42, -ch + wr * 0.85, -0.8), wheel(wr * 0.85, 0.1, -0.42, -ch + wr * 0.85, -0.8)], wood);
       if (drop > ch + 0.05) {
-        // A timber platform makes up the rest of the height to the wall walk.
+        // A timber platform makes up the rest of the height to the wall walk, a little behind the trunnions.
         const h = drop - ch;
-        addAll(root, [box(1.9, h, 2.6, 0, -ch - h / 2, -0.2)], wood);
+        addAll(root, [box(1.9, h, 2.6, -0.2 * Math.sin(base), -ch - h / 2, -0.2 * Math.cos(base))], wood);
       }
     } else if (kind === "mortar") {
       // Squat, wide bore; the bed sits under the trunnions.
