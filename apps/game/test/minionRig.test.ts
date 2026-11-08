@@ -55,7 +55,7 @@ test("a marching man's feet stay planted while they carry him (no skating) and t
   assert.ok(planted > 100, `feet on the ground in ${planted} frames`);
   // The body moves v/60 a frame; a planted foot rolls forward a little (heel to toe) but must not skate along with it.
   const perFrame = slide / planted;
-  assert.ok(perFrame < (v / 60) * 0.3, `a planted foot moves ${(perFrame * 60).toFixed(2)} m/s over the ground (body ${v} m/s)`);
+  assert.ok(perFrame < (v / 60) * 0.25, `a planted foot moves ${(perFrame * 60).toFixed(2)} m/s over the ground (body ${v} m/s)`);
   assert.ok(minY > -0.02 && minY < 0.03, `soles reach the ground (lowest ${minY.toFixed(3)} m)`);
 });
 

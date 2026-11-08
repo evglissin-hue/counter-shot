@@ -120,15 +120,15 @@ export class AnimScene {
     this.put(205, -14.4, 0, -29.2, 0.9, 0, 0, STAND, 600, MASON);
     {
       const r = 2.6, v = 1.2, a = (t * v) / r;
-      this.put(204, -16 + Math.cos(a) * r, 0, -34 + Math.sin(a) * r, Math.atan2(-Math.sin(a), Math.cos(a)), (t * v) / STRIDE, 1, WALK, 600, PIKE);
+      this.put(204, -16 + Math.cos(a) * r, 0, -37.5 + Math.sin(a) * r, Math.atan2(-Math.sin(a), Math.cos(a)), (t * v) / STRIDE, 1, WALK, 600, PIKE);
     }
     // 3. Fights: two pikemen, a crewman against a sapper, a musketeer jabbing at a pikeman.
     this.put(210, -6, 0, -30, Math.PI, 0, 0, FIGHT, sinceBlow(t, 0.5, 1), PIKE);
     this.put(211, -6, 0, -32.2, 0, 0, 1, FIGHT, sinceBlow(t, 1.2, 2), PIKE);
-    this.put(212, -3.5, 0, -30.8, Math.PI, 0, 0, FIGHT, sinceBlow(t, 0.3, 3, 60, 95), CREW);
-    this.put(213, -3.5, 0, -32.1, 0, 0, 1, FIGHT, sinceBlow(t, 0.9, 4), SAPPER);
-    this.put(214, -1.2, 0, -30.4, Math.PI, 0, 1, FIGHT, sinceBlow(t, 0.6, 5), MUSKET);
-    this.put(215, -1.3, 0, -31.8, 0, 0, 0, FIGHT, sinceBlow(t, 1.5, 6), PIKE);
+    this.put(212, -20, 0, -30.2, Math.PI, 0, 0, FIGHT, sinceBlow(t, 0.3, 3, 60, 95), CREW);
+    this.put(213, -20, 0, -31.5, 0, 0, 1, FIGHT, sinceBlow(t, 0.9, 4), SAPPER);
+    this.put(214, -24, 0, -30.4, Math.PI, 0, 1, FIGHT, sinceBlow(t, 0.6, 5), MUSKET);
+    this.put(215, -24, 0, -31.8, 0, 0, 0, FIGHT, sinceBlow(t, 1.5, 6), PIKE);
     // 4. Three battering the gate.
     for (let k = 0; k < 3; k++) this.put(220 + k, -1 + k * 1.15, 0, -16.6 - (k === 2 ? 0.1 : 0), 0, 0, 1, BATTER, sinceBlow(t, 0.2 + k * 0.4, 20 + k), PIKE);
     // 5. Two musketeers: a shot every 300 ticks (the sim: 255..340 to reload, then 30 aiming).
@@ -146,7 +146,7 @@ export class AnimScene {
         if (this.lastSapper >= 0) gone.push(1000 + this.lastSapper);
         this.lastSapper = loop;
       }
-      const x = 6.8, wz = -16.75, z0 = -23.5;
+      const x = -6.3, wz = -16.75, z0 = -23.5;
       const walk = 4.4, plant = 75 / 60, runV = 2.03, run = 10 / runV;
       if (u < walk) {
         const z = z0 + (wz - z0) * (u / walk);
@@ -242,7 +242,7 @@ export class AnimScene {
         this.lastFall = loop;
       }
       const v = 1.6, tf = 2.0;
-      const x0 = 3, z = -27.5;
+      const x0 = 8, z = -36;
       if (u < tf) this.put(id, x0 + v * u, 0, z, Math.PI / 2, (v * u) / STRIDE, 0, WALK, 600, PIKE);
       else {
         // Back over about the heels in 0.6 s, sliding on a little with his speed.
@@ -275,7 +275,5 @@ export class AnimScene {
     }
     this.gone = Int32Array.from(gone);
     this.prevT = t;
-    void STAND;
-    void BATTER;
   }
 }

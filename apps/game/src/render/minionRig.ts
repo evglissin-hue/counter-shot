@@ -688,7 +688,8 @@ export class Rig {
     const dirx = v > 0.05 ? this.cVs / v : 0, dirz = v > 0.05 ? this.cVf / v : 1;
     const L = this.cL;
     const beta = mix(0.62, 0.4, r);
-    const sweep = 0.8 * beta * L;
+    // The ankle sweeps back a little less than the body travels while the foot is down: the foot rolls from heel to toe.
+    const sweep = 0.85 * beta * L;
     const back = this.cVf < -0.1 ? -1 : 1;
     const Af = sweep * 0.5 - 0.04 * back, Ab = sweep * 0.5 + 0.04 * back;
     const lift = (0.075 + 0.12 * r) * clamp(v / 1.2, 0.35, 1);
@@ -1102,8 +1103,7 @@ export class Rig {
     const c = (this.cY - this.cGround) / 0.9;
     for (let side = 1; side >= -1; side -= 2) {
       const uu = frac(c + (side > 0 ? 0 : 0.5));
-      // Each hand holds as the body slides down past it, then moves down below the other.
-      // (the body slides down, so a held hand rises against it).
+      // Each hand holds while the body slides down past it (so it rises against him), then moves down below the other.
       let h: number;
       if (uu < 0.5) h = 1.5 + 0.35 * (uu / 0.5);
       else {
@@ -1142,40 +1142,17 @@ export class Rig {
     const arc = Math.sin(down * Math.PI) * 0.18;
     this.keg(kx, ky + arc, kz + arc * 0.5, 0, mix(0, Math.PI / 2, down), 0);
     // Hands: on the keg as it comes down and while he packs it, then flint and steel, then the fuse.
-    let lx: number, ly: number, lz: number, rx: number, ry: number, rz: number;
-    if (t < 40) {
-      const pack = t > 18 ? Math.sin((t - 18) * 0.7) * 0.03 : 0;
-      lx = kx + 0.2;
-      ly = ky + arc + 0.05;
-      lz = kz + arc * 0.5 - 0.05 + pack;
-      rx = kx - 0.2;
-      ry = ky + arc + 0.05;
-      rz = kz + arc * 0.5 - 0.05 - pack;
-    } else if (t < 58) {
-      // Striking a light over the fuse: the right hand strikes down on the left, quickly.
-      const strike = Math.abs(Math.sin((t - 40) * 0.9)) * 0.07;
-      lx = 0.04;
-      ly = 0.62;
-      lz = 0.24;
-      rx = -0.04;
-      ry = 0.66 + strike;
-      rz = 0.22;
-    } else if (t < 70) {
-      // Holding the light to the fuse on top of the keg.
-      lx = 0.18;
-      ly = 0.5;
-      lz = 0.12;
-      rx = -0.02;
-      ry = 0.5;
-      rz = 0.28;
-    } else {
-      lx = 0.22;
-      ly = 0.75;
-      lz = 0.08;
-      rx = -0.2;
-      ry = 0.8;
-      rz = 0.1;
-    }
+    // Each step eases into the next over a few ticks.
+    const pack = t > 18 ? Math.sin((t - 18) * 0.7) * 0.03 : 0;
+    const strike = t > 40 ? Math.abs(Math.sin((t - 40) * 0.9)) * 0.07 : 0;
+    const w1 = smooth(37, 42, t), w2 = smooth(55, 60, t), w3 = smooth(68, 73, t);
+    // On the keg; striking a light over the fuse (the right hand strikes down on the left); the light held to the fuse on top; rising.
+    const lx = mix(mix(mix(kx + 0.2, 0.04, w1), 0.18, w2), 0.22, w3);
+    const ly = mix(mix(mix(ky + arc + 0.05, 0.62, w1), 0.5, w2), 0.75, w3);
+    const lz = mix(mix(mix(kz + arc * 0.5 - 0.05 + pack, 0.24, w1), 0.12, w2), 0.08, w3);
+    const rx = mix(mix(mix(kx - 0.2, -0.04, w1), -0.02, w2), -0.2, w3);
+    const ry = mix(mix(mix(ky + arc + 0.05, 0.66 + strike, w1), 0.5, w2), 0.8, w3);
+    const rz = mix(mix(mix(kz + arc * 0.5 - 0.05 - pack, 0.22, w1), 0.28, w2), 0.1, w3);
     this.hand(1, lx, ly, lz, 0.8, -0.3, -0.5);
     this.hand(-1, rx, ry, rz, -0.8, -0.3, -0.5);
     P[P_KIT_M] = this.slung();
@@ -1193,9 +1170,11 @@ export class Rig {
     const P = this.P, V = this.vars, vo = this.cVar;
     const t = this.cAct;
     const kick = t < RECOIL ? Math.sin((t / RECOIL) * Math.PI) * (1 - t / RECOIL) : 0;
-    // 0 aimed, 1 at the reload (butt grounded); present raises it again.
-    const lower = smooth(14, 36, t) * (1 - smooth(196, 230, t));
-    const ready = smooth(166, 196, t) * (1 - smooth(196, 230, t));
+    // Down to the reload (butt grounded), up to make ready, then present: to the shoulder again.
+    const down = smooth(14, 36, t);
+    const ready = smooth(166, 196, t);
+    const present = smooth(196, 230, t);
+    const lower = down * (1 - present);
     // Feet: side-on, left forward.
     this.feet(0.13, 0.2, -0.12, -0.16);
     const sway = this.cLod < 2 ? noise(this.time * 0.9, V[vo + V_SA]) : 0;
@@ -1211,8 +1190,8 @@ export class Rig {
     const rdx = 0.02, rdy = 1, rdz = 0.1;
     // Make ready: across the waist, muzzle up and forward.
     const mdx = 0.15, mdy = 0.7, mdz = 0.7;
-    const dx = mix(mix(adx, rdx, lower), mdx, ready), dy = mix(mix(ady, rdy, lower), mdy, ready), dz = mix(mix(adz, rdz, lower), mdz, ready);
-    const bx = mix(mix(-0.1, -0.1, lower), -0.15, ready), by = mix(mix(ay, 0.02, lower), 0.82, ready), bz = mix(mix(az - 0.1, 0.24, lower), 0.0, ready);
+    const dx = mix(mix(mix(adx, rdx, down), mdx, ready), adx, present), dy = mix(mix(mix(ady, rdy, down), mdy, ready), ady, present), dz = mix(mix(mix(adz, rdz, down), mdz, ready), adz, present);
+    const bx = mix(mix(-0.1, -0.15, ready), -0.1, present), by = mix(mix(mix(ay, 0.02, down), 0.82, ready), ay, present), bz = mix(mix(mix(az - 0.1, 0.24, down), 0.0, ready), az - 0.1, present);
     this.kit(KM_FREE, bx, by, bz, dx, dy, dz);
     const l = Math.sqrt(dx * dx + dy * dy + dz * dz);
     const ux = dx / l, uy = dy / l, uz = dz / l;
@@ -1273,7 +1252,7 @@ export class Rig {
         const len = 1.0;
         this.set3(P_ROD, rx - ux * len, ry - uy * len, rz - uz * len);
       }
-    } else if (ready > 0.3) {
+    } else if (ready > 0.3 && present < 0.6) {
       // Priming the pan and cocking: the right hand at the lock.
       rx = bx + ux * 0.5 - 0.05;
       ry = by + uy * 0.5 + 0.03;

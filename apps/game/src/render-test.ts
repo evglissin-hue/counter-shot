@@ -150,8 +150,9 @@ const loose = layout.stones.filter((s) => s.castle === 0 && s.part === "merlon" 
 
 // M3: buildings on the target castle's plots (plot, kind, share up): a barracks
 // and a Foundry at the front, a Powder Mill half risen beside the keep, a mill
-// standing at the back; the other two plots are empty.
-const built: Array<[number, number, number]> = [
+// standing at the back; the other two plots are empty. The animation scenes
+// leave every plot empty (the rope inside the wall comes down by a front plot).
+const built: Array<[number, number, number]> = anim ? [] : [
   [0, 0, 1],
   [1, 2, 1],
   [2, 1, 0.5],

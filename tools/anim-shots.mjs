@@ -32,34 +32,36 @@ const FILMS = {
   // One marching pikeman, the camera alongside him (track: eye and target are offsets from him): a little over one stride.
   gait: { track: 104, eye: [0.6, 1.0, -3.6], at: [0, 0.85, 0], fov: 38, t: 8, frames: 16, every: 3, crop: [0.2, 0.05, 0.6, 0.9] },
   // A man running (charging) alongside the column.
-  run: { track: 120, eye: [0.6, 1.0, -3.6], at: [0, 0.85, 0], fov: 38, t: 8, frames: 16, every: 2, crop: [0.2, 0.05, 0.6, 0.9] },
+  run: { track: 120, eye: [0.6, 1.5, -3.4], at: [0, 0.85, 0], fov: 38, t: 8, frames: 16, every: 2, crop: [0.2, 0.05, 0.6, 0.9] },
   // The column marching across: a musketeer, a sapper with his keg, a crewman, a mason among the pikes.
   march: { eye: [3, 1.4, -49.5], at: [3, 0.9, -42], t: 19.5, frames: 16, every: 3, crop: [0.1, 0.1, 0.8, 0.8] },
   // A man turning a quarter at the sim's rate, with men at rest around him.
   turn: { eye: [-10.4, 1.8, -34.6], at: [-12.2, 0.95, -30.2], t: 4.5, frames: 16, every: 2, crop: [0.1, 0.05, 0.8, 0.9] },
   // Idle life: the same men over six seconds.
   idle: { eye: [-10.4, 1.8, -34.6], at: [-12.2, 0.95, -30.2], t: 20, frames: 12, every: 30, crop: [0.1, 0.05, 0.8, 0.9] },
-  // Fights: pikes, and an axe against a sapper's hatchet.
-  fight: { eye: [-4.6, 1.7, -36.6], at: [-4.8, 1.0, -31.2], t: 2.2, frames: 24, every: 3, crop: [0.05, 0.1, 0.9, 0.8] },
+  // Two pikemen fighting, side on: guard, wind-up, the thrust as each blow lands, the other's parry.
+  fight: { eye: [-2.4, 1.45, -31.1], at: [-6, 1.05, -31.1], t: 1.9, frames: 24, every: 3, crop: [0.15, 0.1, 0.7, 0.8] },
+  // An axe against a sapper's hatchet.
+  chop: { eye: [-16.6, 1.45, -30.85], at: [-20, 1.05, -30.85], t: 1.4, frames: 16, every: 3, crop: [0.15, 0.1, 0.7, 0.8] },
   // A musket's jab at a pikeman.
-  jab: { eye: [1.6, 1.6, -35.4], at: [-1.2, 1.0, -31.1], t: 2.2, frames: 16, every: 3, crop: [0.15, 0.05, 0.7, 0.9] },
-  gate: { eye: [4.6, 2.2, -21.4], at: [0, 1.3, -16.4], t: 3, frames: 16, every: 4, crop: [0.1, 0.05, 0.8, 0.9] },
+  jab: { eye: [-27.4, 1.45, -31.1], at: [-24, 1.05, -31.1], t: 1.9, frames: 16, every: 3, crop: [0.15, 0.1, 0.7, 0.8] },
+  gate: { eye: [4.0, 1.5, -18.6], at: [0, 1.1, -16.6], t: 3, frames: 16, every: 4, crop: [0.1, 0.05, 0.8, 0.9] },
   // A musketeer's whole cycle: the shot, the reload with the ramrod, up to aim again (300 ticks).
-  musket: { eye: [-12.4, 1.6, -40.8], at: [-9.6, 1.15, -37.8], t: 2.9, frames: 24, every: 13, crop: [0.15, 0.05, 0.7, 0.9] },
+  musket: { eye: [-5.9, 1.45, -37.0], at: [-9.6, 1.1, -38.2], t: 2.9, frames: 16, every: 19, crop: [0.1, 0.05, 0.8, 0.9] },
   // A sapper at the wall: kneels, sets and lights his keg, runs.
-  sapper: { eye: [10.4, 1.9, -21.2], at: [6.8, 0.7, -17.6], t: 4.2, frames: 24, every: 5, crop: [0.1, 0.05, 0.8, 0.9] },
+  sapper: { eye: [-2.7, 1.9, -21.2], at: [-6.3, 0.7, -17.6], t: 4.2, frames: 24, every: 5, crop: [0.1, 0.05, 0.8, 0.9] },
   // Up the ladder, over the wall walk.
-  climb: { eye: [14.5, 4.5, -27], at: [8.1, 4.4, -17.5], t: 1.2, frames: 24, every: 12, crop: [0.15, 0, 0.7, 1] },
+  climb: { eye: [11.2, 3.1, -21.6], at: [8.1, 3.2, -17.7], t: 3.6, frames: 16, every: 6, crop: [0.15, 0, 0.7, 1] },
   // Down the rope inside.
-  rope: { eye: [11.5, 4.0, -5.5], at: [8.1, 4.2, -13.2], t: 9.6, frames: 16, every: 6, crop: [0.15, 0, 0.7, 1] },
+  rope: { eye: [12.0, 3.6, -7.0], at: [8.1, 3.6, -13.4], t: 8.0, frames: 16, every: 6, crop: [0.15, 0, 0.7, 1] },
   // A crew carrying a ladder, raising it, then fighting with axes.
-  carry: { eye: [9.6, 2.2, -29], at: [4.5, 1.2, -24], t: 4.5, frames: 24, every: 20, crop: [0, 0, 1, 1] },
+  carry: { track: 250, eye: [4.6, 1.2, -2.2], at: [0, 1.0, -1.8], t: 4.5, frames: 24, every: 20, crop: [0.05, 0.05, 0.9, 0.9] },
   // A man knocked down while walking: from his last step into the fall; his pike drops.
-  fall: { eye: [6.2, 1.4, -32.6], at: [6.0, 0.8, -27.5], t: 1.75, frames: 18, every: 3, crop: [0.1, 0.05, 0.8, 0.9] },
-  masons: { eye: [-3.4, 2.4, -9.4], at: [-6.0, 1.2, -13.0], t: 1, frames: 12, every: 4, crop: [0.1, 0.05, 0.8, 0.9] },
+  fall: { eye: [11.2, 1.4, -41.1], at: [11.0, 0.8, -36], t: 1.75, frames: 18, every: 3, crop: [0.1, 0.05, 0.8, 0.9] },
+  masons: { eye: [-2.6, 1.6, -13.6], at: [-6.0, 1.15, -12.8], t: 1, frames: 16, every: 3, crop: [0.1, 0.05, 0.8, 0.9] },
   // The gait again at 120 Hz with 60 Hz sim frames (two drawn frames per sim frame), and the fall in quarter-speed slow motion.
   "gait-120": { track: 104, eye: [0.6, 1.0, -3.6], at: [0, 0.85, 0], fov: 38, t: 8, frames: 16, every: 3, sub: 2, crop: [0.2, 0.05, 0.6, 0.9] },
-  "fall-slow": { eye: [6.2, 1.4, -32.6], at: [6.0, 0.8, -27.5], t: 1.95, frames: 18, every: 1, sub: 4, crop: [0.1, 0.05, 0.8, 0.9] },
+  "fall-slow": { eye: [11.2, 1.4, -41.1], at: [11.0, 0.8, -36], t: 1.95, frames: 18, every: 1, sub: 4, crop: [0.1, 0.05, 0.8, 0.9] },
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });
