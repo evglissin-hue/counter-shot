@@ -40,6 +40,10 @@ const VIEWS = {
   gate: [5, 3.2, -22, 0, 1.6, -16],
   // The render test's shots and stones into the stream by the centre bridge (splashes).
   splash: [4, 5, -86, 14, -0.6, -75],
+  // M4 staged on the render test page: ladders at the target wall, masons at a hoist inside it, a storm ring.
+  ladders: [17, 5.5, -31, 6.5, 4, -18],
+  masons: [-3.4, 2.7, -9.4, -6.0, 1.3, -13.0],
+  storm: [16, 34, -34, 0, 0, -6.5],
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });

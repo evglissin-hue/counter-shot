@@ -13,21 +13,25 @@ import {
   BRIDGES,
   DEFEND,
   ENEMY_ROUTES,
+  GARRISON,
   MATCH,
   MATCH_EMPLACEMENTS,
   MID_Z,
   MUSTER,
+  REPAIR_KINDS,
   ROUTE_NAMES,
+  STORM,
   UNMANNED,
   WAVES,
   WEAPONS,
   type CastleLayout,
   type Emplacement,
+  type RepairKind,
   type RouteName,
   type UnmannedDef,
 } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
-import { MinionState, Order, SandboxSim, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
+import { MinionState, Order, Role, SandboxSim, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
 
 export const enum Team {
   Enemy = 0,
@@ -35,7 +39,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 2;
+export const MATCH_RULES_VERSION = 3;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -50,12 +54,17 @@ export type MatchInput =
    * other one of its emplacements fires at minions on its own. `left` is the
    * aim of the one being left, so its barrel stays where the gunner put it.
    */
-  | { kind: "man"; emplacement: number; left?: { emplacement: number; yaw: number; pitch: number } };
+  | { kind: "man"; emplacement: number; left?: { emplacement: number; yaw: number; pitch: number } }
+  /** Switch the team's masons on or off for one kind of section (SPEC section 4: auto-repair per section). */
+  | { kind: "repair"; repair: RepairKind; on: boolean }
+  /** The team gives up: the other team wins. */
+  | { kind: "surrender" };
 
 export interface MatchResult {
-  /** The winning team, or -1 for a draw (both keeps fell on the same tick). */
+  /** The winning team, or -1 for a draw (both fell on the same tick). */
   winner: Team | -1;
-  reason: "keep";
+  /** How it ended: a keep's banner came down, a courtyard was stormed, or a team surrendered. */
+  reason: "keep" | "storm" | "surrender";
   /** Tick the match ended. */
   tick: number;
 }
@@ -65,6 +74,27 @@ export interface MatchOptions {
   emplacements?: Emplacement[];
   /** The barracks send waves (default); tests and tools may turn them off. */
   barracks?: boolean;
+  /** Each courtyard holds a garrison (default). */
+  garrison?: boolean;
+  /** Each castle has its masons (default). */
+  masons?: boolean;
+  /** Weapons nobody mans fire on their own (default); tests and tools may turn it off. */
+  gunnery?: boolean;
+  /** When sudden death starts (default MATCH.suddenDeathTick); tests and tools may bring it forward. */
+  suddenDeathTick?: number;
+}
+
+/** What a team did in a match, for the end screen. */
+export interface TeamStats {
+  goldEarned: number;
+  goldSpent: number;
+  stonesRebuilt: number;
+  rubbleCleared: number;
+  laddersRaised: number;
+  laddersLost: number;
+  /** Times its men began storming the enemy courtyard, and times it beat a storm of its own courtyard off. */
+  stormsBegun: number;
+  stormsHeld: number;
 }
 
 /** An emplacement's barrel and, when nobody mans it, what it is laying on. */
@@ -128,7 +158,22 @@ export class Match {
   /** Every emplacement's barrel (in emplacement order). */
   readonly guns: Gun[];
   result: MatchResult | null = null;
+  /** Each team's repair switches, by kind of section. All on to start. */
+  readonly repairs: [Record<RepairKind, boolean>, Record<RepairKind, boolean>] = [allOn(), allOn()];
+  /**
+   * Per castle: ticks its enemy has held its courtyard, outnumbering its
+   * defenders (STORM.hold storms it). It counts up while they outnumber,
+   * holds while they do not, and drains when none are inside.
+   */
+  readonly storm: [number, number] = [0, 0];
+  readonly earned: [number, number] = [0, 0];
+  readonly spent: [number, number] = [0, 0];
+  readonly stormsBegun: [number, number] = [0, 0];
+  readonly stormsHeld: [number, number] = [0, 0];
   private inputs = new Map<number, Array<{ team: Team; input: MatchInput }>>();
+  private garrison: boolean;
+  private autoFire: boolean;
+  private suddenAt: number;
   private owner: Team[];
   /** The unmanned weapons' aim errors, drawn in the order they lay on targets. */
   private rng: Rng;
@@ -145,6 +190,37 @@ export class Match {
     });
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
     this.barracks = opts.barracks !== false;
+    this.garrison = opts.garrison !== false;
+    this.autoFire = opts.gunnery !== false;
+    this.suddenAt = opts.suddenDeathTick ?? MATCH.suddenDeathTick;
+    if (this.garrison) for (const team of [Team.Enemy, Team.Player]) this.army.spawnGarrison(team, GARRISON.size, true);
+    const works = this.world.works!;
+    works.policy = {
+      allowed: (team, kind) => this.repairs[team][kind],
+      pay: (team, cost) => {
+        if (this.result || this.gold[team] < cost) return false;
+        this.gold[team] -= cost;
+        this.spent[team] += cost;
+        return true;
+      },
+    };
+    if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
+  }
+
+  /** Sudden death (15:00 on): income doubles and every gun reloads faster. */
+  get suddenDeath(): boolean {
+    return this.tick >= this.suddenAt;
+  }
+
+  /** Reloads as a share of each weapon's own, now. */
+  private reloadScale(): number {
+    return this.suddenDeath ? MATCH.suddenReload : 1;
+  }
+
+  /** Gold a team earns this tick from its keep (all income goes through here, so sudden death doubles all of it). */
+  private income(team: Team): number {
+    void team;
+    return MATCH.keepIncome * (this.suddenDeath ? MATCH.suddenIncome : 1);
   }
 
   get tick(): number {
@@ -189,19 +265,35 @@ export class Match {
         this.sendWave(Team.Player);
         this.sendWave(Team.Enemy);
       }
-      this.gunnery(tick);
+      if (this.autoFire) this.gunnery(tick);
     }
     this.world.step();
     if (this.result) return;
     if (tick % MATCH.incomeEvery === MATCH.incomeEvery - 1) {
-      this.gold[0] += MATCH.keepIncome;
-      this.gold[1] += MATCH.keepIncome;
+      for (const team of [Team.Enemy, Team.Player]) {
+        const g = this.income(team);
+        this.gold[team] += g;
+        this.earned[team] += g;
+      }
     }
-    // A keep is toppled when its banner comes down: the other team wins.
+    // Storming: attackers inside a courtyard who outnumber its defenders, for STORM.hold ticks.
+    const army = this.army;
+    for (const c of [0, 1] as const) {
+      const a = army.attackers[c], d = army.defenders[c];
+      if (a >= STORM.min && a > d) {
+        if (this.storm[c] === 0) this.stormsBegun[1 - c]++;
+        this.storm[c]++;
+      } else if (a === 0 && this.storm[c] > 0) {
+        this.storm[c] = this.storm[c] > STORM.drain ? this.storm[c] - STORM.drain : 0;
+        if (this.storm[c] === 0) this.stormsHeld[c]++;
+      }
+    }
+    // A keep is toppled when its banner comes down, a courtyard is stormed when it has been held long enough: the other team wins.
     const [down0, down1] = this.world.castle.toppled;
-    if (down0 || down1) {
-      const winner: Team | -1 = down0 && down1 ? -1 : down0 ? Team.Player : Team.Enemy;
-      this.result = { winner, reason: "keep", tick };
+    const lost0 = down0 || this.storm[0] >= STORM.hold, lost1 = down1 || this.storm[1] >= STORM.hold;
+    if (lost0 || lost1) {
+      const winner: Team | -1 = lost0 && lost1 ? -1 : lost0 ? Team.Player : Team.Enemy;
+      this.result = { winner, reason: down0 || down1 ? "keep" : "storm", tick };
     }
   }
 
@@ -212,7 +304,7 @@ export class Match {
         const e = this.emplacements[input.emplacement];
         if (!e || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
         this.shots[team]++;
-        this.world.queue(tick, { ...input, auto: false, reload: 1 });
+        this.world.queue(tick, { ...input, auto: false, reload: this.reloadScale() });
         this.setGun(e.id, input.yaw, input.pitch);
         return;
       }
@@ -231,6 +323,12 @@ export class Match {
         if (e >= 0) this.guns[e].target = -1;
         return;
       }
+      case "repair":
+        if (REPAIR_KINDS.includes(input.repair)) this.repairs[team][input.repair] = input.on === true;
+        return;
+      case "surrender":
+        this.result = { winner: team === Team.Player ? Team.Enemy : Team.Player, reason: "surrender", tick };
+        return;
     }
   }
 
@@ -243,13 +341,26 @@ export class Match {
     g.target = -1;
   }
 
-  /** A team's barracks sends a wave down its route (the enemy's in turn, until the AI arrives), as many as its cap allows. */
+  /**
+   * A team's barracks sends a wave down its route (the enemy's in turn, until
+   * the AI arrives), as many as its cap allows. It tops the garrison up
+   * first; with the enemy in its courtyard the wave musters inside and
+   * defends; and every other wave from the second carries a ladder.
+   */
   private sendWave(team: Team) {
     const route = team === Team.Player ? this.route[team] : ENEMY_ROUTES[this.waves[team] % ENEMY_ROUTES.length];
     const room = WAVES.maxStanding - this.army.standing(team);
-    const count = room < WAVES.size ? room : WAVES.size;
-    this.waves[team]++;
-    if (count > 0) this.army.spawnWave(team, ROUTE_NAMES.indexOf(route), count);
+    let count = room < WAVES.size ? room : WAVES.size;
+    const n = ++this.waves[team];
+    if (count <= 0) return;
+    if (this.garrison) {
+      const short = GARRISON.size - this.army.garrisonCount(team);
+      if (short > 0) count -= this.army.spawnGarrison(team, short < count ? short : count, false);
+    }
+    if (count <= 0) return;
+    const inside = this.army.attackers[team] > 0;
+    const ladder = !inside && n >= WAVES.ladderFrom && (n - WAVES.ladderFrom) % WAVES.ladderEvery === 0;
+    this.army.spawnWave(team, ROUTE_NAMES.indexOf(route), count, undefined, { ladder, inside });
   }
 
   /**
@@ -277,7 +388,7 @@ export class Match {
       g.target = -1;
       if (!m || m.state !== MinionState.Upright) continue;
       this.autoShots[team]++;
-      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: U.reload });
+      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: U.reload * this.reloadScale() });
     }
   }
 
@@ -350,15 +461,35 @@ export class Match {
     return n;
   }
 
-  /** Each team's minions standing and fallen. */
-  armyCounts(): { standing: [number, number]; fallen: [number, number] } {
-    const standing: [number, number] = [0, 0], fallen: [number, number] = [0, 0];
+  /** Each team's fighting men standing and fallen, and its masons fallen. */
+  armyCounts(): { standing: [number, number]; fallen: [number, number]; masonsFallen: [number, number] } {
+    const standing: [number, number] = [0, 0], fallen: [number, number] = [0, 0], masonsFallen: [number, number] = [0, 0];
     for (const m of this.world.minions.list) {
       if (m.wave < 0) continue;
+      if (m.role === Role.Mason) {
+        if (m.state !== MinionState.Upright) masonsFallen[m.team]++;
+        continue;
+      }
       if (m.state === MinionState.Upright) standing[m.team]++;
       else fallen[m.team]++;
     }
-    return { standing, fallen };
+    return { standing, fallen, masonsFallen };
+  }
+
+  /** What each team did, for the end screen. */
+  stats(team: Team): TeamStats {
+    const w = this.world.works!.status(team);
+    const L = this.world.ladders!;
+    return {
+      goldEarned: this.earned[team],
+      goldSpent: this.spent[team],
+      stonesRebuilt: w.laid,
+      rubbleCleared: w.cleared,
+      laddersRaised: L.planted[team],
+      laddersLost: L.lost[team],
+      stormsBegun: this.stormsBegun[team],
+      stormsHeld: this.stormsHeld[team],
+    };
   }
 
   /** Hash of the whole match: the world's state plus gold, shots, the result, waves, orders and guns. */
@@ -367,8 +498,15 @@ export class Match {
     const r = this.result;
     const nums = [this.tick, this.gold[0], this.gold[1], this.shots[0], this.shots[1], this.autoShots[0], this.autoShots[1], r ? r.winner : -2, r ? r.tick : -1, parseInt(w.state, 16)];
     nums.push(ROUTE_NAMES.indexOf(this.route[0]), ROUTE_NAMES.indexOf(this.route[1]), this.waves[0], this.waves[1], this.manned[0], this.manned[1]);
+    nums.push(this.storm[0], this.storm[1], this.earned[0], this.earned[1], this.spent[0], this.spent[1], this.stormsBegun[0], this.stormsBegun[1], this.stormsHeld[0], this.stormsHeld[1]);
+    for (const r of this.repairs) for (const k of REPAIR_KINDS) nums.push(r[k] ? 1 : 0);
+    if (r) nums.push(r.reason === "keep" ? 0 : r.reason === "storm" ? 1 : 2);
     for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ);
     const f = new Float64Array(nums);
     return { state: hex8(hashBytes(new Uint8Array(f.buffer))), world: w.world };
   }
+}
+
+function allOn(): Record<RepairKind, boolean> {
+  return { gate: true, walls: true, towers: true, keep: true };
 }

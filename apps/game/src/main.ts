@@ -3,7 +3,7 @@
 // Aiming runs here at a fixed 60 Hz through the same limiter the sim checks;
 // a fire sends the exact aim to the worker, which owns everything else.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, GAME_LAYOUT, KEEP_STOREYS, MATCH_EMPLACEMENTS, ROUTE_NAMES, WEAPONS, type Emplacement, type RouteName, type Stone } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, GAME_LAYOUT, KEEP_STOREYS, MATCH_EMPLACEMENTS, REPAIR_KINDS, ROUTE_NAMES, WEAPONS, type Emplacement, type RepairKind, type RouteName, type Stone } from "@keepfall/content";
 import {
   aimDir,
   clampAim,
@@ -20,13 +20,15 @@ import {
   Spin,
   spinVector,
   stepAim,
+  MINION_STRIDE,
   type AimState,
   type FrameData,
 } from "@keepfall/sim";
 import { Input } from "./input";
-import type { FromWorker, MatchInfo, Mode, ToWorker } from "./protocol";
+import type { FromWorker, MasonInfo, MatchInfo, Mode, ToWorker } from "./protocol";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
+import { LAY_SECONDS } from "./render/works";
 import { Sound } from "./sound";
 import { Soundscape } from "./soundscape";
 import { Pacer, SCALES } from "./pacing";
@@ -171,6 +173,12 @@ let lastDown = 0;
 /** Minions down as of each frame not yet applied, by tick. */
 const downAt = new Map<number, number>();
 let rendererReady = false;
+/** Where in a mason's stroke the mallet strikes (ticks since the stroke began; the renderer's swing matches). */
+const MALLET_HIT = 14;
+const malletAct = new Map<number, number>();
+let laidSounds = 0, clearSounds = 0;
+/** The match as it went, for the end screen: a line per moment that mattered, with the clock. */
+let matchLog: Array<{ tick: number; text: string; bad: boolean }> = [];
 
 // ---- worker -------------------------------------------------------------------
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -247,7 +255,30 @@ function onFrame(f: FrameData) {
       if (impacts++ < 3) soundscape.impact(a, b, c, d);
     } else if (kind === EventKind.Blood) {
       sound.thud(a, b, c, d);
+    } else if (kind === EventKind.Laid) {
+      // Masons put a piece back: it rises on the hoist and settles (the renderer), then the sound of it bedding in.
+      const s = layout.stones[a | 0];
+      if (s) {
+        everMoved[s.id] = 0;
+        if (laidSounds++ < 3) sound.stoneSet(s.x, s.y, s.z, s.part === "gate" ? 2 : s.part === "storey" ? 1 : 0, LAY_SECONDS);
+      }
+    } else if (kind === EventKind.Cleared) {
+      if (clearSounds++ < 2) sound.scrape(b, Math.max(0.3, c), d);
+    } else if (kind === EventKind.Ladder) {
+      if (b === 2) sound.ladderUp(c, 7.5, d);
+      else sound.ladderDown(c, 1, d);
     }
+  }
+  laidSounds = clearSounds = 0;
+  // Masons at work: a mallet stroke whenever one comes down (act counts ticks since each stroke began).
+  let strokes = 0;
+  for (let i = 0; i < f.minionCount; i++) {
+    const o = i * MINION_STRIDE;
+    if (f.minions[o + 9] !== 1 || f.minions[o + 7] !== 4) continue;
+    const id = f.minions[o] | 0, act = f.minions[o + 8];
+    const was = malletAct.get(id) ?? 0;
+    malletAct.set(id, act);
+    if (was < MALLET_HIT && act >= MALLET_HIT && strokes++ < 3) sound.mallet(f.minions[o + 1], f.minions[o + 2] + 1, f.minions[o + 3], id);
   }
   // Stones moving for the first time count towards the burst's tally.
   for (let i = 0; i < f.stoneCount; i++) {
@@ -339,8 +370,11 @@ function onFrame(f: FrameData) {
   lastDown = downAt.get(f.tick) ?? stats.down;
   downAt.delete(f.tick);
   soundscape.frame(f, ear);
+  lastApplied = f;
   renderer.applyFrame(f);
 }
+/** The last frame applied (the screenshot tools read figures and ladders from it). */
+let lastApplied: FrameData | null = null;
 
 function showTally() {
   if (!tally) return;
@@ -990,9 +1024,17 @@ function startMode(m: Mode) {
   renderer.showEmplacements(m === "versus" ? ALL_EMP.length : EMP.length);
   renderer.setMarkers(m === "versus");
   prevGate = null;
+  matchLog = [];
+  malletAct.clear();
+  lastEnemyMasonNote = lastGoldNote = -1e9;
+  $("storm").hidden = true;
+  $("sudden").hidden = true;
+  $("clock").classList.remove("sudden");
+  surrenderBtn.hidden = true;
+  sound.setStorm(0, 0);
   if (m === "versus") {
     send({ t: "input", input: { kind: "man", emplacement: current } });
-    showNote("Both barracks send a wave every 25 seconds. Guns you do not ride fire at enemy pikemen near your walls. Ctrl+1, 2, 3: advance, hold, push the breach. L: the route of your next waves.", 9000);
+    showNote("Topple the enemy keep or storm its courtyard. Both barracks send a wave every 25 seconds, some with ladders; masons rebuild what is broken, for gold. Ctrl+1, 2, 3: advance, hold, push the breach. L: your route. Alt+1 to 4: repairs.", 10000);
   }
 }
 
@@ -1024,6 +1066,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
 );
 $("menu-btn").addEventListener("click", () => {
   $("menu").hidden = false;
+  surrenderBtn.hidden = mode !== "versus" || !!matchInfo?.result;
   $<HTMLButtonElement>("menu-btn").blur();
   document.exitPointerLock?.();
 });
@@ -1043,6 +1086,49 @@ routeChips.forEach((b) =>
     b.blur();
   }),
 );
+const repairChips = [...document.querySelectorAll<HTMLButtonElement>("[data-repair]")];
+repairChips.forEach((b) =>
+  b.addEventListener("click", () => {
+    toggleRepair(b.dataset.repair as RepairKind);
+    b.blur();
+  }),
+);
+
+/** Switch your masons on or off for one kind of section (Alt+1 to 4). */
+function toggleRepair(kind: RepairKind, on?: boolean) {
+  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  const now = on ?? !matchInfo.repairs[kind];
+  send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
+  matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
+  updateRepairs();
+  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep" };
+  showNote(now ? `Your masons repair ${names[kind]}.` : `Your masons leave ${names[kind]} alone.`, 2400);
+}
+
+/** Give up the match (a second press within a few seconds confirms). */
+let surrenderArmed = 0;
+const surrenderBtn = $<HTMLButtonElement>("menu-surrender");
+surrenderBtn.addEventListener("click", () => {
+  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  const now = performance.now();
+  if (now - surrenderArmed > 3500) {
+    surrenderArmed = now;
+    surrenderBtn.textContent = "Press again to surrender";
+    surrenderBtn.classList.add("confirm");
+    setTimeout(() => {
+      if (performance.now() - surrenderArmed >= 3400) {
+        surrenderBtn.textContent = "Surrender";
+        surrenderBtn.classList.remove("confirm");
+      }
+    }, 3600);
+    return;
+  }
+  surrenderArmed = 0;
+  surrenderBtn.textContent = "Surrender";
+  surrenderBtn.classList.remove("confirm");
+  send({ t: "input", input: { kind: "surrender" } });
+  $("menu").hidden = true;
+});
 orderChips.forEach((b) =>
   b.addEventListener("click", () => {
     giveOrder(Number(b.dataset.order));
@@ -1069,29 +1155,176 @@ function clockText(ticks: number): string {
 /** Gate state as last shown, for notes when it changes. */
 let prevGate: { hits: [number, number]; open: [boolean, boolean] } | null = null;
 
+/** Note a moment for the end screen's log (and maybe show it). */
+function logMoment(text: string, bad = false, tick = matchInfo?.tick ?? 0) {
+  matchLog.push({ tick, text, bad });
+  if (matchLog.length > 60) matchLog.shift();
+}
+
+/** What the masons are doing, in words (hold is the sim's WorksHold). */
+function masonText(m: MasonInfo, own: boolean): string {
+  if (!m.up) return own ? "Masons: all down, more on the way" : "";
+  if (!m.job) return own ? `Masons: ${m.up} in the yard, nothing to repair` : "";
+  const what = `${m.job} (${m.left} ${m.left === 1 ? "piece" : "pieces"} down)`;
+  switch (m.hold) {
+    case 1:
+      return `Masons wait for gold: ${what}`;
+    case 2:
+      return `Masons wait for the way to clear: ${what}`;
+    case 3:
+      return `Masons driven off ${m.job} by the enemy`;
+    default:
+      return `Masons rebuilding ${what}`;
+  }
+}
+
+function updateRepairs() {
+  const info = matchInfo;
+  if (!info) return;
+  repairChips.forEach((b) => {
+    const on = info.repairs[b.dataset.repair as RepairKind] !== false;
+    b.setAttribute("aria-pressed", String(on));
+    b.classList.toggle("off", !on);
+  });
+  const el = $("masons");
+  el.textContent = masonText(info.masons[1], true);
+  el.classList.toggle("wait", info.masons[1].hold === 1 || info.masons[1].hold === 3);
+}
+
+/** The storm meter: whoever is storming a courtyard now, how many against how many, how long they have held it. */
+function updateStorm() {
+  const info = matchInfo;
+  const box = $("storm");
+  if (!info || info.result) {
+    box.hidden = true;
+    sound.setStorm(0, 0);
+    if (!info) for (const c of [0, 1]) renderer.setStorm(c, 0, false);
+    return;
+  }
+  const ours = info.storm[0] / info.stormHold, theirs = info.storm[1] / info.stormHold;
+  sound.setStorm(ours, theirs);
+  for (const c of [0, 1]) renderer.setStorm(c, info.storm[c] / info.stormHold, info.attackers[c] > info.defenders[c] && info.attackers[c] >= 2);
+  if (!info.storm[0] && !info.storm[1]) {
+    box.hidden = true;
+    return;
+  }
+  // The one nearer to winning shows.
+  const mine = info.storm[0] >= info.storm[1];
+  const c = mine ? 0 : 1;
+  const held = Math.floor(info.storm[c] / 60), of = Math.round(info.stormHold / 60);
+  const a = info.attackers[c], d = info.defenders[c];
+  const holding = a > d && a >= 2;
+  box.hidden = false;
+  box.classList.toggle("ours", mine);
+  box.classList.toggle("theirs", !mine);
+  $("storm-title").textContent = mine ? (holding ? "Storming the enemy courtyard" : "Your storm is held up") : holding ? "Your courtyard is being stormed" : "The enemy storm is held up";
+  $("storm-count").textContent = `${a} against ${d}, ${held} of ${of} s`;
+  $("storm-fill").style.transform = `scaleX(${Math.min(1, info.storm[c] / info.stormHold)})`;
+}
+
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
-  matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null };
+  matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
   updateWaves();
+  updateRepairs();
+  updateStorm();
   if (!info.result) {
     const was = prevGate;
     if (was) {
-      if (!was.open[1] && info.gateOpen[1]) showNote("Your gate is down: enemy pikemen can get into your courtyard.", 5000);
-      else if (!was.open[0] && info.gateOpen[0]) showNote("The enemy gate is down.", 4000);
-      else if (was.hits[1] === 0 && info.gateHits[1] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
+      if (!was.open[1] && info.gateOpen[1]) {
+        showNote("Your gate is down: enemy pikemen can get into your courtyard.", 5000);
+        logMoment("Your gate was broken down", true);
+      } else if (!was.open[0] && info.gateOpen[0]) {
+        showNote("The enemy gate is down.", 4000);
+        logMoment("The enemy gate was broken down");
+      } else if (was.hits[1] === 0 && info.gateHits[1] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
+      else if (was.open[1] && !info.gateOpen[1]) {
+        showNote("Your masons have the gate back on its hinges.", 4000);
+        logMoment("Your masons rehung your gate");
+      } else if (was.open[0] && !info.gateOpen[0]) {
+        showNote("Enemy masons have rehung their gate.", 4000);
+        logMoment("The enemy rehung its gate", true);
+      }
     }
     prevGate = { hits: [info.gateHits[0], info.gateHits[1]], open: [info.gateOpen[0], info.gateOpen[1]] };
+    if (prev) momentsOf(prev, info);
   }
   $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
+  $("clock").classList.toggle("sudden", info.suddenDeath);
+  $("sudden").hidden = !info.suddenDeath || !!info.result;
   $("gold").textContent = `${info.gold[1]} gold`;
   const r = info.result;
-  $("match-note").textContent = r ? (r.winner === 1 ? "The enemy keep has fallen" : r.winner === 0 ? "Your keep has fallen" : "Both keeps fell") : "Topple the enemy keep";
-  // The end screen a moment after the banner falls, so the collapse can be seen.
+  $("match-note").textContent = r ? endLine(r).short : "Topple the enemy keep or storm its courtyard";
+  // The end screen a moment after the end, so the collapse (or the storm) can be seen.
   if (r && endShownFor !== r.tick) {
     endShownFor = r.tick;
     clearTimeout(endTimer);
-    endTimer = setTimeout(showEnd, FIXED ? 0 : 2600);
+    if (r.reason === "keep" || r.reason === "storm") sound.matchEnd(r.winner === 1);
+    endTimer = setTimeout(showEnd, FIXED ? 0 : r.reason === "surrender" ? 300 : 2600);
   }
+}
+
+/** Notes, the log and sounds for what changed since the last report. */
+function momentsOf(prev: MatchInfo, info: MatchInfo) {
+  // Ladders up against a wall.
+  if (info.ladders[1] > prev.ladders[1]) {
+    showNote("A ladder is up against your wall: the enemy is climbing in. Your guns cannot reach the foot of your own wall; the garrison fights them inside.", 6500);
+    logMoment("The enemy raised a ladder against your wall", true);
+  }
+  if (info.ladders[0] > prev.ladders[0]) {
+    showNote("Your ladder is up against the enemy wall: your men are climbing.", 4500);
+    logMoment("Your crew raised a ladder against the enemy wall");
+  }
+  // Storms begun and beaten off.
+  if (!prev.storm[0] && info.storm[0]) {
+    showNote("Your men are storming the enemy courtyard: hold it for 20 seconds with more men inside than its defenders.", 6000);
+    logMoment("Your men began to storm the enemy courtyard");
+    sound.horn(true);
+  } else if (prev.storm[0] && !info.storm[0]) {
+    showNote("Your storm was beaten off.", 3500);
+    logMoment("The enemy beat your storm off", true);
+  }
+  if (!prev.storm[1] && info.storm[1]) {
+    showNote("The enemy is storming your courtyard! Your next wave musters inside to defend it.", 6000);
+    logMoment("The enemy began to storm your courtyard", true);
+    sound.horn(false);
+  } else if (prev.storm[1] && !info.storm[1]) {
+    showNote("Your courtyard is clear: the storm is beaten off.", 4000);
+    logMoment("You beat the enemy's storm off");
+  }
+  // The garrisons.
+  if (prev.garrison[1] > 0 && info.garrison[1] === 0) logMoment("Your garrison fell", true);
+  if (prev.garrison[0] > 0 && info.garrison[0] === 0) logMoment("The enemy garrison fell");
+  // Masons starting on damage.
+  const mine = info.masons[1], theirs = info.masons[0];
+  if (mine.job && !prev.masons[1].job) logMoment(`Your masons began rebuilding ${mine.job}`);
+  if (theirs.job && !prev.masons[0].job) {
+    if (info.tick - lastEnemyMasonNote > 40 * 60) {
+      lastEnemyMasonNote = info.tick;
+      showNote(`Enemy masons are rebuilding ${theirs.job}: shoot them to keep it open.`, 5000);
+    }
+    logMoment(`Enemy masons began rebuilding ${theirs.job}`, true);
+  }
+  if (mine.up && mine.hold === 1 && prev.masons[1].hold !== 1 && info.tick - lastGoldNote > 30 * 60) {
+    lastGoldNote = info.tick;
+    showNote("Your masons are waiting for gold.", 3500);
+  }
+  if (info.suddenDeath && !prev.suddenDeath) {
+    showNote("Sudden death: income doubles and every gun reloads faster.", 6000);
+    logMoment("Sudden death");
+    sound.suddenDeath();
+  }
+}
+let lastEnemyMasonNote = -1e9;
+let lastGoldNote = -1e9;
+
+/** How a match ended, in a few words and in a sentence. */
+function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: string } {
+  if (r.winner === -1) return { short: "A draw", long: r.reason === "storm" ? "Both courtyards fell together." : "Both banners came down together." };
+  const won = r.winner === 1;
+  if (r.reason === "surrender") return won ? { short: "The enemy surrendered", long: "The enemy surrendered." } : { short: "You surrendered", long: "You gave up the match." };
+  if (r.reason === "storm") return won ? { short: "The enemy courtyard is yours", long: "Your men held the enemy courtyard." } : { short: "Your courtyard has fallen", long: "The enemy held your courtyard." };
+  return won ? { short: "The enemy keep has fallen", long: "The enemy keep's banner is on the ground." } : { short: "Your keep has fallen", long: "Your keep's banner is on the ground." };
 }
 
 function showEnd() {
@@ -1099,15 +1332,42 @@ function showEnd() {
   if (!info || !info.result || mode !== "versus") return;
   const r = info.result;
   $("end-title").textContent = r.winner === 1 ? "Victory" : r.winner === 0 ? "Defeat" : "Draw";
-  $("end-line").textContent = r.winner === 1 ? "The enemy keep's banner is on the ground." : r.winner === 0 ? "Your keep's banner is on the ground." : "Both banners came down together.";
-  $("end-time").textContent = clockText(r.tick);
-  const mas = info.masonry;
-  const pieces = (n: number) => `${n} ${n === 1 ? "piece" : "pieces"}`;
-  $("end-enemy").textContent = mas ? pieces(mas[0]) : "";
-  $("end-yours").textContent = mas ? pieces(mas[1]) : "";
-  $("end-shots").textContent = `${info.shots[1]}`;
-  $("end-lost").textContent = `${info.fallen[1]}`;
-  $("end-downed").textContent = `${info.fallen[0]}`;
+  $("end-line").textContent = `${endLine(r).long} ${clockText(r.tick)} on the clock.`;
+  const mas = info.masonry ?? info.down;
+  const st = info.stats;
+  const rows: Array<[string, string | number, string | number]> = [
+    ["Masonry lost", mas ? mas[1] : "", mas ? mas[0] : ""],
+    ["Stones rebuilt", st ? st[1].stonesRebuilt : "", st ? st[0].stonesRebuilt : ""],
+    ["Gold earned", st ? st[1].goldEarned : "", st ? st[0].goldEarned : ""],
+    ["Gold on repairs", st ? st[1].goldSpent : "", st ? st[0].goldSpent : ""],
+    ["Pikemen lost", info.fallen[1], info.fallen[0]],
+    ["Waves sent", info.waves[1], info.waves[0]],
+    ["Ladders raised", st ? st[1].laddersRaised : "", st ? st[0].laddersRaised : ""],
+    ["Storms begun", st ? st[1].stormsBegun : "", st ? st[0].stormsBegun : ""],
+    ["Shots fired", info.shots[1], info.shots[0]],
+  ];
+  const table = $("end-table");
+  table.textContent = "";
+  for (const [label, you, them] of rows) {
+    const tr = document.createElement("tr");
+    for (const v of [label, you, them]) {
+      const td = document.createElement("td");
+      td.textContent = String(v);
+      tr.appendChild(td);
+    }
+    table.appendChild(tr);
+  }
+  const log = $("end-log");
+  log.textContent = "";
+  log.hidden = matchLog.length === 0;
+  for (const m of matchLog) {
+    const li = document.createElement("li");
+    if (m.bad) li.className = "bad";
+    const b = document.createElement("b");
+    b.textContent = clockText(m.tick);
+    li.append(b, m.text);
+    log.appendChild(li);
+  }
   $("end").hidden = false;
   document.exitPointerLock?.();
 }
@@ -1287,6 +1547,7 @@ function frame(wall: number) {
   if (p.order >= 0) giveOrder(p.order);
   if (p.orderNext && matchInfo) giveOrder((matchInfo.order + 1) % 3);
   if (p.route && matchInfo) setRoute(ROUTE_NAMES[(ROUTE_NAMES.indexOf(matchInfo.route) + 1) % ROUTE_NAMES.length]);
+  if (p.repair >= 0) toggleRepair(REPAIR_KINDS[p.repair]);
   if (p.spin && EMP[current].weapon === "longGun") spin = ((spin + 1) % 5) as Spin;
   const w = WEAPONS[EMP[current].weapon];
   const fuseStep = (dir: number) => {
@@ -1448,6 +1709,22 @@ else {
   toggleNav,
   giveOrder,
   setRoute,
+  toggleRepair,
+  get matchLog() {
+    return matchLog.slice();
+  },
+  /** Upright figures [id, x, y, z, yaw, phase, team, action, act, unit] and ladders [id, team, state, foot xyz, top xyz, t] of the last frame drawn. */
+  get frame() {
+    const f = lastApplied;
+    return f ? { tick: f.tick, minions: Array.from(f.minions), ladders: Array.from(f.ladders), works: Array.from(f.works) } : null;
+  },
+  surrender() {
+    send({ t: "input", input: { kind: "surrender" } });
+  },
+  /** Test tools only: a wave of pikemen at a point. */
+  spawn(team: 0 | 1, count: number, x: number, z: number, ladder = false) {
+    send({ t: "spawn", team, count, x, z, ladder });
+  },
   toggleOverview,
   get view() {
     return view;

@@ -12,7 +12,16 @@ import { DIST } from "./field";
 import { BRIDGES, type RouteName } from "./map";
 import { ASHWRIGHT_EMPLACEMENTS, type Emplacement, type WeaponKind } from "./weapons";
 
-export type UnitKind = "pikeman";
+export type UnitKind = "pikeman" | "mason" | "ladder";
+
+/** Unit kinds as the sim numbers them (Minion.unit). */
+export const enum Unit {
+  Pikeman = 0,
+  /** Rebuilds its castle (M4): never fights. */
+  Mason = 1,
+  /** One of the two men who carry a wave's ladder; once it is up (or dropped) he fights with an axe. */
+  Ladder = 2,
+}
 
 export interface UnitDef {
   kind: UnitKind;
@@ -54,7 +63,40 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     hit: 0.3,
     knock: 3.2,
   },
+  mason: {
+    kind: "mason",
+    name: "Mason",
+    speed: 1.8,
+    speedJitter: 0.05,
+    charge: 1,
+    sight: 0,
+    reach: 0,
+    blowMin: 0,
+    blowMax: 0,
+    readyMin: 0,
+    readyMax: 0,
+    hit: 0,
+    knock: 0,
+  },
+  ladder: {
+    kind: "ladder",
+    name: "Ladder crew",
+    speed: 1.6,
+    speedJitter: 0.04,
+    charge: 1.25,
+    sight: 7,
+    reach: 1.7,
+    blowMin: 60,
+    blowMax: 95,
+    readyMin: 12,
+    readyMax: 36,
+    hit: 0.24,
+    knock: 2.8,
+  },
 };
+
+/** UNITS by the sim's unit number. */
+export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder];
 
 /** The order of routes wherever routes are numbered (fields, the HUD): the player's left, the centre road, the player's right. */
 export const ROUTE_NAMES: RouteName[] = ["left", "centre", "right"];
@@ -69,6 +111,9 @@ export const WAVES = {
   spacing: 1.3,
   /** A barracks sends only as many as keep its team at or under this many standing minions. */
   maxStanding: 96,
+  /** From its `ladderFrom`th wave on, every `ladderEvery`th wave a barracks sends carries a ladder: two of its men are the crew. */
+  ladderFrom: 2,
+  ladderEvery: 2,
 } as const;
 
 export interface Muster {

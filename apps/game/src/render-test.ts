@@ -8,17 +8,19 @@
 // URL: ?cam=overview|sight|follow|mortar &quality=low|medium|high|ultra
 //      &shot=1 (hide text) &dt=0.05 (fixed step) ; #webgl forces WebGL2.
 
-import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, MID_Z, WEAPONS, buildLayout, streamOffset } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, LADDER, MID_Z, WEAPONS, buildLayout, ladderSpots, streamOffset } from "@keepfall/content";
 import {
   CHAIN_STRIDE,
   EVENT_STRIDE,
   EventKind,
+  LADDER_STRIDE,
   MINION_PARTS,
   MINION_STRIDE,
   PART_STRIDE,
   PROJECTILE_STRIDE,
   ProjectileKind,
   TERRAIN_GRID,
+  WORKS_STRIDE,
   type FrameData,
   type TerrainPatch,
 } from "@keepfall/sim";
@@ -54,6 +56,13 @@ const chains = new Float32Array(8 * CHAIN_STRIDE);
 const minions = new Float32Array(32 * MINION_STRIDE);
 const parts = new Float32Array(2 * MINION_PARTS.length * PART_STRIDE);
 const events = new Float32Array(32 * EVENT_STRIDE);
+// M4: ladders and the masons' work, staged at the target castle's front wall.
+const ladders = new Float32Array(4 * LADDER_STRIDE);
+const works = new Float32Array(1 * WORKS_STRIDE);
+const spots = ladderSpots().filter((sp) => sp.castle === 0);
+/** A front wall stone left of the gate, about 4 m up: the masons put it back again and again (the renderer animates it each time). */
+const laidStone = layout.stones.find((st) => st.castle === 0 && st.part === "wall" && st.course === 8 && Math.abs(st.z + 15) < 0.5 && st.x < -5 && st.x > -7.5)!;
+let lastLaid = -10;
 
 function arc(x0: number, y0: number, z0: number, vx: number, vy: number, vz: number, t: number): [number, number, number, number, number, number] {
   return [x0 + vx * t, y0 + vy * t - 0.5 * G * t * t, z0 + vz * t, vx, vy - G * t, vz];
@@ -204,6 +213,43 @@ function buildFrame(dt: number): FrameData {
     nm++;
   });
 
+  // M4: a ladder planted in the crenel at x = 8.1 with two men climbing it, a crew raising another at 4.5,
+  // a crew carrying a third towards the wall, and two masons at work inside behind a hoist.
+  let nl = 0;
+  const putLadder = (id: number, team: number, state: number, f: number[], top: number[], k: number) => {
+    ladders.set([id, team, state, f[0], f[1], f[2], top[0], top[1], top[2], k], nl * LADDER_STRIDE);
+    nl++;
+  };
+  const sp = spots[3], sp2 = spots[2];
+  putLadder(0, 1, 2, [sp.x, 0, sp.footZ], [sp.x, sp.topY, sp.topZ], 1);
+  for (const [k, d] of [[0, 2.6], [1, 5.4]] as const) {
+    const u = d / LADDER.length;
+    minions.set([40 + k, sp.x, sp.topY * u, sp.footZ + (sp.topZ - sp.footZ) * u - 0.22, 0, (t * 0.7 + k * 0.5) % 1, 1, 6, 0, 0], nm * MINION_STRIDE);
+    nm++;
+  }
+  // Raising: the top swings up from behind the foot.
+  const rk = (t % 4) / 4;
+  const lean = Math.atan2(sp2.topY, sp2.topZ - sp2.footZ);
+  const th = (Math.PI - lean) * (rk * rk * (3 - 2 * rk));
+  putLadder(1, 1, 1, [sp2.x, 0, sp2.footZ], [sp2.x, LADDER.length * Math.sin(th), sp2.footZ - LADDER.length * Math.cos(th)], rk);
+  minions.set([42, sp2.x, 0, sp2.footZ - 0.5, 0, 0, 1, 7, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  minions.set([43, sp2.x + 0.9, 0, sp2.footZ - 0.9, 0, 0, 1, 7, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  // Carrying: two men 3.6 m apart walking at the wall.
+  const cz = -27 + ((t * 1.3) % 5);
+  minions.set([44, 12, 0, cz, 0, (t * 0.95) % 1, 1, 5, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  minions.set([45, 12, 0, cz - 3.6, 0, (t * 0.95 + 0.5) % 1, 1, 5, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  putLadder(2, 1, 0, [12, 1.52, cz - 1.8 - 4.5], [12, 1.52, cz - 1.8 + 4.5], 0);
+  // Masons inside the gate's west side, under a hoist, mallets going.
+  for (const [k, x] of [[0, -6.6], [1, -5.5]] as const) {
+    minions.set([46 + k, x, 0, -12.6, Math.PI, 0, 0, 4, (t * 60 + k * 17) % 45, 1], nm * MINION_STRIDE);
+    nm++;
+  }
+  works.set([0, laidStone.x, laidStone.y, laidStone.z, -6, -12.6, laidStone.id, 2], 0);
+
   // Events.
   let ne = 0;
   const ev = (k: number, a: number, b: number, c2: number, d: number) => {
@@ -235,6 +281,10 @@ function buildFrame(dt: number): FrameData {
     // Against the target castle's front wall (blood on stone).
     ev(EventKind.Blood, -6, 1.3, -16.6, 0.7);
   }
+  if (t - lastLaid > 2.5) {
+    lastLaid = t;
+    ev(EventKind.Laid, laidStone.id, 0, -1000, 0);
+  }
   return {
     tick: Math.round(t * 60),
     stones: wobble(),
@@ -250,6 +300,10 @@ function buildFrame(dt: number): FrameData {
     settled: new Float32Array(0),
     settledCount: 0,
     gone: new Int32Array(0),
+    ladders: ladders.slice(0, nl * LADDER_STRIDE),
+    ladderCount: nl,
+    works: works.slice(),
+    worksCount: 1,
     events,
     eventCount: ne,
     terrain,
@@ -300,6 +354,8 @@ async function main() {
     const o = (r as unknown as { scene: { getObjectByName(n: string): { visible: boolean } | undefined } }).scene.getObjectByName(name);
     if (o) o.visible = false;
   }
+  // A storm two thirds of the way through on the target castle's courtyard.
+  r.setStorm(0, 0.65, true);
   r.setQuality(quality);
   r.setGore(gore);
   r.resize();
