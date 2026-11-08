@@ -346,7 +346,8 @@ export class NavGrid {
       const was = this.state[id];
       if (now === was || id === banners[0] || id === banners[1]) continue;
       this.state[id] = now;
-      if (was === PieceState.Standing) this.markStanding(id);
+      // A piece that leaves its place, or (masons) comes back to it, changes the cells it stands on.
+      if (was === PieceState.Standing || now === PieceState.Standing) this.markStanding(id);
       if (was === PieceState.Settled) this.removeSettled(id);
       if (now === PieceState.Settled) this.addSettled(id);
     }

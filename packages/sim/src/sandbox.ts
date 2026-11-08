@@ -14,21 +14,25 @@ import {
   CHAIN_STRIDE,
   EVENT_STRIDE,
   EventKind,
+  LADDER_STRIDE,
   MINION_STRIDE,
   PART_STRIDE,
   PROJECTILE_STRIDE,
   ProjectileKind,
   STONE_STRIDE,
+  WORKS_STRIDE,
   type FrameData,
   type TerrainPatch,
 } from "./frame";
+import { Ladders } from "./ladders";
 import { Minions, MinionState } from "./minions";
 import { NavGrid } from "./nav";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
+import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 7;
+export const RULES_VERSION = 8;
 
 export const enum Spin {
   None = 0,
@@ -97,6 +101,10 @@ export class SandboxSim {
   readonly nav: NavGrid;
   /** Waves of pikemen with their flow fields (matches only). */
   readonly army: Army | null;
+  /** Ladders carried, raised and climbed (matches only). */
+  readonly ladders: Ladders | null;
+  /** Each castle's masons and what they rebuild (matches only). */
+  readonly works: Works | null;
   readonly emplacements: Emplacement[];
   tick = 0;
   /** Ticks until each emplacement can fire again. */
@@ -116,6 +124,8 @@ export class SandboxSim {
     minions: new Float32Array(320 * MINION_STRIDE),
     parts: new Float32Array(256 * 11 * PART_STRIDE),
     settled: new Float32Array(64 * 11 * PART_STRIDE),
+    ladders: new Float32Array(32 * LADDER_STRIDE),
+    works: new Float32Array(4 * WORKS_STRIDE),
   };
   /** Whether the shot being fired now is an unmanned one (its Shot records it). */
   private firingAuto = false;
@@ -137,7 +147,14 @@ export class SandboxSim {
     this.scatterRng = this.rng.fork("scatter");
     this.nav = new NavGrid(this.castle, this.terrain);
     this.minions.nav = this.nav;
-    this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, (k, a, b, c, d) => this.event(k, a, b, c, d)) : null;
+    const emit = (k: EventKind, a: number, b: number, c: number, d: number) => this.event(k, a, b, c, d);
+    this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, emit) : null;
+    this.ladders = this.army ? new Ladders(R, this.castle.world, this.castle, this.terrain, this.minions, emit) : null;
+    this.works = this.army ? new Works(this.minions, this.castle, this.terrain, this.army, emit) : null;
+    if (this.army && this.ladders) {
+      this.army.ladders = this.ladders;
+      this.ladders.army = this.army;
+    }
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -165,6 +182,8 @@ export class SandboxSim {
     this.applyFlight();
     this.minions.walk(tick);
     this.army?.step(tick);
+    this.ladders?.step(tick);
+    this.works?.step(tick);
     this.terrain.rebuild();
     this.castle.step();
     this.afterStep();
@@ -308,9 +327,13 @@ export class SandboxSim {
     // Balls that touched minions: knock them down and keep most of the momentum.
     for (const [bi, handle] of castle.foreign) {
       const mid = this.minions.of(handle);
-      if (mid === undefined) continue;
       const ball = castle.balls[bi];
-      if (!ball) continue;
+      if (mid === undefined) {
+        // A ladder against a wall: a shot knocks it off (a ball that left the world this step is gone).
+        if (ball && ball.alive && this.ladders && this.ladders.isLadder(handle)) this.ladders.hitByBall(handle, ball.vx, ball.vy, ball.vz, ball.body.mass(), this.tick);
+        continue;
+      }
+      if (!ball || !ball.alive) continue;
       const speed2 = ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz;
       if (speed2 < 16) continue;
       const mass = ball.body.mass();
@@ -323,7 +346,13 @@ export class SandboxSim {
     // Falling stones on minions.
     for (const [stoneId, handle] of castle.foreignStones) {
       const mid = this.minions.of(handle);
-      if (mid === undefined) continue;
+      if (mid === undefined) {
+        if (this.ladders && this.ladders.isLadder(handle)) {
+          const lv = castle.bodies[stoneId].linvel();
+          this.ladders.hitByStone(handle, lv.x, lv.y, lv.z, this.tick);
+        }
+        continue;
+      }
       const v = castle.bodies[stoneId].linvel();
       const s2 = v.x * v.x + v.y * v.y + v.z * v.z;
       if (s2 < 6) continue;
@@ -385,6 +414,7 @@ export class SandboxSim {
     const E = burst;
     this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift);
     this.event(EventKind.Explosion, x, y, z, E.radius);
+    this.ladders?.blast(x, y, z, E.knock * 0.5, this.tick);
     for (const n of this.minions.near(x, y, z, E.knock)) {
       const d = n.d + 0.3;
       const f = E.knockSpeed * (1 - n.d / E.knock);
@@ -432,6 +462,8 @@ export class SandboxSim {
     const partCount = this.minions.collectParts(b.parts);
     const settledCount = this.minions.collectSettled(b.settled);
     const gone = Int32Array.from(this.minions.collectGone());
+    const ladderCount = this.ladders ? this.ladders.collect(b.ladders) : 0;
+    const worksCount = this.works ? this.works.collect(b.works) : 0;
     const terrain: TerrainPatch[] = this.terrain.patches;
     this.terrain.patches = [];
     const events = new Float32Array(this.events);
@@ -451,6 +483,10 @@ export class SandboxSim {
       settled: b.settled.slice(0, settledCount * PART_STRIDE),
       settledCount,
       gone,
+      ladders: b.ladders.slice(0, ladderCount * LADDER_STRIDE),
+      ladderCount,
+      works: b.works.slice(0, worksCount * WORKS_STRIDE),
+      worksCount,
       events,
       eventCount: events.length / EVENT_STRIDE,
       terrain,
@@ -472,6 +508,8 @@ export class SandboxSim {
     const extra: number[] = [this.tick, this.wind.x, this.wind.z, ...this.reload];
     this.minions.hashInto(extra);
     this.army?.hashInto(extra);
+    this.ladders?.hashInto(extra);
+    this.works?.hashInto(extra);
     for (const s of this.shots) {
       extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);
       for (const slot of s.slots) {

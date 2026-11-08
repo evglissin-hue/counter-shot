@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { buildLayout, GAME_LAYOUT, MATCH, ROUTE_NAMES, WAVES } from "@keepfall/content";
-import { MinionState, Order, Spin, type Rapier } from "@keepfall/sim";
+import { MinionState, Order, Role, Spin, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_HASH, runMatchSession, runWaveMatch, Team, WAVE_MATCH_HASH } from "@keepfall/rules";
 
 await RD.init();
@@ -41,7 +41,10 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.ok(a.result.tick > 760 && a.result.tick < 1400, `won at tick ${a.result.tick}, after the second shell`);
   assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
-  assert.deepEqual(a.gold, [MATCH.startGold + incomeTicks * MATCH.keepIncome, MATCH.startGold + incomeTicks * MATCH.keepIncome], "gold stops at the end");
+  const income = incomeTicks * MATCH.keepIncome;
+  assert.deepEqual(a.earned, [income, income], "income stops at the end");
+  assert.deepEqual([a.gold[0] + a.spent[0], a.gold[1] + a.spent[1]], [MATCH.startGold + income, MATCH.startGold + income], "what was not earned was not spent");
+  assert.ok(a.spent[0] > 0, `the enemy's masons spent ${a.spent[0]} gold on its keep`);
   assert.deepEqual(a.hash, MATCH_HASH);
 });
 
@@ -54,7 +57,7 @@ test("barracks send a wave every 25 seconds down each team's route; orders and r
   assert.deepEqual(m.waves, [1, 1]);
   assert.equal(m.manned[0], -1, "the enemy cannot ride the player's gun");
   assert.equal(m.army.order[1], Order.Hold);
-  const player = m.world.minions.list.filter((x) => x.team === Team.Player && x.wave >= 0);
+  const player = m.world.minions.list.filter((x) => x.team === Team.Player && x.wave >= 0 && x.role === Role.March);
   assert.equal(player.length, WAVES.size);
   for (const x of player) assert.equal(ROUTE_NAMES[x.route], "right");
   assert.equal(m.nextWaveIn(), WAVES.every - 1);
@@ -85,7 +88,7 @@ test("unmanned guns thin a wave on its way in, but most of it reaches the gate (
   let reached = 0;
   for (let i = 0; i < 40 * 60 && !reached; i++) {
     m.step();
-    const up = m.world.minions.list.filter((x) => x.team === Team.Enemy && x.state === MinionState.Upright);
+    const up = m.world.minions.list.filter((x) => x.team === Team.Enemy && x.state === MinionState.Upright && x.role === Role.March);
     if (up.some((x) => x.action === 3)) reached = up.length;
   }
   assert.ok(m.autoShots[Team.Player] >= 3, `${m.autoShots[Team.Player]} unmanned shots`);

@@ -16,6 +16,7 @@ import { Decals } from "./decals";
 import { Effects } from "./effects";
 import { Flags } from "./flags";
 import { Guns } from "./guns";
+import { Ladders } from "./ladders";
 import { Markers } from "./markers";
 import { Minions } from "./minions";
 import { NavOverlay } from "./navOverlay";
@@ -27,9 +28,11 @@ import { Shock } from "./shock";
 import { fitShadowCamera, makeSoftShadowFilter } from "./shadows";
 import { Sky } from "./sky";
 import { SHADOW_LAYER, StoneSet } from "./stones";
+import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
+import { Works } from "./works";
 
 export type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
 
@@ -62,6 +65,12 @@ export class GameRenderer implements GameRendererApi {
   private guns: Guns;
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
+  /** Ladders carried, raised and fallen (M4). */
+  private ladders = new Ladders();
+  /** Masons' hoists and the stones they put back (M4; built with the layout). */
+  private works: Works | null = null;
+  /** The ring on a courtyard being stormed (M4). */
+  private storm = new Storm();
   private decals: Decals;
   private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
   private shock: Shock;
@@ -177,6 +186,12 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.blastRing);
     this.scene.add(this.navOverlay.mesh);
     this.scene.add(this.markers.root);
+    this.scene.add(this.ladders.root, this.storm.root);
+  }
+
+  /** How far a courtyard's storm has gone (0..1, castle 0 the enemy's) and whether its attackers outnumber its defenders now. */
+  setStorm(castle: number, progress: number, holding: boolean): void {
+    this.storm.set(castle, progress, holding);
   }
 
   /** Show the first n emplacements' guns (a match has the enemy's too). */
@@ -249,6 +264,12 @@ export class GameRenderer implements GameRendererApi {
     this.flags.setStyle(STYLE);
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
+    if (this.works) {
+      this.scene.remove(this.works.root);
+      this.works.dispose();
+    }
+    this.works = new Works(layout);
+    this.scene.add(this.works.root);
   }
 
   setQuality(tier: QualityTier): void {
@@ -275,6 +296,8 @@ export class GameRenderer implements GameRendererApi {
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
     this.minions.update(frame);
+    this.ladders.update(frame.ladders, frame.ladderCount);
+    this.works?.update(frame.works, frame.worksCount);
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
@@ -288,6 +311,8 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Explosion) this.spawnExplosion(x, y, z, v);
       else if (kind === EventKind.Muzzle) this.spawnMuzzle(x | 0);
       else if (kind === EventKind.Blood) this.spawnBlood(x, y, z, v);
+      else if (kind === EventKind.Laid) this.works?.laid(x | 0, this.now, y, z, v);
+      else if (kind === EventKind.Cleared) this.works?.cleared(y, z, v);
       // EventKind.Landed: the page handles the landing marker.
     }
   }
@@ -311,6 +336,9 @@ export class GameRenderer implements GameRendererApi {
     this.terrain.resetHeights();
     this.decals.clear();
     this.minions.clear();
+    this.ladders.clear();
+    this.works?.clear();
+    this.storm.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
   }
@@ -706,9 +734,17 @@ export class GameRenderer implements GameRendererApi {
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
     if (this.stones) {
+      // Stones the masons are putting back: on their way up the hoist and into place.
+      if (this.works) {
+        this.works.animate(this.now, this.stones);
+        const p = this.works.puffs;
+        for (let k = 0; k + 3 < p.length; k += 4) this.bursts.dust.spawn(this.now, p[k], p[k + 1], p[k + 2], p[k + 3], 0, 0.6, 0);
+        p.length = 0;
+      }
       this.stones.flush();
       this.flags?.update(this.stones, dt);
     }
+    this.storm.update(real, this.now);
     this.terrain.flush();
     this.guns.update(dt);
     // Flash light decays fast.
@@ -788,6 +824,9 @@ export class GameRenderer implements GameRendererApi {
     this.minions.dispose();
     this.guns.dispose();
     this.markers.dispose();
+    this.ladders.dispose();
+    this.works?.dispose();
+    this.storm.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();

@@ -20,11 +20,30 @@ export const PROJECTILE_STRIDE = 9;
 export const CHAIN_STRIDE = 6;
 
 /**
- * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act].
+ * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act, unit].
  * Feet at y. Action (army.ts): 0 walking, 1 standing, 2 fighting, 3
- * battering a gate; act counts ticks since its last blow began.
+ * battering a gate, 4 a mason at work, 5 carrying a ladder, 6 climbing
+ * (a ladder or the rope inside), 7 raising a ladder; act counts ticks since
+ * its last blow (or mallet stroke) began. Unit is content's Unit (0 pikeman,
+ * 1 mason, 2 ladder crew).
  */
-export const MINION_STRIDE = 9;
+export const MINION_STRIDE = 10;
+
+/**
+ * Ladders: [id, team, state, footX, footY, footZ, topX, topY, topZ, t].
+ * State (ladders.ts LadderState): 0 carried, 1 being raised (t: 0..1), 2
+ * planted against a wall, 3 down (knocked off a wall or dropped: its ends as
+ * its body lies). t is the share raised, or for a planted ladder 1 once a
+ * rope hangs down inside.
+ */
+export const LADDER_STRIDE = 10;
+
+/**
+ * Repairs under way, one per castle at work: [castle, slotX, slotY, slotZ,
+ * workX, workZ, stoneId, masonsAtWork]. The slot is where the next stone
+ * goes; the work spot is where its masons stand (the hoist's foot).
+ */
+export const WORKS_STRIDE = 8;
 
 /** Ragdoll parts: [minionId, part, x, y, z, qx, qy, qz, qw]. Part shapes are in MINION_PARTS. */
 export const PART_STRIDE = 9;
@@ -35,6 +54,12 @@ export const enum EventKind {
   Muzzle = 2, // [kind, emplacement, shot id, unmanned (1) or not (0), 0]
   Blood = 3, // [kind, x, y, z, strength]: cosmetic, the renderer may ignore it
   Landed = 4, // [kind, emplacement, x, y, z]: first touch of a shot, for the landing marker; emplacement is -(id + 1) for an unmanned shot
+  /** [kind, stone id, x, y, z]: masons put a piece back at its place (x, y, z is where its body was; y < -100 if it had turned to dust). */
+  Laid = 5,
+  /** [kind, stone id, x, y, z]: masons carried a piece of rubble out of the way (it leaves the world). */
+  Cleared = 6,
+  /** [kind, ladder id, state, x, z]: a ladder was raised against a wall (state 2) or came down (state 3); x, z is its foot. */
+  Ladder = 7,
 }
 export const EVENT_STRIDE = 5;
 
@@ -70,6 +95,12 @@ export interface FrameData {
   settledCount: number;
   /** Minions whose bodies left the world (sank into the ground). */
   gone: Int32Array;
+  /** Every ladder on the field (LADDER_STRIDE each). */
+  ladders: Float32Array;
+  ladderCount: number;
+  /** Repairs under way (WORKS_STRIDE each). */
+  works: Float32Array;
+  worksCount: number;
   events: Float32Array;
   eventCount: number;
   terrain: TerrainPatch[];

@@ -113,6 +113,31 @@ export interface Minion {
   act: number;
   /** Ticks spent sinking. */
   sunk: number;
+  /** What it is (content's Unit: pikeman, mason, ladder crew) and its part in the army (Role). */
+  unit: number;
+  role: number;
+  /** A step of whatever it is doing for its role (masons: Works; climbers: Ladders), a point it is making for, and a number that step needs (a ladder, metres climbed). */
+  task: number;
+  tx: number;
+  tz: number;
+  aux: number;
+  /** Which castle it belongs to inside (garrison, masons) and its post or place in its crew. */
+  home: number;
+  post: number;
+  /** Metres along the step of a climb it is on (ladders.ts). */
+  climb: number;
+}
+
+/** A minion's part in the army (Minion.role). */
+export const enum Role {
+  /** Marches with its wave on the enemy (the default). */
+  March = 0,
+  /** Stays in its own courtyard and fights whoever gets in. */
+  Garrison = 1,
+  /** A wave mustered inside a courtyard under attack: defends it until it is clear, then marches. */
+  Defend = 2,
+  /** One of a castle's masons (works.ts). */
+  Mason = 3,
 }
 
 export interface Knock {
@@ -172,6 +197,7 @@ export class Minions {
     const m: Minion = {
       id: this.list.length, team, state: MinionState.Upright, x, z, yaw: 0, phase: 0, ax, az, bx, bz, toB, capsule: body, parts: [], rest: 0, fellAt: -1,
       y, wave: -1, route: 1, speed: WALK, vx: 0, vz: 0, target: -1, cool: 0, calmUntil: 0, action: 0, act: 0, sunk: 0,
+      unit: 0, role: Role.March, task: 0, tx: x, tz: z, aux: -1, home: -1, post: -1, climb: 0,
     };
     this.byHandle.set(col.handle, m.id);
     this.list.push(m);
@@ -427,9 +453,25 @@ export class Minions {
       out[o + 6] = m.team;
       out[o + 7] = m.action;
       out[o + 8] = m.act;
+      out[o + 9] = m.unit;
       n++;
     }
     return n;
+  }
+
+  /**
+   * Masons carry a fallen body out of the way: it sinks into the ground and
+   * leaves the world, as the oldest do past the cap. Only frozen bodies.
+   */
+  bury(id: number): boolean {
+    const m = this.list[id];
+    if (!m || m.state !== MinionState.Frozen) return false;
+    m.state = MinionState.Sinking;
+    m.sunk = 0;
+    this.bodies--;
+    this.nav?.removeBody(m.id);
+    this.sinking.push(m.id);
+    return true;
   }
 
   /** Parts of every moving body (ragdolls, and frozen bodies sinking): [minionId, part, x, y, z, qx, qy, qz, qw]. Returns the count. */
@@ -493,7 +535,7 @@ export class Minions {
   hashInto(out: number[]) {
     for (const m of this.list) {
       out.push(m.state, m.x, m.z, m.yaw);
-      if (m.wave >= 0) out.push(m.y, m.target, m.cool, m.action, m.speed, m.vx, m.vz);
+      if (m.wave >= 0) out.push(m.y, m.target, m.cool, m.action, m.speed, m.vx, m.vz, m.unit, m.role, m.task, m.tx, m.tz, m.aux, m.post, m.climb);
       for (const b of m.parts) {
         const t = b.translation();
         const r = b.rotation();

@@ -50,6 +50,11 @@ A browser game where two castles face each other across a field. You fire siege 
 | Key aiming | The owner found key aiming too sharp. Keys now have weight per gun: the gun gathers speed while a key is held (up to about half its top turning speed, a third for the swivel) and coasts to a stop; a tap is a fine correction. The mouse and sticks are unchanged. |
 | Mortar reload | The owner found the mortar a bit strong: it reloads in 12 s (was 6). Reloads: long gun 4 s, mortar 12 s, chain shot 5 s, swivel 2 s. |
 | M2 shipped | The owner's go on November 8: `main` holds phase 2 up to M2. M3 starts in a new session. |
+| M4 before M3 | The owner picked M4 (repairs and storming) next, with the focus on how it plays, looks and sounds; M3 is built in parallel by another session, and a third session polishes the look, sound and interface. Until M3, repairs are the only thing gold buys. |
+| Repairs (M4) | Four masons per castle, real figures who can be shot; they rebuild the lowest gap first, carry rubble and bodies out of the way, pay per stone (walls and towers 1, keep 2, a keep floor 10, a gate leaf 25), and run from enemy pikemen. Switches per kind of section (Gate, Walls, Towers, Keep: Alt+1 to 4), all on to start. The enemy repairs everything until the AI. |
+| Storming (M4) | A garrison of four in each courtyard, topped up by the barracks; a barracks under attack musters its wave inside. Attackers inside who outnumber the defenders (at least two) for 20 s storm it; the meter holds while they do not and drains when they are gone. |
+| Ladders (M4) | Every other wave from the second carries a ladder; crews plant it in a crenel of an intact front wall; the wave climbs while the gate stands and there is no breach. A planted ladder is a physics body: shots, falling stones and bursts knock it off, with whoever is on it. |
+| Match length | The owner: matches of 10 minutes or longer are welcome as long as time is not stretched for its own sake. Repairs make a siege attrition against the defender's gold and masons; the target stays 10 to 15 minutes, with sudden death at 15:00. |
 
 ## Race proposals (for review)
 
