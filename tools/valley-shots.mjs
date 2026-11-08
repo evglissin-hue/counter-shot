@@ -17,9 +17,12 @@ mkdirSync(out, { recursive: true });
 const args = process.argv.slice(2);
 const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `--${k}=${d}`).split("=")[1];
 const quality = opt("quality", "low");
+/** Scene objects to hide by name (comma separated), to see what draws what. */
+const hide = opt("hide", "");
 const tag = opt("tag", quality);
 const only = args.filter((a) => !a.startsWith("--"));
-const port = Number(process.env.PORT ?? 5298); // PORT overrides it, so two checkouts can run at once
+/** The dev server's port (PORT in the environment overrides it). */
+const port = Number(process.env.PORT) || 5298;
 
 /** name: [eye x, y, z, target x, y, z] (metres; the player's castle is at z = -150, the enemy's at 0). */
 const VIEWS = {
@@ -35,6 +38,12 @@ const VIEWS = {
   // The render test's staged pikemen: two pairs fighting, three battering the target gate.
   fight: [-0.5, 2.4, -36.5, -4.6, 1.1, -31],
   gate: [5, 3.2, -22, 0, 1.6, -16],
+  // The render test's shots and stones into the stream by the centre bridge (splashes).
+  splash: [4, 5, -86, 14, -0.6, -75],
+  // M4 staged on the render test page: ladders at the target wall, masons at a hoist inside it, a storm ring.
+  ladders: [17, 5.5, -31, 6.5, 4, -18],
+  masons: [-3.4, 2.7, -9.4, -6.0, 1.3, -13.0],
+  storm: [16, 34, -34, 0, 0, -6.5],
   // M3, staged by the render test: musketeers aiming and jabbing, sappers with kegs, a keg burning at the target wall,
   // and the target castle's plots (a barracks, a Foundry, a Powder Mill rising and one standing, two empty).
   muskets: [-14.5, 2.2, -43, -8, 1.2, -35],
@@ -64,7 +73,7 @@ try {
   const t0 = Date.now();
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto(`http://127.0.0.1:${port}/render-test.html?quality=${quality}&shot=1&dt=0.05#webgl`, { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${port}/render-test.html?quality=${quality}&shot=1&dt=0.05${hide ? `&hide=${hide}` : ""}#webgl`, { waitUntil: "load" });
       await page.waitForFunction(() => window.__test && window.__test.state.frames > 2, null, { timeout: 600000, polling: 200 });
       break;
     } catch (e) {
@@ -92,7 +101,7 @@ try {
     }, v);
     await frames(4);
     await sleep(300);
-    await page.screenshot({ path: `${out}valley-${tag}-${name}.png` });
+    await page.screenshot({ path: `${out}valley-${tag}-${name}.png`, timeout: 300000 });
     const s = await page.evaluate(() => window.__test.r.getStats());
     console.log(`valley-${tag}-${name}: ${s.drawCalls} draws, ${s.triangles} triangles`);
   }

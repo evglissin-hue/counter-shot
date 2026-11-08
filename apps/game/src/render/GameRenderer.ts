@@ -9,6 +9,7 @@ import * as THREE from "three/webgpu";
 import { float, uniform } from "three/tsl";
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
+import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
@@ -17,6 +18,7 @@ import { Effects } from "./effects";
 import { EstateView } from "./estate";
 import { Flags } from "./flags";
 import { Guns } from "./guns";
+import { Ladders } from "./ladders";
 import { Markers } from "./markers";
 import { Minions } from "./minions";
 import { NavOverlay } from "./navOverlay";
@@ -25,12 +27,16 @@ import { Post, TIERS } from "./post";
 import { Projectiles } from "./projectiles";
 import { Scatter } from "./scatter";
 import { Shock } from "./shock";
+import { Marks } from "./marks";
+import { Splashes } from "./splashes";
 import { fitShadowCamera, makeSoftShadowFilter } from "./shadows";
 import { Sky } from "./sky";
 import { SHADOW_LAYER, StoneSet } from "./stones";
+import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
+import { Works } from "./works";
 
 export type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
 
@@ -63,6 +69,12 @@ export class GameRenderer implements GameRendererApi {
   private guns: Guns;
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
+  /** Ladders carried, raised and fallen (M4). */
+  private ladders = new Ladders();
+  /** Masons' hoists and the stones they put back (M4; built with the layout). */
+  private works: Works | null = null;
+  /** The ring on a courtyard being stormed (M4). */
+  private storm = new Storm();
   private decals: Decals;
   private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark", Burst>;
   /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
@@ -70,6 +82,10 @@ export class GameRenderer implements GameRendererApi {
   private raising = new Map<number, number>();
   private raiseBuf = new Float32Array(8);
   private shock: Shock;
+  /** Water thrown up where things fall into the stream. */
+  private splashes: Splashes;
+  /** Team marks over minions in the overview. */
+  private marks = new Marks();
   /** Slow motion for everything cosmetic (the camera keeps real time). */
   private timeScale = 1;
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (the page sets it). */
@@ -180,12 +196,20 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.estate.root);
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
+    this.splashes = new Splashes(this.time, this.wind, this.sky.sunDir, this.noise, this.clear, glow);
+    this.scene.add(this.splashes.root, this.marks.mesh);
     this.marker = this.buildMarker();
     this.scene.add(this.marker);
     this.blastRing = this.buildBlastRing();
     this.scene.add(this.blastRing);
     this.scene.add(this.navOverlay.mesh);
     this.scene.add(this.markers.root);
+    this.scene.add(this.ladders.root, this.storm.root);
+  }
+
+  /** How far a courtyard's storm has gone (0..1, castle 0 the enemy's) and whether its attackers outnumber its defenders now. */
+  setStorm(castle: number, progress: number, holding: boolean): void {
+    this.storm.set(castle, progress, holding);
   }
 
   /** Show the first n emplacements' guns (a match has the enemy's too). */
@@ -277,6 +301,12 @@ export class GameRenderer implements GameRendererApi {
     this.flags.setStyle(STYLE);
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
+    if (this.works) {
+      this.scene.remove(this.works.root);
+      this.works.dispose();
+    }
+    this.works = new Works(layout);
+    this.scene.add(this.works.root);
   }
 
   setQuality(tier: QualityTier): void {
@@ -303,6 +333,10 @@ export class GameRenderer implements GameRendererApi {
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
     this.minions.update(frame);
+    this.marks.update(frame.minions, frame.minionCount);
+    this.splashes.bodies(this.now, frame.parts, frame.partCount, (x, z) => this.terrain.heightAt(x, z));
+    this.ladders.update(frame.ladders, frame.ladderCount);
+    this.works?.update(frame.works, frame.worksCount);
     // M3: the plots and the kegs at the walls.
     if (frame.plots && frame.plotCount) this.estate.setPlots(frame.plots, frame.plotCount);
     if (frame.kegs) this.estate.setKegs(frame.kegs, frame.kegCount);
@@ -319,6 +353,8 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Explosion) this.spawnExplosion(x, y, z, v);
       else if (kind === EventKind.Muzzle) this.spawnMuzzle(x | 0);
       else if (kind === EventKind.Blood) this.spawnBlood(x, y, z, v);
+      else if (kind === EventKind.Laid) this.works?.laid(x | 0, this.now, y, z, v);
+      else if (kind === EventKind.Cleared) this.works?.cleared(y, z, v);
       // M3: building pieces rising, rubble carried off a plot, musket shots, kegs set, buildings finished.
       else if (kind === EventKind.Raised) this.spawnRaised(x | 0, y, z, v);
       else if (kind === EventKind.Musket) this.spawnMusket(x | 0, y, z, v);
@@ -363,10 +399,19 @@ export class GameRenderer implements GameRendererApi {
 
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void {
     this.projectiles.update(proj, count, chains, chainCount);
+    this.splashes.begin();
+    this.splashes.projectiles(this.now, proj, count, (x, z) => this.terrain.heightAt(x, z));
   }
 
   setStones(data: Float32Array, count: number): void {
     this.stones?.updateBodies(data, count);
+    const L = this.layout;
+    if (L) this.splashes.stones(this.now, data, count, (id) => L.stones[id]?.hy ?? 0.3, (x, z) => this.terrain.heightAt(x, z));
+  }
+
+  /** The page's sound for a splash (something fell into the stream): where, and how big (0..1.5). */
+  set onSplash(fn: ((x: number, y: number, z: number, size: number) => void) | null) {
+    this.splashes.onSplash = fn;
   }
 
   applyTerrain(patches: TerrainPatch[]): void {
@@ -382,6 +427,11 @@ export class GameRenderer implements GameRendererApi {
     this.terrain.resetHeights();
     this.decals.clear();
     this.minions.clear();
+    this.splashes.clear();
+    this.marks.clear();
+    this.ladders.clear();
+    this.works?.clear();
+    this.storm.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
   }
@@ -418,6 +468,11 @@ export class GameRenderer implements GameRendererApi {
   }
 
   private spawnImpact(x: number, y: number, z: number, strength: number, dust = 1) {
+    // Into the stream: water, not dust and chips.
+    if (y < STREAM.level + 0.9 && Splashes.overWater(x, z, this.terrain.heightAt(x, z))) {
+      this.splashes.spawn(this.now, x, z, Math.min(1.4, 0.3 + strength * 0.6), false);
+      return;
+    }
     // Debris is thrown back towards the shooter (the player's castle).
     const cz = this.layout ? this.layout.castleZ[1] : -150;
     this.effects.bias.set(0 - x, 0, cz - z);
@@ -429,6 +484,9 @@ export class GameRenderer implements GameRendererApi {
     const r = Math.max(0.5, radius || 3);
     const g = this.terrain.heightAt(x, z);
     const nearGround = y - g < 4;
+    // A shell bursting in the stream throws up a column of water.
+    const wet = y < STREAM.level + 2.5 && Splashes.overWater(x, z, g);
+    if (wet) this.splashes.spawn(this.now, x, z, 2.6, false);
     // Two rings of chips: one thrown hard, one heavier and lower. The smoke and the ground dust
     // below carry most of the cloud, so the impact dust is thinner than a single hit's.
     this.spawnImpact(x, y, z, 2.2, 0.55);
@@ -438,7 +496,7 @@ export class GameRenderer implements GameRendererApi {
     this.bursts.fire.spawn(this.now, x, y + 0.2, z, r * 0.5, 0, 0.6, 0);
     this.bursts.smoke.spawn(this.now, x, y + 0.3, z, r * 0.5, 0, 0.5, 0);
     this.bursts.column.spawn(this.now, x, y + 1, z, r * 0.35, 0, 1, 0);
-    if (nearGround) this.bursts.skirt.spawn(this.now, x, g + 0.3, z, r * 0.3, 0, -0.5, 0);
+    if (nearGround && !wet) this.bursts.skirt.spawn(this.now, x, g + 0.3, z, r * 0.3, 0, -0.5, 0);
     this.shock.spawn(this.now, x, y, z, r, nearGround ? g : null);
     this.pulseLight(x, y + 2, z, Math.min(6, r * 1.2), 0xffa050, 5);
   }
@@ -523,6 +581,7 @@ export class GameRenderer implements GameRendererApi {
   setCamera(pose: CameraPose): void {
     this.views.setPose(pose);
     this.clear.crosshair.value = pose.mode === "sight" ? 1 : 0;
+    this.marks.mesh.visible = pose.mode === "overview";
   }
 
   setAimArc(points: Float32Array | null): void {
@@ -789,9 +848,17 @@ export class GameRenderer implements GameRendererApi {
       }
     }
     if (this.stones) {
+      // Stones the masons are putting back: on their way up the hoist and into place.
+      if (this.works) {
+        this.works.animate(this.now, this.stones);
+        const p = this.works.puffs;
+        for (let k = 0; k + 3 < p.length; k += 4) this.bursts.dust.spawn(this.now, p[k], p[k + 1], p[k + 2], p[k + 3], 0, 0.6, 0);
+        p.length = 0;
+      }
       this.stones.flush();
       this.flags?.update(this.stones, dt);
     }
+    this.storm.update(real, this.now);
     this.terrain.flush();
     this.guns.update(dt);
     // Flash light decays fast.
@@ -819,6 +886,9 @@ export class GameRenderer implements GameRendererApi {
       this.projectiles.prime(true);
       this.decals.prime(true);
       this.minions.prime(true);
+      this.ladders.prime(true);
+      this.works?.prime(true);
+      this.storm.prime(true);
     }
     post.render(this.now);
     if (priming) {
@@ -826,6 +896,9 @@ export class GameRenderer implements GameRendererApi {
       this.projectiles.prime(false);
       this.decals.prime(false);
       this.minions.prime(false);
+      this.ladders.prime(false);
+      this.works?.prime(false);
+      this.storm.prime(false);
     }
     this.lastDraw = this.renderer.info.render.drawCalls;
     this.lastTris = this.renderer.info.render.triangles;
@@ -871,10 +944,15 @@ export class GameRenderer implements GameRendererApi {
     this.minions.dispose();
     this.guns.dispose();
     this.markers.dispose();
+    this.ladders.dispose();
+    this.works?.dispose();
+    this.storm.dispose();
     this.estate.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();
+    this.splashes.dispose();
+    this.marks.dispose();
     for (const group of [this.marker, this.blastRing])
       group.traverse((o) => {
         const m = o as THREE.Mesh;

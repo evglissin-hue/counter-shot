@@ -74,6 +74,8 @@ export interface BurstConfig {
   lighting?: number;
   /** Thin out near the aim line and crosshair (readability rule 6). */
   clearAim?: boolean;
+  /** Particles below this height vanish (droplets falling back into the water). */
+  sink?: number;
 }
 
 /** The flash light of muzzles and bursts, for particles that should glow near it. */
@@ -149,7 +151,7 @@ export class Burst {
     const size: N = mix(cfg.size[0], cfg.size[1], float(1).sub(exp(t.mul(-cfg.grow)))).mul(scale).mul(mix(0.7, 1.3, r5));
     const p0: N = A.xyz.add(dir.mul(speed).mul(travel)).add(drift).add(vec3(0, -0.5 * cfg.gravity, 0).mul(t.mul(t)));
     const centre: N = cfg.floor ? vec3(p0.x, max(p0.y, size.mul(0.3)), p0.z) : p0;
-    const alive: N = t.greaterThanEqual(0.0).and(t.lessThan(life));
+    const alive: N = cfg.sink === undefined ? t.greaterThanEqual(0.0).and(t.lessThan(life)) : t.greaterThanEqual(0.0).and(t.lessThan(life)).and(p0.y.greaterThan(cfg.sink));
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
     const up: N = (cameraWorldMatrix as N).element(1).xyz;
     const qp: N = positionGeometry.xy;

@@ -90,7 +90,22 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .chips { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
 .chips button { padding: 5px 8px; font-size: 13px; }
 .chips .key { font: 11px/1 var(--mono); color: var(--ink-dim); padding: 0 4px 0 2px; align-self: center; }
-.bridges { position: absolute; left: 50%; top: calc(108px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
+.matchbar .clock.sudden { color: var(--bad); }
+.matchbar .badge { font: 600 11px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bad); border: 1px solid currentColor; border-radius: 4px; padding: 3px 5px; }
+.chips button.off { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: rgba(236,228,210,0.35); }
+.masons { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.masons.wait { color: var(--brass); }
+.storm { justify-self: stretch; width: min(460px, 100%); margin: 2px auto 0; padding: 7px 10px 9px; display: grid; gap: 6px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.25); }
+.storm .title { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font: 500 14px/1.2 var(--ui); }
+.storm .title b { font: 19px/1 var(--display); font-weight: 400; }
+.storm .meter { height: 6px; border-radius: 3px; background: rgba(236,228,210,0.14); overflow: hidden; }
+.storm .meter > i { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(0); background: var(--brass); transition: transform 0.25s linear; }
+.storm.ours .meter > i { background: var(--brass); }
+.storm.theirs { border-color: rgba(226, 113, 90, 0.55); }
+.storm.theirs .meter > i { background: var(--bad); }
+.storm.theirs .title b { color: var(--bad); }
+@media (prefers-reduced-motion: reduce) { .storm .meter > i { transition: none; } }
+.bridges { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
 .bridges b { font-weight: 600; }
 .bridges .down { color: var(--bad); }
 .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: rgba(10, 9, 7, 0.38); overflow: auto; }
@@ -106,6 +121,16 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .stats { display: grid; grid-template-columns: auto auto; justify-content: start; gap: 4px 18px; margin: 0; }
 .stats dt { color: var(--ink-dim); }
 .stats dd { margin: 0; font: 500 15px/1.3 var(--mono); color: var(--ink); }
+.versus { width: 100%; border-collapse: collapse; font: 500 14px/1.3 var(--ui); }
+.versus th { text-align: right; font: 600 11px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); padding: 0 0 6px 12px; }
+.versus th:first-child { text-align: left; padding-left: 0; }
+.versus td { padding: 3px 0 3px 12px; text-align: right; font: 500 14px/1.3 var(--mono); color: var(--ink); border-top: 1px solid rgba(236,228,210,0.08); }
+.versus td:first-child { text-align: left; padding-left: 0; font: 500 14px/1.3 var(--ui); color: var(--ink-dim); }
+.log { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; max-height: 168px; overflow: auto; font: 400 13px/1.35 var(--ui); color: var(--ink-dim); }
+.log li { display: grid; grid-template-columns: 3.4em 1fr; gap: 8px; }
+.log li b { font: 500 12px/1.35 var(--mono); color: var(--brass); font-weight: 500; }
+.log li.bad { color: #e9b2a6; }
+#menu-surrender.confirm { background: var(--bad); color: #1a0d09; border-color: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions button { border: 1px solid var(--line); }
 .actions button.primary { background: var(--brass); color: var(--brass-ink); border-color: transparent; }
@@ -146,6 +171,58 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .choice2.on { border-color: var(--brass); background: rgba(201,154,70,0.14); }
 button.emptyslot { color: var(--ink-dim); font-style: italic; }
 </style>
+<style>
+/* Polish: depth and finish for the instruments (overrides the rules above; ids and markup unchanged). */
+.glass { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 246, 225, 0.06); }
+button { transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease; }
+button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(201, 154, 70, 0.35); }
+.brand .mark { letter-spacing: 0.02em; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5); }
+/* Keys read as keys. */
+.chips .key, #w-slot { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; font: 500 11px/1 var(--mono); color: var(--ink-dim); background: rgba(0, 0, 0, 0.25); }
+.chips .key { margin: 0 4px 0 2px; }
+.keys dt { padding: 3px 0; }
+.keys dd { padding: 3px 0; border-bottom: 1px solid rgba(236, 228, 210, 0.07); }
+/* The weapon panel: a heavier name, the slot as a key, a reload bar that lights when loaded. */
+.weapon { gap: 7px; }
+.weapon .title b { font-size: 26px; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45); }
+.weapon .bar { height: 5px; background: rgba(0, 0, 0, 0.35); box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.08); }
+.weapon .bar > i { background: linear-gradient(90deg, #8a6528, var(--brass) 70%, #e2bb6c); transition: transform 90ms linear; }
+.weapon.loaded .bar > i { box-shadow: 0 0 10px rgba(226, 187, 108, 0.55); }
+.weapon.loaded #w-reload { color: var(--brass); }
+.weapon.loaded.fresh .bar { animation: loaded 700ms ease-out; }
+@keyframes loaded { 0% { box-shadow: 0 0 0 0 rgba(226, 187, 108, 0.7); } 100% { box-shadow: 0 0 0 7px rgba(226, 187, 108, 0); } }
+/* The wind gauge: a compass ring with ticks every 30 degrees. */
+.dial { background: radial-gradient(circle, rgba(0, 0, 0, 0.28) 0 58%, transparent 59%); }
+.dial::before { content: ""; position: absolute; inset: -1px; border-radius: 50%; background: repeating-conic-gradient(from -1deg, rgba(236, 228, 210, 0.42) 0deg 2deg, transparent 2deg 30deg); -webkit-mask: radial-gradient(circle, transparent 0 66%, #000 67%); mask: radial-gradient(circle, transparent 0 66%, #000 67%); }
+#wind-arrow::before { background: linear-gradient(var(--aim), rgba(244, 246, 248, 0.15)); }
+#wind-arrow { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
+/* Notes: a brass edge, and a short rise into place. */
+#note { border-left: 3px solid var(--brass); padding: 10px 14px; max-width: min(620px, calc(100% - 32px)); text-align: left; animation: note-in 260ms ease-out; }
+@keyframes note-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.hint.tally { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); border-color: rgba(201, 154, 70, 0.35); }
+/* The match bar. */
+.matchbar .clock { font-size: 22px; letter-spacing: 0.02em; }
+.matchbar .gold { font-weight: 600; }
+/* Overlays: a vignette rather than a flat veil, cards with a brass rule under the title. */
+.overlay { background: radial-gradient(ellipse at 50% 45%, rgba(10, 9, 7, 0.18), rgba(10, 9, 7, 0.72)); }
+.card { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 246, 225, 0.06); }
+.card h1, .card h2 { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45); }
+.card h1::after, .card h2::after { content: ""; display: block; width: 64px; height: 2px; margin-top: 12px; background: linear-gradient(90deg, var(--brass), rgba(201, 154, 70, 0)); }
+.choice { transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease; }
+.choice:hover, .choice:focus-visible { border-color: rgba(201, 154, 70, 0.55); transform: translateY(-1px); }
+.choice b::after { content: " \203A"; color: var(--brass); opacity: 0; transition: opacity 140ms ease; }
+.choice:hover b::after, .choice:focus-visible b::after { opacity: 1; }
+/* The title screen (before a mode is chosen): the valley behind the menu, without the gun's instruments. */
+body.title-screen .weapon, body.title-screen .wind, body.title-screen .reticle, body.title-screen #want, body.title-screen #lock-hint, body.title-screen .top .group[aria-label="Weapons"], body.title-screen #overview-btn, body.title-screen label.check:has(#shotcam) { display: none !important; }
+body.title-screen .overlay { background: radial-gradient(ellipse at 50% 40%, rgba(10, 9, 7, 0) 30%, rgba(10, 9, 7, 0.55)); }
+body.title-screen #menu .card { background: rgba(14, 12, 10, 0.78); }
+body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
+/* Loading: a slow shimmer while the walls go up. */
+#loading > div { position: relative; overflow: hidden; }
+#loading > div::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--brass), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: raise 1.6s ease-in-out infinite; }
+@keyframes raise { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+@media (prefers-reduced-motion: reduce) { #note, .weapon.loaded.fresh .bar, #loading > div::after { animation: none; } .choice:hover, .choice:focus-visible { transform: none; } }
+</style>
 <!-- artifact-head-end -->
 </head>
 <body>
@@ -178,13 +255,22 @@ button.emptyslot { color: var(--ink-dim); font-style: italic; }
       <span class="clock" id="clock">0:00</span>
       <span class="gold" id="gold">150 gold</span>
       <span class="rate" id="gold-rate"></span>
-      <span class="small" id="match-note">Topple the enemy keep</span>
+      <span class="small" id="match-note">Topple the enemy keep or storm its courtyard</span>
+      <span class="badge" id="sudden" hidden>Sudden death</span>
     </div>
     <div class="line">
       <span class="small" id="next-wave"></span>
       <span class="chips" role="group" aria-label="Route of your next waves (L)"><span class="key">L</span><button data-route="left">Left</button><button data-route="centre">Centre</button><button data-route="right">Right</button></span>
       <span class="chips" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><span class="key">Ctrl</span><button data-order="0">1 Advance</button><button data-order="1">2 Hold</button><button data-order="2">3 Push</button></span>
       <span class="mono" id="army-count"></span>
+    </div>
+    <div class="line">
+      <span class="chips" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><span class="key">Alt</span><button data-repair="gate" aria-pressed="true">1 Gate</button><button data-repair="walls" aria-pressed="true">2 Walls</button><button data-repair="towers" aria-pressed="true">3 Towers</button><button data-repair="keep" aria-pressed="true">4 Keep</button></span>
+      <span class="small masons" id="masons"></span>
+    </div>
+    <div id="storm" class="storm" hidden role="status" aria-live="polite">
+      <div class="title"><b id="storm-title"></b><span class="mono" id="storm-count"></span></div>
+      <div class="meter"><i id="storm-fill"></i></div>
     </div>
   </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
@@ -219,6 +305,8 @@ button.emptyslot { color: var(--ink-dim); font-style: italic; }
       <dt>N</dt><dd>Show where minions can walk: green from your gate, sandy over rubble and the fallen, amber cut off, blue water, red in the way. Blow a bridge and watch its crossing close</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Versus AI: orders for all your waves (or the buttons in the match bar). Advance on the enemy gate (they batter it down), Hold at the midfield markers short of the bridges, Push the breach (the nearest gap in the enemy walls: knock one open at the foot of a wall)</dd>
       <dt>L</dt><dd>Versus AI: the route of your next waves (left flank, centre road, right flank). A wave whose bridge is down takes the nearest one standing</dd>
+      <dt>Alt+1, 2, 3, 4</dt><dd>Versus AI: your masons' repairs on or off for the gate, walls, towers and keep (or the chips in the match bar). Each stone costs gold; masons rebuild the lowest gap first, and run from enemy pikemen. Shoot the enemy's masons to keep a breach open</dd>
+      <dt>Storming</dt><dd>Win by holding the enemy courtyard for 20 seconds with more men inside than its defenders. Each courtyard keeps a garrison of four; a barracks under attack musters its wave inside. Every other wave carries a ladder: shoot the crews before they reach your wall</dd>
       <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad up and down fuse, D-pad left orders, D-pad right route, X spin, Y shot camera, B back from the shot camera, View overview</dd>
     </dl>
     <div class="row group">
@@ -254,9 +342,9 @@ button.emptyslot { color: var(--ink-dim); font-style: italic; }
       <p>Two castles across a valley, a stream with three timber bridges between them. Ride the siege guns of the Ashwright castle.</p>
       <div class="choices">
         <button class="choice" data-mode="practice"><b>Practice range</b><span>Every weapon against the target castle and a patrol of pikemen. No clock, no rules: rebuild the castles any time.</span></button>
-        <button class="choice" data-mode="versus"><b>Versus AI</b><span>A match on the clock: bring the enemy keep's banner to the ground to win. Build barracks, mills and a foundry on your plots, buy and upgrade guns, and send waves of pikemen, sappers and musketeers down the routes; earn gold from every enemy and every stone you bring down. The enemy builds by a fixed plan and does not aim at your castle yet.</span></button>
+        <button class="choice" data-mode="versus"><b>Versus AI</b><span>A match on the clock: bring the enemy keep's banner to the ground, or storm its courtyard. Build barracks, mills and a foundry on your plots, buy and upgrade guns, and send waves of pikemen, sappers and musketeers (some with ladders) to batter gates, blow breaches and climb walls; earn gold from every enemy and every stone you bring down, and pay your masons to rebuild what the enemy breaks. The enemy builds by a fixed plan and does not aim at your castle yet.</span></button>
       </div>
-      <div class="actions"><button id="menu-back" hidden>Back to the game</button></div>
+      <div class="actions"><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
     </div>
   </div>
@@ -264,16 +352,11 @@ button.emptyslot { color: var(--ink-dim); font-style: italic; }
     <div class="card glass" role="dialog" aria-labelledby="end-title">
       <h2 id="end-title">Victory</h2>
       <p id="end-line"></p>
-      <dl class="stats">
-        <dt>Match time</dt><dd id="end-time"></dd>
-        <dt>Enemy masonry down</dt><dd id="end-enemy"></dd>
-        <dt>Your masonry down</dt><dd id="end-yours"></dd>
-        <dt>Shots fired</dt><dd id="end-shots"></dd>
-        <dt>Your pikemen lost</dt><dd id="end-lost"></dd>
-        <dt>Enemy pikemen down</dt><dd id="end-downed"></dd>
-        <dt>Gold earned, spent</dt><dd id="end-gold"></dd>
-        <dt>Trick shots</dt><dd id="end-tricks"></dd>
-      </dl>
+      <table class="versus" aria-label="The match, side by side">
+        <thead><tr><th></th><th>You</th><th>Enemy</th></tr></thead>
+        <tbody id="end-table"></tbody>
+      </table>
+      <ul class="log" id="end-log" aria-label="What happened"></ul>
       <div class="actions">
         <button class="primary" id="end-again">Play again</button>
         <button id="end-practice">Practice range</button>

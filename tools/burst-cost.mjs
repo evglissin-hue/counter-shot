@@ -6,11 +6,13 @@ import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+/** The dev server's port (PORT in the environment overrides it, so several runs can share a machine). */
+const PORT = Number(process.env.PORT) || 5195;
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const tier = process.argv[2] ?? "ultra";
 const root = fileURLToPath(new URL("../apps/game", import.meta.url));
-const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: 5195, host: "127.0.0.1" }, logLevel: "error" });
+const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: PORT, host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 800, height: 450 } });
@@ -50,7 +52,7 @@ async function cost(n = 5) {
 try {
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto("http://127.0.0.1:5195/index.html#webgl-fixed", { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${PORT}/index.html#webgl-fixed`, { waitUntil: "load" });
       await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 180000 });
       break;
     } catch (e) {

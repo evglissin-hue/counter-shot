@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { buildLayout, GAME_LAYOUT, MATCH, ROUTE_NAMES, WAVES } from "@keepfall/content";
-import { MinionState, Order, Spin, type Rapier } from "@keepfall/sim";
+import { MinionState, Order, Role, Spin, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_HASH, runMatchSession, runWaveMatch, Team, WAVE_MATCH_HASH } from "@keepfall/rules";
 
 await RD.init();
@@ -41,12 +41,13 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.ok(a.result.tick > 760 && a.result.tick < 1400, `won at tick ${a.result.tick}, after the second shell`);
   assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
-  const income = MATCH.startGold + incomeTicks * MATCH.keepIncome;
-  // M3: rubble off the keep wrecks the enemy's barracks beside it, and it pays to rebuild it at once.
-  assert.equal(a.earned[0], income - MATCH.startGold, "the enemy earned its keep's income and nothing more, and gold stops at the end");
-  assert.equal(a.gold[0], income - a.spent[0]);
+  const income = incomeTicks * MATCH.keepIncome;
+  assert.equal(a.earned[0], income, "the enemy earned its keep's income and nothing more, and income stops at the end");
   // M3: the player's shots brought enemy keep masonry down and struck the keep itself: both pay.
-  assert.ok(a.gold[1] > income + 30, `the player earned ${a.gold[1] - income} gold besides income`);
+  assert.ok(a.earned[1] > income + 30, `the player earned ${a.earned[1] - income} gold besides income`);
+  assert.deepEqual([a.gold[0] + a.spent[0], a.gold[1] + a.spent[1]], [MATCH.startGold + a.earned[0], MATCH.startGold + a.earned[1]], "what was not earned was not spent");
+  // M4's masons put the keep back; M3: rubble off the keep may wreck the enemy's barracks beside it, which it rebuilds.
+  assert.ok(a.spent[0] > 0, `the enemy spent ${a.spent[0]} gold on its keep`);
   assert.deepEqual(a.hash, MATCH_HASH);
 });
 
@@ -59,7 +60,7 @@ test("barracks send a wave every 25 seconds down each team's route; orders and r
   assert.deepEqual(m.waves, [1, 1]);
   assert.equal(m.manned[0], -1, "the enemy cannot ride the player's gun");
   assert.equal(m.army.order[1], Order.Hold);
-  const player = m.world.minions.list.filter((x) => x.team === Team.Player && x.wave >= 0);
+  const player = m.world.minions.list.filter((x) => x.team === Team.Player && x.wave >= 0 && x.role === Role.March);
   assert.equal(player.length, WAVES.size);
   for (const x of player) assert.equal(ROUTE_NAMES[x.route], "right");
   assert.equal(m.nextWaveIn(), WAVES.every - 1);
@@ -90,7 +91,7 @@ test("unmanned guns thin a wave on its way in, but most of it reaches the gate (
   let reached = 0;
   for (let i = 0; i < 40 * 60 && !reached; i++) {
     m.step();
-    const up = m.world.minions.list.filter((x) => x.team === Team.Enemy && x.state === MinionState.Upright);
+    const up = m.world.minions.list.filter((x) => x.team === Team.Enemy && x.state === MinionState.Upright && x.role === Role.March);
     if (up.some((x) => x.action === 3)) reached = up.length;
   }
   assert.ok(m.autoShots[Team.Player] >= 3, `${m.autoShots[Team.Player]} unmanned shots`);
@@ -102,9 +103,10 @@ test("the wave match: both barracks, orders, a breach and unmanned guns replay t
   const a = runWaveMatch(R);
   console.log("wave match hash", a.hash, "waves", a.waves, "standing", a.standing, "fallen", a.fallen, "shots", a.shots, "auto", a.autoShots);
   assert.equal(a.result, null);
-  // M3: the breach west of the enemy gate sprays the enemy's barracks behind it; it misses a wave while it is rebuilt.
-  assert.deepEqual(a.waves, [2, 3]);
-  assert.ok(a.spent[0] > 0, "the enemy paid to rebuild its barracks");
+  // M3: the breach west of the enemy gate may spray the enemy's barracks behind it: then it misses a wave while it is rebuilt.
+  assert.equal(a.waves[1], 3);
+  assert.ok(a.waves[0] >= 2 && a.waves[0] <= 3, `the enemy sent ${a.waves[0]} waves`);
+  assert.ok(a.spent[0] > 0, "the enemy paid for repairs (and any rebuilding)");
   assert.deepEqual(a.shots, [0, 3], "three shots by hand: down the road and two at the wall");
   assert.ok(a.fallen[0] > 0 && a.fallen[1] > 0, "both sides lost pikemen");
   assert.deepEqual(a.hash, WAVE_MATCH_HASH);

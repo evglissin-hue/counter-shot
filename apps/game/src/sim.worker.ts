@@ -3,7 +3,7 @@
 // sends inputs; the worker tags each with the next tick, steps the sim and
 // posts what changed.
 
-import { buildLayout, Earn, GAME_LAYOUT, MIX_NAMES, PLOTS, ROUTE_NAMES, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
+import { buildLayout, Earn, GAME_LAYOUT, MIX_NAMES, PLOTS, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
 import { Match, Team } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { EARN_STRIDE, type FromWorker, type MatchInfo, type Mode, type NavInfo, type ToWorker } from "./protocol";
@@ -87,6 +87,12 @@ function matchInfo(): MatchInfo | null {
   match.guns.forEach((g, i) => guns.set([g.yaw, g.pitch], i * 2));
   const hits = (c: 0 | 1) => gateLeaves[c].reduce((n, id) => n + (army.gateHits.get(id) ?? 0), 0);
   const open = (c: 0 | 1) => gateLeaves[c].some((id) => match!.world.castle.dynamic[id] === 1);
+  const works = match.world.works!;
+  const mason = (c: 0 | 1) => {
+    const w = works.status(c);
+    return { job: w.job, left: w.left, hold: w.hold, up: w.masons, laid: w.laid };
+  };
+  const L = match.world.ladders!;
   const info: MatchInfo = {
     tick: match.tick,
     gold: [match.gold[0], match.gold[1]],
@@ -103,6 +109,17 @@ function matchInfo(): MatchInfo | null {
     guns,
     gateHits: [hits(0), hits(1)],
     gateOpen: [open(0), open(1)],
+    storm: [match.storm[0], match.storm[1]],
+    stormHold: STORM.hold,
+    attackers: [army.attackers[0], army.attackers[1]],
+    defenders: [army.defenders[0], army.defenders[1]],
+    garrison: [army.garrisonCount(0), army.garrisonCount(1)],
+    suddenDeath: match.suddenDeath,
+    repairs: { ...match.repairs[Team.Player] },
+    masons: [mason(0), mason(1)],
+    ladders: [L.plantedAt(0), L.plantedAt(1)],
+    down: match.tick % 60 < 2 || ended ? [match.masonryDown(0), match.masonryDown(1)] : null,
+    stats: ended && !endSent ? [match.stats(Team.Enemy), match.stats(Team.Player)] : null,
     ...estateInfo(match),
   };
   if (info.masonry) endSent = true;
@@ -128,7 +145,7 @@ function estateInfo(m: Match): Pick<MatchInfo, "income" | "earned" | "goldEarned
   });
   const tricks = (t: number) => ec.tricks[t].slice(Earn.Ricochet, Earn.KeepHit + 1);
   return {
-    income: [ec.incomeRate(es.mills(0)), ec.incomeRate(es.mills(1))],
+    income: [m.income(Team.Enemy), m.income(Team.Player)],
     earned,
     goldEarned: [ec.earned[0], ec.earned[1]],
     goldSpent: [ec.spent[0], ec.spent[1]],
@@ -171,7 +188,7 @@ function tick(advanceMs = -1) {
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
-  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer, frame.plots.buffer, frame.kegs.buffer];
+  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer, frame.ladders.buffer, frame.works.buffer, frame.plots.buffer, frame.kegs.buffer];
   const info = matchInfo();
   if (info) transfer.push(info.guns.buffer, info.earned.buffer, info.barracks.buffer, info.arms.buffer);
   for (const p of frame.terrain) transfer.push(p.h.buffer);
@@ -246,6 +263,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       case "nav":
         navOn = msg.on;
         navSent = -1;
+        break;
+      case "spawn":
+        match?.army.spawnWave(msg.team, 1, msg.count, { x: msg.x, z: msg.z }, { ladder: msg.ladder === true });
         break;
       case "manual":
         manual = true;

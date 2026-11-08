@@ -18,7 +18,7 @@ export const enum Unit {
   Pikeman = 0,
   /** Rebuilds its castle (M4): never fights. */
   Mason = 1,
-  /** One of the two men who carry a wave's ladder (M4). */
+  /** One of the two men who carry a wave's ladder; once it is up (or dropped) he fights with an axe. */
   Ladder = 2,
   /** Carries a powder keg to the enemy wall and blows a breach (M3). */
   Sapper = 3,
@@ -222,6 +222,9 @@ export const WAVES = {
   spacing: 1.3,
   /** A barracks sends only as many as keep its team at or under this many standing minions. */
   maxStanding: 96,
+  /** From its `ladderFrom`th wave on, every `ladderEvery`th wave a barracks sends carries a ladder: two of its men are the crew. */
+  ladderFrom: 2,
+  ladderEvery: 2,
 } as const;
 
 export interface Muster {

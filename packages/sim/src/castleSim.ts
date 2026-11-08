@@ -776,6 +776,7 @@ export class CastleSim {
     this.dynamic[id] = 1;
     this.dynList.push(id);
     this.shattered[id] = 1;
+    this.shatterReported[id] = 1; // never drawn: no dust to show for it
     this.bodies[id].setEnabled(false);
     return true;
   }

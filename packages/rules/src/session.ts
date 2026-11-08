@@ -7,11 +7,13 @@
 // shell, a shot after the end and the enemy firing the player's gun must all
 // be refused.
 //
-// The wave match (phase 2 M2): both barracks send their waves; the player
-// rides the long gun, sends its next waves down the left, holds them at the
-// midfield marker and then advances, fires down the centre road, breaches the
-// enemy wall and orders Push the breach, then leaves for the overview so that
-// every gun fires on its own.
+// The wave match (phase 2 M2, M4): both barracks send their waves (every
+// other one with a ladder crew), both courtyards hold a garrison and both
+// castles have masons; the player rides the long gun, sends its next waves
+// down the left, switches its masons off towers for a while, holds the waves
+// at the midfield marker and then advances, fires down the centre road,
+// breaches the enemy wall (which the enemy's masons rebuild) and orders Push
+// the breach, then leaves for the overview so that every gun fires on its own.
 
 import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
@@ -20,7 +22,7 @@ import { Match, Team, type MatchInput, type MatchResult } from "./match";
 export const MATCH_TICKS = 1700;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "cc6764db", world: "823d3894" } as const;
+export const MATCH_HASH = { state: "3e0e4610", world: "d50d9fe7" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 
@@ -39,14 +41,14 @@ export interface MatchSessionResult {
   hash: { state: string; world: string };
   result: MatchResult | null;
   gold: [number, number];
+  /** Gold each team earned (income, bounties, masonry, trick shots) and spent (buildings, guns, upgrades, repairs). */
+  earned: [number, number];
+  spent: [number, number];
   shots: [number, number];
   autoShots: [number, number];
   waves: [number, number];
   standing: [number, number];
   fallen: [number, number];
-  /** M3: gold each team earned (income included) and spent. */
-  earned: [number, number];
-  spent: [number, number];
 }
 
 export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_SCRIPT): MatchSessionResult {
@@ -55,10 +57,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
   for (let i = 0; i < ticks; i++) m.step();
   const c = m.armyCounts();
   const pair = (a: [number, number]): [number, number] => [a[0], a[1]];
-  const out = {
-    hash: m.hash(), result: m.result, gold: pair(m.gold), shots: pair(m.shots), autoShots: pair(m.autoShots), waves: pair(m.waves), standing: c.standing, fallen: c.fallen,
-    earned: pair(m.economy.earned), spent: pair(m.economy.spent),
-  };
+  const out = { hash: m.hash(), result: m.result, gold: pair(m.gold), earned: pair(m.earned), spent: pair(m.spent), shots: pair(m.shots), autoShots: pair(m.autoShots), waves: pair(m.waves), standing: c.standing, fallen: c.fallen };
   m.free();
   return out;
 }
@@ -66,7 +65,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "be50057a", world: "e5cf7f1a" } as const;
+export const WAVE_MATCH_HASH = { state: "742dd736", world: "1bccd8af" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -74,6 +73,9 @@ const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, 
 export const WAVE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
   [600, Team.Player, { kind: "route", route: "left" }],
+  // M4: the player's masons leave towers alone for a while.
+  [900, Team.Player, { kind: "repair", repair: "towers", on: false }],
+  [4200, Team.Player, { kind: "repair", repair: "towers", on: true }],
   [1500, Team.Player, { kind: "order", order: Order.Hold }],
   [2350, Team.Player, fire(0, 0, -0.035)],
   [2700, Team.Player, { kind: "order", order: Order.Advance }],
@@ -98,7 +100,7 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 export const ESTATE_MATCH_TICKS = 6600;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "e128e24d", world: "ded12401" } as const;
+export const ESTATE_MATCH_HASH = { state: "b671c354", world: "e3d0c027" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
@@ -135,7 +137,7 @@ export function runEstateMatch(R: Rapier, ticks = ESTATE_MATCH_TICKS, onTick?: (
   const plots: [number[], number[]] = [0, 1].map((castle) => [0, 1, 2, 3, 4, 5].map((p) => st.slot(castle, p).kind)) as [number[], number[]];
   const out: EstateMatchResult = {
     hash: m.hash(), result: m.result, gold: pair(m.gold), shots: pair(m.shots), autoShots: pair(m.autoShots), waves: pair(m.waves), standing: c.standing, fallen: c.fallen,
-    earned: pair(m.economy.earned), spent: pair(m.economy.spent), plots,
+    earned: pair(m.earned), spent: pair(m.spent), plots,
     slot4: m.emplacements[4].empty ? "empty" : m.emplacements[4].weapon, upgrade: m.emplacements[0].upgrade ?? "none",
   };
   m.free();

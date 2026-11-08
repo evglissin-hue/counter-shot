@@ -8,12 +8,13 @@
 // URL: ?cam=overview|sight|follow|mortar &quality=low|medium|high|ultra
 //      &shot=1 (hide text) &dt=0.05 (fixed step) ; #webgl forces WebGL2.
 
-import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, PLOTS, WEAPONS, buildLayout } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, LADDER, MID_Z, PLOTS, WEAPONS, buildLayout, ladderSpots, streamOffset } from "@keepfall/content";
 import {
   CHAIN_STRIDE,
   EVENT_STRIDE,
   EventKind,
   KEG_STRIDE,
+  LADDER_STRIDE,
   MINION_PARTS,
   MINION_STRIDE,
   PART_STRIDE,
@@ -21,6 +22,7 @@ import {
   PROJECTILE_STRIDE,
   ProjectileKind,
   TERRAIN_GRID,
+  WORKS_STRIDE,
   type FrameData,
   type TerrainPatch,
 } from "@keepfall/sim";
@@ -53,9 +55,16 @@ const G = 9.81;
 
 const projectiles = new Float32Array(64 * PROJECTILE_STRIDE);
 const chains = new Float32Array(8 * CHAIN_STRIDE);
-const minions = new Float32Array(32 * MINION_STRIDE);
+const minions = new Float32Array(48 * MINION_STRIDE);
 const parts = new Float32Array(2 * MINION_PARTS.length * PART_STRIDE);
 const events = new Float32Array(32 * EVENT_STRIDE);
+// M4: ladders and the masons' work, staged at the target castle's front wall.
+const ladders = new Float32Array(4 * LADDER_STRIDE);
+const works = new Float32Array(1 * WORKS_STRIDE);
+const spots = ladderSpots().filter((sp) => sp.castle === 0);
+/** A front wall stone left of the gate, about 4 m up: the masons put it back again and again (the renderer animates it each time). */
+const laidStone = layout.stones.find((st) => st.castle === 0 && st.part === "wall" && st.course === 8 && Math.abs(st.z + 15) < 0.5 && st.x < -5 && st.x > -7.5)!;
+let lastLaid = -10;
 
 function arc(x0: number, y0: number, z0: number, vx: number, vy: number, vz: number, t: number): [number, number, number, number, number, number] {
   return [x0 + vx * t, y0 + vy * t - 0.5 * G * t * t, z0 + vz * t, vx, vy - G * t, vz];
@@ -245,10 +254,47 @@ function buildFrame(dt: number): FrameData {
     [6.8, -17.3, 0, 1, 8, 0, 3],
   ];
   kit.forEach(([x, z, yaw, team, action, act, unit], j) => {
-    minions.set([40 + j, x, 0, z, yaw, (t * 0.9 + j * 0.31) % 1, team, action, act, unit], nm * MINION_STRIDE);
+    minions.set([60 + j, x, 0, z, yaw, (t * 0.9 + j * 0.31) % 1, team, action, act, unit], nm * MINION_STRIDE);
     nm++;
   });
   kegBuf.set([5.6, 0.35, -16.45, 240 - ((t * 60) % 240)], 0); // the sim reports a keg 0.35 m over the ground
+
+  // M4: a ladder planted in the crenel at x = 8.1 with two men climbing it, a crew raising another at 4.5,
+  // a crew carrying a third towards the wall, and two masons at work inside behind a hoist.
+  let nl = 0;
+  const putLadder = (id: number, team: number, state: number, f: number[], top: number[], k: number) => {
+    ladders.set([id, team, state, f[0], f[1], f[2], top[0], top[1], top[2], k], nl * LADDER_STRIDE);
+    nl++;
+  };
+  const sp = spots[3], sp2 = spots[2];
+  putLadder(0, 1, 2, [sp.x, 0, sp.footZ], [sp.x, sp.topY, sp.topZ], 1);
+  for (const [k, d] of [[0, 2.6], [1, 5.4]] as const) {
+    const u = d / LADDER.length;
+    minions.set([40 + k, sp.x, sp.topY * u, sp.footZ + (sp.topZ - sp.footZ) * u - 0.22, 0, (t * 0.7 + k * 0.5) % 1, 1, 6, 0, 0], nm * MINION_STRIDE);
+    nm++;
+  }
+  // Raising: the top swings up from behind the foot.
+  const rk = (t % 4) / 4;
+  const lean = Math.atan2(sp2.topY, sp2.topZ - sp2.footZ);
+  const th = (Math.PI - lean) * (rk * rk * (3 - 2 * rk));
+  putLadder(1, 1, 1, [sp2.x, 0, sp2.footZ], [sp2.x, LADDER.length * Math.sin(th), sp2.footZ - LADDER.length * Math.cos(th)], rk);
+  minions.set([42, sp2.x, 0, sp2.footZ - 0.5, 0, 0, 1, 7, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  minions.set([43, sp2.x + 0.9, 0, sp2.footZ - 0.9, 0, 0, 1, 7, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  // Carrying: two men 3.6 m apart walking at the wall.
+  const cz = -27 + ((t * 1.3) % 5);
+  minions.set([44, 12, 0, cz, 0, (t * 0.95) % 1, 1, 5, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  minions.set([45, 12, 0, cz - 3.6, 0, (t * 0.95 + 0.5) % 1, 1, 5, 0, 2], nm * MINION_STRIDE);
+  nm++;
+  putLadder(2, 1, 0, [12, 1.52, cz - 1.8 - 4.5], [12, 1.52, cz - 1.8 + 4.5], 0);
+  // Masons inside the gate's west side, under a hoist, mallets going.
+  for (const [k, x] of [[0, -6.6], [1, -5.5]] as const) {
+    minions.set([46 + k, x, 0, -12.6, Math.PI, 0, 0, 4, (t * 60 + k * 17) % 45, 1], nm * MINION_STRIDE);
+    nm++;
+  }
+  works.set([0, laidStone.x, laidStone.y, laidStone.z, -6, -12.6, laidStone.id, 2], 0);
 
   // Events.
   let ne = 0;
@@ -271,15 +317,22 @@ function buildFrame(dt: number): FrameData {
     muzzleIdx++;
   }
   if (tb < dt) ev(EventKind.Impact, 0, 6, -15.2, 0.8);
+  // A shot into the stream by the centre bridge every 1.4 s, and a stone every 2.6 s (splashes).
+  if (t % 1.4 < dt) ev(EventKind.Impact, 12, -0.8, MID_Z + streamOffset(12), 0.8);
+  if (t % 2.6 < dt) ev(EventKind.Impact, 16.5, -0.8, MID_Z + streamOffset(16.5) - 1, 1.2);
   // M3: the aiming musketeers fire as their kick starts (a flash and a puff at the muzzle).
-  if ((t * 60) % 240 < dt * 60) ev(EventKind.Musket, 40, -6, 1.3, -30);
-  if ((t * 60 + 120) % 240 < dt * 60) ev(EventKind.Musket, 41, -3.5, 1.3, -30.4);
+  if ((t * 60) % 240 < dt * 60) ev(EventKind.Musket, 60, -6, 1.3, -30);
+  if ((t * 60 + 120) % 240 < dt * 60) ev(EventKind.Musket, 61, -3.5, 1.3, -30.4);
   if (t - lastBlood > 2.2) {
     lastBlood = t;
     ev(EventKind.Blood, -4, 0.9, -26, 0.9);
     ev(EventKind.Blood, 3.5, 0.6, -28.5, 0.5);
     // Against the target castle's front wall (blood on stone).
     ev(EventKind.Blood, -6, 1.3, -16.6, 0.7);
+  }
+  if (t - lastLaid > 2.5) {
+    lastLaid = t;
+    ev(EventKind.Laid, laidStone.id, 0, -1000, 0);
   }
   return {
     tick: Math.round(t * 60),
@@ -296,6 +349,10 @@ function buildFrame(dt: number): FrameData {
     settled: new Float32Array(0),
     settledCount: 0,
     gone: new Int32Array(0),
+    ladders: ladders.slice(0, nl * LADDER_STRIDE),
+    ladderCount: nl,
+    works: works.slice(),
+    worksCount: 1,
     events,
     eventCount: ne,
     terrain,
@@ -345,6 +402,13 @@ async function main() {
   const { backend } = await r.init({ forceWebGL: location.hash === "#webgl" });
   state.backend = backend;
   r.setLayout(layout, ems);
+  // Test only: hide scene objects by name (?hide=stream,ground) to see what draws what.
+  for (const name of (params.get("hide") ?? "").split(",").filter(Boolean)) {
+    const o = (r as unknown as { scene: { getObjectByName(n: string): { visible: boolean } | undefined } }).scene.getObjectByName(name);
+    if (o) o.visible = false;
+  }
+  // A storm two thirds of the way through on the target castle's courtyard.
+  r.setStorm(0, 0.65, true);
   r.setQuality(quality);
   r.setGore(gore);
   r.resize();

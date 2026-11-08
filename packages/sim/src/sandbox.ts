@@ -15,24 +15,28 @@ import {
   EVENT_STRIDE,
   EventKind,
   KEG_STRIDE,
+  LADDER_STRIDE,
   MINION_STRIDE,
   PART_STRIDE,
   PLOT_STRIDE,
   PROJECTILE_STRIDE,
   ProjectileKind,
   STONE_STRIDE,
+  WORKS_STRIDE,
   type FrameData,
   type TerrainPatch,
 } from "./frame";
+import { Ladders } from "./ladders";
 import { Cause, Minions, MinionState } from "./minions";
 import { NavGrid } from "./nav";
 import { Specialists } from "./specialists";
 import { Structures } from "./structures";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
+import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 8;
+export const RULES_VERSION = 9;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -112,6 +116,10 @@ export class SandboxSim {
   readonly nav: NavGrid;
   /** Waves of pikemen with their flow fields (matches only). */
   readonly army: Army | null;
+  /** Ladders carried, raised and climbed (matches only). */
+  readonly ladders: Ladders | null;
+  /** Each castle's masons and what they rebuild (matches only). */
+  readonly works: Works | null;
   /** M3: the plots' buildings (with plots in the layout), and sappers' kegs and musketeers' shots (matches). */
   readonly structures: Structures | null;
   readonly specialists: Specialists | null;
@@ -138,6 +146,8 @@ export class SandboxSim {
     minions: new Float32Array(320 * MINION_STRIDE),
     parts: new Float32Array(256 * 11 * PART_STRIDE),
     settled: new Float32Array(64 * 11 * PART_STRIDE),
+    ladders: new Float32Array(32 * LADDER_STRIDE),
+    works: new Float32Array(4 * WORKS_STRIDE),
     plots: new Float32Array(16 * PLOT_STRIDE),
     kegs: new Float32Array(32 * KEG_STRIDE),
   };
@@ -168,9 +178,17 @@ export class SandboxSim {
     }
     this.nav = new NavGrid(this.castle, this.terrain);
     this.minions.nav = this.nav;
-    this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, (k, a, b, c, d) => this.event(k, a, b, c, d)) : null;
+    const emit = (k: EventKind, a: number, b: number, c: number, d: number) => this.event(k, a, b, c, d);
+    this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, emit) : null;
+    this.ladders = this.army ? new Ladders(R, this.castle.world, this.castle, this.terrain, this.minions, emit) : null;
+    this.works = this.army ? new Works(this.minions, this.castle, this.terrain, this.army, emit) : null;
+    if (this.army && this.ladders) {
+      this.army.ladders = this.ladders;
+      this.ladders.army = this.army;
+    }
+    // M3: sappers' kegs and musketeers' shots, on a stream of their own.
     this.specialists = this.army
-      ? new Specialists(this.minions, this.nav, this.terrain, (hashString("specialists") ^ opts.seed) >>> 0, (k, a, b, c, d) => this.event(k, a, b, c, d), (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot))
+      ? new Specialists(this.minions, this.nav, this.terrain, (hashString("specialists") ^ opts.seed) >>> 0, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot))
       : null;
     if (this.army) this.army.specialists = this.specialists;
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
@@ -201,6 +219,8 @@ export class SandboxSim {
     this.minions.walk(tick);
     this.specialists?.beforeStep();
     this.army?.step(tick);
+    this.ladders?.step(tick);
+    this.works?.step(tick);
     this.structures?.step(tick);
     this.terrain.rebuild();
     this.castle.step();
@@ -371,9 +391,13 @@ export class SandboxSim {
     // Balls that touched minions: knock them down and keep most of the momentum.
     for (const [bi, handle] of castle.foreign) {
       const mid = this.minions.of(handle);
-      if (mid === undefined) continue;
       const ball = castle.balls[bi];
-      if (!ball) continue;
+      if (mid === undefined) {
+        // A ladder against a wall: a shot knocks it off (a ball that left the world this step is gone).
+        if (ball && ball.alive && this.ladders && this.ladders.isLadder(handle)) this.ladders.hitByBall(handle, ball.vx, ball.vy, ball.vz, ball.body.mass(), this.tick);
+        continue;
+      }
+      if (!ball || !ball.alive) continue;
       const speed2 = ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz;
       if (speed2 < 16) continue;
       const mass = ball.body.mass();
@@ -386,7 +410,13 @@ export class SandboxSim {
     // Falling stones on minions.
     for (const [stoneId, handle] of castle.foreignStones) {
       const mid = this.minions.of(handle);
-      if (mid === undefined) continue;
+      if (mid === undefined) {
+        if (this.ladders && this.ladders.isLadder(handle)) {
+          const lv = castle.bodies[stoneId].linvel();
+          this.ladders.hitByStone(handle, lv.x, lv.y, lv.z, this.tick);
+        }
+        continue;
+      }
       const v = castle.bodies[stoneId].linvel();
       const s2 = v.x * v.x + v.y * v.y + v.z * v.z;
       if (s2 < 6) continue;
@@ -455,6 +485,7 @@ export class SandboxSim {
     const E = burst;
     this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift);
     this.event(EventKind.Explosion, x, y, z, E.radius);
+    this.ladders?.blast(x, y, z, E.knock * 0.5, this.tick);
     // M3: kegs set within its reach go off with it.
     this.specialists?.burstNear(x, y, z, E.radius * 1.3, shot, this.tick);
     for (const n of this.minions.near(x, y, z, E.knock)) {
@@ -504,6 +535,8 @@ export class SandboxSim {
     const partCount = this.minions.collectParts(b.parts);
     const settledCount = this.minions.collectSettled(b.settled);
     const gone = Int32Array.from(this.minions.collectGone());
+    const ladderCount = this.ladders ? this.ladders.collect(b.ladders) : 0;
+    const worksCount = this.works ? this.works.collect(b.works) : 0;
     const terrain: TerrainPatch[] = this.terrain.patches;
     this.terrain.patches = [];
     const events = new Float32Array(this.events);
@@ -529,6 +562,10 @@ export class SandboxSim {
       settled: b.settled.slice(0, settledCount * PART_STRIDE),
       settledCount,
       gone,
+      ladders: b.ladders.slice(0, ladderCount * LADDER_STRIDE),
+      ladderCount,
+      works: b.works.slice(0, worksCount * WORKS_STRIDE),
+      worksCount,
       events,
       eventCount: events.length / EVENT_STRIDE,
       terrain,
@@ -550,6 +587,8 @@ export class SandboxSim {
     const extra: number[] = [this.tick, this.wind.x, this.wind.z, ...this.reload];
     this.minions.hashInto(extra);
     this.army?.hashInto(extra);
+    this.ladders?.hashInto(extra);
+    this.works?.hashInto(extra);
     this.structures?.hashInto(extra);
     this.specialists?.hashInto(extra);
     for (const s of this.shots) {

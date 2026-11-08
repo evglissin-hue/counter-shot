@@ -119,8 +119,10 @@ export function makeStreamMaterial(style: StylePreset, sky: Sky, noise: THREE.Te
     const viewDir = normalize(wp.sub(cameraPosition));
     const r: N = reflect(viewDir, nrm);
     const fres = pow(float(1).sub(max(dot(viewDir.negate(), nrm), 0.0)), 5.0).mul(0.55).add(0.15);
-    // The overcast sky in the water, a little darker than the sky itself.
-    const sky0 = sky.skyColor(normalize(vec3(r.x, max(r.y, 0.02), r.z)), false).mul(0.85);
+    // The overcast sky in the water, a little darker than the sky itself. Low reflections see the valley's
+    // banks, trees and hills rather than the bright haze at the horizon, so seen at a low angle the water stays dark.
+    const skyRefl = sky.skyColor(normalize(vec3(r.x, max(r.y, 0.02), r.z)), false).mul(0.85);
+    const sky0 = mix(color(0x2c322b), skyRefl, smoothstep(0.03, 0.32, r.y));
     // Murky, peaty water: the gravel shows through brown at the edges, dark green-brown in the middle.
     const shallow: N = color(W.shallow);
     const body: N = mix(mix(color(0x4d4838), shallow, smoothstep(0.05, 0.4, depth)), color(W.deep), smoothstep(0.35, 1.0, depth));

@@ -95,8 +95,14 @@ export class Specialists {
     return false;
   }
 
+  /** A sapper still carrying, setting or running from his keg: his task and aux are his own (no ladder for him yet). */
+  busy(m: Minion): boolean {
+    return m.unit === Unit.Sapper && (m.task === SapperTask.Carry || m.task === SapperTask.Plant || m.task === SapperTask.Run);
+  }
+
   private sapper(m: Minion, tick: number, out: Steer): boolean {
-    if (m.task === SapperTask.Done) return false;
+    // Done with his keg (or climbing a ladder since: M4's tasks): the army has him.
+    if (!this.busy(m)) return false;
     const castle = 1 - m.team;
     const f = frontFace(castle);
     if (m.task === SapperTask.Carry) {
@@ -104,8 +110,8 @@ export class Specialists {
       const before = (f.z - m.z) * f.out < 0; // outside the wall, on the field side
       const d = (m.z - f.z) * f.out;
       if (!before || d > KEG.near) return false;
-      if (m.aux === 0) {
-        // Choose where to set it: the foot of the wall nearest him, clear of the gate and the towers.
+      if (m.aux <= 0) {
+        // Choose where to set it (aux: 1 once chosen): the foot of the wall nearest him, clear of the gate and the towers.
         const lo = KEG.gateClear, hi = 15 - KEG.towerClear;
         let side = m.x > 0 ? 1 : m.x < 0 ? -1 : (m.id & 1) === 0 ? 1 : -1;
         let ax = m.x * side;
@@ -163,7 +169,8 @@ export class Specialists {
   }
 
   private musketeer(m: Minion, tick: number, out: Steer): boolean {
-    // m.target is his mark; m.cool his reload; m.aux the ticks he has aimed.
+    // m.target is his mark; m.cool his reload; m.aux the ticks he has aimed (a new minion's aux is -1).
+    if (m.aux < 0) m.aux = 0;
     let t = m.target >= 0 ? this.minions.list[m.target] : null;
     if (t && (t.state !== MinionState.Upright || t.team === m.team)) t = null;
     if (t) {
@@ -277,9 +284,11 @@ export class Specialists {
       let any = false;
       for (const id of this.carriers) {
         const m = this.minions.list[id];
-        if (m.unit !== Unit.Sapper || m.state === MinionState.Upright || m.task === SapperTask.Done) continue;
+        if (m.unit !== Unit.Sapper || m.state === MinionState.Upright || !this.busy(m)) continue;
+        // Only a keg still in his hands goes off with him (running from a set keg, he has none).
+        const armed = m.task === SapperTask.Carry || m.task === SapperTask.Plant;
         m.task = SapperTask.Done;
-        if (m.downCause === Cause.Blow) continue; // knocked down in a fight: the keg drops, unlit
+        if (!armed || m.downCause === Cause.Blow) continue; // knocked down in a fight: the keg drops, unlit
         const p = m.parts.length > 1 ? m.parts[1].translation() : { x: m.x, y: m.y + 1, z: m.z };
         this.explode(p.x, p.y, p.z, KEG.burst, m.downShot ?? -1);
         any = true;

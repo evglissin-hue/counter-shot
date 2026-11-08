@@ -128,6 +128,8 @@ export interface Minion {
   /** Which castle it belongs to inside (garrison, masons) and its post or place in its crew. */
   home: number;
   post: number;
+  /** Metres along the step of a climb it is on (ladders.ts). */
+  climb: number;
 }
 
 /** A minion's part in the army (Minion.role). */
@@ -223,7 +225,7 @@ export class Minions {
     const m: Minion = {
       id: this.list.length, team, state: MinionState.Upright, x, z, yaw: 0, phase: 0, ax, az, bx, bz, toB, capsule: body, parts: [], rest: 0, fellAt: -1,
       y, wave: -1, route: 1, speed: WALK, vx: 0, vz: 0, target: -1, cool: 0, calmUntil: 0, action: 0, act: 0, sunk: 0,
-      unit: 0, role: Role.March, task: 0, tx: x, tz: z, aux: 0, home: -1, post: -1,
+      unit: 0, role: Role.March, task: 0, tx: x, tz: z, aux: -1, home: -1, post: -1, climb: 0,
     };
     this.byHandle.set(col.handle, m.id);
     this.list.push(m);
@@ -568,7 +570,7 @@ export class Minions {
   hashInto(out: number[]) {
     for (const m of this.list) {
       out.push(m.state, m.x, m.z, m.yaw);
-      if (m.wave >= 0) out.push(m.y, m.target, m.cool, m.action, m.speed, m.vx, m.vz, m.unit, m.role, m.task, m.tx, m.tz, m.aux, m.post);
+      if (m.wave >= 0) out.push(m.y, m.target, m.cool, m.action, m.speed, m.vx, m.vz, m.unit, m.role, m.task, m.tx, m.tz, m.aux, m.post, m.climb);
       for (const b of m.parts) {
         const t = b.translation();
         const r = b.rotation();

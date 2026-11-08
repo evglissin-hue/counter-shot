@@ -269,7 +269,7 @@ export class Estate {
           if (dist < 90) this.sound.anvil(c.x, 1, c.z);
         } else {
           this.nextWork[k] = sec + 4.2 + (k % 2) * 0.7;
-          if (dist < 70) this.sound.grind(c.x, 1, c.z);
+          if (dist < 70) this.sound.millGrind(c.x, 1, c.z);
         }
       }
     }

@@ -8,13 +8,15 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { mkdirSync } from "node:fs";
 
+/** The dev server's port (PORT in the environment overrides it, so several runs can share a machine). */
+const PORT = Number(process.env.PORT) || 5198;
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const root = fileURLToPath(new URL("../apps/game", import.meta.url));
 const out = fileURLToPath(new URL("./.shots/", import.meta.url));
 mkdirSync(out, { recursive: true });
 const only = process.argv.slice(2);
-const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: Number(process.env.PORT ?? 5198), host: "127.0.0.1" }, logLevel: "error" });
+const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: PORT, host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -43,6 +45,13 @@ const state = () => page.evaluate(() => {
   const s = window.__sandbox;
   return { ride: s.ride, aimHit: s.aimHit, flight: s.flightSeconds, slow: s.timeScale, reload: s.reload, hud: document.getElementById("w-target")?.textContent };
 });
+/** The aim help setting lives in the Controls panel, which is hidden: set it through the page. */
+const setAimHelp = (v) =>
+  page.evaluate((value) => {
+    const s = document.getElementById("aimhelp");
+    s.value = value;
+    s.dispatchEvent(new Event("change"));
+  }, v);
 /** Wait until fn() is true, at most `limit` game frames. */
 async function waitFor(fn, limit = 600) {
   const start = await page.evaluate(() => window.__sandbox.frames);
@@ -56,7 +65,7 @@ async function waitFor(fn, limit = 600) {
 async function tour() {
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto(`http://127.0.0.1:${process.env.PORT ?? 5198}/index.html#webgl-low-fixed`, { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${PORT}/index.html#webgl-low-fixed`, { waitUntil: "load" });
       await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 120000 });
       break;
     } catch (e) {
@@ -79,7 +88,7 @@ async function tour() {
 
   // Find an elevation that lands on the target keep's roof (else anywhere on the keep), then ride a shell into it.
   // The search reads where the shell lands, which only the full aim help shows (the standard is the first part of the arc).
-  await page.selectOption("#aimhelp", "full");
+  await setAimHelp("full");
   let aim = null, fallback = null;
   for (let p = 1.34; p >= 0.7 && !aim; p -= 0.005) {
     await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), p);
@@ -93,7 +102,7 @@ async function tour() {
     await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), aim.pitch);
   }
   console.log("aim at the keep:", JSON.stringify(aim));
-  await page.selectOption("#aimhelp", "partial");
+  await setAimHelp("partial");
   await frames(45);
   await shot("04-mortar-on-keep");
   await page.evaluate(() => window.__sandbox.fire());

@@ -110,6 +110,8 @@ export interface GameRendererApi {
   setArms(emplacements: Emplacement[]): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */
   updateNav(kind: Uint8Array, floor: Float32Array): void;
+  /** How far a courtyard's storm has gone (0..1; castle 0 is the enemy's) and whether its attackers outnumber its defenders now. */
+  setStorm(castle: number, progress: number, holding: boolean): void;
 
   /** World point under a screen point (terrain or masonry), for the overview. */
   pick(clientX: number, clientY: number): { x: number; y: number; z: number } | null;

@@ -119,6 +119,28 @@ export const KEEP_STOREYS = [14, 27, KEEP_COURSES];
 const BOARDS = 6;
 const BOARD_THICK = 0.3;
 
+/**
+ * The castle's measures in its own frame (castle 0's: centre at the origin,
+ * the gate side at z = -half), for what is placed around the masonry: where
+ * masons work, where ladders lean, where a courtyard begins.
+ */
+export const CASTLE_SHAPE = {
+  /** Half the distance between tower centres: walls run along x = +-half and z = +-half. */
+  half: T,
+  wallThick: WALL_THICK,
+  wallTop: WALL_COURSES * COURSE,
+  wallCourses: WALL_COURSES,
+  towerCourses: TOWER_COURSES,
+  keepCourses: KEEP_COURSES,
+  course: COURSE,
+  towerOut: TOWER_R_OUT,
+  gateHalf: GATE_HALF,
+  gateCourses: GATE_COURSES,
+  keepHalf: KEEP_SIZE / 2,
+  keepZ: KEEP_Z,
+  keepThick: KEEP_THICK,
+} as const;
+
 const IDENTITY: Quat = [0, 0, 0, 1];
 
 class Builder {

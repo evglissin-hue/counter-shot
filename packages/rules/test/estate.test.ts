@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MATCH, MUSTER, PLOTS, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
-import { Action, Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Spin, type Rapier } from "@keepfall/sim";
+import { Action, Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Role, Spin, type Rapier } from "@keepfall/sim";
 import { ESTATE_MATCH_HASH, Match, runEstateMatch, Team } from "@keepfall/rules";
 
 await RD.init();
@@ -180,7 +180,8 @@ test("a gun bought for an empty slot fires; an upgrade needs a working Foundry a
 });
 
 test("sappers set their kegs at the foot of the enemy wall and blow a breach the wave walks through", () => {
-  const m = quiet(5);
+  // The kegs alone: no guns firing on their own (one lucky shot sets both off on the way), no masons to close the breach, no garrison inside.
+  const m = new Match(R, layout, { seed: 5, barracks: false, plan: false, gunnery: false, masons: false, garrison: false });
   m.army.spawnMix(Team.Player, 1, [Unit.Pikeman, Unit.Pikeman, Unit.Pikeman, Unit.Pikeman, Unit.Sapper, Unit.Pikeman, Unit.Pikeman, Unit.Sapper], 0, { x: 0, z: -50 });
   let kegs = 0, inside = 0;
   run(m, 45 * 60, (mm) => {
@@ -249,7 +250,8 @@ test("every working barracks sends its own mix down its own route, side by side 
   m.queue(1, Team.Player, { kind: "barracks", plot: 2, mix: "volley", route: "right" });
   run(m, WAVES.first + 2);
   assert.equal(m.waves[1], 2, "two waves from two barracks");
-  const army = m.world.minions.list.filter((x) => x.team === Team.Player && x.wave >= 0);
+  // The waves that marched out (M4's garrison and masons are army minions too).
+  const army = m.world.minions.list.filter((x) => x.team === Team.Player && x.wave >= 0 && x.role === Role.March);
   assert.equal(army.length, 16);
   const byWave = new Map<number, typeof army>();
   for (const x of army) byWave.set(x.wave, [...(byWave.get(x.wave) ?? []), x]);

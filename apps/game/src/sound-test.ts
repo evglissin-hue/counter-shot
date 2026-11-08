@@ -35,7 +35,7 @@ const CASES: Case[] = [
   { name: "musket shot", seconds: 3, run: (s) => s.musket(5, 1.4, -30) },
   { name: "keg fuse", seconds: 5, run: (s) => s.fuse(2, 0.4, -34, 4) },
   { name: "anvil", seconds: 2.5, run: (s) => s.anvil(-6, 1, -30) },
-  { name: "mill grinding", seconds: 3, run: (s) => s.grind(-6, 1, -30) },
+  { name: "mill grinding", seconds: 3, run: (s) => s.millGrind(-6, 1, -30) },
   {
     name: "falling shell whistle",
     seconds: 4,
@@ -66,6 +66,53 @@ const CASES: Case[] = [
       return true;
     },
   },
+  { name: "splash, grapeshot", seconds: 2, run: (s) => s.splash(0, -0.8, -60, 0.12) },
+  { name: "splash, a stone", seconds: 3, run: (s) => s.splash(4, -0.8, -50, 1.0) },
+  { name: "splash, shell burst", seconds: 3, run: (s) => s.splash(-3, -0.8, -45, 1.5) },
+  { name: "timber hit", seconds: 2, run: (s) => s.woodHit(2, 0.5, -30, 0.8) },
+  { name: "earth hit", seconds: 2, run: (s) => s.earthHit(-5, 0, -35, 0.85) },
+  { name: "pike clash", seconds: 1, run: (s) => s.clash(1, 1.3, -32) },
+  {
+    name: "a rank marching",
+    seconds: 3,
+    run: (s) => {
+      let n = 0;
+      return () => {
+        s.footstep(-2 + (n % 4), 0, -36 - (n % 3), 0.8);
+        n++;
+        return n < 40;
+      };
+    },
+  },
+  { name: "a shout", seconds: 2, run: (s) => s.shout(6, 1.4, -70, 1) },
+  { name: "a crow", seconds: 3, run: (s) => s.crow(-60, 22, 20) },
+  { name: "taking a gun", seconds: 1, run: (s) => s.ui("switch") },
+  { name: "a button", seconds: 1, run: (s) => s.ui("click") },
+  { name: "an order", seconds: 1, run: (s) => s.ui("order") },
+  {
+    name: "the stream and a fight",
+    seconds: 4,
+    run: (s) => {
+      s.setBeds(1, 1, 0, 1, -70);
+      return () => {
+        s.update(ear, 0.05, { wind: 4, awake: 0, slow: 1 });
+        return true;
+      };
+    },
+  },
+  {
+    name: "the gun turning",
+    seconds: 3,
+    run: (s) => {
+      return (t: number) => {
+        s.traverse(t < 2 ? 1 : 0, 1, 0.05);
+        return true;
+      };
+    },
+  },
+  { name: "reloading the long gun", seconds: 2, run: (s) => s.reloadWork("longGun") },
+  { name: "reloading the mortar", seconds: 2, run: (s) => s.reloadWork("mortar") },
+  { name: "reloading the chain shot", seconds: 2, run: (s) => s.reloadWork("chainShot") },
   {
     name: "collapse rumble and wind",
     seconds: 4,
@@ -77,6 +124,29 @@ const CASES: Case[] = [
       };
     },
   },
+  // M4: masons, ladders, storms and the end of a match.
+  { name: "mason's mallet, close", seconds: 1, run: (s) => s.mallet(1, 11, -36, 3) },
+  { name: "stone set (after the hoist)", seconds: 3, run: (s) => s.stoneSet(2, 9, -35, 0, 1.15) },
+  { name: "keep floor board set", seconds: 2, run: (s) => s.stoneSet(2, 12, -35, 1, 0.2) },
+  { name: "gate leaf hung", seconds: 3, run: (s) => s.stoneSet(0, 10, -34, 2, 0.2) },
+  { name: "rubble carried off", seconds: 2, run: (s) => s.scrape(-3, 10, -36) },
+  { name: "ladder against the wall", seconds: 2, run: (s) => s.ladderUp(4, 14, -32) },
+  { name: "ladder knocked down", seconds: 3, run: (s) => s.ladderDown(4, 10, -32) },
+  { name: "war horn (yours)", seconds: 4, run: (s) => s.horn(true) },
+  { name: "war horn (the enemy's)", seconds: 5, run: (s) => s.horn(false) },
+  { name: "alarm bell", seconds: 5, run: (s) => s.bell(330, 0.6) },
+  {
+    name: "storm drums and bell, building",
+    seconds: 6,
+    run: (s) => (t: number) => {
+      s.setStorm(0, Math.min(1, t / 5));
+      s.update(ear, 0.05, { wind: 3, awake: 0, slow: 1 });
+      return t < 5.9;
+    },
+  },
+  { name: "sudden death tolls", seconds: 8, run: (s) => s.suddenDeath() },
+  { name: "the end: a win", seconds: 7, run: (s) => s.matchEnd(true) },
+  { name: "the end: a loss", seconds: 7, run: (s) => s.matchEnd(false) },
 ];
 
 async function render(c: Case): Promise<{ peak: number; rms: number; bad: number; loudest: number }> {

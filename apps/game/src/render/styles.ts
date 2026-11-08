@@ -45,6 +45,9 @@ export interface StylePreset {
   /** Distant mountains: base colour and how much they dissolve into haze. */
   mountain: number;
   mountainHaze: number;
+  /** A warm band low along the horizon towards the sun, and how strong it is (0: none). */
+  band?: number;
+  bandStrength?: number;
 };
   fog: {
   /** Extinction per metre at ground level. */
@@ -167,7 +170,7 @@ function sunDir(azimuthDeg: number, elevationDeg: number): [number, number, numb
 export const GRITTY: StylePreset = {
   name: "gritty",
   sunDir: sunDir(128, 21),
-  sunColor: 0xd9e0e8,
+  sunColor: 0xe4dfd5,
   sunIntensity: 2.7,
   hemiSky: 0x8a96a3,
   hemiGround: 0x3c3a31,
@@ -180,7 +183,7 @@ export const GRITTY: StylePreset = {
     zenith: 0x5a6570,
     horizon: 0x8e979c,
     ground: 0x7c8284,
-    glow: 0xd2d7dc,
+    glow: 0xdad3c7,
     glowPower: 8,
     glowStrength: 0.4,
     sunDisc: 0xf2f4f6,
@@ -195,8 +198,10 @@ export const GRITTY: StylePreset = {
     cloudFade: 0.03,
     mountain: 0x3f4846,
     mountainHaze: 0.62,
+    band: 0xc49a6c,
+    bandStrength: 0.22,
   },
-  fog: { density: 0.0015, falloff: 0.013, color: 0x8d969c, sunColor: 0xbfc6cc },
+  fog: { density: 0.0015, falloff: 0.013, color: 0x8d969c, sunColor: 0xc6c2b8 },
   toneMapping: THREE.AgXToneMapping,
   exposure: 1.18,
   bloom: { strength: 0.08, radius: 0.4, threshold: 1.0 },

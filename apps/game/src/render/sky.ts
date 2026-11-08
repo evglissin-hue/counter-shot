@@ -57,6 +57,8 @@ export class Sky {
     fogDensity: uniform(0.001),
     fogFalloff: uniform(0.01),
     sunIntensity: uniform(1),
+    band: u3(0xc49a6c),
+    bandStrength: uniform(0),
   };
   private noise: THREE.Texture;
 
@@ -94,6 +96,10 @@ export class Sky {
       // Broad glow around the sun, plus a tighter halo.
       c.addAssign(u.glow.mul(pow(sd, u.glowPower).mul(u.glowStrength)));
       c.addAssign(u.glow.mul(pow(sd, u.glowPower.mul(8.0)).mul(u.glowStrength.mul(0.8))));
+      // A warm band low along the horizon towards the sun: the light of a low sun through haze.
+      const flat = vec2(dir.x, dir.z).add(vec2(0.0001, 0.0)).normalize();
+      const toward = max(dot(flat, vec2(sunDir.x, sunDir.z).normalize()), 0.0);
+      c.addAssign(u.band.mul(pow(toward, 3.0).mul(exp(up.div(0.085).negate())).mul(u.bandStrength)));
       if (withSun) {
         // Clouds on a plane, fading out towards the horizon.
         const k = float(1).div(max(y, 0.0).add(0.09));
@@ -170,6 +176,8 @@ export class Sky {
     u.fogDensity.value = style.fog.density;
     u.fogFalloff.value = style.fog.falloff;
     u.sunIntensity.value = 0.35;
+    u.band.value.setHex(s.band ?? 0xc49a6c);
+    u.bandStrength.value = s.bandStrength ?? 0;
     this.sunDir.value.set(style.sunDir[0], style.sunDir[1], style.sunDir[2]).normalize();
   }
 
