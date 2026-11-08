@@ -62,13 +62,13 @@ export class Works {
 
   constructor(private layout: CastleLayout) {
     this.root.name = "works";
-    const leg = new THREE.CylinderGeometry(0.07, 0.09, 1, 6, 1);
+    const leg = new THREE.CylinderGeometry(0.1, 0.13, 1, 6, 1);
     leg.deleteAttribute("uv");
     leg.translate(0, 0.5, 0);
-    const bar = new THREE.CylinderGeometry(0.06, 0.06, 1, 6, 1);
+    const bar = new THREE.CylinderGeometry(0.09, 0.09, 1, 6, 1);
     bar.deleteAttribute("uv");
     bar.rotateZ(Math.PI / 2);
-    const rope = new THREE.CylinderGeometry(0.018, 0.018, 1, 4, 1);
+    const rope = new THREE.CylinderGeometry(0.028, 0.028, 1, 4, 1);
     rope.deleteAttribute("uv");
     rope.translate(0, -0.5, 0);
     this.geos.push(leg, bar, rope);
@@ -238,6 +238,20 @@ export class Works {
     }
   }
 
+  /** Show a hoist out of sight, so its shaders compile while loading. */
+  prime(on: boolean) {
+    const h = this.hoists[0];
+    if (on && !h.shown) {
+      h.group.position.set(0, -500, 0);
+      h.group.visible = true;
+      h.group.userData.primed = true;
+    } else if (!on && h.group.userData.primed) {
+      h.group.position.set(0, 0, 0);
+      h.group.visible = h.shown;
+      h.group.userData.primed = false;
+    }
+  }
+
   clear() {
     this.lays = [];
     this.lastFoot = [null, null];
@@ -251,7 +265,7 @@ export class Works {
   }
 }
 
-/** World position of a castle's courtyard middle (for the storm ring): local (0, -6). */
+/** Where a castle's storm ring lies (world): the open ground between its gate and its keep (local (0, -8)). */
 export function courtyardMiddle(castle: number): { x: number; z: number } {
-  return { x: 0, z: mirrorZ(castle, -6.5) };
+  return { x: 0, z: mirrorZ(castle, -8) };
 }

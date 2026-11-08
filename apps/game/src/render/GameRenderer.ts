@@ -772,6 +772,9 @@ export class GameRenderer implements GameRendererApi {
       this.projectiles.prime(true);
       this.decals.prime(true);
       this.minions.prime(true);
+      this.ladders.prime(true);
+      this.works?.prime(true);
+      this.storm.prime(true);
     }
     post.render(this.now);
     if (priming) {
@@ -779,6 +782,9 @@ export class GameRenderer implements GameRendererApi {
       this.projectiles.prime(false);
       this.decals.prime(false);
       this.minions.prime(false);
+      this.ladders.prime(false);
+      this.works?.prime(false);
+      this.storm.prime(false);
     }
     this.lastDraw = this.renderer.info.render.drawCalls;
     this.lastTris = this.renderer.info.render.triangles;

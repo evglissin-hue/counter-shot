@@ -130,6 +130,21 @@ export class Ladders {
     this.ropes.count = 0;
   }
 
+  /** Draw one ladder and one rope out of sight, so their shaders compile while loading. */
+  prime(on: boolean) {
+    for (const m of [this.mesh, this.ropes]) {
+      if (on && m.count === 0) {
+        m.setMatrixAt(0, new THREE.Matrix4().makeTranslation(0, -500, 0));
+        m.instanceMatrix.needsUpdate = true;
+        m.count = 1;
+        m.userData.primed = true;
+      } else if (!on && m.userData.primed) {
+        m.count = 0;
+        m.userData.primed = false;
+      }
+    }
+  }
+
   dispose() {
     for (const m of [this.mesh, this.ropes]) {
       m.geometry.dispose();

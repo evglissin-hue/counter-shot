@@ -9,7 +9,8 @@ import { courtyardMiddle } from "./works";
 import { TEAM_COLORS } from "./minions";
 
 const SEGMENTS = 96;
-const RADIUS = 7.5;
+/** It lies in the open ground between the gate and the keep, between the houses. */
+const RADIUS = 3.7;
 
 interface Ring {
   group: THREE.Group;
@@ -28,12 +29,12 @@ export class Storm {
 
   constructor() {
     this.root.name = "storm-rings";
-    const base = new THREE.RingGeometry(RADIUS - 0.45, RADIUS + 0.45, SEGMENTS, 1);
+    const base = new THREE.RingGeometry(RADIUS - 0.36, RADIUS + 0.36, SEGMENTS, 1);
     base.rotateX(-Math.PI / 2);
     this.geos.push(base);
     for (let c = 0; c < 2; c++) {
       // Each ring fills on its own: its own geometry for its draw range.
-      const fill = new THREE.RingGeometry(RADIUS - 0.32, RADIUS + 0.32, SEGMENTS, 1, Math.PI / 2, Math.PI * 2);
+      const fill = new THREE.RingGeometry(RADIUS - 0.26, RADIUS + 0.26, SEGMENTS, 1, Math.PI / 2, Math.PI * 2);
       fill.rotateX(-Math.PI / 2);
       this.geos.push(fill);
       const group = new THREE.Group();
@@ -89,6 +90,21 @@ export class Storm {
       const segs = Math.max(1, Math.round(SEGMENTS * r.shown));
       r.fill.geometry.setDrawRange(0, segs * 6);
       r.fillMat.opacity = r.live ? 0.75 + 0.2 * Math.sin(time * 6) : 0.4;
+    }
+  }
+
+  /** Show a ring out of sight, so its shaders compile while loading. */
+  prime(on: boolean) {
+    const r = this.rings[0];
+    if (on && !r.group.visible) {
+      r.group.userData.y = r.group.position.y;
+      r.group.position.y = -500;
+      r.group.visible = true;
+      r.group.userData.primed = true;
+    } else if (!on && r.group.userData.primed) {
+      r.group.position.y = r.group.userData.y;
+      r.group.visible = r.shown > 0;
+      r.group.userData.primed = false;
     }
   }
 

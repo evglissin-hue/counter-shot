@@ -260,10 +260,10 @@ export class Sound {
     if (!this.ctx) return;
     const c = this.out(this.place(x, y, z, 12), 0.25, 1);
     const k = 1 + (((id * 7919) % 13) - 6) * 0.018;
-    this.burstNoise(c.input, c.t0, this.white, "bandpass", 950 * k, 2.2, 0.001, 0.05, 0.34);
-    this.tone(c.input, c.t0, 430 * k, 360 * k, 0.04, 0.001, 0.06, 0.22);
-    this.tone(c.input, c.t0 + 0.004, 2960 * k, 2940 * k, 0.1, 0.001, 0.13, 0.07);
-    this.tone(c.input, c.t0 + 0.004, 4410 * k, 4390 * k, 0.1, 0.001, 0.08, 0.04);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 950 * k, 2.2, 0.001, 0.05, 0.6);
+    this.tone(c.input, c.t0, 430 * k, 360 * k, 0.04, 0.001, 0.06, 0.4);
+    this.tone(c.input, c.t0 + 0.004, 2960 * k, 2940 * k, 0.1, 0.001, 0.13, 0.13);
+    this.tone(c.input, c.t0 + 0.004, 4410 * k, 4390 * k, 0.1, 0.001, 0.08, 0.07);
   }
 
   /** A piece put back beds into its place `after` seconds from now: 0 a stone, 1 a timber floor board, 2 a gate leaf on its hinges. */
@@ -284,23 +284,23 @@ export class Sound {
       return;
     }
     if (kind === 1) {
-      this.tone(c.input, c.t0, 150, 96, 0.12, 0.002, 0.2, 0.42, 1.5);
-      this.burstNoise(c.input, c.t0, this.white, "bandpass", 520, 1.3, 0.001, 0.1, 0.32);
+      this.tone(c.input, c.t0, 150, 96, 0.12, 0.002, 0.2, 0.26, 1.5);
+      this.burstNoise(c.input, c.t0, this.white, "bandpass", 520, 1.3, 0.001, 0.1, 0.2);
       return;
     }
-    // Stone on its bed of mortar: a dull thump, the grit of it, a small clack of the edges.
-    this.tone(c.input, c.t0, 96, 58, 0.16, 0.002, 0.24, 0.5, 1.5);
-    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 900, 0.7, 0.002, 0.16, 0.38);
-    this.burstNoise(c.input, c.t0 + 0.01, this.white, "bandpass", 1900, 2, 0.001, 0.025, 0.16);
-    this.sweptNoise(c.input, c.t0 + 0.03, this.white, 2400, 700, 0.25, 0.01, 0.22, 0.06);
+    // Stone on its bed of mortar: a dull thump, the grit of it, a small clack of the edges (quiet: masons set a few a second).
+    this.tone(c.input, c.t0, 96, 58, 0.16, 0.002, 0.24, 0.2, 1.5);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 900, 0.7, 0.002, 0.16, 0.16);
+    this.burstNoise(c.input, c.t0 + 0.01, this.white, "bandpass", 1900, 2, 0.001, 0.025, 0.08);
+    this.sweptNoise(c.input, c.t0 + 0.03, this.white, 2400, 700, 0.25, 0.01, 0.22, 0.03);
   }
 
   /** Rubble dragged out of a gap: a short scrape. */
   scrape(x: number, y: number, z: number) {
     if (!this.ctx) return;
     const c = this.out(this.place(x, y, z, 14), 0.2, 1.5);
-    this.sweptNoise(c.input, c.t0, this.white, 1400, 320, 0.45, 0.04, 0.5, 0.16);
-    this.burstNoise(c.input, c.t0 + 0.32, this.brown, "lowpass", 500, 0.7, 0.002, 0.12, 0.22);
+    this.sweptNoise(c.input, c.t0, this.white, 1400, 320, 0.45, 0.04, 0.5, 0.26);
+    this.burstNoise(c.input, c.t0 + 0.32, this.brown, "lowpass", 500, 0.7, 0.002, 0.12, 0.34);
   }
 
   /** A ladder's top swings against the wall: a wooden clack and rattle. */

@@ -95,7 +95,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .chips button.off { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: rgba(236,228,210,0.35); }
 .masons { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .masons.wait { color: var(--brass); }
-.storm { position: absolute; left: 50%; top: calc(150px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); width: min(460px, calc(100% - 32px)); padding: 8px 12px 10px; display: grid; gap: 6px; }
+.storm { justify-self: stretch; width: min(460px, 100%); margin: 2px auto 0; padding: 7px 10px 9px; display: grid; gap: 6px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.25); }
 .storm .title { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font: 500 14px/1.2 var(--ui); }
 .storm .title b { font: 19px/1 var(--display); font-weight: 400; }
 .storm .meter { height: 6px; border-radius: 3px; background: rgba(236,228,210,0.14); overflow: hidden; }
@@ -105,7 +105,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .storm.theirs .meter > i { background: var(--bad); }
 .storm.theirs .title b { color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .storm .meter > i { transition: none; } }
-.bridges { position: absolute; left: 50%; top: calc(108px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
+.bridges { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
 .bridges b { font-weight: 600; }
 .bridges .down { color: var(--bad); }
 .overlay { position: absolute; inset: 0; display: grid; place-items: center; padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); background: rgba(10, 9, 7, 0.38); overflow: auto; }
@@ -180,10 +180,10 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
       <span class="chips" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><span class="key">Alt</span><button data-repair="gate" aria-pressed="true">1 Gate</button><button data-repair="walls" aria-pressed="true">2 Walls</button><button data-repair="towers" aria-pressed="true">3 Towers</button><button data-repair="keep" aria-pressed="true">4 Keep</button></span>
       <span class="small masons" id="masons"></span>
     </div>
-  </div>
-  <div id="storm" class="storm glass" hidden role="status" aria-live="polite">
-    <div class="title"><b id="storm-title"></b><span class="mono" id="storm-count"></span></div>
-    <div class="meter"><i id="storm-fill"></i></div>
+    <div id="storm" class="storm" hidden role="status" aria-live="polite">
+      <div class="title"><b id="storm-title"></b><span class="mono" id="storm-count"></span></div>
+      <div class="meter"><i id="storm-fill"></i></div>
+    </div>
   </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
   <div class="weapon glass" aria-live="polite">

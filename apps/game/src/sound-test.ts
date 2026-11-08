@@ -68,6 +68,29 @@ const CASES: Case[] = [
       };
     },
   },
+  // M4: masons, ladders, storms and the end of a match.
+  { name: "mason's mallet, close", seconds: 1, run: (s) => s.mallet(1, 11, -36, 3) },
+  { name: "stone set (after the hoist)", seconds: 3, run: (s) => s.stoneSet(2, 9, -35, 0, 1.15) },
+  { name: "keep floor board set", seconds: 2, run: (s) => s.stoneSet(2, 12, -35, 1, 0.2) },
+  { name: "gate leaf hung", seconds: 3, run: (s) => s.stoneSet(0, 10, -34, 2, 0.2) },
+  { name: "rubble carried off", seconds: 2, run: (s) => s.scrape(-3, 10, -36) },
+  { name: "ladder against the wall", seconds: 2, run: (s) => s.ladderUp(4, 14, -32) },
+  { name: "ladder knocked down", seconds: 3, run: (s) => s.ladderDown(4, 10, -32) },
+  { name: "war horn (yours)", seconds: 4, run: (s) => s.horn(true) },
+  { name: "war horn (the enemy's)", seconds: 5, run: (s) => s.horn(false) },
+  { name: "alarm bell", seconds: 5, run: (s) => s.bell(330, 0.6) },
+  {
+    name: "storm drums and bell, building",
+    seconds: 6,
+    run: (s) => (t: number) => {
+      s.setStorm(0, Math.min(1, t / 5));
+      s.update(ear, 0.05, { wind: 3, awake: 0, slow: 1 });
+      return t < 5.9;
+    },
+  },
+  { name: "sudden death tolls", seconds: 8, run: (s) => s.suddenDeath() },
+  { name: "the end: a win", seconds: 7, run: (s) => s.matchEnd(true) },
+  { name: "the end: a loss", seconds: 7, run: (s) => s.matchEnd(false) },
 ];
 
 async function render(c: Case): Promise<{ peak: number; rms: number; bad: number; loudest: number }> {

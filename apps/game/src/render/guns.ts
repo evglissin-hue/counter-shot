@@ -101,8 +101,10 @@ function supportHeight(layout: CastleLayout, x: number, y: number, z: number): {
   let under = 0;
   let ring = 0;
   const R = layout.wedge.rOut + 0.6;
+  // The castle on the gun's own side of the field (the enemy's guns stand on the enemy's walls).
+  const castle = z < (layout.castleZ[0] + layout.castleZ[1]) / 2 ? 1 : 0;
   for (const s of layout.stones) {
-    if (s.castle !== 1 || s.material !== "stone" || s.part === "merlon") continue;
+    if (s.castle !== castle || s.material !== "stone" || s.part === "merlon") continue;
     const b = stoneBounds(s, layout.wedge);
     const top = b[4];
     if (top > y + 0.05) continue;

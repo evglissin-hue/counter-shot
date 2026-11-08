@@ -361,8 +361,11 @@ function onFrame(f: FrameData) {
   }
   lastDown = downAt.get(f.tick) ?? stats.down;
   downAt.delete(f.tick);
+  lastApplied = f;
   renderer.applyFrame(f);
 }
+/** The last frame applied (the screenshot tools read figures and ladders from it). */
+let lastApplied: FrameData | null = null;
 
 function showTally() {
   if (!tally) return;
@@ -1291,7 +1294,7 @@ function showEnd() {
   const mas = info.masonry ?? info.down;
   const st = info.stats;
   const rows: Array<[string, string | number, string | number]> = [
-    ["Masonry down", mas ? mas[1] : "", mas ? mas[0] : ""],
+    ["Masonry lost", mas ? mas[1] : "", mas ? mas[0] : ""],
     ["Stones rebuilt", st ? st[1].stonesRebuilt : "", st ? st[0].stonesRebuilt : ""],
     ["Gold earned", st ? st[1].goldEarned : "", st ? st[0].goldEarned : ""],
     ["Gold on repairs", st ? st[1].goldSpent : "", st ? st[0].goldSpent : ""],
@@ -1662,8 +1665,17 @@ else view = "overview";
   get matchLog() {
     return matchLog.slice();
   },
+  /** Upright figures [id, x, y, z, yaw, phase, team, action, act, unit] and ladders [id, team, state, foot xyz, top xyz, t] of the last frame drawn. */
+  get frame() {
+    const f = lastApplied;
+    return f ? { tick: f.tick, minions: Array.from(f.minions), ladders: Array.from(f.ladders), works: Array.from(f.works) } : null;
+  },
   surrender() {
     send({ t: "input", input: { kind: "surrender" } });
+  },
+  /** Test tools only: a wave of pikemen at a point. */
+  spawn(team: 0 | 1, count: number, x: number, z: number, ladder = false) {
+    send({ t: "spawn", team, count, x, z, ladder });
   },
   toggleOverview,
   get view() {

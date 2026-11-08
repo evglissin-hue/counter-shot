@@ -204,7 +204,7 @@ export class Minions {
 
   /** Draw the stump caps and helmets once out of sight, so their shaders compile while loading, not at the first severed limb. */
   prime(on: boolean) {
-    for (const mesh of [this.stumps, this.helmet]) {
+    for (const mesh of [this.stumps, this.helmet, this.mallet, this.axe, this.cap]) {
       if (on && mesh.count === 0) {
         _m.makeTranslation(0, -500, 0);
         mesh.setMatrixAt(0, _m);

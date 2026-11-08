@@ -19,7 +19,7 @@ const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `--${k}=${d}
 const quality = opt("quality", "low");
 const tag = opt("tag", quality);
 const only = args.filter((a) => !a.startsWith("--"));
-const port = 5298;
+const port = Number(process.env.PORT) || 5298;
 
 /** name: [eye x, y, z, target x, y, z] (metres; the player's castle is at z = -150, the enemy's at 0). */
 const VIEWS = {
@@ -35,6 +35,10 @@ const VIEWS = {
   // The render test's staged pikemen: two pairs fighting, three battering the target gate.
   fight: [-0.5, 2.4, -36.5, -4.6, 1.1, -31],
   gate: [5, 3.2, -22, 0, 1.6, -16],
+  // M4 staged on the render test page: ladders at the target wall, masons at a hoist inside it, a storm ring.
+  ladders: [17, 5.5, -31, 6.5, 4, -18],
+  masons: [-3.4, 2.7, -9.4, -6.0, 1.3, -13.0],
+  storm: [16, 34, -34, 0, 0, -6.5],
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });

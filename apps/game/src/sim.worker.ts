@@ -234,6 +234,9 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         navOn = msg.on;
         navSent = -1;
         break;
+      case "spawn":
+        match?.army.spawnWave(msg.team, 1, msg.count, { x: msg.x, z: msg.z }, { ladder: msg.ladder === true });
+        break;
       case "manual":
         manual = true;
         acc = 0;

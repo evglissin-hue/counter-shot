@@ -250,7 +250,7 @@ export class Works {
       crew.spotZ = w.z;
       crew.spotJob = crew.job;
     }
-    crew.hold = found < 0 ? WorksHold.Blocked : this.army.enemyNear(team, w.x, w.z, REPAIR.unsafe) ? WorksHold.Danger : crew.hold === WorksHold.Gold ? WorksHold.Gold : WorksHold.None;
+    crew.hold = found < 0 ? WorksHold.Blocked : this.army.enemyNear(team, w.x, w.z, unsafe(sec)) ? WorksHold.Danger : crew.hold === WorksHold.Gold ? WorksHold.Gold : WorksHold.None;
   }
 
   /**
@@ -277,7 +277,7 @@ export class Works {
         }
         if (!n || first < 0) continue;
         const w = workSpot(this.castle.layout, sec, first);
-        if (this.army.enemyNear(crew.castle, w.x, w.z, REPAIR.unsafe)) continue;
+        if (this.army.enemyNear(crew.castle, w.x, w.z, unsafe(sec))) continue;
         const score = k * 100000 + low * 100 - (n < 99 ? n : 99);
         if (score < bestScore) {
           bestScore = score;
@@ -457,4 +457,9 @@ export class Works {
       out.push(c.wave, c.job, c.next, c.hold, c.left, c.laid, c.cleared, c.spent, c.spotX, c.spotZ, ...c.masons, ...c.due);
     }
   }
+}
+
+/** How close enemy minions keep masons off a section: a gate is not rehung with the enemy near enough to batter it down again. */
+function unsafe(sec: RepairSection): number {
+  return sec.kind === "gate" ? REPAIR.gateUnsafe : REPAIR.unsafe;
 }

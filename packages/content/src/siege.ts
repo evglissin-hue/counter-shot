@@ -44,8 +44,9 @@ export const REPAIR = {
   flee: 7,
   calm: 10,
   calmTicks: 2 * 60,
-  /** Masons do not start on a section with enemy minions this close to where they would stand (m). */
+  /** Masons do not start on a section with enemy minions this close to where they would stand (m), nor rehang a gate with them this close (they would only batter it down again). */
   unsafe: 9,
+  gateUnsafe: 22,
   /** Masons spread along the work this far apart (m). */
   spread: 1.1,
   /** Gold for each piece put back, by part. */
