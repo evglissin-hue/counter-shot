@@ -20,11 +20,14 @@ export const PROJECTILE_STRIDE = 9;
 export const CHAIN_STRIDE = 6;
 
 /**
- * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act].
- * Feet at y. Action (army.ts): 0 walking, 1 standing, 2 fighting, 3
- * battering a gate; act counts ticks since its last blow began.
+ * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act,
+ * unit, carry]. Feet at y. Action (army.ts): 0 walking, 1 standing, 2
+ * fighting, 3 battering a gate, 4 planting a keg, 5 shooting a musket; act
+ * counts ticks since its last blow, shot or plant began. Unit is the index
+ * in UNIT_KINDS (pikeman, sapper, musketeer); carry is 1 while a sapper
+ * still has its keg.
  */
-export const MINION_STRIDE = 9;
+export const MINION_STRIDE = 11;
 
 /** Ragdoll parts: [minionId, part, x, y, z, qx, qy, qz, qw]. Part shapes are in MINION_PARTS. */
 export const PART_STRIDE = 9;
@@ -35,6 +38,8 @@ export const enum EventKind {
   Muzzle = 2, // [kind, emplacement, shot id, unmanned (1) or not (0), 0]
   Blood = 3, // [kind, x, y, z, strength]: cosmetic, the renderer may ignore it
   Landed = 4, // [kind, emplacement, x, y, z]: first touch of a shot, for the landing marker; emplacement is -(id + 1) for an unmanned shot
+  Musket = 5, // [kind, shooter minion id, target x, target z, hit (1) or miss (0)]
+  Keg = 6, // [kind, x, y, z, ticks to the burst]: a keg planted against a wall or dropped by a falling sapper, its fuse lit
 }
 export const EVENT_STRIDE = 5;
 
@@ -70,6 +75,9 @@ export interface FrameData {
   settledCount: number;
   /** Minions whose bodies left the world (sank into the ground). */
   gone: Int32Array;
+  /** Pieces raised into the world (a building going up: draw them where the layout puts them) and pieces cleared out of it (hide them, no dust). */
+  raised: Int32Array;
+  cleared: Int32Array;
   events: Float32Array;
   eventCount: number;
   terrain: TerrainPatch[];

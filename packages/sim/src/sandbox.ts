@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { ASHWRIGHT_EMPLACEMENTS, WEAPONS, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, emplacementWeapon, WEAPONS, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { Army } from "./army";
@@ -22,13 +22,13 @@ import {
   type FrameData,
   type TerrainPatch,
 } from "./frame";
-import { Minions, MinionState } from "./minions";
+import { Felled, Minions, MinionState } from "./minions";
 import { NavGrid } from "./nav";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 7;
+export const RULES_VERSION = 8;
 
 export const enum Spin {
   None = 0,
@@ -69,6 +69,9 @@ interface Shot {
   joint: unknown;
   /** Fired by a weapon nobody mans. */
   auto: boolean;
+  /** A ball of it glanced off masonry (a knockdown after that is a ricochet), and it has struck a keep already. */
+  glanced: boolean;
+  keepHit: boolean;
 }
 
 export interface SandboxOptions {
@@ -79,7 +82,7 @@ export interface SandboxOptions {
   army?: boolean;
 }
 
-const MAX_STONES = 9600;
+const MAX_STONES = 12000;
 /** Ticks between nav grid refreshes (four a second). */
 const NAV_EVERY = 15;
 /** Grapeshot pellets do not collide with each other. */
@@ -101,6 +104,11 @@ export class SandboxSim {
   tick = 0;
   /** Ticks until each emplacement can fire again. */
   reload: number[];
+  /** Keep pieces struck this step: by which shot, and whose keep (for trick shots). */
+  keepHits: Array<{ shot: number; castle: number }> = [];
+  /** Every shot's emplacement and whether a gunner fired it, by shot id. */
+  private shotEmp = new Int16Array(256).fill(-1);
+  private shotAuto = new Uint8Array(256);
   private inputs = new Map<number, SandboxInput[]>();
   private shots: Shot[] = [];
   private nextShot = 1;
@@ -137,7 +145,9 @@ export class SandboxSim {
     this.scatterRng = this.rng.fork("scatter");
     this.nav = new NavGrid(this.castle, this.terrain);
     this.minions.nav = this.nav;
-    this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, (k, a, b, c, d) => this.event(k, a, b, c, d)) : null;
+    this.army = opts.army
+      ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, (k, a, b, c, d) => this.event(k, a, b, c, d), (x, y, z, burst, cause) => this.explode(x, y, z, burst, cause))
+      : null;
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -156,6 +166,9 @@ export class SandboxSim {
 
   step() {
     const tick = this.tick;
+    // A match reads and clears the fallen after each step; nobody reads them in the Practice range.
+    if (!this.army) this.minions.fellNow.length = 0;
+    this.keepHits.length = 0;
     const list = this.inputs.get(tick);
     if (list) {
       this.inputs.delete(tick);
@@ -185,7 +198,7 @@ export class SandboxSim {
     }
     const e = this.emplacements[input.emplacement];
     if (!e || this.reload[e.id] > 0) return;
-    const w = WEAPONS[e.weapon];
+    const w = emplacementWeapon(e);
     const aim = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
     const charge = input.charge < 0 ? 0 : input.charge > 1 ? 1 : input.charge;
     // The shot leaves a little off the aim, and the charge is never quite the same twice.
@@ -198,6 +211,16 @@ export class SandboxSim {
     this.reload[e.id] = input.reload !== undefined && input.reload > 0 ? Math.round(w.reload * input.reload) : w.reload;
     const id = this.nextShot++;
     this.firingAuto = input.auto === true;
+    if (id >= this.shotEmp.length) {
+      const emp = new Int16Array(this.shotEmp.length * 2).fill(-1);
+      emp.set(this.shotEmp);
+      this.shotEmp = emp;
+      const auto = new Uint8Array(this.shotAuto.length * 2);
+      auto.set(this.shotAuto);
+      this.shotAuto = auto;
+    }
+    this.shotEmp[id] = e.id;
+    this.shotAuto[id] = this.firingAuto ? 1 : 0;
     this.event(EventKind.Muzzle, e.id, id, input.auto ? 1 : 0, 0);
     switch (e.weapon) {
       case "longGun":
@@ -222,9 +245,9 @@ export class SandboxSim {
     const p = w.projectile;
     const slot = this.castle.fire(mx, my, mz, dx * speed, dy * speed, dz * speed, {
       radius: p.radius, density: p.density, restitution: p.restitution, blast: p.blast, ricochet: true,
-      angvel: sv ? { x: sv[0], y: sv[1], z: sv[2] } : undefined,
+      angvel: sv ? { x: sv[0], y: sv[1], z: sv[2] } : undefined, shot: id,
     });
-    if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Ball, slots: [slot], coef: flightCoef(p), spin: sv !== null, fuseAt: -1, landed: false, joint: null, auto: this.firingAuto });
+    if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Ball, slots: [slot], coef: flightCoef(p), spin: sv !== null, fuseAt: -1, landed: false, joint: null, auto: this.firingAuto, glanced: false, keepHit: false });
   }
 
   private fireShell(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number, fuse: number) {
@@ -232,10 +255,10 @@ export class SandboxSim {
     const [dx, dy, dz] = aimDir(yaw, pitch);
     const p = w.projectile;
     const slot = this.castle.fire(mx, my, mz, dx * speed, dy * speed, dz * speed, {
-      radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: false, life: 60 * 20, gravity: p.gravity,
+      radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: false, life: 60 * 20, gravity: p.gravity, shot: id,
     });
     const f = fuse <= 0 ? 0 : this.tick + clampInt(fuse, w.fuseMin, w.fuseMax);
-    if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Shell, slots: [slot], coef: flightCoef(p), spin: false, fuseAt: f, landed: false, joint: null, auto: this.firingAuto });
+    if (slot >= 0) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Shell, slots: [slot], coef: flightCoef(p), spin: false, fuseAt: f, landed: false, joint: null, auto: this.firingAuto, glanced: false, keepHit: false });
   }
 
   private fireChain(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number) {
@@ -251,13 +274,13 @@ export class SandboxSim {
     const fx = dx, fz = dz;
     const fl = dsqrt(fx * fx + fz * fz) + 1e-9;
     const p = w.projectile;
-    const opts = { radius: p.radius, density: p.density, restitution: p.restitution, blast: p.blast, ricochet: true };
+    const opts = { radius: p.radius, density: p.density, restitution: p.restitution, blast: p.blast, ricochet: true, shot: id };
     const s1 = this.castle.fire(mx + ux * h, my, mz + uz * h, dx * speed + (fx / fl) * tang, dy * speed, dz * speed + (fz / fl) * tang, opts);
     const s2 = this.castle.fire(mx - ux * h, my, mz - uz * h, dx * speed - (fx / fl) * tang, dy * speed, dz * speed - (fz / fl) * tang, opts);
     if (s1 < 0 || s2 < 0) return;
     const b1 = this.castle.balls[s1].body, b2 = this.castle.balls[s2].body;
     const joint = this.castle.world.createImpulseJoint(this.R.JointData.rope(w.chainLength, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }), b1, b2, true);
-    this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Chain, slots: [s1, s2], coef: flightCoef(p), spin: false, fuseAt: -1, landed: false, joint, auto: this.firingAuto });
+    this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Chain, slots: [s1, s2], coef: flightCoef(p), spin: false, fuseAt: -1, landed: false, joint, auto: this.firingAuto, glanced: false, keepHit: false });
   }
 
   private fireGrape(id: number, e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: number) {
@@ -270,10 +293,10 @@ export class SandboxSim {
       const t = this.pelletRng.range(0, 6.283185307179586);
       const [dx, dy, dz] = aimDir(yaw + r * cosT(t), pitch + r * sinT(t));
       const sp = speed * this.pelletRng.range(0.92, 1.05);
-      const s = this.castle.fire(mx, my, mz, dx * sp, dy * sp, dz * sp, { radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: true, life: 60 * 4, groups: PELLET_GROUPS });
+      const s = this.castle.fire(mx, my, mz, dx * sp, dy * sp, dz * sp, { radius: p.radius, density: p.density, restitution: p.restitution, blast: 0, ricochet: true, life: 60 * 4, groups: PELLET_GROUPS, shot: id });
       if (s >= 0) slots.push(s);
     }
-    if (slots.length) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Grape, slots, coef: flightCoef(p), spin: false, fuseAt: -1, landed: false, joint: null, auto: this.firingAuto });
+    if (slots.length) this.shots.push({ id, emplacement: e.id, kind: ProjectileKind.Grape, slots, coef: flightCoef(p), spin: false, fuseAt: -1, landed: false, joint: null, auto: this.firingAuto, glanced: false, keepHit: false });
   }
 
   /** Drag against the wind for everything in the air, Magnus lift for spinning shot that has not touched anything. */
@@ -301,9 +324,33 @@ export class SandboxSim {
     }
   }
 
+  /** The shot a ball belongs to, if it is still in flight. */
+  private shotOfBall(bi: number): Shot | null {
+    const id = this.castle.balls[bi]?.shot ?? 0;
+    if (!id) return null;
+    for (const s of this.shots) if (s.id === id) return s;
+    return null;
+  }
+
+  /** The emplacement that fired a shot and whether it was unmanned (null for an unknown shot). */
+  shotOwner(id: number): { emplacement: number; auto: boolean } | null {
+    if (id <= 0 || id >= this.shotEmp.length || this.shotEmp[id] < 0) return null;
+    return { emplacement: this.shotEmp[id], auto: this.shotAuto[id] === 1 };
+  }
+
   private afterStep() {
     const castle = this.castle;
     for (const im of castle.impacts) this.event(EventKind.Impact, im.x, im.y, im.z, im.strength);
+    for (const [bi] of castle.glances) {
+      const shot = this.shotOfBall(bi);
+      if (shot) shot.glanced = true;
+    }
+    for (const [bi, stone] of castle.keepHits) {
+      const shot = this.shotOfBall(bi);
+      if (!shot || shot.keepHit) continue;
+      shot.keepHit = true;
+      this.keepHits.push({ shot: shot.id, castle: castle.layout.stones[stone].castle });
+    }
 
     // Balls that touched minions: knock them down and keep most of the momentum.
     for (const [bi, handle] of castle.foreign) {
@@ -316,7 +363,8 @@ export class SandboxSim {
       const mass = ball.body.mass();
       const share = mass / (mass + 70); // momentum shared with a 70 kg body
       const p = ball.body.translation();
-      this.minions.knock({ minion: mid, vx: ball.vx * share, vy: ball.vy * share + 1.5, vz: ball.vz * share, px: p.x, py: p.y, pz: p.z, extra: 1.5 }, this.tick);
+      const shot = this.shotOfBall(bi);
+      this.minions.knock({ minion: mid, vx: ball.vx * share, vy: ball.vy * share + 1.5, vz: ball.vz * share, px: p.x, py: p.y, pz: p.z, extra: 1.5, cause: ball.shot, how: shot && shot.glanced ? Felled.Ricochet : Felled.Ball }, this.tick);
       ball.body.setLinvel({ x: ball.vx * (1 - share * 0.5), y: ball.vy * (1 - share * 0.5), z: ball.vz * (1 - share * 0.5) }, true);
       this.event(EventKind.Blood, p.x, p.y, p.z, Math.min(1, dsqrt(speed2) / 60));
     }
@@ -328,7 +376,7 @@ export class SandboxSim {
       const s2 = v.x * v.x + v.y * v.y + v.z * v.z;
       if (s2 < 6) continue;
       const p = castle.bodies[stoneId].translation();
-      this.minions.knock({ minion: mid, vx: v.x * 0.4, vy: v.y * 0.2, vz: v.z * 0.4, px: p.x, py: p.y, pz: p.z, extra: 0.5 }, this.tick);
+      this.minions.knock({ minion: mid, vx: v.x * 0.4, vy: v.y * 0.2, vz: v.z * 0.4, px: p.x, py: p.y, pz: p.z, extra: 0.5, cause: castle.cause[stoneId], how: Felled.Stone }, this.tick);
       this.event(EventKind.Blood, p.x, p.y, p.z, 0.5);
     }
 
@@ -359,7 +407,7 @@ export class SandboxSim {
         if (due) {
           const p = ball.body.translation();
           let x = p.x, y = p.y, z = p.z;
-          const burst = WEAPONS[this.emplacements[shot.emplacement].weapon].burst ?? SHELL_BURST;
+          const burst = emplacementWeapon(this.emplacements[shot.emplacement]).burst ?? SHELL_BURST;
           if (shot.fuseAt === 0 && ball.struck >= 0) {
             // A shell that strikes masonry bursts inside it, along its flight: roofs and wall tops cave in.
             const sp = dsqrt(ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz) + 1e-9;
@@ -368,7 +416,7 @@ export class SandboxSim {
             z += (ball.vz / sp) * burst.bite;
           }
           castle.removeBall(shot.slots[0]);
-          this.explode(x, y, z, burst);
+          this.explode(x, y, z, burst, shot.id);
           alive = 0;
         }
       }
@@ -380,16 +428,16 @@ export class SandboxSim {
     this.minions.settle(this.tick);
   }
 
-  /** A powder burst: masonry, minions, a crater if it is near the ground. */
-  explode(x: number, y: number, z: number, burst: BurstDef = SHELL_BURST) {
+  /** A powder burst (a mortar shell, a keg): masonry, minions, a crater if it is near the ground. `cause` is the shot behind it (0: none). */
+  explode(x: number, y: number, z: number, burst: BurstDef = SHELL_BURST, cause = 0) {
     const E = burst;
-    this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift);
+    this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift, cause);
     this.event(EventKind.Explosion, x, y, z, E.radius);
     for (const n of this.minions.near(x, y, z, E.knock)) {
       const d = n.d + 0.3;
       const f = E.knockSpeed * (1 - n.d / E.knock);
       const ex = (n.cx - x) / d, ey = (n.cy - y) / d, ez = (n.cz - z) / d;
-      this.minions.knock({ minion: n.id, vx: ex * f, vy: ey * f + f * 0.6, vz: ez * f, px: x, py: y, pz: z, extra: 0.6 }, this.tick);
+      this.minions.knock({ minion: n.id, vx: ex * f, vy: ey * f + f * 0.6, vz: ez * f, px: x, py: y, pz: z, extra: 0.6, cause, how: Felled.Burst }, this.tick);
       this.event(EventKind.Blood, n.cx, n.cy, n.cz, 1 - n.d / E.knock);
     }
     const g = this.terrain.heightAt(x, z);
@@ -432,6 +480,7 @@ export class SandboxSim {
     const partCount = this.minions.collectParts(b.parts);
     const settledCount = this.minions.collectSettled(b.settled);
     const gone = Int32Array.from(this.minions.collectGone());
+    const { raised, cleared } = this.castle.collectRaised();
     const terrain: TerrainPatch[] = this.terrain.patches;
     this.terrain.patches = [];
     const events = new Float32Array(this.events);
@@ -451,6 +500,8 @@ export class SandboxSim {
       settled: b.settled.slice(0, settledCount * PART_STRIDE),
       settledCount,
       gone,
+      raised,
+      cleared,
       events,
       eventCount: events.length / EVENT_STRIDE,
       terrain,

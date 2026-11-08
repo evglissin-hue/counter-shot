@@ -213,6 +213,14 @@ export interface Emplacement {
   yawLimit: number;
   /** Muzzle distance from the pivot along the barrel: shots start there. */
   barrel: number;
+  /** The Foundry's upgrades fitted to this gun (slots.ts). */
+  mods?: Mods;
+}
+
+/** Foundry upgrades on a gun: heavy shot and a rifled barrel (slots.ts says what each does). */
+export interface Mods {
+  heavy?: boolean;
+  rifled?: boolean;
 }
 
 /** The player's castle (castle 1, centred at z = -150, facing +Z). */

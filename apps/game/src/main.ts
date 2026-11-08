@@ -774,6 +774,7 @@ const PART_NAMES: Record<Stone["part"], string> = {
   storey: "keep floor",
   banner: "banner",
   bridge: "bridge",
+  building: "building",
 };
 
 /** "the target keep, 151 m" for the HUD. */

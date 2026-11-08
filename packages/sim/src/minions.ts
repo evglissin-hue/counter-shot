@@ -53,6 +53,20 @@ const JOINTS: Array<[number, number, [number, number, number], boolean]> = [
   [9, 10, [-0.1, 0.51, 0], true],
 ];
 
+/** What knocked a minion down (for bounties and trick shots). */
+export const enum Felled {
+  Ball = 0,
+  /** A ball that had glanced off masonry first. */
+  Ricochet = 1,
+  Burst = 2,
+  /** Masonry falling on it. */
+  Stone = 3,
+  Blow = 4,
+  Musket = 5,
+  /** Its floor went from under it. */
+  Fall = 6,
+}
+
 export const enum MinionState {
   Upright = 0,
   Ragdoll = 1,
@@ -113,6 +127,18 @@ export interface Minion {
   act: number;
   /** Ticks spent sinking. */
   sunk: number;
+  /** Unit kind (index in UNIT_KINDS: 0 pikeman, 1 sapper, 2 musketeer). */
+  kind: number;
+  /** A sapper still carrying its keg. */
+  keg: boolean;
+  /** Where its keg was planted (a sapper that has planted backs off from it): x, z, or NaN. */
+  plantX: number;
+  plantZ: number;
+  /** What knocked it down, and the shot behind it (0: none). */
+  how: number;
+  cause: number;
+  /** A sapper that still carried its keg when it fell. */
+  hadKeg: boolean;
 }
 
 export interface Knock {
@@ -125,6 +151,9 @@ export interface Knock {
   py: number;
   pz: number;
   extra: number;
+  /** The shot behind it (0: none) and what kind of knock it is (Felled), kept if this knock fells the minion. */
+  cause?: number;
+  how?: number;
 }
 
 export class Minions {
@@ -145,6 +174,8 @@ export class Minions {
   private sinking: number[] = [];
   /** Where frozen bodies are registered as floor, once the world has a nav grid. */
   nav: NavGrid | null = null;
+  /** Minions knocked down this step (ids, in order); the world clears it at the start of each step. */
+  fellNow: number[] = [];
 
   constructor(private R: Rapier, private world: World, private terrain: Terrain) {}
 
@@ -172,6 +203,7 @@ export class Minions {
     const m: Minion = {
       id: this.list.length, team, state: MinionState.Upright, x, z, yaw: 0, phase: 0, ax, az, bx, bz, toB, capsule: body, parts: [], rest: 0, fellAt: -1,
       y, wave: -1, route: 1, speed: WALK, vx: 0, vz: 0, target: -1, cool: 0, calmUntil: 0, action: 0, act: 0, sunk: 0,
+      kind: 0, keg: false, plantX: NaN, plantZ: NaN, how: 0, cause: 0, hadKeg: false,
     };
     this.byHandle.set(col.handle, m.id);
     this.list.push(m);
@@ -222,7 +254,13 @@ export class Minions {
     const m = this.list[k.minion];
     if (!m || m.state === MinionState.Sinking || m.state === MinionState.Gone) return;
     if (m.state === MinionState.Frozen) this.thaw(m);
-    if (m.state === MinionState.Upright) this.toRagdoll(m, tick);
+    if (m.state === MinionState.Upright) {
+      this.toRagdoll(m, tick);
+      m.cause = k.cause ?? 0;
+      m.how = k.how ?? 0;
+      m.hadKeg = m.keg;
+      this.fellNow.push(m.id);
+    }
     // Push every part, and the part nearest the hit point extra.
     let best = 0, bestD = 1e9;
     for (let i = 0; i < m.parts.length; i++) {
@@ -427,6 +465,8 @@ export class Minions {
       out[o + 6] = m.team;
       out[o + 7] = m.action;
       out[o + 8] = m.act;
+      out[o + 9] = m.kind;
+      out[o + 10] = m.keg ? 1 : 0;
       n++;
     }
     return n;
@@ -494,6 +534,8 @@ export class Minions {
     for (const m of this.list) {
       out.push(m.state, m.x, m.z, m.yaw);
       if (m.wave >= 0) out.push(m.y, m.target, m.cool, m.action, m.speed, m.vx, m.vz);
+      // Units beyond the pikeman (M3) only: matches without them hash as before.
+      if (m.kind !== 0) out.push(m.kind, m.keg ? 1 : 0, m.plantX, m.plantZ);
       for (const b of m.parts) {
         const t = b.translation();
         const r = b.rotation();

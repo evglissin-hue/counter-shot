@@ -213,7 +213,7 @@ export class NavGrid {
 
   private stateOf(id: number): PieceState {
     const c = this.castle;
-    if (c.shattered[id]) return PieceState.Gone;
+    if (c.shattered[id] || c.absent[id]) return PieceState.Gone;
     if (c.frozen[id]) return PieceState.Settled;
     if (c.dynamic[id]) return PieceState.Moving;
     return PieceState.Standing;
@@ -346,7 +346,8 @@ export class NavGrid {
       const was = this.state[id];
       if (now === was || id === banners[0] || id === banners[1]) continue;
       this.state[id] = now;
-      if (was === PieceState.Standing) this.markStanding(id);
+      // A piece raised into the world (a building going up) stands where the layout put it, like one that has stood all along.
+      if (was === PieceState.Standing || now === PieceState.Standing) this.markStanding(id);
       if (was === PieceState.Settled) this.removeSettled(id);
       if (now === PieceState.Settled) this.addSettled(id);
     }

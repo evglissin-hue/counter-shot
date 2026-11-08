@@ -242,6 +242,8 @@ function buildFrame(dt: number): FrameData {
     chainCount: 1,
     minions,
     minionCount: nm,
+    raised: new Int32Array(0),
+    cleared: new Int32Array(0),
     parts,
     partCount: 2 * MINION_PARTS.length,
     settled: new Float32Array(0),

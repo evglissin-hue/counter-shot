@@ -8,6 +8,7 @@
 // wall and fires along +Z.
 
 import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
+import { BUILDING_KINDS, buildingPieces, PLOTS, type BuildingKind } from "./buildings";
 import { DIST } from "./field";
 import { BRIDGES, bridgePieces, valleyHeight, type BridgeSite } from "./map";
 
@@ -18,7 +19,7 @@ export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
  * keep's timber floors (layout option keepFloors): only bursts and direct hits
  * break one, not falling rubble, so each shell caves in one level.
  */
-export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge";
+export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge" | "building";
 export type Quat = [number, number, number, number];
 
 export interface Stone {
@@ -45,6 +46,23 @@ export interface Stone {
   span?: boolean;
   /** A bridge deck plank: the nav grid walks on it whatever lies below. */
   deck?: boolean;
+  /**
+   * Support group, when it is not the castle number: the courtyard buildings
+   * of castle 0 and 1 are groups 3 and 4 (they stand on their own ground).
+   */
+  group?: number;
+  /** A building's piece (MATCH_LAYOUT): the plot it stands on and the kind of building; out of the world until raised. */
+  plot?: number;
+  kind?: BuildingKind;
+}
+
+/** The pieces of one kind of building on one plot of one castle (ids first to first + count - 1). */
+export interface PlotSet {
+  castle: 0 | 1;
+  plot: number;
+  kind: BuildingKind;
+  first: number;
+  count: number;
 }
 
 export interface WedgeSpec {
@@ -79,6 +97,10 @@ export interface CastleLayout {
   bannerFallY: number;
   /** The bridges (group 2), each with the id range of its pieces. */
   bridges: Array<{ site: BridgeSite; first: number; count: number }>;
+  /** Buildings laid out on the courtyard plots (MATCH_LAYOUT; empty otherwise): castle 0's sets, then castle 1's, plot by plot. */
+  plots: PlotSet[];
+  /** Support groups: the two castles, the bridges, then each castle's buildings when there are plots. */
+  groups: number;
   /**
    * The keep has timber floors (layout option keepFloors). The sim then lets
    * each banner touch only its keep's intact walls and floors, the ground and
@@ -369,7 +391,7 @@ export function stoneBounds(s: Stone, wedge: WedgeSpec): [number, number, number
   return [x0, y0, z0, x1, y1, z1];
 }
 
-function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean): { stones: Stone[]; bannerId: number; platformTop: number } {
+function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, houses: boolean): { stones: Stone[]; bannerId: number; platformTop: number } {
   const b = new Builder(seed);
   const e = TOWER_R_OUT - 0.13; // wall ends just inside the tower's skin
   // Front wall (z = -T) with the gate, back wall, and the two side walls.
@@ -401,10 +423,12 @@ function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean): { stones: S
   }
   for (const [tx, tz] of [[-T, -T], [T, -T], [-T, T], [T, T]] as const) b.tower(tx, tz, wedge);
   const { platformTop } = b.keep(floors);
-  b.house(-7.5, -8.5, 6, 4, 3); // barracks
-  b.house(7.5, -8.5, 6, 4, 3); // workshop
-  b.house(-9.2, 6, 3, 5, 2.6);
-  b.house(9.2, 6, 3, 5, 2.6);
+  if (houses) {
+    b.house(-7.5, -8.5, 6, 4, 3); // barracks
+    b.house(7.5, -8.5, 6, 4, 3); // workshop
+    b.house(-9.2, 6, 3, 5, 2.6);
+    b.house(9.2, 6, 3, 5, 2.6);
+  }
   // Banner pole on the keep platform: the enemy wins when this falls.
   const poleH = 4;
   const banner = b.add({
@@ -439,16 +463,24 @@ export interface LayoutOptions {
   keepFloors?: boolean;
   /** Timber bridges to build across the stream (the valley's BRIDGES), after both castles. */
   bridges?: BridgeSite[];
+  /** The courtyards' decorative houses (default on); a match castle has plots instead. */
+  houses?: boolean;
+  /** Lay out every kind of building on every plot of both courtyards (after the bridges), out of the world until raised. */
+  plots?: boolean;
 }
 
-/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges. */
+/** The Practice range's world: wedges mirrored properly, timber floors in the keeps, the valley's bridges. */
 export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES };
+
+/** A match's world (phase 2 M3): the same, with plots in both courtyards instead of the houses. */
+export const MATCH_LAYOUT: LayoutOptions = { ...GAME_LAYOUT, houses: false, plots: true };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
   const floors = opts.keepFloors === true;
-  const enemy = oneCastle(seed, wedge, floors);
-  const player = oneCastle(seed + 1, wedge, floors);
+  const houses = opts.houses !== false;
+  const enemy = oneCastle(seed, wedge, floors, houses);
+  const player = oneCastle(seed + 1, wedge, floors, houses);
   const stones: Stone[] = [];
   for (const s of enemy.stones) stones.push({ ...s, id: stones.length, castle: 0 });
   const offset = stones.length;
@@ -470,6 +502,23 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
         stones.push({ id: stones.length, castle: 2, part: "bridge", material: "wood", shape: "box", hx: p.hx, hy: p.hy, hz: p.hz, x: p.x, y: p.y, z: p.z, q: IDENTITY, course: 0, grounded: false, shade: rng.next(), ...(p.span ? { span: true } : {}), ...(p.deck ? { deck: true } : {}) });
       }
       bridges.push({ site, first, count: stones.length - first });
+    }
+  }
+  // Buildings on the plots: every kind on every plot, castle 0's (group 3) then castle 1's (group 4), mirrored like the castle.
+  const plots: PlotSet[] = [];
+  if (opts.plots) {
+    const rng = new Rng(seed + 131);
+    for (const castle of [0, 1] as const) {
+      for (const plot of PLOTS) {
+        for (const kind of BUILDING_KINDS) {
+          const first = stones.length;
+          for (const p of buildingPieces(kind, plot)) {
+            const q: Quat = castle === 1 ? [-p.q[0], -p.q[1], p.q[2], p.q[3]] : p.q;
+            stones.push({ id: stones.length, castle, part: p.part, material: p.material, shape: "box", hx: p.hx, hy: p.hy, hz: p.hz, x: p.x, y: p.y, z: castle === 1 ? -DIST - p.z : p.z, q, course: p.course, grounded: false, shade: rng.next(), group: 3 + castle, plot: plot.id, kind });
+          }
+          plots.push({ castle, plot: plot.id, kind, first, count: stones.length - first });
+        }
+      }
     }
   }
 
@@ -550,6 +599,8 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
     bannerFallY: floors ? 3.5 : KEEP_COURSES * COURSE * 0.6,
     keepFloors: floors,
     bridges,
+    plots,
+    groups: plots.length ? 5 : 3,
   };
 }
 

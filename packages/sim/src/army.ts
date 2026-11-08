@@ -11,12 +11,12 @@
 // positions in that order, every decision uses + - * / and comparisons, and
 // every random draw comes from the army's own stream, in that order.
 
-import { BRIDGES, COURTYARD, GATE_BLOWS, MID_Z, MUSTER, ROUTE_HALF, ROUTE_NAMES, UNITS, WAVES, holdMarker, routeDistance, type BridgeSite, type UnitDef } from "@keepfall/content";
+import { BRIDGES, COURTYARD, DIST, GATE_BLOWS, KEG_BURST, MID_Z, MUSKET, MUSTER, ROUTE_HALF, ROUTE_NAMES, SAPPER, UNIT_KINDS, UNITS, WAVES, holdMarker, routeDistance, type BridgeSite, type BurstDef, type UnitDef, type UnitKind } from "@keepfall/content";
 import { DPI, dsqrt, Rng } from "@keepfall/core";
 import type { CastleSim } from "./castleSim";
 import { EventKind } from "./frame";
 import { FLOW_INF, FLOW_REGION, FlowFields, type FieldSpec } from "./flow";
-import { MinionState, yawOf, type Minion, type Minions } from "./minions";
+import { Felled, MinionState, yawOf, type Minion, type Minions } from "./minions";
 import { NAV_GRID, NavKind, navCell, navWalkable, type NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
 
@@ -36,7 +36,17 @@ export const enum Action {
   Stand = 1,
   Fight = 2,
   Batter = 3,
+  /** A sapper kneeling to plant its keg. */
+  Plant = 4,
+  /** A musketeer firing (act counts from the shot). */
+  Shoot = 5,
 }
+
+/** The point inside each castle (by castle) where sappers who got into the courtyard plant their kegs: the foot of the keep's front wall. */
+const KEEP_FOOT: Array<{ x: number; z: number }> = [
+  { x: 0, z: -1.9 },
+  { x: 0, z: -DIST + 1.9 },
+];
 
 /** Cell visits per tick spent refreshing flow fields: a full refresh of all eight takes about a second and a half. */
 const FLOW_BUDGET = 2500;
@@ -104,6 +114,19 @@ function routeWeights(): Uint8Array[] {
 }
 
 export type Emit = (kind: EventKind, a: number, b: number, c: number, d: number) => void;
+/** A powder burst in the world (a keg going off), put down to a shot (0: none). */
+export type Explode = (x: number, y: number, z: number, burst: BurstDef, cause: number) => void;
+
+/** A keg whose fuse is burning: planted against a wall, or dropped by a sapper who fell (it goes off where the body is). */
+interface Keg {
+  x: number;
+  y: number;
+  z: number;
+  at: number;
+  cause: number;
+  /** The sapper who dropped it (its body carries the keg), or -1 for a planted one. */
+  minion: number;
+}
 
 export class Army {
   /** Fields: each team's three route fields (doors: the enemy gate), then each team's breach field. */
@@ -136,6 +159,8 @@ export class Army {
   private waveRoute = new Int8Array(64);
   private waveX = new Float64Array(64);
   private waveZ = new Float64Array(64);
+  /** Kegs with their fuses lit, in the order they were lit. */
+  kegs: Keg[] = [];
 
   constructor(
     private minions: Minions,
@@ -144,6 +169,7 @@ export class Army {
     private terrain: Terrain,
     seed: number,
     private emit: Emit,
+    private explode: Explode = () => {},
   ) {
     this.rng = new Rng(seed);
     const w = routeWeights();
@@ -165,11 +191,14 @@ export class Army {
 
   /**
    * A wave forms up in ranks in front of its team's gate (or at `at`, for
-   * tests and scripts) and marches down a route (index into ROUTE_NAMES).
-   * Returns the number spawned.
+   * tests, scripts and a second barracks' wave) and marches down a route
+   * (index into ROUTE_NAMES): `count` pikemen, or these units front rank
+   * first. Returns the number spawned.
    */
-  spawnWave(team: 0 | 1, route: number, count: number, at?: { x: number; z: number }): number {
-    const W = WAVES, unit = UNITS.pikeman;
+  spawnWave(team: 0 | 1, route: number, count: number | UnitKind[], at?: { x: number; z: number }): number {
+    const W = WAVES;
+    const kinds: UnitKind[] = typeof count === "number" ? Array.from({ length: count }, () => "pikeman") : count;
+    count = kinds.length;
     const M = at ? { x: at.x, z: at.z, dir: MUSTER[team].dir } : MUSTER[team];
     const wave = this.waves++;
     if (wave >= this.waveSum.length) {
@@ -195,6 +224,9 @@ export class Army {
       const x = M.x + across * M.dir + this.rng.range(-0.15, 0.15);
       const z = M.z - M.dir * rank * W.spacing + this.rng.range(-0.15, 0.15);
       const m = this.minions.spawn(team, x, z, x, z, x, z, false);
+      const unit = UNITS[kinds[k]];
+      m.kind = UNIT_KINDS.indexOf(kinds[k]);
+      m.keg = kinds[k] === "sapper";
       m.wave = wave;
       m.route = route;
       m.speed = unit.speed * (1 + this.rng.range(-unit.speedJitter, unit.speedJitter));
@@ -217,6 +249,7 @@ export class Army {
   /** Every army minion thinks and moves (before the physics step), then the flow fields get their share of work. */
   step(tick: number) {
     const list = this.minions.list;
+    this.fuses(tick);
     this.rebuildHash();
     if (this.cost.length < list.length) this.cost = grow64(this.cost, list.length);
     this.waveSum.fill(0, 0, this.waves);
@@ -241,8 +274,37 @@ export class Army {
     this.flow.step(FLOW_BUDGET);
   }
 
+  /**
+   * Kegs: a sapper who fell with its keg drops it, fuse lit; kegs whose fuse
+   * has burned down go off (where the body lies, for a dropped one). Runs
+   * before anyone thinks, so a burst's victims fall this tick.
+   */
+  private fuses(tick: number) {
+    for (const m of this.minions.list) {
+      if (!m.keg || m.state === MinionState.Upright) continue;
+      m.keg = false;
+      const p = m.parts.length > 1 ? m.parts[1].translation() : { x: m.x, y: m.y + 1, z: m.z };
+      this.kegs.push({ x: p.x, y: p.y, z: p.z, at: tick + SAPPER.dropFuse, cause: m.cause, minion: m.id });
+      this.emit(EventKind.Keg, p.x, p.y, p.z, SAPPER.dropFuse);
+    }
+    if (!this.kegs.length) return;
+    const due: Keg[] = [];
+    this.kegs = this.kegs.filter((k) => (k.at <= tick ? (due.push(k), false) : true));
+    for (const k of due) {
+      let { x, y, z } = k;
+      const m = k.minion >= 0 ? this.minions.list[k.minion] : null;
+      if (m && m.parts.length > 1) {
+        const p = m.parts[1].translation();
+        x = p.x;
+        y = p.y;
+        z = p.z;
+      }
+      this.explode(x, y, z, KEG_BURST, k.cause);
+    }
+  }
+
   private think(m: Minion, tick: number) {
-    const unit = UNITS.pikeman;
+    const unit = UNITS[UNIT_KINDS[m.kind]];
     const nav = this.nav;
     const c = navCell(m.x, m.z);
     // The floor went from under it (a deck blown away, a crater): it falls.
@@ -253,14 +315,51 @@ export class Army {
     let mx = 0, mz = 0, speed = 0;
     let face = NaN; // the yaw to turn to (NaN: wherever it walks)
     let action = Action.Walk;
-    const t = this.target(m, unit, tick);
-    if (t) {
+    const t = unit.sight > 0 ? this.target(m, unit, tick) : null;
+    const sapper = m.kind === 1;
+    const enemyYard = COURTYARD[1 - m.team];
+    if (sapper && m.action === Action.Plant) {
+      // Kneeling at the wall: when it is done the keg is set and its fuse lit.
+      action = Action.Plant;
+      if (--m.cool <= 0) {
+        this.plant(m, tick);
+        action = Action.Stand;
+      }
+    } else if (sapper && !m.keg) {
+      // Its keg is planted: back off from it, then wait.
+      const dx = m.x - m.plantX, dz = m.z - m.plantZ;
+      const d = dsqrt(dx * dx + dz * dz) + 1e-9;
+      if (d < SAPPER.backOff) {
+        mx = dx / d;
+        mz = dz / d;
+        speed = m.speed;
+      } else action = Action.Stand;
+    } else if (sapper && m.x >= enemyYard.x0 && m.x <= enemyYard.x1 && m.z >= enemyYard.z0 && m.z <= enemyYard.z1) {
+      // Inside the enemy courtyard: make for the foot of the keep and plant there.
+      const f = KEEP_FOOT[1 - m.team];
+      const dx = f.x - m.x, dz = f.z - m.z;
+      const d = dsqrt(dx * dx + dz * dz) + 1e-9;
+      if (d < 0.6) {
+        this.startPlant(m, dx / d, dz / d);
+        action = Action.Plant;
+        face = yawOf(dx / d, dz / d);
+      } else {
+        mx = dx / d;
+        mz = dz / d;
+        speed = m.speed;
+      }
+    } else if (t) {
       const dx = t.x - m.x, dz = t.z - m.z;
       const d = dsqrt(dx * dx + dz * dz) + 1e-9;
       if (d <= unit.reach) {
         action = Action.Fight;
         face = yawOf(dx / d, dz / d);
         if (--m.cool <= 0) this.blow(m, t, dx / d, dz / d, unit, tick);
+      } else if (m.kind === 2 && d <= MUSKET.range) {
+        // A musketeer in range stands and fires.
+        action = Action.Shoot;
+        face = yawOf(dx / d, dz / d);
+        if (--m.cool <= 0) this.shoot(m, t, dx / d, dz / d, d, tick);
       } else {
         mx = dx / d;
         mz = dz / d;
@@ -271,7 +370,12 @@ export class Army {
       if (f >= 0 && this.flow.dir(f, m.x, m.z, this.dir)) {
         const ux = this.dir[0], uz = this.dir[1];
         const door = f < 6 && fieldTeam(f) === m.team ? this.flow.doorAhead(f, m.x, m.z, ux, uz, DOOR_REACH) : -1;
-        if (door >= 0) {
+        if (door >= 0 && sapper) {
+          // A sapper at the gate kneels to plant its keg against it.
+          this.startPlant(m, ux, uz);
+          action = Action.Plant;
+          face = yawOf(ux, uz);
+        } else if (door >= 0) {
           action = Action.Batter;
           face = yawOf(ux, uz);
           if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
@@ -348,6 +452,39 @@ export class Army {
     m.action = action;
     if (m.act < 600) m.act++;
     this.minions.place(m);
+  }
+
+  /** A sapper kneels to plant its keg against what is in front of it (along ux, uz). */
+  private startPlant(m: Minion, ux: number, uz: number) {
+    if (m.action === Action.Plant) return;
+    m.act = 0;
+    m.cool = SAPPER.plant;
+    m.plantX = m.x + ux * 0.45;
+    m.plantZ = m.z + uz * 0.45;
+  }
+
+  /** The keg is set: its fuse burns for SAPPER.fuse ticks, and the sapper backs off. */
+  private plant(m: Minion, tick: number) {
+    m.keg = false;
+    const x = m.plantX, z = m.plantZ;
+    const c = navCell(x, z);
+    const y = (c >= 0 ? this.surface(x, z, c) : this.terrain.heightAt(x, z)) + 0.4;
+    this.kegs.push({ x, y, z, at: tick + SAPPER.fuse, cause: 0, minion: -1 });
+    this.emit(EventKind.Keg, x, y, z, SAPPER.fuse);
+  }
+
+  /** A musket shot at an enemy in range: better odds when close; a hit knocks it down. */
+  private shoot(m: Minion, t: Minion, ux: number, uz: number, d: number, tick: number) {
+    m.act = 0;
+    m.cool = MUSKET.reloadMin + Math.floor(this.rng.next() * (MUSKET.reloadMax - MUSKET.reloadMin + 1));
+    const k = d <= MUSKET.near ? 0 : (d - MUSKET.near) / (MUSKET.range - MUSKET.near);
+    const odds = MUSKET.hitNear + (MUSKET.hitFar - MUSKET.hitNear) * (k > 1 ? 1 : k);
+    const hit = this.rng.next() < odds;
+    this.emit(EventKind.Musket, m.id, t.x, t.z, hit ? 1 : 0);
+    if (!hit) return;
+    this.minions.knock({ minion: t.id, vx: ux * MUSKET.knock, vy: 1.2, vz: uz * MUSKET.knock, px: t.x - ux * 0.2, py: t.y + 1.3, pz: t.z - uz * 0.2, extra: 1.0, how: Felled.Musket }, tick);
+    this.emit(EventKind.Blood, t.x, t.y + 1.3, t.z, 0.4);
+    m.target = -1;
   }
 
   /**
@@ -483,7 +620,7 @@ export class Army {
     m.act = 0;
     m.cool = unit.blowMin + Math.floor(this.rng.next() * (unit.blowMax - unit.blowMin + 1));
     if (this.rng.next() >= unit.hit) return;
-    this.minions.knock({ minion: t.id, vx: ux * unit.knock, vy: 1.4, vz: uz * unit.knock, px: t.x - ux * 0.25, py: t.y + 1.25, pz: t.z - uz * 0.25, extra: 0.8 }, tick);
+    this.minions.knock({ minion: t.id, vx: ux * unit.knock, vy: 1.4, vz: uz * unit.knock, px: t.x - ux * 0.25, py: t.y + 1.25, pz: t.z - uz * 0.25, extra: 0.8, how: Felled.Blow }, tick);
     this.emit(EventKind.Blood, t.x, t.y + 1.25, t.z, 0.45);
     m.target = -1;
   }
@@ -500,7 +637,7 @@ export class Army {
 
   /** Its floor is gone: it falls, keeping its own speed. */
   private fall(m: Minion, tick: number) {
-    this.minions.knock({ minion: m.id, vx: m.vx, vy: 0, vz: m.vz, px: m.x, py: m.y + 1, pz: m.z, extra: 0 }, tick);
+    this.minions.knock({ minion: m.id, vx: m.vx, vy: 0, vz: m.vz, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: this.castle.lastCause, how: Felled.Fall }, tick);
   }
 
   /** Height of the floor at a point: the ground's own shape on open ground, the cell's floor on a deck, a heap or a body. */
@@ -552,6 +689,7 @@ export class Army {
   /** The army's own state, for the world hash. */
   hashInto(out: number[]) {
     out.push(this.order[0], this.order[1], this.waves, this.flow.builds, this.bridgeTopo);
+    for (const k of this.kegs) out.push(k.x, k.y, k.z, k.at, k.cause, k.minion);
     for (let w = 0; w < this.waves; w++) out.push(this.waveRoute[w]);
     const ids = [...this.gateHits.keys()].sort((a, b) => a - b);
     for (const id of ids) out.push(id, this.gateHits.get(id)!);

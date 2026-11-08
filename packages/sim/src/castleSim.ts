@@ -74,6 +74,8 @@ export interface Ball {
   struck: number;
   /** Lifetime in steps before it is removed. */
   life: number;
+  /** The shot it belongs to (SandboxSim's shot id; 0 for none): what it brings down is put down to that shot. */
+  shot: number;
 }
 
 export interface FireOptions {
@@ -88,6 +90,8 @@ export interface FireOptions {
   groups?: number;
   /** Gravity multiplier for this ball. */
   gravity?: number;
+  /** The shot it belongs to (for putting what it brings down to that shot). */
+  shot?: number;
 }
 
 export interface Impact {
@@ -132,6 +136,20 @@ export class CastleSim {
   frozen: Uint8Array;
   /** pieces shattered by a direct hit: gone from the simulation */
   shattered: Uint8Array;
+  /**
+   * Pieces out of the world: a building not raised yet, or cleared away.
+   * They count as dynamic and shattered for everything else (no support, no
+   * blasts, nothing to walk on) but are never reported as dust.
+   */
+  absent: Uint8Array;
+  /** The shot whose blast brought each piece down (0: none or unknown), and the shot behind the latest blast. */
+  cause: Int32Array;
+  lastCause = 0;
+  /** Every piece that came loose or turned to dust, in order (never shortened; buildings raised again add their pieces anew). */
+  downLog: number[] = [];
+  /** Pieces raised into the world and cleared out of it since the last collect, for the renderer. */
+  private raisedSince: number[] = [];
+  private clearedSince: number[] = [];
   private shatterReported: Uint8Array;
   private frozenList: number[] = [];
   private restSteps: Uint16Array;
@@ -162,7 +180,9 @@ export class CastleSim {
    */
   private castleRange: Array<[number, number]>;
   /** Groups whose fixed pieces changed since their last support check (bit per group). All at first. */
-  private supportDirty = 7;
+  private supportDirty = 0xff;
+  /** Keep pieces struck by balls this step: [ball index, stone id] (the first keep piece each ball struck). */
+  keepHits: Array<[number, number]> = [];
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -173,6 +193,8 @@ export class CastleSim {
     this.awakeLast = new Uint8Array(n);
     this.frozen = new Uint8Array(n);
     this.shattered = new Uint8Array(n);
+    this.absent = new Uint8Array(n);
+    this.cause = new Int32Array(n);
     this.shatterReported = new Uint8Array(n);
     this.restSteps = new Uint16Array(n);
     this.cost = new Int32Array(n);
@@ -191,21 +213,23 @@ export class CastleSim {
     this.castleOf = new Uint8Array(n);
     const spans: number[] = [];
     for (let i = 0; i < n; i++) {
-      this.grounded[i] = layout.stones[i].grounded ? 1 : 0;
-      this.castleOf[i] = layout.stones[i].castle;
-      if (layout.stones[i].span) spans.push(i);
+      const st = layout.stones[i];
+      this.grounded[i] = st.grounded ? 1 : 0;
+      this.castleOf[i] = st.group ?? st.castle;
+      if (st.span) spans.push(i);
     }
     this.spans = Int32Array.from(spans);
-    // Stones come group by group (castle 0, castle 1, bridges); if they ever did not, check everything as one range.
-    const ends = [0, 0, 0];
+    // Stones come group by group (castle 0, castle 1, bridges, then each castle's buildings); if they ever did not, check everything as one range.
+    const G = layout.groups ?? 3;
+    const ends: number[] = [];
     let k = 0;
-    let contiguous = true;
-    for (let g = 0; g < 3; g++) {
+    for (let g = 0; g < G; g++) {
       while (k < n && this.castleOf[k] === g) k++;
-      ends[g] = k;
+      ends.push(k);
     }
-    if (k !== n) contiguous = false;
-    this.castleRange = contiguous ? [[0, ends[0]], [ends[0], ends[1]], [ends[1], ends[2]]] : [[0, n], [n, n], [n, n]];
+    const contiguous = k === n;
+    this.castleRange = [];
+    for (let g = 0; g < G; g++) this.castleRange.push(contiguous ? [g ? ends[g - 1] : 0, ends[g]] : g ? [n, n] : [0, n]);
     if (!contiguous) this.castleOf.fill(0);
 
     this.world = new R.World({ x: 0, y: -9.81, z: 0 });
@@ -240,6 +264,14 @@ export class CastleSim {
       if (loose) {
         this.dynamic[s.id] = 1;
         this.dynList.push(s.id);
+      }
+      if (s.plot !== undefined) {
+        // A building's piece waits out of the world until the building is raised.
+        this.absent[s.id] = 1;
+        this.dynamic[s.id] = 1;
+        this.shattered[s.id] = 1;
+        this.shatterReported[s.id] = 1;
+        body.setEnabled(false);
       }
     }
 
@@ -290,7 +322,7 @@ export class CastleSim {
     this.owner.set(col.handle, -(slot + 1));
     this.balls[slot] = {
       body, handle: col.handle, radius, vx, vy, vz, age: 0, alive: true,
-      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12,
+      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12, shot: o.shot ?? 0,
     };
     return slot;
   }
@@ -312,7 +344,8 @@ export class CastleSim {
    * An explosion at a point: shatters and loosens masonry like a hit with no
    * direction, thaws rubble around it. `power` plays the role of impact speed.
    */
-  explode(x: number, y: number, z: number, radius: number, power: number) {
+  explode(x: number, y: number, z: number, radius: number, power: number, cause = 0) {
+    this.lastCause = cause;
     this.blast(x, y, z, radius, 0, 0, 0, power);
     this.impacts.push({ x, y, z, strength: Math.min(1, radius / 3) });
     this.supportCheck();
@@ -325,7 +358,8 @@ export class CastleSim {
    * direction of its own. `power` is the throw speed (m/s) at the centre,
    * falling to a quarter at the edge; `lift` tips the throw upwards.
    */
-  burst(x: number, y: number, z: number, radius: number, shatter: number, power: number, lift: number) {
+  burst(x: number, y: number, z: number, radius: number, shatter: number, power: number, lift: number, cause = 0) {
+    this.lastCause = cause;
     const reach = radius * 1.3;
     const r2 = radius * radius, reach2 = reach * reach;
     const c0x = Math.floor((x - radius) / 2), c1x = Math.floor((x + radius) / 2);
@@ -417,6 +451,7 @@ export class CastleSim {
     this.foreign.length = 0;
     this.foreignStones.length = 0;
     this.glances.length = 0;
+    this.keepHits.length = 0;
     for (const b of this.balls) {
       b.touchedNow = false;
       b.struck = -1;
@@ -460,13 +495,18 @@ export class CastleSim {
     let lastBall = -1;
     for (const [bi, stoneId] of hits) {
       const struck = this.balls[bi];
-      if (struck && struck.struck < 0) struck.struck = stoneId;
+      if (struck && struck.struck < 0) {
+        struck.struck = stoneId;
+        const part = this.layout.stones[stoneId].part;
+        if ((part === "keep" || part === "storey") && !this.dynamic[stoneId]) this.keepHits.push([bi, stoneId]);
+      }
       if (bi === lastBall) continue; // one blast per ball per step
       const ball = this.balls[bi];
       if (!ball || !ball.alive || (this.dynamic[stoneId] && !this.frozen[stoneId])) continue;
       const speed2 = ball.vx * ball.vx + ball.vy * ball.vy + ball.vz * ball.vz;
       if (speed2 < 64) continue; // under 8 m/s: just a bump
       lastBall = bi;
+      this.lastCause = ball.shot;
       const speed = dsqrt(speed2);
       const p = ball.body.translation();
       if (ball.ricochet && this.glancing(ball, stoneId, speed)) {
@@ -488,7 +528,8 @@ export class CastleSim {
         changed = true;
         continue;
       }
-      const radius = this.opts.blastBase + speed * this.opts.blastPerSpeed;
+      // A heavier ball than the standard (blast over 1) breaches a wider hole.
+      const radius = (this.opts.blastBase + speed * this.opts.blastPerSpeed) * (ball.blast > 1 ? ball.blast : 1);
       const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
       // The ball touches the face; the damage centres inside the masonry, a metre along the shot.
       this.blast(p.x + dx, p.y + dy, p.z + dz, radius, dx, dy, dz, speed);
@@ -642,8 +683,9 @@ export class CastleSim {
    * Knock one standing piece loose with an impulse (a battered gate leaf).
    * Pieces it held up fall too. Returns false if it was already loose.
    */
-  knockLoose(id: number, ix: number, iy: number, iz: number): boolean {
+  knockLoose(id: number, ix: number, iy: number, iz: number, cause = 0): boolean {
     if (this.dynamic[id]) return false;
+    this.lastCause = cause;
     this.loosen(id);
     this.bodies[id].applyImpulse({ x: ix, y: iy, z: iz }, true);
     const s = this.layout.stones[id];
@@ -704,6 +746,8 @@ export class CastleSim {
       this.dynamic[id] = 1;
       this.dynList.push(id);
       this.supportDirty |= 1 << this.castleOf[id];
+      this.cause[id] = this.lastCause;
+      this.downLog.push(id);
     }
     this.shattered[id] = 1;
     this.frozen[id] = 0;
@@ -716,6 +760,8 @@ export class CastleSim {
     this.dynamic[id] = 1;
     this.dynList.push(id);
     this.supportDirty |= 1 << this.castleOf[id];
+    this.cause[id] = this.lastCause;
+    this.downLog.push(id);
     const body = this.bodies[id];
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();
@@ -761,7 +807,7 @@ export class CastleSim {
    * rubble never carries support). The result is the same as walking both.
    */
   private supportCheck() {
-    for (let c = 0; c < 3; c++) {
+    for (let c = 0; c < this.castleRange.length; c++) {
       if (!(this.supportDirty & (1 << c))) continue;
       const [s, e] = this.castleRange[c];
       this.supportPass(s, e, true);
@@ -846,6 +892,90 @@ export class CastleSim {
   }
 
   /**
+   * Bring pieces that are out of the world (a building's, not raised yet or
+   * cleared) into it, standing where the layout puts them. Pieces already in
+   * the world are left alone. Their group's support is checked next time
+   * anything there changes.
+   */
+  raise(ids: ArrayLike<number>) {
+    const R = this.R;
+    for (let k = 0; k < ids.length; k++) {
+      const id = ids[k];
+      if (!this.absent[id]) continue;
+      const s = this.layout.stones[id];
+      const body = this.bodies[id];
+      this.absent[id] = 0;
+      this.shattered[id] = 0;
+      this.shatterReported[id] = 0;
+      this.dynamic[id] = 0;
+      this.frozen[id] = 0;
+      this.restSteps[id] = 0;
+      this.awakeLast[id] = 0;
+      this.cause[id] = 0;
+      body.setBodyType(R.RigidBodyType.Fixed, false);
+      body.setTranslation({ x: s.x, y: s.y, z: s.z }, false);
+      body.setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] }, false);
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+      body.setEnabled(true);
+      this.supportDirty |= 1 << this.castleOf[id];
+      this.raisedSince.push(id);
+    }
+  }
+
+  /**
+   * Take pieces out of the world wherever they are (a wrecked building's
+   * rubble before the plot is built on again, rubble lying on a plot): no
+   * dust, no gold, they are simply gone. Standing pieces taken out leave
+   * whatever they held up to the next support check.
+   */
+  clear(ids: ArrayLike<number>) {
+    let any = false;
+    for (let k = 0; k < ids.length; k++) {
+      const id = ids[k];
+      if (this.absent[id] || id === this.layout.bannerIds[0] || id === this.layout.bannerIds[1]) continue;
+      if (!this.dynamic[id]) this.supportDirty |= 1 << this.castleOf[id];
+      this.absent[id] = 1;
+      this.dynamic[id] = 1;
+      this.shattered[id] = 1;
+      this.shatterReported[id] = 1;
+      this.frozen[id] = 0;
+      this.bodies[id].setEnabled(false);
+      this.clearedSince.push(id);
+      any = true;
+    }
+    if (!any) return;
+    const absent = this.absent;
+    this.dynList = this.dynList.filter((id) => !absent[id]);
+    this.frozenList = this.frozenList.filter((id) => !absent[id]);
+    this.supportCheck();
+  }
+
+  /** Loose or frozen pieces (not shattered or out of the world) whose centre lies in a box, in id order. */
+  rubbleIn(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): number[] {
+    const out: number[] = [];
+    for (const id of this.dynList) {
+      if (this.shattered[id] || id === this.layout.bannerIds[0] || id === this.layout.bannerIds[1]) continue;
+      const p = this.bodies[id].translation();
+      if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p.z >= z0 && p.z <= z1) out.push(id);
+    }
+    return out.sort((a, b) => a - b);
+  }
+
+  /** Run the support check now for every group whose standing pieces changed (pieces raised or cleared). */
+  checkSupport() {
+    this.supportCheck();
+  }
+
+  /** Pieces raised into the world and cleared out of it since the last call (for the renderer). */
+  collectRaised(): { raised: Int32Array; cleared: Int32Array } {
+    const out = { raised: Int32Array.from(this.raisedSince), cleared: Int32Array.from(this.clearedSince) };
+    this.raisedSince = [];
+    this.clearedSince = [];
+    return out;
+  }
+
+  /**
    * Writes [id, x, y, z, qx, qy, qz, qw] for every loose piece that moved this
    * step (awake now, or fell asleep since the last call). Returns the count.
    */
@@ -919,7 +1049,9 @@ export class CastleSim {
       const r = this.bodies[i].rotation();
       f.set([t.x, t.y, t.z, r.x, r.y, r.z, r.w], i * 7);
     }
-    const state = hex8(hashBytes(new Uint8Array(f.buffer)));
+    let h = hashBytes(new Uint8Array(f.buffer));
+    if (this.layout.plots && this.layout.plots.length) h = hashBytes(this.absent, h);
+    const state = hex8(h);
     const snapshot = hex8(hashBytes(this.world.takeSnapshot()));
     return { state, snapshot };
   }

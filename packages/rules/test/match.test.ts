@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, MATCH, ROUTE_NAMES, WAVES } from "@keepfall/content";
+import { buildLayout, MATCH, MATCH_LAYOUT, ROUTE_NAMES, WAVES } from "@keepfall/content";
 import { MinionState, Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_HASH, runMatchSession, runWaveMatch, Team, WAVE_MATCH_HASH } from "@keepfall/rules";
 
 await RD.init();
 const R = RD as unknown as Rapier;
 
-const layout = buildLayout(1, GAME_LAYOUT);
+const layout = buildLayout(1, MATCH_LAYOUT);
 
 test("both keeps earn gold on the match clock", () => {
   const m = new Match(R, layout, { seed: 3 });
@@ -41,7 +41,8 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.ok(a.result.tick > 760 && a.result.tick < 1400, `won at tick ${a.result.tick}, after the second shell`);
   assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
-  assert.deepEqual(a.gold, [MATCH.startGold + incomeTicks * MATCH.keepIncome, MATCH.startGold + incomeTicks * MATCH.keepIncome], "gold stops at the end");
+  assert.equal(a.gold[0], MATCH.startGold + incomeTicks * MATCH.keepIncome, "the enemy only earned from its keep, and gold stops at the end");
+  assert.ok(a.gold[1] > a.gold[0] + 2 * 10, `the player also earned for keep hits and masonry: ${a.gold[1]}`);
   assert.deepEqual(a.hash, MATCH_HASH);
 });
 
