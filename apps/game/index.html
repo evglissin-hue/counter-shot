@@ -66,7 +66,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 .reticle::after { width: 2px; height: 18px; left: -1px; top: -9px; }
 #want { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--aim); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); pointer-events: none; opacity: 0.8; }
 .hint { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 12px; font: 500 14px/1.2 var(--ui); pointer-events: none; }
-.hint.ride { top: auto; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+.hint.ride { top: auto; bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
 .hint.tally { top: 32%; font: 22px/1.1 var(--display); padding: 10px 16px; }
 .hint.tally.show { animation: tally 3.2s ease-out forwards; }
 @keyframes tally { 0% { opacity: 0; transform: translate(-50%, 6px); } 8% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
@@ -109,6 +109,42 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions button { border: 1px solid var(--line); }
 .actions button.primary { background: var(--brass); color: var(--brass-ink); border-color: transparent; }
+/* The gun bar at the bottom centre: one tab per slot with its reload underneath; an empty slot shows +, a knocked out gun is struck through. */
+.tabs { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); flex-wrap: nowrap; }
+.tabs button { position: relative; padding-bottom: 10px; white-space: nowrap; }
+@media (max-width: 1180px) { .tabs { bottom: calc(150px + env(safe-area-inset-bottom, 0px)); } }
+@media (max-width: 760px) { .tabs { flex-wrap: wrap; justify-content: center; width: calc(100% - 32px); } }
+.tabs button .rl { position: absolute; left: 8px; right: 8px; bottom: 3px; height: 2px; border-radius: 1px; background: rgba(236,228,210,0.14); overflow: hidden; }
+.tabs button .rl > i { display: block; height: 100%; background: var(--brass); transform-origin: left; }
+.tabs button[aria-pressed="true"] .rl > i { background: var(--brass-ink); }
+.tabs button.empty { color: var(--ink-dim); }
+.tabs button.down { color: var(--bad); text-decoration: line-through; }
+.matchbar .keeps { font: 500 13px/1.2 var(--ui); color: var(--ink-dim); }
+.matchbar .keeps b { color: var(--ink); font-weight: 600; }
+/* The build menu: your plots and gun slots, what each can take and what it costs. */
+.panel.build { top: calc(166px + env(safe-area-inset-top, 0px)); width: min(460px, calc(100% - 32px)); max-height: calc(100% - 250px); gap: 6px; }
+.build h3 { margin: 8px 0 0; font: 18px/1.1 var(--display); font-weight: 400; color: var(--brass); }
+.build .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.brow { display: grid; grid-template-columns: 22px 1fr; gap: 3px 8px; padding: 7px 0 6px; border-top: 1px solid var(--line); }
+.brow.focus { background: rgba(201, 154, 70, 0.08); border-radius: 6px; }
+.brow .num { font: 500 13px/1.4 var(--mono); color: var(--brass); }
+.brow .what { font: 500 14px/1.3 var(--ui); color: var(--ink); }
+.brow .what small { color: var(--ink-dim); font-size: 13px; }
+.brow .acts { grid-column: 2; display: flex; flex-wrap: wrap; gap: 4px; }
+.brow .acts button { border: 1px solid var(--line); padding: 5px 8px; font-size: 13px; }
+.brow .acts button:disabled { opacity: 0.42; cursor: default; }
+.brow .acts .lbl { font: 500 12px/26px var(--ui); color: var(--ink-dim); padding-right: 2px; }
+.brow .acts .prog { flex: 1 1 100%; margin-top: 4px; }
+/* Gold as it comes in: brass lines that rise and fade. */
+.gains { position: absolute; left: 50%; top: calc(150px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: grid; gap: 2px; justify-items: center; pointer-events: none; }
+.gain { font: 600 16px/1.15 var(--ui); color: var(--brass); text-shadow: 0 1px 2px rgba(0,0,0,0.9), 0 0 6px rgba(0,0,0,0.6); animation: gain 2.6s ease-out forwards; white-space: nowrap; }
+.gain.big { font-size: 20px; }
+@keyframes gain { 0% { opacity: 0; transform: translateY(6px); } 8% { opacity: 1; transform: translateY(0); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+@media (prefers-reduced-motion: reduce) { .gain { animation: none; } }
+/* Plot numbers over your courtyard (overview and build menu). */
+.labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.plabel { position: absolute; transform: translate(-50%, -100%); padding: 2px 7px; font: 600 12px/1.2 var(--ui); color: var(--ink); background: var(--glass); border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
+.plabel.sel { border-color: var(--brass); color: var(--brass); }
 @media (max-width: 640px) { .weapon { min-width: 0; right: 140px; } .brand .sub { display: none; } .card h1 { font-size: 36px; } }
 </style>
 <!-- artifact-head-end -->
@@ -123,14 +159,9 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
   <div id="ride-hint" class="hint glass ride" hidden>Riding the shell. Click, Space or Enter goes back to the mortar</div>
   <div class="top">
     <div class="brand glass"><span class="mark">Keepfall</span><span class="sub" id="mode-name"></span></div>
-    <div class="group glass" role="group" aria-label="Weapons">
-      <button data-weapon="0" aria-pressed="true">1 Long gun</button>
-      <button data-weapon="1">2 Mortar</button>
-      <button data-weapon="2">3 Chain shot</button>
-      <button data-weapon="3">4 Swivel</button>
-    </div>
     <div class="spacer"></div>
     <div class="group glass">
+      <button id="build-btn" hidden>Build (B)</button>
       <button id="overview-btn">Overview (Tab)</button>
       <label class="check"><input type="checkbox" id="shotcam"> Shot camera (V)</label>
       <button id="sound-btn" aria-pressed="true">Sound on (M)</button>
@@ -141,8 +172,9 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
   <div id="matchbar" class="matchbar glass" hidden aria-live="off">
     <div class="line">
       <span class="clock" id="clock">0:00</span>
-      <span class="gold" id="gold">150 gold</span>
+      <span class="gold" id="gold">250 gold</span>
       <span class="small" id="match-note">Topple the enemy keep</span>
+      <span class="keeps" id="keeps"></span>
     </div>
     <div class="line">
       <span class="small" id="next-wave"></span>
@@ -152,6 +184,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
     </div>
   </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
+  <div class="group glass tabs" id="tabs" role="group" aria-label="Guns"></div>
   <div class="weapon glass" aria-live="polite">
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
     <div class="bar"><i id="w-reload-fill"></i></div>
@@ -172,16 +205,19 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
       <dt>Shift</dt><dd>Fine aim</dd>
       <dt>Right mouse, Z</dt><dd>Zoom the sight or the observer's view (scroll sets it)</dd>
       <dt>Space</dt><dd>Fire</dd>
-      <dt>1 to 4, Q, E</dt><dd>Switch weapon</dd>
+      <dt>1 to 8, Q, E</dt><dd>Switch gun. The bar at the top shows every slot with its reload; in a match an empty slot (+) opens the build menu on it</dd>
+      <dt>B</dt><dd>Versus AI: the build menu. Build a Barracks, a Powder Mill (income, sappers) or a Foundry (gun upgrades, musketeers) on your plots, set each barracks' route and mix, buy guns for empty slots and fit upgrades. Buildings go up course by course and stop working when knocked down; a gun falls when the wall or tower under it does</dd>
+      <dt>P</dt><dd>Pause</dd>
       <dt>[ ] or Alt+scroll</dt><dd>Mortar fuse. Starts on impact; a fuse shorter than the flight bursts in the air (the arc stops there), a longer one lets the shell bounce first</dd>
       <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
       <dt>V</dt><dd>Shot camera for this weapon: follow your shot (slow motion at impact if you turn it on below). On for the mortar: ride the shell down</dd>
       <dt>Click, Space, Enter</dt><dd>While riding a shell: back to the mortar</dd>
       <dt>M</dt><dd>Sound on or off (volume below)</dd>
-      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
+      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom). In a match, click one of your guns to ride it, or one of your plots to build there</dd>
       <dt>N</dt><dd>Show where minions can walk: green from your gate, sandy over rubble and the fallen, amber cut off, blue water, red in the way. Blow a bridge and watch its crossing close</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Versus AI: orders for all your waves (or the buttons in the match bar). Advance on the enemy gate (they batter it down), Hold at the midfield markers short of the bridges, Push the breach (the nearest gap in the enemy walls: knock one open at the foot of a wall)</dd>
-      <dt>L</dt><dd>Versus AI: the route of your next waves (left flank, centre road, right flank). A wave whose bridge is down takes the nearest one standing</dd>
+      <dt>L</dt><dd>Versus AI: the route of all your barracks' next waves (left flank, centre road, right flank; the build menu sets one barracks). A wave whose bridge is down takes the nearest one standing</dd>
+      <dt>Gold</dt><dd>Your keep and mills pay every second; every enemy who falls pays a bounty; enemy masonry you bring down pays; knocking down an enemy building pays a third of its cost; trick shots by your own hand pay extra (ricochet kill, collapse kill, multi-kill, keep hit, a sapper's keg set off on the way)</dd>
       <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad up and down fuse, D-pad left orders, D-pad right route, X spin, Y shot camera, B back from the shot camera, View overview</dd>
     </dl>
     <div class="row group">
@@ -204,6 +240,14 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
     </div>
     <div class="mono"><span id="backend"></span>, <span id="perf"></span></div>
   </div>
+  <div id="plot-labels" class="labels" aria-hidden="true"></div>
+  <div id="gains" class="gains" aria-live="off"></div>
+  <div id="build" class="panel glass build" hidden role="dialog" aria-label="Build">
+    <div class="head"><h2>Your castle</h2><span class="gold" id="build-gold"></span></div>
+    <div class="small">Arrow keys move, Enter chooses, B or Esc closes. Click a plot or one of your guns in the overview to come straight here.</div>
+    <div id="build-body"></div>
+  </div>
+  <div id="paused" class="center" hidden><div class="glass">Paused. P to carry on</div></div>
   <div id="note" class="hint glass" hidden role="status"></div>
   <div id="tally" class="hint glass tally" hidden role="status"></div>
   <div id="loading" class="center" hidden><div class="glass">Raising the walls...</div></div>
@@ -213,7 +257,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
       <p>Two castles across a valley, a stream with three timber bridges between them. Ride the siege guns of the Ashwright castle.</p>
       <div class="choices">
         <button class="choice" data-mode="practice"><b>Practice range</b><span>Every weapon against the target castle and a patrol of pikemen. No clock, no rules: rebuild the castles any time.</span></button>
-        <button class="choice" data-mode="versus"><b>Versus AI</b><span>A match on the clock: bring the enemy keep's banner to the ground to win. Both barracks send waves of pikemen that march, meet at the bridges and batter gates; order yours and guard your walls. The enemy does not aim at your castle yet.</span></button>
+        <button class="choice" data-mode="versus"><b>Versus AI</b><span>A match on the clock: bring the enemy keep's banner to the ground to win. Run your castle: build mills, a foundry and more barracks, buy guns for your empty slots, and send pikemen, sappers with powder kegs and musketeers. The enemy builds by a fixed plan and does not aim at your castle yet.</span></button>
       </div>
       <div class="actions"><button id="menu-back" hidden>Back to the game</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
@@ -228,8 +272,9 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
         <dt>Enemy masonry down</dt><dd id="end-enemy"></dd>
         <dt>Your masonry down</dt><dd id="end-yours"></dd>
         <dt>Shots fired</dt><dd id="end-shots"></dd>
-        <dt>Your pikemen lost</dt><dd id="end-lost"></dd>
-        <dt>Enemy pikemen down</dt><dd id="end-downed"></dd>
+        <dt>Your men lost</dt><dd id="end-lost"></dd>
+        <dt>Enemy men down</dt><dd id="end-downed"></dd>
+        <dt>Gold earned</dt><dd id="end-gold"></dd>
       </dl>
       <div class="actions">
         <button class="primary" id="end-again">Play again</button>

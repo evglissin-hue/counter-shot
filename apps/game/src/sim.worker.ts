@@ -3,10 +3,10 @@
 // sends inputs; the worker tags each with the next tick, steps the sim and
 // posts what changed.
 
-import { buildLayout, GAME_LAYOUT, type CastleLayout } from "@keepfall/content";
-import { Match, Team } from "@keepfall/rules";
+import { buildLayout, GAME_LAYOUT, KEEP_STOREYS, MATCH_LAYOUT, type CastleLayout } from "@keepfall/content";
+import { Match, MATCH_RULES_VERSION, Team } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
-import type { FromWorker, MatchInfo, Mode, NavInfo, ToWorker } from "./protocol";
+import type { FromWorker, MatchInfo, Mode, NavInfo, PlotView, SlotView, ToWorker } from "./protocol";
 
 const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
 const DT = 1000 / 60;
@@ -14,7 +14,9 @@ const DT = 1000 / 60;
 let R: Rapier | null = null;
 let sim: SandboxSim | null = null;
 let match: Match | null = null;
-let layout: CastleLayout | null = null;
+/** The Practice range's world and a match's (with plots in both courtyards). */
+let practiceLayout: CastleLayout | null = null;
+let matchLayout: CastleLayout | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 let last = 0;
 let acc = 0;
@@ -51,8 +53,8 @@ async function load(): Promise<Rapier> {
  * It never touches the real sim.
  */
 function rehearse() {
-  if (!R || !layout) return;
-  const r = new SandboxSim(R, layout, { seed: 1, minions: 2 });
+  if (!R || !practiceLayout) return;
+  const r = new SandboxSim(R, practiceLayout, { seed: 1, minions: 2 });
   r.explode(0, 19.3, -0.6);
   r.explode(15, 11.6, -15);
   for (let i = 0; i < 45; i++) r.step();
@@ -63,8 +65,8 @@ function build(mode: Mode, seed: number, minions: number) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
-  layout ??= buildLayout(1, GAME_LAYOUT);
-  gateLeaves = [0, 1].map((c) => layout!.stones.filter((st) => st.part === "gate" && st.castle === c).map((st) => st.id)) as [number[], number[]];
+  const layout = mode === "versus" ? (matchLayout ??= buildLayout(1, MATCH_LAYOUT)) : (practiceLayout ??= buildLayout(1, GAME_LAYOUT));
+  gateLeaves = [0, 1].map((c) => layout.stones.filter((st) => st.part === "gate" && st.castle === c).map((st) => st.id)) as [number[], number[]];
   if (mode === "versus") {
     match = new Match(R, layout, { seed });
     sim = match.world;
@@ -75,7 +77,7 @@ function build(mode: Mode, seed: number, minions: number) {
   navSent = -1;
   bridgesSent = -1;
   endSent = false;
-  post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
+  post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION * 100 + MATCH_RULES_VERSION });
 }
 
 function matchInfo(): MatchInfo | null {
@@ -103,9 +105,44 @@ function matchInfo(): MatchInfo | null {
     guns,
     gateHits: [hits(0), hits(1)],
     gateOpen: [open(0), open(1)],
+    income: match.income(Team.Player),
+    plots: plotViews(match),
+    slots: slotViews(match),
+    gains: match.goldLog.filter((g) => g.team === Team.Player).map((g) => ({ amount: g.amount, why: g.why, x: g.x, y: g.y, z: g.z })),
+    notes: match.notes,
+    keepFloor: [keepFloor(match, 0), keepFloor(match, 1)],
+    earned: ended && !endSent ? { ...match.earned[Team.Player] } : null,
   };
+  match.goldLog = [];
+  match.notes = [];
   if (info.masonry) endSent = true;
   return info;
+}
+
+function plotViews(m: Match): PlotView[] {
+  const out: PlotView[] = [];
+  for (const team of [0, 1] as const) {
+    m.plots[team].forEach((p, plot) => {
+      out.push({ team, plot, kind: p.kind, state: p.state, progress: p.order.length ? p.raised / p.order.length : 0, standing: p.raised ? p.standing / p.raised : 0, route: p.route, mix: p.mix });
+    });
+  }
+  return out;
+}
+
+function slotViews(m: Match): SlotView[] {
+  return m.emplacements.map((e, i) => {
+    const s = m.slots[i];
+    return { weapon: e.weapon, armed: s.armed, down: s.down, heavy: !!e.mods?.heavy, rifled: !!e.mods?.rifled, y: e.y, barrel: e.barrel };
+  });
+}
+
+/** Which floor a keep's banner stands on: 3 the roof, 2 and 1 the timber floors, 0 the ground. */
+function keepFloor(m: Match, castle: 0 | 1): number {
+  const y = m.world.castle.bodies[m.layout.bannerIds[castle]].translation().y;
+  const tops = KEEP_STOREYS.map((c) => c * 0.5);
+  let floor = 0;
+  for (let k = 0; k < tops.length; k++) if (y > tops[k] + 1) floor = k + 1;
+  return floor;
 }
 
 function tick(advanceMs = -1) {
@@ -140,7 +177,7 @@ function tick(advanceMs = -1) {
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
-  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer];
+  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.raised.buffer, frame.cleared.buffer, frame.events.buffer];
   const info = matchInfo();
   if (info) transfer.push(info.guns.buffer);
   for (const p of frame.terrain) transfer.push(p.h.buffer);
@@ -189,7 +226,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
     switch (msg.t) {
       case "init":
         await load();
-        layout ??= buildLayout(1, GAME_LAYOUT);
+        practiceLayout ??= buildLayout(1, GAME_LAYOUT);
         rehearse();
         build(msg.mode, msg.seed, msg.minions);
         start();

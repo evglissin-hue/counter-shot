@@ -8,7 +8,7 @@
 import * as THREE from "three/webgpu";
 import { float, uniform } from "three/tsl";
 import type { CastleLayout, Emplacement } from "@keepfall/content";
-import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
+import { EVENT_STRIDE, EventKind, MINION_STRIDE, type FrameData, type TerrainPatch } from "@keepfall/sim";
 import type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
@@ -185,6 +185,33 @@ export class GameRenderer implements GameRendererApi {
     this.guns.setShown(n);
   }
 
+  /** The guns as they are now (a match buys guns for empty slots): rebuild the models, then show only those flagged. */
+  setEmplacements(emplacements: Emplacement[], shown: boolean[]): void {
+    if (!this.layout) return;
+    this.guns.build(this.layout, emplacements);
+    this.setGunsShown(shown);
+  }
+
+  /** Which guns are drawn (an empty slot has none; a knocked out gun is gone). */
+  setGunsShown(shown: boolean[]): void {
+    this.guns.setEach(shown);
+  }
+
+  /** A gun knocked off its wall or tower: a puff of dust and grit where it stood. */
+  gunFalls(x: number, y: number, z: number): void {
+    this.spawnImpact(x, y, z, 0.9, 1);
+    this.bursts.dust.spawn(this.now, x, y - 0.5, z, 1.6, 0, -0.4, 0);
+  }
+
+  /** Screen position (CSS pixels from the canvas's top left) of a world point, or null when it is behind the camera. */
+  project(x: number, y: number, z: number): { x: number; y: number } | null {
+    const cam = this.views.camera;
+    const v = this.tmpA.set(x, y, z).project(cam);
+    if (v.z > 1 || v.z < -1) return null;
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    return { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h };
+  }
+
   /** Show the midfield markers (a match). */
   setMarkers(on: boolean): void {
     this.markers.root.visible = on;
@@ -270,6 +297,18 @@ export class GameRenderer implements GameRendererApi {
   // --- per frame data ---------------------------------------------------------
 
   applyFrame(frame: FrameData): void {
+    if (this.stones && frame.cleared && frame.cleared.length) this.stones.hidePieces(frame.cleared);
+    if (this.stones && frame.raised && frame.raised.length) {
+      this.stones.showPieces(frame.raised);
+      // Masons at work: a little dust where each course goes down.
+      const L = this.layout;
+      if (L) {
+        for (let k = 0; k < frame.raised.length; k += 7) {
+          const st = L.stones[frame.raised[k]];
+          if (st) this.spawnImpact(st.x, st.y + st.hy, st.z, 0.12, 0.5);
+        }
+      }
+    }
     if (this.stones && frame.stoneCount > 0) {
       this.stones.updateBodies(frame.stones, frame.stoneCount);
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
@@ -288,6 +327,8 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Explosion) this.spawnExplosion(x, y, z, v);
       else if (kind === EventKind.Muzzle) this.spawnMuzzle(x | 0);
       else if (kind === EventKind.Blood) this.spawnBlood(x, y, z, v);
+      else if (kind === EventKind.Musket) this.spawnMusket(frame, x | 0, y, z);
+      else if (kind === EventKind.Keg) this.kegs.push({ x, y, z, until: this.now + v / 60, next: 0 });
       // EventKind.Landed: the page handles the landing marker.
     }
   }
@@ -305,6 +346,7 @@ export class GameRenderer implements GameRendererApi {
   }
 
   resetWorld(): void {
+    this.kegs = [];
     this.stones?.resetStones();
     this.prevTick.fill(-1);
     this.lastTrickle.fill(-100);
@@ -378,6 +420,37 @@ export class GameRenderer implements GameRendererApi {
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
     this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070, 14);
+  }
+
+  /** A musket shot: a flash and a puff of smoke at the shooter's muzzle, towards its target. */
+  private spawnMusket(frame: FrameData, shooter: number, tx: number, tz: number) {
+    const M = frame.minions;
+    for (let i = 0; i < frame.minionCount; i++) {
+      const o = i * MINION_STRIDE;
+      if ((M[o] | 0) !== shooter) continue;
+      const x = M[o + 1], y = M[o + 2] + 1.42, z = M[o + 3];
+      let dx = tx - x, dz = tz - z;
+      const d = Math.hypot(dx, dz) || 1;
+      dx /= d;
+      dz /= d;
+      const mx = x + dx * 1.15, mz = z + dz * 1.15;
+      this.bursts.flash.spawn(this.now, mx, y, mz, 0.35, dx, 0, dz);
+      this.bursts.muzzleSmoke.spawn(this.now, mx + dx * 0.2, y, mz + dz * 0.2, 0.32, dx, 0.1, dz);
+      this.pulseLight(mx, y, mz, 0.5, 0xffb070, 20);
+      return;
+    }
+  }
+
+  /** Kegs with their fuses lit: a spitting spark until they go off. */
+  private kegs: Array<{ x: number; y: number; z: number; until: number; next: number }> = [];
+  private updateKegs() {
+    if (!this.kegs.length) return;
+    this.kegs = this.kegs.filter((k) => k.until > this.now);
+    for (const k of this.kegs) {
+      if (this.now < k.next) continue;
+      k.next = this.now + 0.12;
+      this.bursts.flash.spawn(this.now, k.x, k.y + 0.35, k.z, 0.12, 0, 1, 0);
+    }
   }
 
   private spawnBlood(x: number, y: number, z: number, strength: number) {
@@ -698,6 +771,7 @@ export class GameRenderer implements GameRendererApi {
     this.sky.time.value = this.now;
     this.effects.setTime(this.now);
     this.shock.update(this.now);
+    this.updateKegs();
     this.views.update(real);
     const cam = this.views.camera;
     cam.updateMatrixWorld();

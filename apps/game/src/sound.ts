@@ -240,6 +240,47 @@ export class Sound {
   }
 
   /** The current weapon is loaded again: a dry mechanical clack, not placed. */
+  /** Gold earned: a small clink of coins, brighter for more. Not placed in the world. */
+  coin(amount: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.01;
+    const g = ctx.createGain();
+    g.gain.value = Math.min(0.2, 0.07 + amount * 0.004);
+    g.connect(this.dry);
+    const n = amount >= 20 ? 3 : amount >= 8 ? 2 : 1;
+    for (let k = 0; k < n; k++) {
+      const t = t0 + k * 0.055;
+      this.tone(g, t, 2300 + k * 410, 2200 + k * 400, 0.05, 0.001, 0.12, 0.5);
+      this.tone(g, t, 3500 + k * 230, 3400 + k * 220, 0.04, 0.001, 0.06, 0.25);
+    }
+    this.later(g, t0 + 0.5);
+  }
+
+  /** A musket shot: a sharp crack and a short boom, where it was fired. */
+  musket(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 18), 0.3, 2);
+    this.burstNoise(c.input, c.t0, this.white, "highpass", 1400, 0.7, 0.001, 0.06, 0.55);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 1200, 0.7, 0.002, 0.2, 0.35);
+    this.tone(c.input, c.t0, 140, 80, 0.08, 0.002, 0.1, 0.2);
+  }
+
+  /** A building done: two knocks of a mallet on timber. Not placed in the world. */
+  built() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.01;
+    const g = ctx.createGain();
+    g.gain.value = 0.2;
+    g.connect(this.dry);
+    for (const dt of [0, 0.16]) {
+      this.burstNoise(g, t0 + dt, this.brown, "bandpass", 700, 2, 0.001, 0.07, 0.8);
+      this.tone(g, t0 + dt, 300, 220, 0.05, 0.001, 0.08, 0.4);
+    }
+    this.later(g, t0 + 0.6);
+  }
+
   ready(kind: WeaponKind) {
     const ctx = this.ctx;
     if (!ctx) return;

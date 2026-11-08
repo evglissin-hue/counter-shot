@@ -5,7 +5,7 @@ export interface Pressed {
   fire: boolean;
   next: boolean;
   prev: boolean;
-  weapon: number; // 0..3, or -1
+  weapon: number; // 0..7, or -1
   overview: boolean;
   shotCam: boolean;
   spin: boolean;
@@ -22,6 +22,10 @@ export interface Pressed {
   orderNext: boolean;
   /** Next route for your barracks' waves (L). */
   route: boolean;
+  /** The build menu (B, gamepad Y held with the view button is the overview). */
+  build: boolean;
+  /** Pause or resume (P). */
+  pause: boolean;
 }
 
 export class Input {
@@ -38,6 +42,10 @@ export class Input {
   locked = false;
   fireHeld = false;
   usedPad = false;
+  /** A click on the scene takes the mouse for aiming only while this is set (the gun sight); elsewhere a click is a click. */
+  lockable = true;
+  /** While a menu takes the keys, game keys are not read. */
+  muted = false;
 
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
@@ -58,8 +66,9 @@ export class Input {
     window.addEventListener("blur", () => this.keys.clear());
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 0) {
-        if (!this.locked) canvas.requestPointerLock?.();
-        else this.edges.add("Mouse0");
+        if (!this.locked) {
+          if (this.lockable) canvas.requestPointerLock?.();
+        } else this.edges.add("Mouse0");
       }
       if (e.button === 2) this.zoomHeld = true;
     });
@@ -110,7 +119,7 @@ export class Input {
     const edge = (i: number) => !!b[i] && !this.padPrev[i];
     if (pad && b.some(Boolean)) this.usedPad = true;
     let weapon = -1;
-    for (let i = 0; i < 4; i++) if (e.has(`Digit${i + 1}`)) weapon = i;
+    for (let i = 0; i < 8; i++) if (e.has(`Digit${i + 1}`)) weapon = i;
     const out: Pressed = {
       fire: e.has("Space") || e.has("Mouse0") || edge(7),
       next: e.has("KeyE") || edge(5),
@@ -128,9 +137,17 @@ export class Input {
       order: e.has("Order1") ? 0 : e.has("Order2") ? 1 : e.has("Order3") ? 2 : -1,
       orderNext: edge(14),
       route: e.has("KeyL") || edge(15),
+      build: e.has("KeyB"),
+      pause: e.has("KeyP"),
     };
     this.padPrev = b;
     e.clear();
+    if (this.muted) {
+      // A menu has the keys: only the keys that close it get through.
+      const keep = { build: out.build, overview: out.overview, help: out.help, pause: out.pause, skip: out.skip };
+      for (const k of Object.keys(out) as Array<keyof Pressed>) (out as unknown as Record<string, unknown>)[k] = k === "weapon" || k === "order" ? -1 : false;
+      Object.assign(out, keep);
+    }
     return out;
   }
 }

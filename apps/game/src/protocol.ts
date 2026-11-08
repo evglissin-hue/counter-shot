@@ -1,8 +1,34 @@
 // Messages between the game page and its simulation worker.
 
-import type { RouteName } from "@keepfall/content";
-import type { MatchInput, MatchResult } from "@keepfall/rules";
+import type { BuildingKind, MixName, RouteName, WeaponKind } from "@keepfall/content";
+import type { MatchInput, MatchNote, MatchResult } from "@keepfall/rules";
 import type { FrameData, SandboxInput, TerrainPatch } from "@keepfall/sim";
+
+/** One plot of either courtyard, as the HUD and the build menu show it. */
+export interface PlotView {
+  team: 0 | 1;
+  plot: number;
+  kind: BuildingKind | null;
+  /** PlotState: 0 empty, 1 going up, 2 working, 3 down. */
+  state: number;
+  /** How far up it is (0..1), and the share of what is up that still stands. */
+  progress: number;
+  standing: number;
+  route: RouteName;
+  mix: MixName;
+}
+
+/** One gun slot (by emplacement id): the gun in it (or the one it would be drawn with), and its state. */
+export interface SlotView {
+  weapon: WeaponKind;
+  armed: boolean;
+  down: boolean;
+  heavy: boolean;
+  rifled: boolean;
+  /** The pivot's height and the barrel (they change with the gun). */
+  y: number;
+  barrel: number;
+}
 
 /** The Practice range (the sandbox: target castle, a patrol, no rules) or a match against the AI castle. */
 export type Mode = "practice" | "versus";
@@ -45,6 +71,19 @@ export interface MatchInfo {
   /** Blows each castle's gate has taken (both leaves), and whether it is open (a leaf down). */
   gateHits: [number, number];
   gateOpen: [boolean, boolean];
+  /** The player's gold a second (keep and mills). */
+  income: number;
+  /** Both courtyards' plots (enemy first) and every gun slot (emplacement order). */
+  plots: PlotView[];
+  slots: SlotView[];
+  /** Gold the player earned since the last frame, with the reason and where. */
+  gains: Array<{ amount: number; why: string; x: number; y: number; z: number }>;
+  /** Buildings done or knocked down, guns knocked out (either side), since the last frame. */
+  notes: MatchNote[];
+  /** Which floor each keep's banner stands on: 3 the roof, 2 and 1 the timber floors, 0 the ground (toppled). */
+  keepFloor: [number, number];
+  /** Gold the player earned by source (sent once the match has ended). */
+  earned: Record<string, number> | null;
 }
 
 /** The nav grid for the overlay: kind and floor height per cell. */

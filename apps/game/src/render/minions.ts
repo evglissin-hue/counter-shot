@@ -22,7 +22,9 @@ const MAX_PIKES = 360;
 const MAX_LIMBS = 32;
 const CAPACITY = MAX_FIGURES + MAX_LIMBS;
 /** Upright actions (army.ts Action). */
-const STAND = 1, FIGHT = 2, BATTER = 3;
+const STAND = 1, FIGHT = 2, BATTER = 3, PLANT = 4, SHOOT = 5;
+/** Unit kinds (UNIT_KINDS order). */
+const SAPPER = 1, MUSKETEER = 2;
 /** A thrust's length in ticks. */
 const THRUST = 22;
 const STUMP = 0x2b0d0a;
@@ -57,6 +59,11 @@ export class Minions {
   private parts: THREE.InstancedMesh[] = [];
   private helmet: THREE.InstancedMesh;
   private pike: THREE.InstancedMesh;
+  /** A sapper's powder keg (on his back, or at the wall while he plants it) and a musketeer's musket. */
+  private keg: THREE.InstancedMesh;
+  private musket: THREE.InstancedMesh;
+  private nKeg = 0;
+  private nMusket = 0;
   private counts = new Int32Array(NPARTS);
   private teamOf = new Map<number, number>();
   private nHelmet = 0;
@@ -137,6 +144,38 @@ export class Minions {
     this.pike.count = 0;
     this.pike.frustumCulled = false;
     this.pike.castShadow = true;
+    // Powder keg: a squat barrel with dark hoops (local +Y along its axis, centred).
+    const barrelBody = new THREE.CylinderGeometry(0.17, 0.17, 0.42, 10, 1);
+    barrelBody.deleteAttribute("uv");
+    const belly = new THREE.CylinderGeometry(0.19, 0.19, 0.2, 10, 1);
+    belly.deleteAttribute("uv");
+    const km = new THREE.MeshStandardNodeMaterial();
+    km.name = "minion-keg";
+    km.color = new THREE.Color(0x5a4630);
+    km.roughness = 0.85;
+    this.keg = new THREE.InstancedMesh(mergeGeometries([barrelBody, belly]), km, MAX_PIKES);
+    this.keg.name = "minion-keg";
+    this.keg.count = 0;
+    this.keg.frustumCulled = false;
+    this.keg.castShadow = true;
+    // Musket: a 1.5 m barrel on a wooden stock (local +Y from the butt to the muzzle).
+    const stock = new THREE.BoxGeometry(0.06, 0.55, 0.1);
+    stock.deleteAttribute("uv");
+    stock.translate(0, 0.275, 0);
+    const tube = new THREE.CylinderGeometry(0.014, 0.016, 1.0, 5, 1);
+    tube.deleteAttribute("uv");
+    tube.translate(0, 1.0, 0.02);
+    const mm = new THREE.MeshStandardNodeMaterial();
+    mm.name = "minion-musket";
+    mm.color = new THREE.Color(0x3a3029);
+    mm.roughness = 0.6;
+    mm.metalness = 0.3;
+    this.musket = new THREE.InstancedMesh(mergeGeometries([stock, tube]), mm, MAX_PIKES);
+    this.musket.name = "minion-musket";
+    this.musket.count = 0;
+    this.musket.frustumCulled = false;
+    this.musket.castShadow = true;
+    this.root.add(this.keg, this.musket);
     // Stump caps: dark, wet discs where a limb came off.
     const sm = new THREE.MeshStandardNodeMaterial();
     sm.name = "minion-stump";
@@ -381,6 +420,8 @@ export class Minions {
     this.nStump = this.frozenStumps;
     this.nHelmet = this.frozenHelmets;
     this.nPike = 0;
+    this.nKeg = 0;
+    this.nMusket = 0;
     const yawQ = this.yawQ;
     const base = this.base;
     const n = Math.min(minionCount | 0, MAX_FIGURES);
@@ -391,11 +432,21 @@ export class Minions {
       const team = minions[o + 6] | 0;
       const action = minions[o + 7] | 0;
       const act = minions[o + 8];
+      const unit = minions[o + 9] | 0;
+      const carry = minions[o + 10] > 0.5;
       this.teamOf.set(id, team);
       base.set(minions[o + 1], minions[o + 2], minions[o + 3]);
       yawQ.setFromAxisAngle(_y, minions[o + 4]);
       if (action === FIGHT || action === BATTER) {
-        this.drawLevelled(team, act, action === BATTER);
+        this.drawLevelled(team, act, action === BATTER, unit === MUSKETEER);
+        continue;
+      }
+      if (action === PLANT) {
+        this.drawKneeling(team, carry);
+        continue;
+      }
+      if (action === SHOOT && unit === MUSKETEER) {
+        this.drawAiming(team, act);
         continue;
       }
       const standing = action === STAND;
@@ -423,7 +474,7 @@ export class Minions {
         hand.set(0, -Math.cos(c + e), Math.sin(c + e)).multiplyScalar(0.25).add(elbow);
         this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
         this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
-        if (side < 0 && this.nPike < MAX_PIKES) {
+        if (side < 0 && unit === 0 && this.nPike < MAX_PIKES) {
           // Pike held upright at the hand, leaning slightly forward.
           _q2.setFromAxisAngle(_x, standing ? 0.05 : 0.12);
           _q.copy(yawQ).multiply(_q2);
@@ -431,6 +482,21 @@ export class Minions {
           _m.compose(_a, _q, _one);
           this.pike.setMatrixAt(this.nPike++, _m);
         }
+      }
+      if (unit === SAPPER && carry && this.nKeg < MAX_PIKES) {
+        // The keg rides on his back, lying across it.
+        _q2.setFromAxisAngle(_z, Math.PI / 2);
+        _q.copy(yawQ).multiply(_q2);
+        _a.set(0, 1.22 + bob, -0.3).applyQuaternion(yawQ).add(base);
+        _m.compose(_a, _q, _one);
+        this.keg.setMatrixAt(this.nKeg++, _m);
+      } else if (unit === MUSKETEER && this.nMusket < MAX_PIKES) {
+        // The musket on his right shoulder, muzzle up and back.
+        _q2.setFromAxisAngle(_x, -0.55);
+        _q.copy(yawQ).multiply(_q2);
+        _a.set(-0.2, 0.92 + bob, 0.22).applyQuaternion(yawQ).add(base);
+        _m.compose(_a, _q, _one);
+        this.musket.setMatrixAt(this.nMusket++, _m);
       }
       // Pelvis lies sideways (wide hips), torso leans a touch into the walk.
       _q2.setFromAxisAngle(_z, Math.PI / 2);
@@ -456,6 +522,88 @@ export class Minions {
     if (this.nHelmet > 0) this.helmet.instanceMatrix.needsUpdate = true;
     this.pike.count = this.nPike;
     if (this.nPike > 0) this.pike.instanceMatrix.needsUpdate = true;
+    this.keg.count = this.nKeg;
+    if (this.nKeg > 0) this.keg.instanceMatrix.needsUpdate = true;
+    this.musket.count = this.nMusket;
+    if (this.nMusket > 0) this.musket.instanceMatrix.needsUpdate = true;
+  }
+
+  /** The torso, pelvis and head for a pose: dropped by `drop`, leaning forward by `lean` (radians). */
+  private body(team: number, drop: number, lean: number) {
+    const yawQ = this.yawQ, base = this.base;
+    _q2.setFromAxisAngle(_z, Math.PI / 2);
+    _q.copy(yawQ).multiply(_q2);
+    _p.set(0, 0.97 - drop, 0).applyQuaternion(yawQ).add(base);
+    this.put(PELVIS, _p, _q, team);
+    _q2.setFromAxisAngle(_x, lean);
+    _q.copy(yawQ).multiply(_q2);
+    _p.set(0, 1.27 - drop, 0.04 + lean * 0.3).applyQuaternion(yawQ).add(base);
+    this.put(TORSO, _p, _q, team);
+    _p.set(0, 1.6 - drop, 0.08 + lean * 0.62).applyQuaternion(yawQ).add(base);
+    this.put(HEAD, _p, yawQ, team);
+  }
+
+  /** A sapper down on one knee at the wall, setting his keg against it (the keg in front of him while he still holds it). */
+  private drawKneeling(team: number, carry: boolean) {
+    const yawQ = this.yawQ, base = this.base;
+    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
+    const drop = 0.38;
+    // Left knee up, right knee on the ground.
+    hip.set(0.11, 0.9 - drop, 0);
+    knee.set(0.11, 0.55 - drop + 0.1, 0.36);
+    ankle.set(0.11, 0.08, 0.3);
+    this.segment(THIGH_L, hip, knee, yawQ, base, team);
+    this.segment(SHIN_L, knee, ankle, yawQ, base, team);
+    hip.set(-0.11, 0.9 - drop, 0);
+    knee.set(-0.11, 0.1, 0.12);
+    ankle.set(-0.11, 0.1, -0.3);
+    this.segment(THIGH_R, hip, knee, yawQ, base, team);
+    this.segment(SHIN_R, knee, ankle, yawQ, base, team);
+    for (let side = 1; side >= -1; side -= 2) {
+      sh.set(side * 0.25, 1.44 - drop, 0.18);
+      hand.set(side * 0.16, 0.42, 0.55);
+      this.elbowFor(sh, hand, side, elbow);
+      this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
+      this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
+    }
+    this.body(team, drop, 0.5);
+    if (carry && this.nKeg < MAX_PIKES) {
+      _a.set(0, 0.23, 0.6).applyQuaternion(yawQ).add(base);
+      _m.compose(_a, yawQ, _one);
+      this.keg.setMatrixAt(this.nKeg++, _m);
+    }
+  }
+
+  /** A musketeer with his musket at the shoulder, levelled at his target; it kicks as he fires (`act` ticks since the shot). */
+  private drawAiming(team: number, act: number) {
+    const yawQ = this.yawQ, base = this.base;
+    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
+    const kick = act < 10 ? (1 - act / 10) * 0.08 : 0;
+    for (let side = 1; side >= -1; side -= 2) {
+      const a = side > 0 ? 0.28 : -0.2;
+      hip.set(side * 0.11, 0.9, 0);
+      knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
+      ankle.set(0, -Math.cos(a - 0.15), Math.sin(a - 0.15)).multiplyScalar(0.4).add(knee);
+      this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
+      this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
+    }
+    // The butt at the right shoulder, the left hand under the barrel.
+    const buttX = -0.14, buttY = 1.4, buttZ = 0.12 - kick;
+    for (let side = 1; side >= -1; side -= 2) {
+      sh.set(side * 0.25, 1.44, 0.04 - kick);
+      hand.set(side > 0 ? -0.08 : buttX, side > 0 ? 1.38 : buttY - 0.02, side > 0 ? 0.62 - kick : buttZ + 0.12);
+      this.elbowFor(sh, hand, side, elbow);
+      this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
+      this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
+    }
+    if (this.nMusket < MAX_PIKES) {
+      _q2.setFromAxisAngle(_x, Math.PI / 2 - kick * 1.5);
+      _q.copy(yawQ).multiply(_q2);
+      _a.set(buttX, buttY, buttZ - 0.1).applyQuaternion(yawQ).add(base);
+      _m.compose(_a, _q, _one);
+      this.musket.setMatrixAt(this.nMusket++, _m);
+    }
+    this.body(team, 0, 0.06 - kick);
   }
 
   /** One ragdoll part from a parts array at offset o (with gore, a severed limb is left out and its stump capped). */
@@ -495,7 +643,7 @@ export class Minions {
    * foot forward, both hands on the shaft, and a thrust that drives the pike
    * out and back at each blow (`act` counts ticks since the blow began).
    */
-  private drawLevelled(team: number, act: number, gate: boolean) {
+  private drawLevelled(team: number, act: number, gate: boolean, musket = false) {
     const yawQ = this.yawQ, base = this.base;
     const [hip, knee, ankle, sh, elbow, hand] = this.joints;
     const t = act / THRUST;
@@ -522,7 +670,16 @@ export class Minions {
       this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
       this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
     }
-    if (this.nPike < MAX_PIKES) {
+    if (musket && this.nMusket < MAX_PIKES) {
+      // A musketeer thrusts with his musket, butt at the rear hand.
+      _d.set(0, frontY - rearY, frontZ - rearZ).normalize();
+      _a.set(shaftX, rearY, rearZ).addScaledVector(_d, -0.3);
+      _q2.setFromUnitVectors(_y, _d);
+      _q.copy(yawQ).multiply(_q2);
+      _a.applyQuaternion(yawQ).add(base);
+      _m.compose(_a, _q, _one);
+      this.musket.setMatrixAt(this.nMusket++, _m);
+    } else if (!musket && this.nPike < MAX_PIKES) {
       // The butt sits a metre behind the rear hand, the shaft through both hands.
       _d.set(0, frontY - rearY, frontZ - rearZ).normalize();
       _a.set(shaftX, rearY, rearZ).addScaledVector(_d, -1.0);
@@ -582,10 +739,14 @@ export class Minions {
     for (const m of this.parts) m.count = 0;
     this.helmet.count = 0;
     this.pike.count = 0;
+    this.keg.count = 0;
+    this.musket.count = 0;
   }
 
   dispose() {
-    for (const m of [...this.parts, this.helmet, this.pike, this.stumps]) m.geometry.dispose();
+    for (const m of [...this.parts, this.helmet, this.pike, this.keg, this.musket, this.stumps]) m.geometry.dispose();
+    (this.keg.material as THREE.Material).dispose();
+    (this.musket.material as THREE.Material).dispose();
     (this.stumps.material as THREE.Material).dispose();
     (this.parts[0].material as THREE.Material).dispose();
     (this.helmet.material as THREE.Material).dispose();

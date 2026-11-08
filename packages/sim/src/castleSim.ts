@@ -243,35 +243,21 @@ export class CastleSim {
       this.world.createCollider(R.ColliderDesc.cuboid(160, 1, 220).setFriction(0.85), ground);
     }
 
-    const wedgePts = layout.wedge.points;
     for (const s of layout.stones) {
-      const loose = s.part === "banner"; // the banner pole is a free body from the start
-      const desc = (loose ? R.RigidBodyDesc.dynamic() : R.RigidBodyDesc.fixed())
-        .setTranslation(s.x, s.y, s.z)
-        .setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] });
-      const body = this.world.createRigidBody(desc);
-      const cd = s.shape === "wedge" ? R.ColliderDesc.convexHull(wedgePts)! : R.ColliderDesc.cuboid(s.hx, s.hy, s.hz);
-      cd.setDensity(DENSITY[s.material]).setFriction(FRICTION[s.material]).setRestitution(0.02);
-      if (layout.keepFloors) cd.setCollisionGroups(s.part === "banner" ? BANNER_GROUPS : s.part === "keep" || s.part === "storey" ? STRUCTURE_GROUPS : RUBBLE_GROUPS);
-      if (!loose) {
-        // Keep floors carry falling rubble: only a burst or a direct hit breaks a storey board.
-        const threshold = s.part === "storey" ? STOREY_BREAK : opts.breakForce;
-        cd.setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(threshold);
-      }
-      const col = this.world.createCollider(cd, body);
-      this.owner.set(col.handle, s.id);
-      this.bodies.push(body);
-      if (loose) {
-        this.dynamic[s.id] = 1;
-        this.dynList.push(s.id);
-      }
       if (s.plot !== undefined) {
-        // A building's piece waits out of the world until the building is raised.
+        // A building's piece has no body until the building is raised: a parked body still costs a physics step.
+        this.bodies.push(null as unknown as Body);
         this.absent[s.id] = 1;
         this.dynamic[s.id] = 1;
         this.shattered[s.id] = 1;
         this.shatterReported[s.id] = 1;
-        body.setEnabled(false);
+        continue;
+      }
+      const loose = s.part === "banner"; // the banner pole is a free body from the start
+      this.bodies.push(this.makeBody(s, loose));
+      if (loose) {
+        this.dynamic[s.id] = 1;
+        this.dynList.push(s.id);
       }
     }
 
@@ -282,6 +268,26 @@ export class CastleSim {
       if (!list) this.grid.set(k, (list = []));
       list.push(s.id);
     }
+  }
+
+  /** A piece's body and collider where the layout puts it: fixed (or free, for the banner). */
+  private makeBody(s: Stone, loose: boolean): Body {
+    const R = this.R;
+    const desc = (loose ? R.RigidBodyDesc.dynamic() : R.RigidBodyDesc.fixed())
+      .setTranslation(s.x, s.y, s.z)
+      .setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] });
+    const body = this.world.createRigidBody(desc);
+    const cd = s.shape === "wedge" ? R.ColliderDesc.convexHull(this.layout.wedge.points)! : R.ColliderDesc.cuboid(s.hx, s.hy, s.hz);
+    cd.setDensity(DENSITY[s.material]).setFriction(FRICTION[s.material]).setRestitution(0.02);
+    if (this.layout.keepFloors) cd.setCollisionGroups(s.part === "banner" ? BANNER_GROUPS : s.part === "keep" || s.part === "storey" ? STRUCTURE_GROUPS : RUBBLE_GROUPS);
+    if (!loose) {
+      // Keep floors carry falling rubble: only a burst or a direct hit breaks a storey board.
+      const threshold = s.part === "storey" ? STOREY_BREAK : this.opts.breakForce;
+      cd.setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(threshold);
+    }
+    const col = this.world.createCollider(cd, body);
+    this.owner.set(col.handle, s.id);
+    return body;
   }
 
   private cellKey(cx: number, cy: number, cz: number): number {
@@ -898,12 +904,9 @@ export class CastleSim {
    * anything there changes.
    */
   raise(ids: ArrayLike<number>) {
-    const R = this.R;
     for (let k = 0; k < ids.length; k++) {
       const id = ids[k];
       if (!this.absent[id]) continue;
-      const s = this.layout.stones[id];
-      const body = this.bodies[id];
       this.absent[id] = 0;
       this.shattered[id] = 0;
       this.shatterReported[id] = 0;
@@ -912,12 +915,7 @@ export class CastleSim {
       this.restSteps[id] = 0;
       this.awakeLast[id] = 0;
       this.cause[id] = 0;
-      body.setBodyType(R.RigidBodyType.Fixed, false);
-      body.setTranslation({ x: s.x, y: s.y, z: s.z }, false);
-      body.setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] }, false);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-      body.setEnabled(true);
+      this.bodies[id] = this.makeBody(this.layout.stones[id], false);
       this.supportDirty |= 1 << this.castleOf[id];
       this.raisedSince.push(id);
     }
@@ -940,7 +938,13 @@ export class CastleSim {
       this.shattered[id] = 1;
       this.shatterReported[id] = 1;
       this.frozen[id] = 0;
-      this.bodies[id].setEnabled(false);
+      // Gone from the world: its body and collider are removed (a castle piece's too).
+      const body = this.bodies[id];
+      if (body) {
+        this.owner.delete(body.collider(0).handle);
+        this.world.removeRigidBody(body);
+        this.bodies[id] = null as unknown as Body;
+      }
       this.clearedSince.push(id);
       any = true;
     }
@@ -1045,8 +1049,15 @@ export class CastleSim {
     const n = this.layout.stones.length;
     const f = new Float32Array(n * 7);
     for (let i = 0; i < n; i++) {
-      const t = this.bodies[i].translation();
-      const r = this.bodies[i].rotation();
+      const b = this.bodies[i];
+      if (!b) {
+        // Out of the world: where the layout puts it (the absent flags are hashed below).
+        const s = this.layout.stones[i];
+        f.set([s.x, s.y, s.z, s.q[0], s.q[1], s.q[2], s.q[3]], i * 7);
+        continue;
+      }
+      const t = b.translation();
+      const r = b.rotation();
       f.set([t.x, t.y, t.z, r.x, r.y, r.z, r.w], i * 7);
     }
     let h = hashBytes(new Uint8Array(f.buffer));

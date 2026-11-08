@@ -225,6 +225,11 @@ export class Guns {
     this.guns.forEach((g, i) => (g.root.visible = i < n));
   }
 
+  /** Show each gun by its flag (an empty slot or a knocked out gun has none). */
+  setEach(shown: boolean[]) {
+    this.guns.forEach((g, i) => (g.root.visible = shown[i] === true));
+  }
+
   /** World position of an emplacement's muzzle at its current pose, and the barrel direction. */
   muzzle(i: number, out: THREE.Vector3, dir: THREE.Vector3): boolean {
     const g = this.guns.find((x) => x.em.id === i) ?? this.guns[i];

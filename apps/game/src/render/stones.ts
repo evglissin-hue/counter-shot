@@ -10,6 +10,8 @@ import { GroupKind, makeGroupMaterial, makeProxyMaterial } from "./stoneMaterial
 
 /** Layer seen only by the shadow cameras (stone shadow proxies live there). */
 export const SHADOW_LAYER = 1;
+/** Where a piece that is not in the world is drawn (far below the ground). */
+const HIDDEN_Y = -2000;
 import type { StyleName, StylePreset } from "./styles";
 
 const KINDS: GroupKind[] = ["stone", "wedge", "wood", "plaster", "roof", "pole"];
@@ -113,6 +115,8 @@ export class StoneSet {
         dynArray[o + 5] = s.q[1];
         dynArray[o + 6] = s.q[2];
         dynArray[o + 7] = s.q[3];
+        // A building's pieces wait out of sight until the building goes up (a match's plots).
+        if (s.plot !== undefined) dynArray[o + 1] = HIDDEN_Y;
         statArray[o] = s.hx;
         statArray[o + 1] = s.hy;
         statArray[o + 2] = s.hz;
@@ -289,6 +293,42 @@ export class StoneSet {
       a[k + 7] = data[o + 7];
       if (s < g.dmin) g.dmin = s;
       if (s > g.dmax) g.dmax = s;
+    }
+  }
+
+  /** Pieces raised into the world (a building going up): draw them where the layout puts them. */
+  showPieces(ids: ArrayLike<number>) {
+    for (let k = 0; k < ids.length; k++) {
+      const id = ids[k];
+      const st = this.layout.stones[id];
+      const gi = this.groupOf[id];
+      if (!st || gi === 255) continue;
+      const g = this.groups[gi];
+      const slot = this.slotOf[id];
+      const a = g.dynArray, o = slot * 8;
+      a[o] = st.x;
+      a[o + 1] = st.y;
+      a[o + 2] = st.z;
+      a[o + 4] = st.q[0];
+      a[o + 5] = st.q[1];
+      a[o + 6] = st.q[2];
+      a[o + 7] = st.q[3];
+      if (slot < g.dmin) g.dmin = slot;
+      if (slot > g.dmax) g.dmax = slot;
+    }
+  }
+
+  /** Pieces cleared out of the world (a wreck before a plot is built on again): out of sight, no dust. */
+  hidePieces(ids: ArrayLike<number>) {
+    for (let k = 0; k < ids.length; k++) {
+      const id = ids[k];
+      const gi = this.groupOf[id];
+      if (gi === 255 || gi === undefined) continue;
+      const g = this.groups[gi];
+      const slot = this.slotOf[id];
+      g.dynArray[slot * 8 + 1] = HIDDEN_Y;
+      if (slot < g.dmin) g.dmin = slot;
+      if (slot > g.dmax) g.dmax = slot;
     }
   }
 

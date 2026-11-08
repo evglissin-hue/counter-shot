@@ -20,7 +20,7 @@ import { Match, Team, type MatchInput, type MatchResult } from "./match";
 export const MATCH_TICKS = 1700;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "58e36bdb", world: "2ab901ef" } as const;
+export const MATCH_HASH = { state: "58e36bdb", world: "a7859894" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 
@@ -60,7 +60,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "ad8ffc02", world: "3c4e5063" } as const;
+export const WAVE_MATCH_HASH = { state: "3a70f65c", world: "ee4463d2" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -84,7 +84,7 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 export const BUILD_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const BUILD_MATCH_HASH = { state: "768ae955", world: "8adb8235" } as const;
+export const BUILD_MATCH_HASH = { state: "b50f5440", world: "759e42a1" } as const;
 
 /**
  * The building match (phase 2 M3): the player builds a Powder Mill, sends

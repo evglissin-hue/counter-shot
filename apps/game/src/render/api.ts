@@ -104,6 +104,13 @@ export interface GameRendererApi {
   setNavOverlay(on: boolean): void;
   /** Show the first n emplacements' guns (a match has the enemy castle's too). */
   showEmplacements(n: number): void;
+  /** The guns as they are now (rebuilt after a gun is bought), and which are drawn. */
+  setEmplacements(emplacements: Emplacement[], shown: boolean[]): void;
+  setGunsShown(shown: boolean[]): void;
+  /** A gun knocked off its wall or tower (dust where it stood). */
+  gunFalls(x: number, y: number, z: number): void;
+  /** Screen position of a world point (CSS pixels from the canvas's top left), or null behind the camera. */
+  project(x: number, y: number, z: number): { x: number; y: number } | null;
   /** Show the midfield markers, where each team's waves hold (a match). */
   setMarkers(on: boolean): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */
