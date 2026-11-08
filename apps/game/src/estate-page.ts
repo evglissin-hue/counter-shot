@@ -52,6 +52,8 @@ export class Estate {
   private lastPlots: Float32Array | null = null;
   private lastPlotCount = 0;
   private gold = 0;
+  /** The player started a building (or a rebuild) on one of their plots. */
+  onBuilt: (() => void) | null = null;
 
   constructor(
     private renderer: GameRenderer,
@@ -89,12 +91,28 @@ export class Estate {
     this.feedSum.clear();
   }
 
-  /** Open the wheel on the gun in this slot (an empty slot's click, or B then 7). */
+  /** Every plot as the last frame with plots had it (PLOT_STRIDE each), for the minimap. */
+  get plotFrame(): { data: Float32Array | null; count: number } {
+    return { data: this.lastPlots, count: this.lastPlotCount };
+  }
+
+  /** The player's plots with nothing on them (a ruin counts as taken: it is rebuilt from the wheel too). */
+  emptyPlots(): number {
+    return this.plots[this.team].filter((p) => p.state === EMPTY).length;
+  }
+
+  /** Open the build menu on one of your gun slots (an empty slot's tab or its fire button). */
   openFor(slot: number) {
     if (!this.inMatch) return;
-    void slot;
     document.exitPointerLock?.();
-    this.wheel.open(6);
+    this.wheel.open(10 + slot);
+  }
+
+  /** Open the build menu on its list (the Build button). */
+  openList() {
+    if (!this.inMatch) return;
+    document.exitPointerLock?.();
+    this.wheel.open();
   }
 
   /** Open the wheel on one of the player's plots (a click in the overview). */
@@ -173,6 +191,7 @@ export class Estate {
       if (this.plotsSeen && this.inMatch && (was.state !== state || was.kind !== kind) && kind >= 0) {
         const name = BUILDINGS[BUILDING_KINDS[kind]].name;
         if (castle === this.team) {
+          if (state === RISING && (was.state === EMPTY || was.state === RUINED)) this.onBuilt?.();
           if (state === STANDING && was.state === RISING) {
             const what = BUILDING_KINDS[kind] === "mill" ? `${name} is up: ${BUILDINGS.mill.income} more gold a second.` : BUILDING_KINDS[kind] === "barracks" ? "new barracks is ready: its waves leave with the others. B sets its mix and route." : `${name} is lit: B, then 7, upgrades the gun you ride.`;
             this.note(`Your ${what}`, 4500);
@@ -188,7 +207,7 @@ export class Estate {
   }
 
   /** The match: gold coming in, and what the wheel shows. */
-  onMatch(info: MatchInfo, gun: Emplacement | null, slot: number) {
+  onMatch(info: MatchInfo, gun: Emplacement | null, slot: number, guns: Emplacement[]) {
     this.gold = info.gold[this.team];
     const e = info.earned;
     for (let k = 0; k + EARN_STRIDE - 1 < e.length; k += EARN_STRIDE) {
@@ -206,7 +225,7 @@ export class Estate {
         }
       }
     }
-    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot });
+    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot, guns });
   }
 
   private toast(name: string, amount: number) {

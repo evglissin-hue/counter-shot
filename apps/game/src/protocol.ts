@@ -18,12 +18,15 @@ export interface MatchSetup {
 }
 
 export type ToWorker =
-  | { t: "init"; mode: Mode; seed: number; minions: number; setup?: MatchSetup }
+  /** A new world. `gen` numbers it: every message the worker sends carries the world's number, so the page drops what an old world said. */
+  | { t: "init"; gen: number; mode: Mode; seed: number; minions: number; setup?: MatchSetup }
   /** The player's input; in a match it is the player's team's (shots, orders, the barracks' route, the gun you ride). */
   | { t: "input"; input: SandboxInput | MatchInput }
-  | { t: "reset"; mode: Mode; seed: number; minions: number; setup?: MatchSetup }
+  | { t: "reset"; gen: number; mode: Mode; seed: number; minions: number; setup?: MatchSetup }
+  /** Online: the page left the match (the lobby, the menu): the old world stops and says nothing more to the friend. */
+  | { t: "netStop" }
   /** Online (M5): what the friend's page said (its lockstep state), and a new input delay. */
-  | { t: "net"; state: NetState; now: number }
+  | { t: "net"; state: NetState; now: number; rtt: number }
   | { t: "delay"; ticks: number }
   /** Online (M5): the friend has gone; the AI takes their castle at this difficulty and the match goes on here alone. */
   | { t: "takeover"; difficulty: Difficulty }
@@ -99,6 +102,14 @@ export interface MatchInfo {
   arms: Int8Array;
   /** Does each team have a working Foundry? */
   foundry: [boolean, boolean];
+  /**
+   * Each keep's floors still under its banner: 3 on the roof, 2 and 1 on the
+   * floors below it, 0 once it is falling to the ground (read from the
+   * banner's body, for the HUD only).
+   */
+  keeps: [number, number];
+  /** How sound the floor under each banner still is, 0 to 1 (cracked boards count a half). */
+  keepFloor: [number, number];
 }
 
 export interface MasonInfo {
@@ -119,7 +130,7 @@ export interface NavInfo {
   floor: Float32Array;
 }
 
-export type FromWorker =
+export type FromWorker = { gen?: number } & (
   | { t: "ready"; mode: Mode; stones: number; setupMs: number; terrain: TerrainPatch; rulesVersion: number }
   /** stepMs: average physics step; stepPeak: the slowest step in about the last second. */
   | {
@@ -134,6 +145,8 @@ export type FromWorker =
       match: MatchInfo | null;
       /** Can each bridge still be crossed (layout order), when it changed. */
       bridges: boolean[] | null;
+      /** For the minimap, twice a second: per castle and section (minimap.ts), the share standing and the share of its foot standing (0 to 100). */
+      sections: Uint8Array | null;
       nav: NavInfo | null;
     }
   | { t: "error"; message: string }
@@ -142,4 +155,5 @@ export type FromWorker =
    * match has been waiting for the friend (ms), the input delay, inputs not yet
    * acknowledged, and the tick where the two sides first disagreed (null: none).
    */
-  | { t: "net"; state: NetState; waiting: number; delay: number; unacked: number; desync: number | null };
+  | { t: "net"; state: NetState; waiting: number; delay: number; unacked: number; desync: number | null }
+);

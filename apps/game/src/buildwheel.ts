@@ -1,9 +1,11 @@
-// The build wheel (phase 2 M3): a map of your courtyard with its six plots and
-// the gun you ride, and what each can take. B opens it; a number picks a plot
-// (1 to 6) or the gun (7), a second number picks what to do (build, rebuild,
-// set a barracks' mix or route, buy a gun, upgrade it); Backspace goes back;
-// B or Esc closes it. Everything can be clicked too. It only sends inputs:
-// the match decides (and refuses what cannot be paid for).
+// The build menu (phase 2 M3; a plain list since the playtest pass): B, or
+// the Build button by your gold, opens it on everything your gold can buy,
+// each with its cost and what it does: a building (it goes up on your next
+// free plot), a gun for an empty slot, an upgrade, the rebuilding of a ruin.
+// A number picks from the list; the map of your courtyard beside it picks a
+// plot to build on exactly there (or to set a barracks' mix and route).
+// Backspace goes back, B or Esc closes it, and everything can be clicked. It
+// only sends inputs: the match decides (and refuses what cannot be paid for).
 
 import {
   BUILDING_KINDS,
@@ -48,7 +50,16 @@ interface Choice {
   ok: boolean;
   pressed?: boolean;
   input: MatchInput | null;
+  /** Instead of an input: a page of the menu to open (a gun slot's guns, the upgrades). */
+  sub?: number;
+  /** Shown before the cost ("from" for a page of choices). */
+  from?: boolean;
 }
+
+/** Menu pages besides the list (-1) and the plots (0 to 5): the gun you ride, a gun slot (+ slot), the guns to upgrade. */
+const RIDDEN = 6, SLOT = 10, UPGRADE_LIST = 20;
+/** Plots a new building takes first: the back ones, out of the enemy's easy reach, then the sides, then the front. */
+const PLOT_ORDER = [4, 5, 2, 3, 1, 0];
 
 export interface WheelState {
   gold: number;
@@ -59,6 +70,8 @@ export interface WheelState {
   /** The gun you ride, and its slot number (0 to 7). */
   gun: Emplacement | null;
   gunSlot: number;
+  /** Your castle's eight gun slots, in slot order. */
+  guns: Emplacement[];
 }
 
 export class BuildWheel {
@@ -66,7 +79,7 @@ export class BuildWheel {
   /** -1 nothing chosen; 0..5 a plot; 6 the gun. */
   private target = -1;
   private plots: PlotInfo[] = PLOTS.map(() => ({ kind: -1, state: EMPTY, share: 0, health: 0 }));
-  private state: WheelState = { gold: 0, team: 1, barracks: null, foundry: false, gun: null, gunSlot: 0 };
+  private state: WheelState = { gold: 0, team: 1, barracks: null, foundry: false, gun: null, gunSlot: 0, guns: [] };
   private choices: Choice[] = [];
   /** What the wheel last drew (it is drawn again only when that changes). */
   private html = "";
@@ -116,12 +129,9 @@ export class BuildWheel {
     else this.open();
   }
 
-  /** A number key while the wheel is open: a target first, then a choice. */
+  /** A number key while the menu is open: a choice on the page shown. */
   digit(n: number) {
-    if (this.target < 0) {
-      if (n >= 1 && n <= PLOTS.length) this.pick(n - 1);
-      else if (n === PLOTS.length + 1) this.pick(6);
-    } else this.choose(n - 1);
+    this.choose(n - 1);
   }
 
   back() {
@@ -139,12 +149,17 @@ export class BuildWheel {
 
   private choose(i: number) {
     const c = this.choices[i];
+    if (c && c.sub !== undefined) {
+      this.pick(c.sub);
+      return;
+    }
     if (!c || !c.input) return;
     if (!c.ok) {
       this.note(c.cost > this.state.gold ? `Not enough gold: ${c.label} costs ${c.cost}.` : `${c.label}: not now.`);
       return;
     }
     this.send(c.input);
+    if (c.input.kind === "build") this.note(`${c.label}: it goes up on plot ${c.input.plot + 1}, ${plotName(this.state.team, c.input.plot)}.`);
     // Building and buying close the wheel; settings stay open to adjust.
     if (c.input.kind === "build" || c.input.kind === "buy" || c.input.kind === "upgrade") this.close();
     else this.render();
@@ -175,7 +190,8 @@ export class BuildWheel {
 
   private render() {
     const s = this.state;
-    this.choices = this.target < 0 ? [] : this.target === 6 ? this.gunChoices() : this.plotChoices(this.target);
+    const t = this.target;
+    this.choices = t < 0 ? this.listChoices() : t === RIDDEN ? this.gunChoices(s.gun) : t >= SLOT && t < SLOT + 8 ? this.gunChoices(s.guns[t - SLOT] ?? null) : t === UPGRADE_LIST ? this.upgradeList() : this.plotChoices(t);
     const plotBox = (i: number) => {
       const p = PLOTS[i], v = this.plots[i];
       // The map is drawn as the player faces from the gate wall, the field ahead (up): their left on the left, the gate at the top.
@@ -185,19 +201,24 @@ export class BuildWheel {
       const cls = `plot${this.target === i ? " sel" : ""}${v.state === RUINED ? " ruin" : ""}${v.kind < 0 ? " empty" : ""}`;
       return `<button class="${cls}" data-pick="${i}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b><span>${what}</span></button>`;
     };
-    const head = this.target < 0
-      ? `<p class="small">Pick a plot (1 to 6) or the gun you ride (7). Gold: <b class="goldtxt">${s.gold}</b></p>`
-      : this.target === 6
-        ? `<p class="small"><b>${s.gun ? `Gun ${s.gunSlot + 1}: ${s.gun.empty ? "an empty emplacement" : WEAPONS[s.gun.weapon].name}` : "No gun"}</b>${s.gun?.place ? `, ${s.gun.place}` : ""}. Gold: <b class="goldtxt">${s.gold}</b></p>`
-        : `<p class="small"><b>Plot ${this.target + 1}</b>, ${plotName(s.team, this.target)}. Gold: <b class="goldtxt">${s.gold}</b></p>`;
+    const gold = `Gold: <b class="goldtxt">${s.gold}</b>`;
+    const slotGun = t >= SLOT && t < SLOT + 8 ? s.guns[t - SLOT] : t === RIDDEN ? s.gun : null;
+    const head =
+      t < 0
+        ? `<p class="small">${gold}. Spend it here: pick from the list (or press its number). To build on a plot of your choosing, click it on the map.</p>`
+        : slotGun
+          ? `<p class="small"><b>Gun slot ${(t === RIDDEN ? s.gunSlot : t - SLOT) + 1}: ${slotGun.empty ? "empty" : WEAPONS[slotGun.weapon].name}</b>${slotGun.place ? `, ${slotGun.place}` : ""}. ${gold}</p>`
+          : t === UPGRADE_LIST
+            ? `<p class="small"><b>Upgrades</b>: one for each gun, from a working Foundry. ${gold}</p>`
+            : `<p class="small"><b>Plot ${t + 1}</b>, ${plotName(s.team, t)}. ${gold}</p>`;
     const list = this.choices
-      .map((c, i) => `<button class="choice2${c.ok ? "" : " no"}${c.pressed ? " on" : ""}" data-choice="${i}"><span class="k">${i + 1}</span><b>${c.label}</b><span class="d">${c.detail}</span>${c.cost ? `<span class="c">${c.cost}</span>` : ""}</button>`)
+      .map((c, i) => `<button class="choice2${c.ok ? "" : " no"}${c.pressed ? " on" : ""}${c.sub !== undefined ? " more" : ""}" data-choice="${i}"><span class="k">${i < 8 ? i + 1 : ""}</span><b>${c.label}</b><span class="d">${c.detail}</span>${c.cost ? `<span class="c">${c.from ? "from " : ""}${c.cost}</span>` : ""}</button>`)
       .join("");
     const html =
-      `<div class="wheel-head"><h2>Build</h2><span class="small">B or Esc closes${this.target >= 0 ? ", Backspace goes back" : ""}</span><button data-act="close">Close</button></div>` +
+      `<div class="wheel-head"><h2>Build</h2><span class="small">B or Esc closes${t >= 0 ? ", Backspace goes back" : ""}</span>${t >= 0 ? `<button data-act="back">Back</button>` : ""}<button data-act="close">Close</button></div>` +
       head +
-      `<div class="yard" aria-label="Your courtyard, the gate at the top"><div class="keep" style="left:35.5%;top:47.1%;width:29%;height:29%">Keep</div><div class="gatemark">Gate</div>${PLOTS.map((_, i) => plotBox(i)).join("")}<button class="gunpick${this.target === 6 ? " sel" : ""}" data-pick="6"><b>7</b><span>Gun ${s.gunSlot + 1}</span></button></div>` +
-      (this.target >= 0 ? `<div class="choices2">${list || `<p class="small">Nothing to do here now.</p>`}</div>` : "");
+      `<div class="yard" aria-label="Your courtyard, the gate at the top: click a plot"><div class="keep" style="left:35.5%;top:47.1%;width:29%;height:29%">Keep</div><div class="gatemark">Gate</div>${PLOTS.map((_, i) => plotBox(i)).join("")}</div>` +
+      `<div class="choices2">${list || `<p class="small">Nothing to do here now.</p>`}</div>`;
     // The match reports every frame: redraw only what changed, so the buttons under the pointer stay put.
     if (html === this.html) return;
     this.html = html;
@@ -232,14 +253,60 @@ export class BuildWheel {
         if (count("musketeer")) parts.push(`${count("musketeer")} musketeers`);
         out.push({ label: `Mix: ${WAVE_MIXES[m].name}`, detail: parts.join(", "), cost: 0, ok: true, pressed: m === mix, input: { kind: "barracks", plot: i, mix: m } });
       }
-      for (const r of ROUTE_NAMES as RouteName[]) out.push({ label: `Route: ${ROUTE_LABEL[r]}`, detail: v.state === RISING ? "Its waves will march here" : "Its waves march here", cost: 0, ok: true, pressed: r === route, input: { kind: "barracks", plot: i, route: r } });
+      // Routes are named from castle 1's side (its left is +x); castle 0 (the guest online) faces the other way.
+      const own = (r: RouteName): RouteName => (s.team === 0 && r !== "centre" ? (r === "left" ? "right" : "left") : r);
+      for (const v of ROUTE_NAMES as RouteName[]) {
+        const r = own(v);
+        out.push({ label: `Route: ${ROUTE_LABEL[v]}`, detail: v === "centre" ? "Its waves march down the centre road" : `Its waves march down your ${v} flank`, cost: 0, ok: true, pressed: r === route, input: { kind: "barracks", plot: i, route: r } });
+      }
       return out;
     }
     return out;
   }
 
-  private gunChoices(): Choice[] {
-    const s = this.state, e = s.gun;
+  /** The menu's first page: everything the gold can buy, the cheapest way to each. */
+  private listChoices(): Choice[] {
+    const s = this.state, out: Choice[] = [];
+    // A ruin first: it costs half.
+    this.plots.forEach((v, i) => {
+      if (v.state !== RUINED || v.kind < 0) return;
+      const k = BUILDING_KINDS[v.kind];
+      const cost = Math.round(BUILDINGS[k].cost * BUILDING_REBUILD);
+      out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `Plot ${i + 1}, ${plotName(s.team, i)}: it works again once rebuilt`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
+    });
+    const free = PLOT_ORDER.find((p) => this.plots[p].state === EMPTY);
+    // Gold first (the cheapest and the one a new castle wants), then waves, then upgrades.
+    for (const k of ["mill", "barracks", "foundry"] as BuildingKind[]) {
+      const b = BUILDINGS[k];
+      const ok = free !== undefined && s.gold >= b.cost;
+      out.push({ label: `Build a ${b.name}`, detail: free === undefined ? "Every plot is taken" : `${b.blurb}. Rises in ${Math.round(b.buildTicks / 60)} s`, cost: b.cost, ok, input: free === undefined ? null : { kind: "build", plot: free, building: k } });
+    }
+    s.guns.forEach((e, slot) => {
+      if (!e.empty) return;
+      const kinds = e.allowed ?? [];
+      const cheapest = Math.min(...kinds.map((k) => WEAPON_COST[k]));
+      out.push({ label: `A gun for slot ${slot + 1}`, detail: `${e.place ?? "An empty emplacement"}: ${kinds.map((k) => WEAPONS[k].name.toLowerCase()).join(", ")}`, cost: cheapest, from: kinds.length > 1, ok: s.gold >= cheapest, input: null, sub: SLOT + slot });
+    });
+    if (s.guns.some((e) => !e.empty && !e.upgrade && upgradesFor(e.weapon).length)) {
+      out.push({ label: "Upgrade a gun", detail: s.foundry ? "Heavier shot, rifled barrels, quicker loaders: one for each gun" : "Needs a working Foundry first", cost: 0, ok: s.foundry, input: null, sub: UPGRADE_LIST });
+    }
+    return out;
+  }
+
+  /** The guns that can still take an upgrade. */
+  private upgradeList(): Choice[] {
+    const s = this.state;
+    const out: Choice[] = [];
+    s.guns.forEach((e, slot) => {
+      if (e.empty || e.upgrade || !upgradesFor(e.weapon).length) return;
+      const ups = upgradesFor(e.weapon);
+      out.push({ label: `Slot ${slot + 1}: ${WEAPONS[e.weapon].name}`, detail: ups.map((u) => u.name).join(" or "), cost: Math.min(...ups.map((u) => u.cost)), from: true, ok: s.foundry, input: null, sub: SLOT + slot });
+    });
+    return out;
+  }
+
+  private gunChoices(e: Emplacement | null): Choice[] {
+    const s = this.state;
     if (!e) return [];
     const id = e.id;
     if (e.empty) {

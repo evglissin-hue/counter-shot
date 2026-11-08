@@ -4,7 +4,7 @@ A physics-heavy 3D castle duel for the browser: first-person siege weapons, mini
 
 - `SPEC.md`: the game spec (draft 0.3). `docs/plan.md`: decisions and findings. `docs/phase-1.md`: the Sandbox plan and its status. `docs/phase-2.md`: the plan for a full match versus the AI, its decisions and status. `docs/handoff.md`: a brief for the next session.
 - `packages/`: DOM-free, deterministic code. `core` (maths, Rng, hashing), `content` (castles with the sturdy match keep, the valley map, weapons, the economy, buildings and guns, pikemen, sappers, musketeers and waves, repairs, the garrison, storming and ladders, the AI's levels and build plans, as data), `sim` (the Rapier simulation: masonry, bridges, buildings, projectiles, wind, terrain, minions, the nav grid, flow fields, the army, masons and repairs, ladders, gunnery), `rules` (the match: teams, gold, the clock, plots and buildings, guns and upgrades, barracks, orders, guns nobody rides, the garrison, repairs, storming, sudden death, surrender, who has won), `ai` (the AI castle: a player in the sim that sends the same inputs you do).
-- `apps/game`: the game page (start menu, Practice range, Versus AI at three difficulties, Play a friend online in lockstep over the artifact room; worker, Gritty renderer with the minions' procedural rig, input, HUD, sound).
+- `apps/game`: the game page (start menu, Practice range, Versus AI at three difficulties, Play a friend online in lockstep over the artifact room; worker, Gritty renderer with the minions' procedural rig, input, HUD with a keep tracker and a first-match guide, pause, sound).
 - `lab/`: the device test page (physics budget, graphics tiers, determinism hash).
 
 ```bash

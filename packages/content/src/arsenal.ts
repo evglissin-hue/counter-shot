@@ -21,7 +21,7 @@ const WALL_GUNS: WeaponKind[] = ["longGun", "chainShot", "swivel"];
  * The player's castle's eight emplacements (castle 1, facing +z): the Practice
  * range's four guns as they are, then four empty slots: the front wall either
  * side of the gate (in a crenel), the back left tower, and a second mortar pit
- * behind the keep. Ids 0 to 7.
+ * beside the first, in front of the keep. Ids 0 to 7.
  */
 export const ASHWRIGHT_SLOTS: Emplacement[] = [
   { ...ASHWRIGHT_EMPLACEMENTS[0], allowed: ["longGun"], place: "the gate wall" },
@@ -30,8 +30,9 @@ export const ASHWRIGHT_SLOTS: Emplacement[] = [
   { ...ASHWRIGHT_EMPLACEMENTS[3], allowed: ["swivel"], place: "the front left tower" },
   { id: 4, weapon: "longGun", empty: true, allowed: WALL_GUNS, place: "the front wall, left of the gate", x: 8.1, y: 9.7, z: -133.6, baseYaw: 0, yawLimit: 0.8, barrel: BARREL.longGun },
   { id: 5, weapon: "longGun", empty: true, allowed: WALL_GUNS, place: "the front wall, right of the gate", x: -8.1, y: 9.7, z: -133.6, baseYaw: 0, yawLimit: 0.8, barrel: BARREL.longGun },
-  { id: 6, weapon: "longGun", empty: true, allowed: WALL_GUNS, place: "the back left tower", x: 15, y: 13.8, z: -165, baseYaw: -0.06, yawLimit: 0.75, barrel: BARREL.longGun },
-  { id: 7, weapon: "mortar", empty: true, allowed: ["mortar"], place: "the mortar pit behind the keep", x: 6, y: 0.9, z: -161.4, baseYaw: 0, yawLimit: 0.9, barrel: BARREL.mortar },
+  { id: 6, weapon: "longGun", empty: true, allowed: WALL_GUNS, place: "the back left tower, for long shots", x: 15, y: 13.8, z: -165, baseYaw: -0.06, yawLimit: 0.75, barrel: BARREL.longGun },
+  // A second pit beside the first, in front of the keep (M5 audit: behind the keep, its shells hit its own keep).
+  { id: 7, weapon: "mortar", empty: true, allowed: ["mortar"], place: "the second mortar pit", x: 3.2, y: 0.9, z: -147.2, baseYaw: 0, yawLimit: 0.9, barrel: BARREL.mortar },
 ];
 
 /**

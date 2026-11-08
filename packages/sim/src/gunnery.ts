@@ -5,7 +5,7 @@
 // bisection. It ignores the wind: part of why an unmanned gun is less
 // accurate than a gunner. Deterministic arithmetic only.
 
-import { weaponOf, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { CASTLE_SHAPE, DIST, weaponOf, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { DPI, dsqrt } from "@keepfall/core";
 import { aimDir, muzzle } from "./aim";
 import { G } from "./ballistics";
@@ -147,4 +147,67 @@ function flyTo(e: Emplacement, w: WeaponDef, yaw: number, pitch: number, speed: 
 
 function horiz(dx: number, dz: number): number {
   return dsqrt(dx * dx + dz * dz);
+}
+
+/**
+ * How high a castle's masonry stands at a point, as built (the curtain walls
+ * with their battlements, the corner towers and the keep), with a little to
+ * spare; 0 where nothing stands. A cheap stand-in for the real stones, for
+ * deciding whether a gun can fire over its own castle. Castle 1 is castle 0
+ * mirrored across the middle of the field.
+ */
+export function castleHeightAt(castle: number, x: number, z: number): number {
+  const S = CASTLE_SHAPE;
+  const cz = castle === 0 ? z : -DIST - z;
+  const ax = x < 0 ? -x : x, az = cz < 0 ? -cz : cz;
+  const spare = 0.6;
+  if (ax <= S.keepHalf + spare && cz >= S.keepZ - S.keepHalf - spare && cz <= S.keepZ + S.keepHalf + spare) return S.keepCourses * S.course + 1.6;
+  const tx = ax - S.half, tz = az - S.half;
+  const tr = S.towerOut + spare;
+  if (tx * tx + tz * tz <= tr * tr) return S.towerCourses * S.course + 1.6;
+  const band = S.wallThick / 2 + spare;
+  const along = S.half + band;
+  if (((tz < 0 ? -tz : tz) <= band && ax <= along) || ((tx < 0 ? -tx : tx) <= band && az <= along)) return S.wallTop + 1.6;
+  return 0;
+}
+
+/**
+ * Does a shot laid like this clear its own castle on its way to a target at
+ * (toX, toZ) (M5 audit: a gun on the back tower fired into its own front
+ * tower, a pit behind the keep shelled its own keep)? It flies the shot in
+ * still air until it is as far out as the target (a shell may well come down
+ * inside its own walls when that is where the enemy is), past the castle or
+ * down, and tests every step against castleHeightAt. The first metres from
+ * the pivot are not tested: a gun stands on its tower or wall.
+ */
+export function clearOfCastle(e: Emplacement, yaw: number, pitch: number, charge: number, castle: number, toX: number, toZ: number): boolean {
+  const w = weaponOf(e);
+  const speed = w.minSpeed + (w.speed - w.minSpeed) * (charge < 0 ? 0 : charge > 1 ? 1 : charge);
+  const c = flightCoef(w.projectile);
+  const [mx, my, mz] = muzzle(e, yaw, pitch);
+  const [ux, uy, uz] = aimDir(yaw, pitch);
+  const v: [number, number, number] = [ux * speed, uy * speed, uz * speed];
+  const dv: [number, number, number] = [0, 0, 0];
+  const cz = castle === 0 ? 0 : -DIST;
+  const out = CASTLE_SHAPE.half + CASTLE_SHAPE.towerOut + 2;
+  const tx = toX - e.x, tz = toZ - e.z;
+  const there = tx * tx + tz * tz - 1;
+  let px = mx, py = my, pz = mz;
+  for (let i = 1; i <= MAX_FLIGHT * 60; i++) {
+    flightDv(v, null, 0, 0, c, dv);
+    v[0] += dv[0];
+    v[1] += dv[1] - G * c.gravity * DT;
+    v[2] += dv[2];
+    px += v[0] * DT;
+    py += v[1] * DT;
+    pz += v[2] * DT;
+    const gx = px - e.x, gz = pz - e.z;
+    if (gx * gx + gz * gz >= there) return true; // as far out as the target: nothing of its own in the way
+    const ox = px < 0 ? -px : px, oz = pz - cz < 0 ? cz - pz : pz - cz;
+    if (ox > out || oz > out) return true; // past the castle
+    if (py < 0.3) return false; // it comes down short, inside its own walls
+    if (gx * gx + gz * gz < 4.5 * 4.5) continue; // the tower top or the wall walk it stands on
+    if (py < castleHeightAt(castle, px, pz)) return false;
+  }
+  return true;
 }

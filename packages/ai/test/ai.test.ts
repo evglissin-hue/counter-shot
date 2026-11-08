@@ -30,10 +30,12 @@ test("the AI sends only inputs a player could, for its own castle, and the diffi
   const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed: 3, plan: false, rotate: false, barracks: false });
   const ai = new AiPlayer(m, Team.Enemy, "warlord", 3);
   const seen: MatchInput[] = [];
+  let firstFire = -1;
   const q = m.queue.bind(m);
   m.queue = (tick, team, input) => {
     assert.equal(team, Team.Enemy, "it sends inputs for its own team only");
     assert.ok(tick >= m.tick, "never for a tick already played");
+    if (input.kind === "fire" && firstFire < 0) firstFire = tick;
     seen.push(input);
     q(tick, team, input);
   };
@@ -51,6 +53,8 @@ test("the AI sends only inputs a player could, for its own castle, and the diffi
   }
   assert.ok(m.shots[Team.Enemy] >= 5, `it fired ${m.shots[Team.Enemy]} shots by hand in 40 s`);
   const [s, k, w] = DIFFICULTIES.map((d) => AI_LEVELS[d]);
+  assert.ok(firstFire >= w.warmup, `its first shot by hand left at tick ${firstFire}, before its warm-up (${w.warmup})`);
   assert.ok(s.firstErr > k.firstErr && k.firstErr > w.firstErr && s.learn < k.learn && k.learn < w.learn && s.think > k.think && k.think > w.think);
+  assert.ok(s.warmup > k.warmup && k.warmup > w.warmup && s.look > k.look && k.look > w.look, "the easier a level, the longer it gives you before its first shot, and between shots");
   m.free();
 });

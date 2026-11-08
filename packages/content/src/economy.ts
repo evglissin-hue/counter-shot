@@ -20,6 +20,8 @@ export const MATCH = {
   suddenDeathTick: 15 * 60 * 60,
   suddenIncome: 2,
   suddenReload: 0.6,
+  /** Time is called here (25:00): the keep with more floors under its banner wins (see Match). */
+  timeLimitTick: 25 * 60 * 60,
 } as const;
 
 /**

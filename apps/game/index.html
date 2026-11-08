@@ -241,6 +241,70 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
 #loading > div::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--brass), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: raise 1.6s ease-in-out infinite; }
 @keyframes raise { from { background-position: -50% 0; } to { background-position: 150% 0; } }
 @media (prefers-reduced-motion: reduce) { #note, .weapon.loaded.fresh .bar, #loading > div::after { animation: none; } .choice:hover, .choice:focus-visible { transform: none; } }
+/* Each keep's floors left under its banner, in its team's colour (team 0 yellow-green, team 1 oxblood). */
+.keeps { display: inline-flex; gap: 14px; align-items: center; }
+.keepmeter { display: inline-flex; align-items: center; gap: 3px; font: 500 13px/1 var(--ui); color: var(--ink-dim); --team: #d8424a; }
+.keepmeter.team0 { --team: #c8d43a; }
+.keepmeter > span { margin-right: 5px; }
+.keepmeter i { --fill: 1; width: 8px; height: 13px; border-radius: 2px; background: linear-gradient(to top, var(--team) calc(var(--fill) * 100%), rgba(236, 228, 210, 0.16) calc(var(--fill) * 100%)); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.28); }
+.keepmeter i.lost { background: transparent; box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.3); }
+.keepmeter.low > span { color: var(--bad); }
+.keepmeter.hit i:not(.lost) { animation: keephit 900ms ease-out; }
+@keyframes keephit { 0% { box-shadow: 0 0 0 0 rgba(255, 210, 140, 0.9); } 100% { box-shadow: 0 0 0 6px rgba(255, 210, 140, 0); } }
+#match-note:empty { display: none; }
+/* The first-match guide: a checklist that ticks itself off as you play. */
+.guide { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(24px + var(--top-h, 40px) + env(safe-area-inset-top, 0px)); width: 262px; padding: 12px 14px 12px; display: grid; gap: 8px; animation: note-in 260ms ease-out; }
+.guide-head { display: flex; align-items: baseline; gap: 8px; }
+.guide-head b { font: 19px/1.1 var(--display); font-weight: 400; }
+.guide-head button { margin-left: auto; padding: 4px 8px; font-size: 12px; border: 1px solid var(--line); }
+.guide p { margin: 0; color: var(--ink); }
+.guide ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; counter-reset: step; }
+.guide li { position: relative; padding-left: 26px; font: 400 13.5px/1.3 var(--ui); color: var(--ink); counter-increment: step; }
+.guide li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid rgba(201, 154, 70, 0.6); border-radius: 50%; font: 500 11px/1 var(--mono); color: var(--brass); }
+.guide li.done { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: rgba(236, 228, 210, 0.3); }
+.guide li.done::before { content: "\2713"; background: var(--brass); color: var(--brass-ink); border-color: transparent; }
+.guide li.next { color: var(--ink); }
+.guide li.next::before { box-shadow: 0 0 0 3px rgba(201, 154, 70, 0.25); }
+.guide li kbd { font: 500 11px/1 var(--mono); padding: 1px 4px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; background: rgba(0, 0, 0, 0.25); color: var(--ink); }
+.guide .all { color: var(--brass); }
+@media (max-width: 1240px) { .guide { top: auto; bottom: calc(176px + env(safe-area-inset-bottom, 0px)); } }
+/* The Build button by your gold: it glows while there is gold to spend and nothing built yet (or gold piling up). */
+.buildbtn { padding: 4px 9px; border: 1px solid rgba(201, 154, 70, 0.6); color: var(--brass); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.buildbtn .key { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 3px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; font: 500 10px/1 var(--mono); color: var(--ink-dim); }
+.buildbtn.nudge { animation: nudge 1.6s ease-in-out infinite; }
+@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(201, 154, 70, 0); } 50% { box-shadow: 0 0 0 4px rgba(201, 154, 70, 0.35); background: rgba(201, 154, 70, 0.18); } }
+@media (prefers-reduced-motion: reduce) { .buildbtn.nudge { animation: none; background: rgba(201, 154, 70, 0.18); } }
+.choice2.more b::after { content: " \203A"; color: var(--brass); }
+/* The mortar's charge: a needle that swings from empty to full and back while fire is held. */
+.charge { position: absolute; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(340px, calc(100% - 320px)); min-width: 200px; padding: 9px 12px 8px; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
+.charge .track { position: relative; width: 100%; height: 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.16); overflow: hidden; }
+.charge .track > i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, #6b4c1d, var(--brass) 70%, #ffd27a); }
+.charge .track > em { position: absolute; right: 0; top: 0; bottom: 0; width: 4%; background: rgba(255, 220, 150, 0.22); }
+.charge .track > b { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--aim); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.charge.on { border-color: rgba(201, 154, 70, 0.6); }
+.charge.on #charge-text { color: var(--ink); }
+/* The minimap: both castles and both armies at a glance, above the wind gauge. */
+.mapbox { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 176px; height: min(290px, calc(100% - 330px)); min-height: 180px; padding: 5px; }
+.mapbox canvas { width: 100%; height: 100%; display: block; }
+body.title-screen .mapbox { display: none !important; }
+/* What the minimap shows, the match bar need not say. */
+#army-count { display: none; }
+/* Paused (Versus AI and the Practice range: P, or the menu). */
+.pausedbadge { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); padding: 12px 18px; font: 28px/1.1 var(--display); display: grid; justify-items: center; gap: 4px; pointer-events: none; }
+/* Gold coming in, notes, trick shots and tallies sit under the match bar, whatever its height (a storm meter, the online line). */
+.feed { top: calc(var(--mb-bottom, 124px) + 6px); }
+#note { top: max(25%, calc(var(--mb-bottom, 0px) + 36px)); }
+.hint.trick { top: max(22%, calc(var(--mb-bottom, 0px) + 96px)); }
+.hint.tally { top: max(32%, calc(var(--mb-bottom, 0px) + 150px)); }
+/* While the build wheel is open, its notes ("not enough gold") show under it, not behind it. */
+body.wheel-open #note { top: auto; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 20; }
+/* The build wheel: the courtyard beside its choices on a laptop screen, so nothing needs scrolling. */
+@media (min-width: 900px) {
+  .wheel { width: min(780px, calc(100% - 32px)); grid-template-columns: minmax(0, 320px) minmax(0, 1fr); column-gap: 18px; align-items: start; max-height: calc(100% - 130px); top: calc(80px + env(safe-area-inset-top, 0px)); }
+  .wheel > .wheel-head, .wheel > p { grid-column: 1 / -1; }
+  .wheel > .yard { grid-column: 1; margin: 0; }
+  .wheel > .choices2 { grid-column: 2; }
+}
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -274,7 +338,12 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
       <span class="clock" id="clock">0:00</span>
       <span class="gold" id="gold">150 gold</span>
       <span class="rate" id="gold-rate"></span>
-      <span class="small" id="match-note">Topple the enemy keep or storm its courtyard</span>
+      <button id="build-btn" class="buildbtn" title="Spend your gold: buildings, guns for empty slots, upgrades (B)">Build <span class="key">B</span></button>
+      <span class="keeps" id="keeps" role="group" aria-label="Floors left under each keep's banner">
+        <span class="keepmeter" id="keep-mine" title="Your keep: floors left under your banner (lose them all and the keep falls)"><span>Your keep</span><i></i><i></i><i></i></span>
+        <span class="keepmeter" id="keep-theirs" title="The enemy keep: floors left under its banner (bring them all down to win)"><span id="keep-theirs-name">Enemy keep</span><i></i><i></i><i></i></span>
+      </span>
+      <span class="small" id="match-note"></span>
       <span class="badge" id="sudden" hidden>Sudden death</span>
     </div>
     <div class="line">
@@ -302,6 +371,7 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
     <div class="small" id="w-extra"></div>
     <div class="mono" id="minions"></div>
   </div>
+  <div id="mapbox" class="mapbox glass" title="Both castles and both armies: walls pale when sound, amber when hit, red when breached; the keep's bars are its floors left; a dot is a man standing"><canvas id="minimap" aria-label="Map of the valley: both castles, the bridges and every man standing"></canvas></div>
   <div class="wind glass" aria-label="Wind">
     <div class="dial"><div id="wind-arrow"></div></div>
     <div class="small" id="wind-speed">0 m/s</div>
@@ -313,14 +383,15 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
       <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly: lead your target. With the keys a gun gathers speed while you hold them and coasts to a stop: tap for small corrections. Aim help shows the first part of each flight, your last shot's trail and where it landed: correct from there, and mind the wind (it gusts: watch the gauge, the flags and the smoke). No two shots fly quite alike. The mortar is aimed from an observer's view, centred on where the shell would land in still air; forward sends it farther</dd>
       <dt>Shift</dt><dd>Fine aim</dd>
       <dt>Right mouse, Z</dt><dd>Zoom the sight or the observer's view (scroll sets it)</dd>
-      <dt>Space</dt><dd>Fire</dd>
+      <dt>Space</dt><dd>Fire. The mortar loads its charge while you hold Space (or the mouse button, or the trigger): the needle swings from empty to full and back, and the shell flies when you let go. A full charge lands in the middle of the observer's view (in still air); let go early or late and it falls short. The white mark is where you let go last time</dd>
       <dt>1 to 4, Q, E</dt><dd>Switch weapon (in a match: 1 to 8, your castle's eight emplacements; Q and E skip the empty ones)</dd>
-      <dt>B</dt><dd>In a match: the build wheel. A number picks one of your six plots (or 7, the gun you ride), a second picks what to do: build a Barracks, a Powder Mill or a Foundry, rebuild a ruin for half its cost, set a barracks' wave mix and route, buy a gun for an empty emplacement, or upgrade a gun at a working Foundry. In the overview, click a plot. Gold comes from your keep, your mills, every enemy you knock down, enemy masonry you bring down and trick shots: a ricochet kill, a collapse kill, three or more with one shot, a hit on the enemy keep</dd>
+      <dt>B</dt><dd>In a match: the build menu (or the Build button by your gold), where gold is spent. It lists what you can buy with its cost: a Powder Mill (more gold), a Barracks (another wave every 25 s), a Foundry (gun upgrades), a gun for each empty slot, upgrades, a ruin to rebuild for half its cost. A number picks from the list; a building goes up on your next free plot, or click a plot on the map to choose (a barracks' plot sets its wave mix and route). In the overview, click a plot. Gold comes from your keep, your mills, every enemy you knock down, enemy masonry you bring down and trick shots: a ricochet kill, a collapse kill, three or more with one shot, a hit on the enemy keep</dd>
       <dt>[ ] or Alt+scroll</dt><dd>Mortar fuse. Starts on impact; a fuse shorter than the flight bursts in the air (the arc stops there), a longer one lets the shell bounce first</dd>
       <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
       <dt>V</dt><dd>Shot camera for this weapon: follow your shot (slow motion at impact if you turn it on below). On for the mortar: ride the shell down</dd>
       <dt>Click, Space, Enter</dt><dd>While riding a shell: back to the mortar</dd>
       <dt>M</dt><dd>Sound on or off (volume below)</dd>
+      <dt>P</dt><dd>Pause (Versus AI and the Practice range; the menu pauses too). A match against a friend never pauses</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
       <dt>N</dt><dd>Show where minions can walk: green from your gate, sandy over rubble and the fallen, amber cut off, blue water, red in the way. Blow a bridge and watch its crossing close</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>In a match: orders for all your waves (or the buttons in the match bar). Advance on the enemy gate (they batter it down), Hold at the midfield markers short of the bridges, Push the breach (the nearest gap in the enemy walls: knock one open at the foot of a wall)</dd>
@@ -341,14 +412,27 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
     <div class="row group">
       <label class="small" for="volume">Volume</label>
       <input type="range" id="volume" min="0" max="100" step="5" value="80">
+      <label class="small" for="mousespeed">Mouse speed</label>
+      <input type="range" id="mousespeed" min="0.4" max="2.5" step="0.1" value="1">
     </div>
     <div class="row group">
       <button id="reset">Rebuild the castles</button>
       <button id="more">More minions</button>
+      <button id="guide-show">Show the guide</button>
       <button id="help-close">Close</button>
     </div>
     <div class="mono"><span id="backend"></span>, <span id="perf"></span></div>
   </div>
+  <aside id="guide" class="guide glass" hidden aria-labelledby="guide-title">
+    <div class="guide-head"><b id="guide-title">Your first match</b><button id="guide-hide" title="Hide the guide (Controls brings it back)">Hide</button></div>
+    <p class="small" id="guide-goal"></p>
+    <ol id="guide-steps"></ol>
+  </aside>
+  <div id="charge" class="charge glass" hidden aria-hidden="true">
+    <div class="track"><em></em><i id="charge-fill"></i><b id="charge-last" hidden></b></div>
+    <span id="charge-text" class="small"></span>
+  </div>
+  <div id="paused" class="pausedbadge glass" hidden role="status">Paused <span class="small">P or Back to the game resumes</span></div>
   <div id="note" class="hint glass" hidden role="status"></div>
   <div id="tally" class="hint glass tally" hidden role="status"></div>
   <div id="floats" class="floats" aria-hidden="true"></div>

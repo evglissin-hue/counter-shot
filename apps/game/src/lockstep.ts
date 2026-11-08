@@ -56,6 +56,8 @@ export class Lockstep {
   remoteThrough = -1;
   remoteTick = -1;
   heardAt = 0;
+  /** The round trip to the other side (ms), as the page measures it: its tick was said half of it before it was heard. */
+  rtt = 0;
   /** First tick whose hashes differ between the two sides (null: none so far). */
   desync: number | null = null;
   private seq = 0;
@@ -82,9 +84,20 @@ export class Lockstep {
     return this.sink.tick <= this.remoteThrough && this.sink.tick <= this.promised;
   }
 
-  /** How far ahead of the other side this one is (ticks; negative: behind). */
-  lead(): number {
-    return this.remoteTick < 0 ? 0 : this.sink.tick - this.remoteTick;
+  /**
+   * How far ahead of the other side this one is (ticks; negative: behind).
+   * Its tick as heard is old by the time it arrives (half the round trip) and
+   * by the time since (`now` on the caller's clock, as `heardAt`): counted
+   * as ticks it has run since, so two sides in step both read about 0 (they
+   * used to both read themselves ahead and both run slow).
+   */
+  lead(now = this.heardAt): number {
+    if (this.remoteTick < 0) return 0;
+    const since = (now - this.heardAt + this.rtt / 2) / (1000 / 60);
+    // It cannot have run past its own promise or this side's.
+    const cap = (this.remoteThrough < this.promised ? this.remoteThrough : this.promised) + 1;
+    const theirs = this.remoteTick + (since > 0 ? since : 0);
+    return this.sink.tick - (theirs < cap ? theirs : cap);
   }
 
   /** After the match stepped a tick: promise more, and take a hash when one is due (`hash` is called only then). */

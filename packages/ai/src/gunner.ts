@@ -9,7 +9,7 @@
 
 import { MUSTER, SLOTS_PER_CASTLE, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, type Rng } from "@keepfall/core";
-import { clampAim, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
+import { clampAim, clearOfCastle, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
 import * as V from "./view";
 
@@ -90,6 +90,8 @@ export class Gunner {
   /** Which of the keep's face it hits next (left, middle, right). */
   private faceStep = 0;
   private breachSide = 1;
+  /** A gun it could not lay on its target just now, passed over until then (so it moves on to another gun rather than trying the same one for ever). */
+  private stuck = { emp: -1, until: 0 };
 
   constructor(
     private m: Match,
@@ -97,7 +99,10 @@ export class Gunner {
     private L: AiLevel,
     private rng: Rng,
     private send: (tick: number, input: MatchInput) => void,
-  ) {}
+  ) {
+    // No shot by hand before its warm-up is over (it takes and lays its gun meanwhile).
+    this.readyAt = L.warmup;
+  }
 
   private get foe(): number {
     return 1 - this.team;
@@ -119,12 +124,20 @@ export class Gunner {
     return this.m.world.reload[e.id] + (e.id === this.riding ? 0 : this.L.settle);
   }
 
-  /** The gun of a kind that would be ready first (of those that can reach a point, if one is given: a mortar pit behind the keep cannot reach the far keep). */
+  /**
+   * The gun of a kind that would be ready first (of those that can reach a
+   * point, if one is given, without hitting their own castle on the way: a
+   * gun on the back tower cannot fire short over its own front).
+   */
   private soonest(kind: WeaponKind, x?: number, y?: number, z?: number): Emplacement | null {
     let best: Emplacement | null = null;
     for (const e of this.guns(kind)) {
       if (best && this.readyIn(e) >= this.readyIn(best)) continue;
-      if (x !== undefined && !reach(e, x, y!, z!)) continue;
+      if (e.id === this.stuck.emp && this.m.tick < this.stuck.until) continue;
+      if (x !== undefined) {
+        const s = reach(e, x, y!, z!);
+        if (!s || !clearOfCastle(e, s.yaw, s.pitch, s.charge, this.team, x, z!)) continue;
+      }
       best = e;
     }
     return best;
@@ -142,7 +155,10 @@ export class Gunner {
     if (!this.lay) {
       this.lay = this.layFor(e, w, this.target);
       if (!this.lay) {
+        // It cannot lay this gun on it now: pass the gun over for a while and look again at once.
+        this.stuck = { emp: e.id, until: tick + 8 * 60 };
         this.target = null;
+        this.nextThink = tick + 1;
         return;
       }
     }
@@ -233,7 +249,8 @@ export class Gunner {
       // 2. A loaded mortar: on the keep, or (from a Knight up) now and then on the enemy's buildings or masons.
       const t = this.shellTarget();
       const e = this.soonest("mortar", t.x, t.y, t.z);
-      if (e && this.readyIn(e) < 90) pick = { e, t };
+      // Loaded or nearly: its reload, not the time to settle in on it (which would rule out every level but the Warlord).
+      if (e && this.m.world.reload[e.id] < 90) pick = { e, t };
     }
     if (!pick) {
       // 3. The long gun: a way in for its waves, or the keep.
@@ -334,20 +351,26 @@ export class Gunner {
       const s = reach(e, ax, t.y, az);
       if (!s) return null;
       const c = clampAim({ yaw: s.yaw, pitch: s.pitch }, e, w);
+      if (!clearOfCastle(e, c.yaw, c.pitch, s.charge, this.team, ax, az)) return null;
       return { yaw: c.yaw, pitch: c.pitch, charge: s.charge, sYaw: s.yaw, sPitch: s.pitch, x, y: t.y, z };
     }
     const s = reach(e, x, t.y, z);
     if (!s) return null;
     const c = clampAim({ yaw: s.yaw + o.yaw + rng.range(-1, 1) * L.noise, pitch: s.pitch + o.pitch + rng.range(-1, 1) * L.noise * 0.5 }, e, w);
+    if (!clearOfCastle(e, c.yaw, c.pitch, 1, this.team, x, z)) return null;
     return { yaw: c.yaw, pitch: c.pitch, charge: 1, sYaw: s.yaw, sPitch: s.pitch, x, y: t.y, z };
   }
 }
 
-/** The still-air aim for a point, or for the nearest point short of it that can be reached (a shell against a headwind). */
+/**
+ * The still-air aim for a point, or for the nearest point short of it that
+ * can be reached (a shell against a headwind, or an aim its corrections have
+ * pushed past the gun's reach: the playtest pass found a Squire stalled there).
+ */
 function reach(e: Emplacement, x: number, y: number, z: number): AimSolution | null {
   const dx = x - e.x, dz = z - e.z;
   const d = dsqrt(dx * dx + dz * dz) + 1e-9;
-  for (let back = 0; back <= 6; back += 0.5) {
+  for (let back = 0; back <= 30; back += back < 6 ? 0.5 : 2) {
     const s = solveAim(e, x - (dx / d) * back, y, z - (dz / d) * back);
     if (s) return s;
   }

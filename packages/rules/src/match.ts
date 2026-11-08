@@ -11,20 +11,28 @@
 
 import {
   BRIDGES,
+  BUILDING_KINDS,
+  CASTLE_SHAPE,
   DEFEND,
   ENEMY_ROUTES,
   GARRISON,
+  KEEP_STOREYS,
+  KEG,
   MATCH,
   MATCH_EMPLACEMENTS,
   MID_Z,
+  MIX_NAMES,
   MUSTER,
   PLOTS,
   REPAIR_KINDS,
   ROUTE_NAMES,
   START_BUILDINGS,
   STORM,
+  Unit,
   UNMANNED,
+  UPGRADE_KINDS,
   WAVES,
+  WEAPON_KINDS,
   weaponOf,
   WEAPONS,
   type BuildingKind,
@@ -38,7 +46,7 @@ import {
   type WeaponKind,
 } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
-import { MinionState, Order, Role, SandboxSim, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
+import { clearOfCastle, MinionState, Order, Role, SandboxSim, SapperTask, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
 import { Economy } from "./economy";
 import { Estate } from "./estate";
 
@@ -48,7 +56,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 5;
+export const MATCH_RULES_VERSION = 6;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -87,8 +95,13 @@ export type MatchInput =
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
   winner: Team | -1;
-  /** How it ended: a keep's banner came down, a courtyard was stormed, or a team surrendered. */
-  reason: "keep" | "storm" | "surrender";
+  /**
+   * How it ended: a keep's banner came down, a courtyard was stormed, a team
+   * surrendered, or time was called (MATCH.timeLimitTick: the keep with more
+   * floors under its banner wins, then the one that brought down more of the
+   * other castle).
+   */
+  reason: "keep" | "storm" | "surrender" | "time";
   /** Tick the match ended. */
   tick: number;
 }
@@ -106,6 +119,8 @@ export interface MatchOptions {
   gunnery?: boolean;
   /** When sudden death starts (default MATCH.suddenDeathTick); tests and tools may bring it forward. */
   suddenDeathTick?: number;
+  /** When time is called (default MATCH.timeLimitTick); tests and tools may bring it forward. */
+  timeLimitTick?: number;
   /** M3: the enemy castle follows its build order (default); tests may turn it off. */
   plan?: boolean;
   /**
@@ -139,6 +154,8 @@ export interface Gun {
   charge: number;
   errX: number;
   errZ: number;
+  /** A minion it found it cannot fire at without hitting its own castle (it looks past him next time). */
+  skip: number;
 }
 
 /** Which team an emplacement belongs to: the castle on its side of the field. */
@@ -158,15 +175,56 @@ function nearBridge(x: number, z: number, r: number): boolean {
 
 /**
  * Would a shot from e at (x, z), `range` metres away, put a bridge at risk?
- * A flat gun's miss flies on along its line; a mortar shell falls anywhere
- * within its error, and bursts.
+ * It may come down anywhere within the gun's error of its mark, and a flat
+ * gun's miss flies on along its line. A man carrying a powder keg is a burst
+ * waiting to happen (M5 audit: a swivel's shot set off a chain of kegs on a
+ * deck and the valley was cut for good), so he is left alone near a bridge.
  */
-function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number): boolean {
-  if (U.overshoot <= 0) return nearBridge(x, z, U.errBase + U.errPerM * range + U.clearBridge);
+function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number, keg: boolean): boolean {
+  const pad = U.clearBridge + (keg ? KEG.burst.radius + 1.5 : 0);
+  if (nearBridge(x, z, U.errBase + U.errPerM * range + pad)) return true;
+  if (U.overshoot <= 0) return false;
   const dx = x - e.x, dz = z - e.z;
   const d = dsqrt(dx * dx + dz * dz) + 1e-9;
   for (let s = 0; s <= U.overshoot; s += 2) if (nearBridge(x + (dx / d) * s, z + (dz / d) * s, U.clearBridge)) return true;
   return false;
+}
+
+/** Is a match input well formed (online, inputs come from another page: anything else is refused)? */
+function wellFormed(input: MatchInput): boolean {
+  if (!input || typeof input !== "object") return false;
+  const int = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
+  const num = (v: unknown) => typeof v === "number" && Number.isFinite(v);
+  const one = <T>(list: readonly T[], v: unknown) => typeof v === "string" && list.includes(v as T);
+  const slots = MATCH_EMPLACEMENTS.length - 1, plots = PLOTS.length - 1;
+  switch (input.kind) {
+    case "fire":
+      return int(input.emplacement, 0, slots) && num(input.yaw) && num(input.pitch) && num(input.charge) && num(input.fuse) && int(input.spin, 0, 4);
+    case "aim":
+      return int(input.emplacement, 0, slots) && num(input.yaw) && num(input.pitch);
+    case "order":
+      return int(input.order, 0, 2);
+    case "route":
+      return one(ROUTE_NAMES, input.route);
+    case "man": {
+      const l = input.left;
+      return int(input.emplacement, -1, slots) && (l === undefined || (!!l && typeof l === "object" && int(l.emplacement, 0, slots) && num(l.yaw) && num(l.pitch)));
+    }
+    case "repair":
+      return one(REPAIR_KINDS, input.repair) && typeof input.on === "boolean";
+    case "surrender":
+      return true;
+    case "build":
+      return int(input.plot, 0, plots) && one(BUILDING_KINDS, input.building);
+    case "buy":
+      return int(input.emplacement, 0, slots) && one(WEAPON_KINDS, input.weapon);
+    case "upgrade":
+      return int(input.emplacement, 0, slots) && one(UPGRADE_KINDS, input.upgrade);
+    case "barracks":
+      return int(input.plot, 0, plots) && (input.mix === undefined || one(MIX_NAMES, input.mix)) && (input.route === undefined || one(ROUTE_NAMES, input.route));
+    default:
+      return false;
+  }
 }
 
 /** Ticks between an unmanned gun's looks for a target (staggered by emplacement). */
@@ -207,6 +265,8 @@ export class Match {
   private autoFire: boolean;
   private suddenAt: number;
   private owner: Team[];
+  /** When time is called (MATCH.timeLimitTick unless a test brings it forward). */
+  private timeAt: number;
   /** The unmanned weapons' aim errors, drawn in the order they lay on targets. */
   private rng: Rng;
   private barracks: boolean;
@@ -230,13 +290,14 @@ export class Match {
     this.guns = this.emplacements.map((e) => {
       const w = WEAPONS[e.weapon];
       const pitch = w.restPitch < w.minPitch ? w.minPitch : w.restPitch > w.maxPitch ? w.maxPitch : w.restPitch;
-      return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0 };
+      return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0, skip: -1 };
     });
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
     this.barracks = opts.barracks !== false;
     this.garrison = opts.garrison !== false;
     this.autoFire = opts.gunnery !== false;
     this.suddenAt = opts.suddenDeathTick ?? MATCH.suddenDeathTick;
+    this.timeAt = opts.timeLimitTick ?? MATCH.timeLimitTick;
     if (this.garrison) for (const team of [Team.Enemy, Team.Player]) this.army.spawnGarrison(team, GARRISON.size, true);
     const works = this.world.works!;
     works.policy = {
@@ -311,8 +372,12 @@ export class Match {
       // Team by team, each in the order it sent them (M5: online, each page queues its own inputs before the
       // friend's arrive, so the order of arrival is not the same on both machines; this order is).
       list.sort((a, b) => a.team - b.team);
-      // Only while the match is on.
-      if (!this.result) for (const { team, input } of list) this.apply(team, input, tick);
+      // Only while the match is on (a surrender ends it there: of what follows in the tick, only the other side's surrender counts).
+      for (const { team, input } of list) {
+        if (!wellFormed(input)) continue;
+        if (this.result && input.kind !== "surrender") continue;
+        this.apply(team, input, tick);
+      }
     }
     if (!this.result) {
       // M3: the enemy castle follows its build order (until the AI).
@@ -348,7 +413,24 @@ export class Match {
     if (lost0 || lost1) {
       const winner: Team | -1 = lost0 && lost1 ? -1 : lost0 ? Team.Player : Team.Enemy;
       this.result = { winner, reason: down0 || down1 ? "keep" : "storm", tick };
+    } else if (tick + 1 >= this.timeAt) {
+      // Time (M5 audit: with every bridge blown and both sides out of shells' reach a match could go on for ever):
+      // the keep with more floors still under its banner, then the side that brought down more of the other castle.
+      const f0 = this.floorsUnder(0), f1 = this.floorsUnder(1);
+      const m0 = this.masonryDown(0), m1 = this.masonryDown(1);
+      const winner: Team | -1 = f0 !== f1 ? (f0 > f1 ? Team.Enemy : Team.Player) : m0 !== m1 ? (m0 < m1 ? Team.Enemy : Team.Player) : -1;
+      this.result = { winner, reason: "time", tick };
     }
+  }
+
+  /** How many of a castle's keep storeys still stand under its banner (3: it flies from the roof; 0: it is down). */
+  floorsUnder(castle: 0 | 1): number {
+    const c = this.world.castle;
+    if (c.toppled[castle]) return 0;
+    const y = c.bodies[c.layout.bannerIds[castle]].translation().y;
+    let n = 0;
+    for (const course of KEEP_STOREYS) if (course * CASTLE_SHAPE.course <= y + 0.25) n++;
+    return n;
   }
 
   private apply(team: Team, input: MatchInput, tick: number) {
@@ -384,6 +466,11 @@ export class Match {
         if (REPAIR_KINDS.includes(input.repair)) this.repairs[team][input.repair] = input.on === true;
         return;
       case "surrender":
+        // Both sides giving up on the same tick is a draw; otherwise the other side wins.
+        if (this.result) {
+          if (this.result.reason === "surrender" && this.result.tick === tick && this.result.winner === team) this.result = { winner: -1, reason: "surrender", tick };
+          return;
+        }
         this.result = { winner: team === Team.Player ? Team.Enemy : Team.Player, reason: "surrender", tick };
         return;
       // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
@@ -494,7 +581,9 @@ export class Match {
       const gx = m.x - gate.x, gz = m.z - gate.z;
       const threat = gx * gx + gz * gz;
       if (threat > DEFEND * DEFEND || threat >= bestD) continue;
-      if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2))) continue;
+      if (m.id === g.skip) continue;
+      const keg = m.unit === Unit.Sapper && (m.task === SapperTask.Carry || m.task === SapperTask.Plant);
+      if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg)) continue;
       if (this.ownNear(team, m.x, m.z, U.clearOwn)) continue;
       bestD = threat;
       best = m.id;
@@ -521,7 +610,9 @@ export class Match {
     // Lead it: where it will be when the shot arrives, give or take the error.
     const x = m.x + m.vx * first.time + g.errX, z = m.z + m.vz * first.time + g.errZ;
     const s = solveAim(e, x, this.world.terrain.heightAt(x, z) + 1, z);
-    if (!s) {
+    if (!s || !clearOfCastle(e, s.yaw, s.pitch, s.charge, team, x, z)) {
+      // Out of reach, or the shot would hit its own walls (a gun on the back tower firing short): look past him.
+      if (s) g.skip = best;
       g.target = -1;
       return;
     }

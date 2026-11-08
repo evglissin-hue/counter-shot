@@ -5,14 +5,17 @@
 // page sends inputs; the worker tags each with a tick, steps the sim and posts
 // what changed.
 
-import { buildLayout, Earn, GAME_LAYOUT, MIX_NAMES, PLOTS, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
+import { buildLayout, CASTLE_SHAPE, Earn, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
 import { Match, Team, type MatchInput } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
+import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { EARN_STRIDE, type FromWorker, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type ToWorker } from "./protocol";
 
-const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
+/** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
+let gen = 0;
+const post = (msg: FromWorker, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage({ ...msg, gen }, transfer);
 const DT = 1000 / 60;
 
 let R: Rapier | null = null;
@@ -31,6 +34,8 @@ let peakNow = 0, peakLast = 0, peakTicks = 0;
 let manual = false;
 /** Nav overlay: send the grid when it changes, at most a few times a second. */
 let navOn = false;
+/** Online: the page left the match; the world stands still until the next one. */
+let stopped = false;
 let navSent = -1;
 let navAt = 0;
 let bridgesSent = -1;
@@ -78,8 +83,20 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   const t0 = performance.now();
   layout ??= buildLayout(1, GAME_LAYOUT);
   gateLeaves = [0, 1].map((c) => layout!.stones.filter((st) => st.part === "gate" && st.castle === c).map((st) => st.id)) as [number[], number[]];
+  keepBoards = [0, 1].map((c) => KEEP_STOREYS.map((course) => layout!.stones.filter((st) => st.part === "storey" && st.castle === c && st.course === course - 1).map((st) => st.id)));
+  sectionOfPiece = Int8Array.from(layout.stones.map(sectionOf));
+  sectionTotal = new Uint16Array(2 * SECTION_COUNT * 2);
+  layout.stones.forEach((st, i) => {
+    const k = sectionOfPiece[i];
+    if (k < 0) return;
+    const at = (st.castle * SECTION_COUNT + k) * 2;
+    sectionTotal[at]++;
+    if (st.course < FOOT_COURSES) sectionTotal[at + 1]++;
+  });
+  sectionsAt = -1;
   ai = null;
   net = null;
+  stopped = false;
   me = Team.Player;
   matchSeed = seed;
   if (mode === "versus" || mode === "online") {
@@ -146,10 +163,67 @@ function matchInfo(): MatchInfo | null {
     ladders: [L.plantedAt(0), L.plantedAt(1)],
     down: match.tick % 60 < 2 || ended ? [match.masonryDown(0), match.masonryDown(1)] : null,
     stats: ended && !endSent ? [match.stats(Team.Enemy), match.stats(Team.Player)] : null,
+    keeps: [keepFloors(match, 0), keepFloors(match, 1)],
+    keepFloor: [floorSound(match, 0), floorSound(match, 1)],
     ...estateInfo(match),
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/** The tops of a keep's timber storeys (m), lowest first: the roof is the last. */
+const STOREY_TOPS = KEEP_STOREYS.map((c) => c * CASTLE_SHAPE.course);
+
+/**
+ * How many of a keep's storeys still stand under its banner (3: it flies from
+ * the roof). Only reads where the banner's body is; the match is untouched.
+ * A pole lying on a floor still counts that floor.
+ */
+function keepFloors(m: Match, castle: 0 | 1): number {
+  if (m.world.castle.toppled[castle]) return 0;
+  const y = m.world.castle.bodies[m.world.castle.layout.bannerIds[castle]].translation().y;
+  let n = 0;
+  for (const top of STOREY_TOPS) if (top <= y + 0.25) n++;
+  return n;
+}
+
+/** For the minimap: each piece's castle section (-1: none), and each section's pieces and pieces at its foot. */
+let sectionOfPiece: Int8Array = new Int8Array(0);
+let sectionTotal = new Uint16Array(0);
+let sectionsAt = -1;
+
+/** Per castle and section: the share of its pieces standing, and of those at its foot (0 to 100). Reads only. */
+function sectionShares(): Uint8Array {
+  const c = sim!.castle, stones = c.layout.stones;
+  const up = new Uint16Array(2 * SECTION_COUNT * 2);
+  for (let i = 0; i < stones.length; i++) {
+    const k = sectionOfPiece[i];
+    if (k < 0 || c.dynamic[i] || c.shattered[i]) continue;
+    const at = (stones[i].castle * SECTION_COUNT + k) * 2;
+    up[at]++;
+    if (stones[i].course < FOOT_COURSES) up[at + 1]++;
+  }
+  const out = new Uint8Array(up.length);
+  for (let j = 0; j < up.length; j++) out[j] = sectionTotal[j] ? Math.round((100 * up[j]) / sectionTotal[j]) : 100;
+  return out;
+}
+
+/** Each castle's keep boards (stone ids) by storey, lowest first. */
+let keepBoards: number[][][] = [[], []];
+
+/**
+ * How sound the floor under a keep's banner is, 0 to 1: a whole board counts
+ * one, a cracked one (a shell it took) a half, a broken or fallen one
+ * nothing. Masons laying boards back raise it again. Reads only.
+ */
+function floorSound(m: Match, castle: 0 | 1): number {
+  const level = keepFloors(m, castle);
+  const boards = keepBoards[castle][level - 1];
+  if (!boards || !boards.length) return 0;
+  const c = m.world.castle;
+  let sum = 0;
+  for (const id of boards) if (!c.dynamic[id] && !c.shattered[id]) sum += c.hits[id] ? 0.5 : 1;
+  return sum / boards.length;
 }
 
 /** M3: gold coming in, earnings since the last frame, the player's barracks and every gun. */
@@ -183,14 +257,14 @@ function estateInfo(m: Match): Pick<MatchInfo, "income" | "earned" | "goldEarned
 }
 
 function tick(advanceMs = -1) {
-  if (!sim || paused) return;
+  if (!sim || paused || stopped) return;
   if (manual) {
     if (advanceMs < 0) return;
     acc += advanceMs * speed;
   } else {
     const now = performance.now();
     // Online: the side that is ahead of its friend eases off a little and the one behind hurries, so neither waits long.
-    const lead = net ? net.lead() : 0;
+    const lead = net ? net.lead(now) : 0;
     const pace = lead > 3 ? 0.92 : lead < -3 ? 1.12 : 1;
     acc += (now - last) * speed * pace;
     last = now;
@@ -237,6 +311,12 @@ function tick(advanceMs = -1) {
     bridgesSent = sim.nav.version;
     bridges = sim.bridgesOpen();
   }
+  let sections: Uint8Array | null = null;
+  if (sim.tick - sectionsAt >= 30 || sectionsAt < 0) {
+    sectionsAt = sim.tick;
+    sections = sectionShares();
+    transfer.push(sections.buffer);
+  }
   let nav: NavInfo | null = null;
   const now = performance.now();
   if (navOn && sim.nav.version !== navSent && (manual || now - navAt > 250)) {
@@ -257,6 +337,7 @@ function tick(advanceMs = -1) {
       awake: sim.castle.awakeCount(),
       match: info,
       bridges,
+      sections,
       nav,
     },
     transfer as Transferable[],
@@ -282,11 +363,17 @@ function start() {
   timer = setInterval(tick, 4);
 }
 
-self.onmessage = async (e: MessageEvent<ToWorker>) => {
-  const msg = e.data;
+/** Messages are handled one after another: one that arrives while init still loads the physics waits for it (a quick second choice of mode used to be lost). */
+let queue: Promise<void> = Promise.resolve();
+self.onmessage = (e: MessageEvent<ToWorker>) => {
+  queue = queue.then(() => handle(e.data));
+};
+
+async function handle(msg: ToWorker) {
   try {
     switch (msg.t) {
       case "init":
+        gen = msg.gen;
         await load();
         layout ??= buildLayout(1, GAME_LAYOUT);
         rehearse();
@@ -294,8 +381,14 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         start();
         break;
       case "reset":
+        gen = msg.gen;
         build(msg.mode, msg.seed, msg.minions, msg.setup);
         start();
+        break;
+      case "netStop":
+        // The page left an online match: the old lockstep says nothing more (it would reach the next match's room).
+        net = null;
+        stopped = true;
         break;
       case "input": {
         const input = msg.input;
@@ -312,7 +405,8 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       }
       case "net":
         if (net) {
-          net.remote(msg.state, msg.now);
+          net.remote(msg.state, performance.now());
+          net.rtt = typeof msg.rtt === "number" && msg.rtt > 0 && msg.rtt < 5000 ? msg.rtt : net.rtt;
           netDirty = true;
         }
         break;
@@ -351,6 +445,6 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
   } catch (err) {
     post({ t: "error", message: err instanceof Error ? `${err.name}: ${err.message}` : String(err) });
   }
-};
+}
 
 export {};

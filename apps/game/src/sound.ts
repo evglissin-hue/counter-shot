@@ -1152,6 +1152,20 @@ export class Sound {
   }
 
   /** Quiet interface sounds, not placed: taking another gun, a button, an order to the waves. */
+  /** The mortar's charge going in while fire is held: a ratchet tick, higher as it fills (0 to 1). */
+  chargeTick(level: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.02;
+    const g = ctx.createGain();
+    g.gain.value = 0.22 + 0.18 * level;
+    g.connect(this.dry);
+    const f = 420 + 520 * level;
+    this.tone(g, t0, f, f * 0.86, 0.018, 0.001, 0.028, 0.3);
+    this.burstNoise(g, t0, this.white, "bandpass", 1800 + 1400 * level, 3, 0.001, 0.014, 0.35);
+    this.later(g, t0 + 0.3);
+  }
+
   ui(kind: "switch" | "click" | "order") {
     const ctx = this.ctx;
     if (!ctx) return;

@@ -52,6 +52,9 @@ export class Steward {
     private send: (tick: number, input: MatchInput) => void,
   ) {
     this.plan = AI_PLANS[difficulty];
+    // Its castle as it finds it (M5 audit: taking over a friend's castle mid-match, it assumed Advance and every repair on).
+    this.order = m.army.order[team] as Order;
+    this.repairs = { ...m.repairs[team] };
   }
 
   private get gold(): number {

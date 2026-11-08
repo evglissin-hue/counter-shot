@@ -25,6 +25,12 @@ export interface AiLevel {
   /** Ticks after a shot lands before the next one leaves (watching, correcting), on top of the reload. */
   look: number;
   /**
+   * Ticks into the match before its first shot by hand: you get a moment to
+   * take your own gun before its shots come in (it takes its gun and lays it
+   * meanwhile, so you can watch the barrel turn).
+   */
+  warmup: number;
+  /**
    * Aim. A new target's first shot is off by up to `firstErr` (rad, either
    * way, for flat fire) or `firstErrM` metres plus `firstErrPerM` of the range
    * (lobbed shells); every shot after adds the hand's own noise (`noise`, rad,
@@ -55,15 +61,16 @@ export interface AiLevel {
 export const AI_LEVELS: Record<Difficulty, AiLevel> = {
   squire: {
     name: "Squire",
-    blurb: "Slow to aim and slow to learn; spends when it remembers",
+    blurb: "Slow to aim and slow to learn; spends when it remembers. Start here",
     think: 4 * 60,
     react: 50,
     settle: 4 * 60,
-    look: 4 * 60,
+    look: 6 * 60,
+    warmup: 40 * 60,
     firstErr: 0.03,
     firstErrM: 9,
     firstErrPerM: 0.06,
-    noise: 0.009,
+    noise: 0.011,
     noiseM: 4,
     learn: 0.35,
     focus: 0.35,
@@ -80,6 +87,7 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     react: 30,
     settle: 2 * 60,
     look: 100,
+    warmup: 15 * 60,
     firstErr: 0.018,
     firstErrM: 6,
     firstErrPerM: 0.04,
@@ -100,6 +108,7 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     react: 18,
     settle: 70,
     look: 40,
+    warmup: 5 * 60,
     firstErr: 0.01,
     firstErrM: 3.5,
     firstErrPerM: 0.025,
