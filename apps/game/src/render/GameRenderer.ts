@@ -367,6 +367,8 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Musket) this.spawnMusket(x | 0, y, z, v);
       else if (kind === EventKind.Keg) this.minions.kegSet(x | 0);
       else if (kind === EventKind.Built) this.spawnBuilt(x | 0, y | 0);
+      // M5: a keep floor board cracked but held ([stone id, x, y, z]): splinters and a little dust where it lies.
+      else if (kind === EventKind.Cracked) this.spawnImpact(y, z, v, 0.45, 0.35);
       // EventKind.Landed: the page handles the landing marker.
     }
   }

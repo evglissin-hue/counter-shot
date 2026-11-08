@@ -233,7 +233,7 @@ let rendererReady = false;
 /** Where in a mason's stroke the mallet strikes (ticks since the stroke began; the renderer's swing matches). */
 const MALLET_HIT = 14;
 const malletAct = new Map<number, number>();
-let laidSounds = 0, clearSounds = 0;
+let laidSounds = 0, clearSounds = 0, cracks = 0;
 /** The match as it went, for the end screen: a line per moment that mattered, with the clock. */
 let matchLog: Array<{ tick: number; text: string; bad: boolean }> = [];
 
@@ -333,9 +333,12 @@ function onFrame(f: FrameData) {
       else sound.ladderDown(c, 1, d);
     } else if (kind === EventKind.Raised && a >= 0 && a < everMoved.length) {
       everMoved[a] = 0; // M3: a building's piece back up: its next fall counts again
+    } else if (kind === EventKind.Cracked) {
+      // M5: a shell cracked a keep floor board that held: timber splitting (the renderer throws splinters).
+      if (cracks++ < 2) sound.woodHit(b, c, d, 0.8);
     }
   }
-  laidSounds = clearSounds = 0;
+  laidSounds = clearSounds = cracks = 0;
   // Masons at work: a mallet stroke whenever one comes down (act counts ticks since each stroke began).
   let strokes = 0;
   for (let i = 0; i < f.minionCount; i++) {
@@ -471,6 +474,8 @@ function landedNow(f: FrameData): boolean {
 
 /** Slow motion for the sim (sandbox only), the effects and new sounds. */
 function setSlow(factor: number) {
+  // Online the sim's clock is both players': slowing it here would slow your friend's game too.
+  if (mode === "online") factor = 1;
   if (Math.abs(factor - timeScale) < 0.01) return;
   timeScale = factor;
   send({ t: "speed", factor });
