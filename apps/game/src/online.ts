@@ -149,7 +149,9 @@ export class Online {
     ui.status.textContent =
       this.role === "guest"
         ? "Joining..."
-        : open.length
+        : this.role === "host"
+          ? "Your friend opens the game's link, chooses Play a friend and joins your match."
+          : open.length
           ? "Join a friend's match, or host your own."
           : here
             ? `${here === 1 ? "One other person has" : `${here} others have`} the game open. Host a match and ask your friend to join it.`
