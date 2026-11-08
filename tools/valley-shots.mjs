@@ -32,6 +32,9 @@ const VIEWS = {
   "valley-side": [30, 14, -146, 82, 8, -70],
   "enemy-side": [-40, 18, 30, -10, 2, -40],
   "stream-top": [14, 22, -84, 14, -1, -74],
+  // The render test's staged pikemen: two pairs fighting, three battering the target gate.
+  fight: [-0.5, 2.4, -36.5, -4.6, 1.1, -31],
+  gate: [5, 3.2, -22, 0, 1.6, -16],
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });

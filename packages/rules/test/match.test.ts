@@ -78,6 +78,21 @@ test("weapons nobody mans fire at enemy minions coming at their walls; the one y
   m.free();
 });
 
+test("unmanned guns thin a wave on its way in, but most of it reaches the gate (the gunner's own shots decide)", () => {
+  const m = new Match(R, layout, { seed: 1, barracks: false });
+  m.queue(0, Team.Player, { kind: "man", emplacement: -1 }); // in the overview: every gun fires on its own (the mortar never does)
+  m.army.spawnWave(Team.Enemy, 1, 8, { x: 0, z: -84 });
+  let reached = 0;
+  for (let i = 0; i < 40 * 60 && !reached; i++) {
+    m.step();
+    const up = m.world.minions.list.filter((x) => x.team === Team.Enemy && x.state === MinionState.Upright);
+    if (up.some((x) => x.action === 3)) reached = up.length;
+  }
+  assert.ok(m.autoShots[Team.Player] >= 3, `${m.autoShots[Team.Player]} unmanned shots`);
+  assert.ok(reached >= 3 && reached < 8, `${reached} of 8 reached the gate`);
+  m.free();
+});
+
 test("the wave match: both barracks, orders, a breach and unmanned guns replay to their pinned hash", () => {
   const a = runWaveMatch(R);
   console.log("wave match hash", a.hash, "waves", a.waves, "standing", a.standing, "fallen", a.fallen, "shots", a.shots, "auto", a.autoShots);

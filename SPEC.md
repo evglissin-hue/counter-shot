@@ -54,7 +54,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 - **Real ballistics**: gravity, air drag (heavier and smaller shots carry further), wind, spin for some projectiles (they curve), ricochets off stone at shallow angles, skipping across water, rolling down slopes.
 - **Aim help**: the first part of the flight path, its length set by the weapon and upgrades; a ghost trail of your last shot from this emplacement; a marker where it landed; the barrel's elevation (and the mortar's range in still air), as a gunner reads off a quadrant. Aiming is the skill: you correct from your last shot and read the wind. The whole predicted flight is an easy setting. Co-op and casual games show more of the path.
 - **Scatter**: no two shots fly quite alike. Each weapon throws a little off the aim and its charge varies a little (seeded, so a match still replays from its inputs): about half a metre for the long gun at the enemy keep, two metres for the mortar. Rifled barrels tighten it.
-- **Reloads** are per weapon (about 3 to 10 seconds). Weapons nobody is manning fire at minions on their own, slower and much less accurately.
+- **Reloads** are per weapon (about 3 to 10 seconds). Weapons nobody is manning fire on their own at enemy minions coming at your walls (the approach once the stream is crossed), slower and much less accurately; the mortar fires only when you fire it (one shell knocks down a whole wave).
 - **Shot camera**: optionally follow your shot (on by default for lobbed shells: you ride the shell down), with optional slow motion on impact. It only changes your own camera; the match runs on. Replays come free, because a match is just its inputs.
 - **Kill cams and replays** (after the MVP; the owner's request): the best physics moments come back as short replays from a cinematic angle, with a tally of the damage: a minion thrown across the valley, a limb taken off, a wall dropped on a wave, a tower brought down. In the spirit of Porrasturvat, where the fun is watching a body take every step of the fall. A replay re-runs the sim from a recent snapshot with the recorded inputs, so it shows exactly what happened, and it can slow down and circle the moment freely.
 - **Trick shots** are recognised and pay gold: ricochet kills, collapse kills (masonry you dropped landing on minions), multi-kills, skip shots, long-range keep hits.
@@ -126,7 +126,7 @@ You spend it on buildings, weapons, upgrades, repairs and abilities. There are n
 
 - **Barracks** spawn a wave on a timer (about every 25 seconds). Per barracks, you set the mix of units and which route the wave takes.
 - **Orders** go to all your waves, by hotkey: **Advance** (default), **Hold** (stop at the midfield marker), **Push the breach** (head for the nearest gap in the enemy walls).
-- **Pathfinding** uses a flow field over the terrain that updates as rubble and craters change it. Minions climb small rubble and go around big piles. Intact walls stop them, so they ram the gate, climb ladders, blow walls with sappers, or pour through breaches.
+- **Pathfinding** uses a flow field over the terrain that updates as rubble and craters change it. Minions scramble over rubble heaps and the fallen and go around what is too steep; standing masonry is a wall. Intact walls stop them, so they ram the gate, climb ladders, blow walls with sappers, or pour through breaches. A wave whose bridge is down takes the nearest one still standing.
 - **Fighting** is simple contact combat. Minions inside the enemy courtyard count towards storming it.
 - **Bodies stay** all match as frozen physics debris (cover, ramps, blockages on the routes); past a few hundred the oldest sink into the ground to keep the physics budget.
 - **Numbers**: up to about 60 to 100 alive per side at the peak. Dozens, not hundreds, so each one is a proper physics body when it matters.
@@ -275,7 +275,8 @@ Waves are built from the roster by a deterministic director (seeded Rng, so both
 | Overview | Tab | Tab | View button |
 | Build wheel | B | B | Y |
 | Abilities | F, G, H | F, G, H | X, then pick |
-| Orders: advance, hold, push | Ctrl+1, Ctrl+2, Ctrl+3 | Ctrl+1, Ctrl+2, Ctrl+3 | D-pad |
+| Orders: advance, hold, push | Ctrl+1, Ctrl+2, Ctrl+3 | Ctrl+1, Ctrl+2, Ctrl+3 | D-pad left (in turn) |
+| Route of your next waves | L | L | D-pad right |
 
 ## 13. Look and sound
 

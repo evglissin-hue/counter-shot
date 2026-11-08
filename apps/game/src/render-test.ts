@@ -51,7 +51,7 @@ const G = 9.81;
 
 const projectiles = new Float32Array(64 * PROJECTILE_STRIDE);
 const chains = new Float32Array(8 * CHAIN_STRIDE);
-const minions = new Float32Array(16 * MINION_STRIDE);
+const minions = new Float32Array(32 * MINION_STRIDE);
 const parts = new Float32Array(2 * MINION_PARTS.length * PART_STRIDE);
 const events = new Float32Array(32 * EVENT_STRIDE);
 
@@ -187,6 +187,22 @@ function buildFrame(dt: number): FrameData {
     minions.set([k, x, 0, z, yaw, (t * 0.9 + k * 0.13) % 1, team, 0, 0], nm * MINION_STRIDE);
     nm++;
   }
+  // Two pairs fighting with levelled pikes (a thrust every 1.5 s), three battering the target castle's gate, one standing.
+  const staged: Array<[number, number, number, number, number]> = [
+    // x, z, yaw, team, action (1 stand, 2 fight, 3 batter)
+    [-6, -30, Math.PI, 0, 2],
+    [-6, -32.2, 0, 1, 2],
+    [-3.5, -30.4, Math.PI, 0, 2],
+    [-3.6, -32.6, 0, 1, 2],
+    [-1, -16.6, 0, 1, 3],
+    [0.2, -16.6, 0, 1, 3],
+    [1.3, -16.7, 0, 1, 3],
+    [4, -31, Math.PI, 0, 1],
+  ];
+  staged.forEach(([x, z, yaw, team, action], j) => {
+    minions.set([20 + j, x, 0, z, yaw, 0, team, action, (t * 60 + j * 23) % 90], nm * MINION_STRIDE);
+    nm++;
+  });
 
   // Events.
   let ne = 0;

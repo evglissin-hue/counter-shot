@@ -67,7 +67,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 #want { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--aim); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); pointer-events: none; opacity: 0.8; }
 .hint { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 12px; font: 500 14px/1.2 var(--ui); pointer-events: none; }
 .hint.ride { top: auto; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
-.hint.tally { top: 14%; font: 22px/1.1 var(--display); padding: 10px 16px; }
+.hint.tally { top: 32%; font: 22px/1.1 var(--display); padding: 10px 16px; }
 .hint.tally.show { animation: tally 3.2s ease-out forwards; }
 @keyframes tally { 0% { opacity: 0; transform: translate(-50%, 6px); } 8% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hint.tally.show { animation: none; } }
@@ -82,7 +82,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .center > div { padding: 16px 20px; font: 18px/1.3 var(--display); }
 #error { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: 14px 16px; color: var(--bad); background: var(--glass-strong); border: 1px solid var(--line); border-radius: 10px; }
-#note { top: 18%; }
+#note { top: 25%; }
 .matchbar { position: absolute; left: 50%; top: calc(64px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; padding: 7px 12px; max-width: calc(100% - 32px); }
 .matchbar .line { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; align-items: baseline; }
 .matchbar .clock { font: 500 20px/1 var(--mono); color: var(--ink); }
@@ -180,7 +180,7 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
       <dt>M</dt><dd>Sound on or off (volume below)</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
       <dt>N</dt><dd>Show where minions can walk: green from your gate, sandy over rubble and the fallen, amber cut off, blue water, red in the way. Blow a bridge and watch its crossing close</dd>
-      <dt>Ctrl+1, 2, 3</dt><dd>Versus AI: orders for all your waves. Advance on the enemy gate (they batter it down), Hold at the midfield markers short of the bridges, Push the breach (the nearest gap in the enemy walls: knock one open at the foot of a wall)</dd>
+      <dt>Ctrl+1, 2, 3</dt><dd>Versus AI: orders for all your waves (or the buttons in the match bar). Advance on the enemy gate (they batter it down), Hold at the midfield markers short of the bridges, Push the breach (the nearest gap in the enemy walls: knock one open at the foot of a wall)</dd>
       <dt>L</dt><dd>Versus AI: the route of your next waves (left flank, centre road, right flank). A wave whose bridge is down takes the nearest one standing</dd>
       <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad up and down fuse, D-pad left orders, D-pad right route, X spin, Y shot camera, B back from the shot camera, View overview</dd>
     </dl>

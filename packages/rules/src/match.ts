@@ -24,6 +24,7 @@ import {
   type CastleLayout,
   type Emplacement,
   type RouteName,
+  type UnmannedDef,
 } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { MinionState, Order, SandboxSim, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
@@ -62,6 +63,8 @@ export interface MatchResult {
 export interface MatchOptions {
   seed: number;
   emplacements?: Emplacement[];
+  /** The barracks send waves (default); tests and tools may turn them off. */
+  barracks?: boolean;
 }
 
 /** An emplacement's barrel and, when nobody mans it, what it is laying on. */
@@ -97,7 +100,7 @@ function nearBridge(x: number, z: number, r: number): boolean {
  * A flat gun's miss flies on along its line; a mortar shell falls anywhere
  * within its error, and bursts.
  */
-function bridgeAtRisk(e: Emplacement, x: number, z: number, U: (typeof UNMANNED)[keyof typeof UNMANNED], range: number): boolean {
+function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number): boolean {
   if (U.overshoot <= 0) return nearBridge(x, z, U.errBase + U.errPerM * range + U.clearBridge);
   const dx = x - e.x, dz = z - e.z;
   const d = dsqrt(dx * dx + dz * dz) + 1e-9;
@@ -129,6 +132,7 @@ export class Match {
   private owner: Team[];
   /** The unmanned weapons' aim errors, drawn in the order they lay on targets. */
   private rng: Rng;
+  private barracks: boolean;
 
   constructor(R: Rapier, layout: CastleLayout, opts: MatchOptions) {
     this.emplacements = opts.emplacements ?? MATCH_EMPLACEMENTS;
@@ -140,6 +144,7 @@ export class Match {
       return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0 };
     });
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
+    this.barracks = opts.barracks !== false;
   }
 
   get tick(): number {
@@ -180,7 +185,7 @@ export class Match {
       if (!this.result) for (const { team, input } of list) this.apply(team, input, tick);
     }
     if (!this.result) {
-      if (tick >= WAVES.first && (tick - WAVES.first) % WAVES.every === 0) {
+      if (this.barracks && tick >= WAVES.first && (tick - WAVES.first) % WAVES.every === 0) {
         this.sendWave(Team.Player);
         this.sendWave(Team.Enemy);
       }
@@ -256,10 +261,11 @@ export class Match {
   private gunnery(tick: number) {
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
-      if (this.manned[team] === e.id) continue;
+      const U = UNMANNED[e.weapon];
+      if (!U || this.manned[team] === e.id) continue;
       const g = this.guns[e.id];
       const w = WEAPONS[e.weapon];
-      if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team);
+      if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);
       if (g.target < 0) continue;
       const a = stepAim({ yaw: g.yaw, pitch: g.pitch }, { dYaw: g.aimYaw - g.yaw, dPitch: g.aimPitch - g.pitch, fine: false }, e, w);
       g.yaw = a.yaw;
@@ -271,13 +277,12 @@ export class Match {
       g.target = -1;
       if (!m || m.state !== MinionState.Upright) continue;
       this.autoShots[team]++;
-      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: UNMANNED[e.weapon].reload });
+      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: U.reload });
     }
   }
 
   /** Choose a target for an unmanned gun and work out its aim (leading it, plus the gun's error). */
-  private lay(e: Emplacement, g: Gun, team: Team) {
-    const U = UNMANNED[e.weapon];
+  private lay(e: Emplacement, g: Gun, team: Team, U: UnmannedDef) {
     const gate = MUSTER[team];
     let best = -1, bestD = Infinity;
     for (const m of this.world.minions.list) {

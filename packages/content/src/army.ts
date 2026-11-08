@@ -126,6 +126,8 @@ export const BODY_CAP = 240;
  * approach once the stream is crossed. They turn at the weapon's own rates
  * and fire when they are on their mark, which lands within
  * `errBase + errPerM * distance` metres of the target (uniform over a disc).
+ * The mortar never fires on its own: one shell knocks down a whole wave, so
+ * it stays the gunner's big event.
  */
 export const DEFEND = 45;
 
@@ -148,11 +150,11 @@ export interface UnmannedDef {
   errPerM: number;
 }
 
-export const UNMANNED: Record<WeaponKind, UnmannedDef> = {
-  longGun: { minRange: 50, maxRange: 170, clearOwn: 4, clearBridge: 4, overshoot: 70, reload: 2, errBase: 1.5, errPerM: 0.045 },
-  mortar: { minRange: 40, maxRange: 140, clearOwn: 12, clearBridge: 6, overshoot: 0, reload: 2.5, errBase: 3, errPerM: 0.09 },
-  chainShot: { minRange: 45, maxRange: 140, clearOwn: 4, clearBridge: 4, overshoot: 60, reload: 2, errBase: 1.5, errPerM: 0.045 },
-  swivel: { minRange: 15, maxRange: 60, clearOwn: 3, clearBridge: 3, overshoot: 30, reload: 1.5, errBase: 1, errPerM: 0.03 },
+export const UNMANNED: Record<WeaponKind, UnmannedDef | null> = {
+  longGun: { minRange: 50, maxRange: 170, clearOwn: 4, clearBridge: 4, overshoot: 70, reload: 3, errBase: 3, errPerM: 0.1 },
+  mortar: null,
+  chainShot: { minRange: 45, maxRange: 140, clearOwn: 4, clearBridge: 4, overshoot: 60, reload: 3, errBase: 3, errPerM: 0.1 },
+  swivel: { minRange: 15, maxRange: 60, clearOwn: 3, clearBridge: 3, overshoot: 30, reload: 2.5, errBase: 2, errPerM: 0.08 },
 };
 
 /**

@@ -60,7 +60,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "bafc800f", world: "0f32e726" } as const;
+export const WAVE_MATCH_HASH = { state: "edbbe93a", world: "dcb09ac9" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
