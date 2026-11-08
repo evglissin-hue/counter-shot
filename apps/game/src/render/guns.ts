@@ -19,6 +19,9 @@ interface Gun {
   activeTarget: number;
   curYaw: number;
   curPitch: number;
+  /** M3: its iron, and what its model shows ("" for an empty slot). */
+  iron: THREE.Material;
+  armed: string;
 }
 
 function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMaterial {
@@ -104,7 +107,8 @@ function supportHeight(layout: CastleLayout, x: number, y: number, z: number): {
   // The castle on the gun's own side of the field (the enemy's guns stand on the enemy's walls).
   const castle = z < (layout.castleZ[0] + layout.castleZ[1]) / 2 ? 1 : 0;
   for (const s of layout.stones) {
-    if (s.castle !== castle || s.material !== "stone" || s.part === "merlon") continue;
+    // M3: the plots' buildings are not what a gun stands on.
+    if (s.castle !== castle || s.material !== "stone" || s.part === "merlon" || s.plot !== undefined) continue;
     const b = stoneBounds(s, layout.wedge);
     const top = b[4];
     if (top > y + 0.05) continue;
@@ -139,6 +143,7 @@ export class Guns {
     for (const m of this.mats) if (m !== this.wood) m.dispose();
     this.mats = [this.wood];
     this.guns = [];
+    this.layout = layout;
     for (const em of emplacements) {
       const active = uniform(0);
       const iron = ironMaterial(this.noise, active);
@@ -150,21 +155,50 @@ export class Guns {
       const pitch = new THREE.Group();
       root.add(yaw);
       yaw.add(pitch);
-      const sup = supportHeight(layout, em.x, em.y, em.z);
-      let floor = sup.under;
-      if (sup.ring - sup.under > 1.5) {
-        // Inside a tower: a timber deck across the top of the ring.
-        floor = sup.ring;
-        const deck = new THREE.CylinderGeometry(layout.wedge.rIn + 0.05, layout.wedge.rIn + 0.05, 0.25, 20, 1);
-        deck.translate(0, floor - 0.125 - em.y, 0);
-        addAll(root, [deck], this.wood);
-      }
-      const drop = Math.max(0.3, em.y - floor);
-      this.model(em.weapon, em.barrel, drop, root, yaw, pitch, iron);
-      this.root.add(root);
-      const gun: Gun = { em, root, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0 };
+      const gun: Gun = { em: { ...em }, root, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0, iron, armed: "" };
       this.guns.push(gun);
+      this.root.add(root);
+      this.mount(gun, em);
       this.setPose(em.id, em.baseYaw, kindRestPitch(em.weapon), false);
+    }
+  }
+
+  private layout: CastleLayout | null = null;
+
+  /** Build (or take down) a gun's model for what its slot holds now: nothing in an empty slot (M3). */
+  private mount(g: Gun, em: Emplacement) {
+    for (const group of [g.root, g.yaw, g.pitch]) {
+      for (const child of [...group.children]) {
+        if (child === g.yaw || child === g.pitch) continue;
+        group.remove(child);
+        child.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+      }
+    }
+    g.em = { ...em };
+    g.armed = em.empty ? "" : `${em.weapon}`;
+    g.root.name = `gun-${em.id}-${em.empty ? "empty" : em.weapon}`;
+    if (em.empty || !this.layout) return;
+    const layout = this.layout;
+    const sup = supportHeight(layout, em.x, em.y, em.z);
+    let floor = sup.under;
+    if (sup.ring - sup.under > 1.5) {
+      // Inside a tower: a timber deck across the top of the ring.
+      floor = sup.ring;
+      const deck = new THREE.CylinderGeometry(layout.wedge.rIn + 0.05, layout.wedge.rIn + 0.05, 0.25, 20, 1);
+      deck.translate(0, floor - 0.125 - em.y, 0);
+      addAll(g.root, [deck], this.wood);
+    }
+    const drop = Math.max(0.3, em.y - floor);
+    this.model(em.weapon, em.barrel, drop, g.root, g.yaw, g.pitch, g.iron);
+  }
+
+  /** M3: what each slot holds now (a gun bought for an empty slot appears; nothing else changes). */
+  arm(emplacements: Emplacement[]) {
+    for (const em of emplacements) {
+      const g = this.guns.find((x) => x.em.id === em.id);
+      if (!g) continue;
+      const want = em.empty ? "" : `${em.weapon}`;
+      if (want !== g.armed) this.mount(g, em);
     }
   }
 

@@ -42,9 +42,12 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
   const income = incomeTicks * MATCH.keepIncome;
-  assert.deepEqual(a.earned, [income, income], "income stops at the end");
-  assert.deepEqual([a.gold[0] + a.spent[0], a.gold[1] + a.spent[1]], [MATCH.startGold + income, MATCH.startGold + income], "what was not earned was not spent");
-  assert.ok(a.spent[0] > 0, `the enemy's masons spent ${a.spent[0]} gold on its keep`);
+  assert.equal(a.earned[0], income, "the enemy earned its keep's income and nothing more, and income stops at the end");
+  // M3: the player's shots brought enemy keep masonry down and struck the keep itself: both pay.
+  assert.ok(a.earned[1] > income + 30, `the player earned ${a.earned[1] - income} gold besides income`);
+  assert.deepEqual([a.gold[0] + a.spent[0], a.gold[1] + a.spent[1]], [MATCH.startGold + a.earned[0], MATCH.startGold + a.earned[1]], "what was not earned was not spent");
+  // M4's masons put the keep back; M3: rubble off the keep may wreck the enemy's barracks beside it, which it rebuilds.
+  assert.ok(a.spent[0] > 0, `the enemy spent ${a.spent[0]} gold on its keep`);
   assert.deepEqual(a.hash, MATCH_HASH);
 });
 
@@ -100,7 +103,10 @@ test("the wave match: both barracks, orders, a breach and unmanned guns replay t
   const a = runWaveMatch(R);
   console.log("wave match hash", a.hash, "waves", a.waves, "standing", a.standing, "fallen", a.fallen, "shots", a.shots, "auto", a.autoShots);
   assert.equal(a.result, null);
-  assert.deepEqual(a.waves, [3, 3]);
+  // M3: the breach west of the enemy gate may spray the enemy's barracks behind it: then it misses a wave while it is rebuilt.
+  assert.equal(a.waves[1], 3);
+  assert.ok(a.waves[0] >= 2 && a.waves[0] <= 3, `the enemy sent ${a.waves[0]} waves`);
+  assert.ok(a.spent[0] > 0, "the enemy paid for repairs (and any rebuilding)");
   assert.deepEqual(a.shots, [0, 3], "three shots by hand: down the road and two at the wall");
   assert.ok(a.fallen[0] > 0 && a.fallen[1] > 0, "both sides lost pikemen");
   assert.deepEqual(a.hash, WAVE_MATCH_HASH);

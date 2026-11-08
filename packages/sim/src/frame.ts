@@ -23,11 +23,23 @@ export const CHAIN_STRIDE = 6;
  * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act, unit].
  * Feet at y. Action (army.ts): 0 walking, 1 standing, 2 fighting, 3
  * battering a gate, 4 a mason at work, 5 carrying a ladder, 6 climbing
- * (a ladder or the rope inside), 7 raising a ladder; act counts ticks since
- * its last blow (or mallet stroke) began. Unit is content's Unit (0 pikeman,
- * 1 mason, 2 ladder crew).
+ * (a ladder or the rope inside), 7 raising a ladder, 8 a sapper setting his
+ * keg, 9 a musketeer with his musket up; act counts ticks since its last
+ * blow (or mallet stroke, or shot) began. Unit is content's Unit (0 pikeman,
+ * 1 mason, 2 ladder crew, 3 sapper, 4 musketeer).
  */
 export const MINION_STRIDE = 10;
+
+/**
+ * Plot buildings (M3): [castle, plot, kind, state, share raised, health].
+ * Kind is an index into BUILDING_KINDS (-1: none); state is structures.ts
+ * PlotState (0 empty, 1 rising, 2 standing, 3 ruined); share raised and
+ * health are 0..1 (health: the share of its pieces standing).
+ */
+export const PLOT_STRIDE = 6;
+
+/** Kegs set against a wall (M3): [x, y, z, ticks left]. */
+export const KEG_STRIDE = 4;
 
 /**
  * Ladders: [id, team, state, footX, footY, footZ, topX, topY, topZ, t].
@@ -60,6 +72,14 @@ export const enum EventKind {
   Cleared = 6,
   /** [kind, ladder id, state, x, z]: a ladder was raised against a wall (state 2) or came down (state 3); x, z is its foot. */
   Ladder = 7,
+  /** [kind, stone id, x, y, z]: a piece of a plot's building rose into its place (M3); x, y, z is the place. */
+  Raised = 8,
+  /** [kind, shooter (minion id), x, y, z]: a musketeer fired at the point x, y, z (M3). */
+  Musket = 9,
+  /** [kind, minion id, x, y, z]: a sapper set and lit his keg at x, y, z (M3). */
+  Keg = 10,
+  /** [kind, castle, plot, building kind, 0]: a plot's building is finished (M3). */
+  Built = 11,
 }
 export const EVENT_STRIDE = 5;
 
@@ -107,6 +127,12 @@ export interface FrameData {
   /** Wind in m/s along x and z. */
   windX: number;
   windZ: number;
+  /** Every plot's building (M3, PLOT_STRIDE each; empty without plots). */
+  plots: Float32Array;
+  plotCount: number;
+  /** Kegs burning at the foot of a wall (M3, KEG_STRIDE each). */
+  kegs: Float32Array;
+  kegCount: number;
 }
 
 /** Ragdoll body parts: capsule half-length (between sphere centres) and radius, in metres. */

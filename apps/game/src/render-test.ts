@@ -8,15 +8,17 @@
 // URL: ?cam=overview|sight|follow|mortar &quality=low|medium|high|ultra
 //      &shot=1 (hide text) &dt=0.05 (fixed step) ; #webgl forces WebGL2.
 
-import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, LADDER, MID_Z, WEAPONS, buildLayout, ladderSpots, streamOffset } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, LADDER, MID_Z, PLOTS, WEAPONS, buildLayout, ladderSpots, streamOffset } from "@keepfall/content";
 import {
   CHAIN_STRIDE,
   EVENT_STRIDE,
   EventKind,
+  KEG_STRIDE,
   LADDER_STRIDE,
   MINION_PARTS,
   MINION_STRIDE,
   PART_STRIDE,
+  PLOT_STRIDE,
   PROJECTILE_STRIDE,
   ProjectileKind,
   TERRAIN_GRID,
@@ -53,7 +55,7 @@ const G = 9.81;
 
 const projectiles = new Float32Array(64 * PROJECTILE_STRIDE);
 const chains = new Float32Array(8 * CHAIN_STRIDE);
-const minions = new Float32Array(32 * MINION_STRIDE);
+const minions = new Float32Array(48 * MINION_STRIDE);
 const parts = new Float32Array(2 * MINION_PARTS.length * PART_STRIDE);
 const events = new Float32Array(32 * EVENT_STRIDE);
 // M4: ladders and the masons' work, staged at the target castle's front wall.
@@ -138,11 +140,37 @@ const lgDir = { yaw: 0.05, pitch: 0.04 };
 
 // A few loose merlons on the target's front wall wobble slowly (dust trickle test).
 const loose = layout.stones.filter((s) => s.castle === 0 && s.part === "merlon" && s.z < -14 && s.x > 2 && s.x < 9);
-const stoneBuf = new Float32Array(Math.max(1, loose.length) * 8);
+
+// M3: buildings on the target castle's plots (plot, kind, share up): a barracks
+// and a Foundry at the front, a Powder Mill half risen beside the keep, a mill
+// standing at the back; the other two plots are empty.
+const built: Array<[number, number, number]> = [
+  [0, 0, 1],
+  [1, 2, 1],
+  [2, 1, 0.5],
+  [5, 1, 1],
+];
+const shown: number[] = [];
+for (const [plot, kind, share] of built) {
+  const range = layout.plots.find((p) => p.castle === 0 && p.plot === plot && p.kind === kind);
+  if (range) for (let k = 0; k < Math.round(range.count * share); k++) shown.push(range.first + k);
+}
+const plotBuf = new Float32Array(PLOTS.length * PLOT_STRIDE);
+PLOTS.forEach((_, i) => {
+  const b = built.find(([plot]) => plot === i);
+  plotBuf.set([0, i, b ? b[1] : -1, b ? (b[2] < 1 ? 1 : 2) : 0, b ? b[2] : 0, b ? b[2] : 0], i * PLOT_STRIDE);
+});
+const kegBuf = new Float32Array(KEG_STRIDE);
+
+const stoneBuf = new Float32Array(Math.max(1, loose.length + shown.length) * 8);
 function wobble(): Float32Array {
   loose.forEach((s, i) => {
     const w = Math.sin(t * 2 + i) * 0.04;
     stoneBuf.set([s.id, s.x + w, s.y, s.z - Math.abs(w), s.q[0], s.q[1], s.q[2], s.q[3]], i * 8);
+  });
+  shown.forEach((id, i) => {
+    const s = layout.stones[id];
+    stoneBuf.set([s.id, s.x, s.y, s.z, s.q[0], s.q[1], s.q[2], s.q[3]], (loose.length + i) * 8);
   });
   return stoneBuf;
 }
@@ -209,9 +237,27 @@ function buildFrame(dt: number): FrameData {
     [4, -31, Math.PI, 0, 1],
   ];
   staged.forEach(([x, z, yaw, team, action], j) => {
-    minions.set([20 + j, x, 0, z, yaw, 0, team, action, (t * 60 + j * 23) % 90], nm * MINION_STRIDE);
+    minions.set([20 + j, x, 0, z, yaw, 0, team, action, (t * 60 + j * 23) % 90, 0], nm * MINION_STRIDE);
     nm++;
   });
+  // M3: Ashwright musketeers (two aiming, a shot every 4 s each, one marching,
+  // one jabbing at a pikeman) and sappers (one with his keg on his shoulder,
+  // one setting his keg at the target castle's wall beside a burning one).
+  const kit: Array<[number, number, number, number, number, number, number]> = [
+    // x, z, yaw, team, action (0 walk, 2 fight, 8 plant, 9 aim), act, unit (3 sapper, 4 musketeer)
+    [-9, -38, 0.25, 1, 9, (t * 60) % 240, 4],
+    [-10.6, -38.6, 0.3, 1, 9, (t * 60 + 120) % 240, 4],
+    [-11.4, -41, 0, 1, 0, 0, 4],
+    [-1.2, -30.2, Math.PI, 0, 2, (t * 60 + 50) % 90, 0],
+    [-1.3, -31.8, 0, 1, 2, (t * 60 + 10) % 90, 4],
+    [-8.2, -42, 0, 1, 0, 0, 3],
+    [6.8, -17.3, 0, 1, 8, 0, 3],
+  ];
+  kit.forEach(([x, z, yaw, team, action, act, unit], j) => {
+    minions.set([60 + j, x, 0, z, yaw, (t * 0.9 + j * 0.31) % 1, team, action, act, unit], nm * MINION_STRIDE);
+    nm++;
+  });
+  kegBuf.set([5.6, 0.35, -16.45, 240 - ((t * 60) % 240)], 0); // the sim reports a keg 0.35 m over the ground
 
   // M4: a ladder planted in the crenel at x = 8.1 with two men climbing it, a crew raising another at 4.5,
   // a crew carrying a third towards the wall, and two masons at work inside behind a hoist.
@@ -274,6 +320,9 @@ function buildFrame(dt: number): FrameData {
   // A shot into the stream by the centre bridge every 1.4 s, and a stone every 2.6 s (splashes).
   if (t % 1.4 < dt) ev(EventKind.Impact, 12, -0.8, MID_Z + streamOffset(12), 0.8);
   if (t % 2.6 < dt) ev(EventKind.Impact, 16.5, -0.8, MID_Z + streamOffset(16.5) - 1, 1.2);
+  // M3: the aiming musketeers fire as their kick starts (a flash and a puff at the muzzle).
+  if ((t * 60) % 240 < dt * 60) ev(EventKind.Musket, 60, -6, 1.3, -30);
+  if ((t * 60 + 120) % 240 < dt * 60) ev(EventKind.Musket, 61, -3.5, 1.3, -30.4);
   if (t - lastBlood > 2.2) {
     lastBlood = t;
     ev(EventKind.Blood, -4, 0.9, -26, 0.9);
@@ -288,7 +337,7 @@ function buildFrame(dt: number): FrameData {
   return {
     tick: Math.round(t * 60),
     stones: wobble(),
-    stoneCount: loose.length,
+    stoneCount: loose.length + shown.length,
     projectiles,
     projectileCount: np,
     chains,
@@ -309,6 +358,10 @@ function buildFrame(dt: number): FrameData {
     terrain,
     windX: 4,
     windZ: 1.5,
+    plots: plotBuf,
+    plotCount: PLOTS.length,
+    kegs: kegBuf,
+    kegCount: 1,
   };
 }
 

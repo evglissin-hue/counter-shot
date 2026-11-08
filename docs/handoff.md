@@ -28,6 +28,9 @@ You are continuing work on Keepfall (working title), a physics-heavy 3D castle d
 - Masons (4 per castle, `packages/sim/src/works.ts`) rebuild the lowest gap first for gold (walls and towers 1, keep 2, keep floor 10, gate leaf 25), carry rubble and bodies away, run from enemy pikemen; repair switches Alt+1 to 4 (Gate, Walls, Towers, Keep). A garrison of 4 per courtyard; a barracks under attack musters inside. Storming: outnumber the defenders inside (at least 2) for 20 s. Ladder crews on every other wave from the second (`packages/sim/src/ladders.ts`). Sudden death at 15:00 (income doubled, reloads 60%). Surrender. Rules version 8, match rules version 3.
 - Findings: a passive match (the player only watches) decides nothing in 12 minutes: waves meet at the bridges, a few ladders go up and the garrisons kill the climbers; the player's own breaches, shells and pushes win matches, and the AI (M5) will bring pressure on your walls. The world's step grows to about 6.7 ms on the cloud server once 240 bodies lie on the field (the cap), measured while three sessions shared the machine.
 
+## M3 in short (see the Status in `docs/phase-2.md`)
+- Gold through one economy (`packages/rules/src/economy.ts`): income from the keep and each working Powder Mill (`Match.income`, doubled in sudden death), 4 per enemy down, 1 per 4 enemy pieces down, trick shots for your own shots (ricochet, collapse, multi-kill, keep hit); masons, buildings, guns and upgrades all pay through it. Six plots per courtyard (`packages/content/src/buildings.ts`, `packages/sim/src/structures.ts`): Barracks 220, Powder Mill 160, Foundry 250, masonry raised piece by piece, working while 60% stands. Four empty emplacements per castle to buy guns for, one Foundry upgrade per gun (`packages/content/src/arsenal.ts`). Sappers and musketeers (`packages/sim/src/specialists.ts`); each barracks sets its mix (Pikemen, Breach, Volley, Mixed) and route; only pikes batter a gate. The enemy follows `ENEMY_PLAN` until the AI. The build wheel is B (`apps/game/src/buildwheel.ts`). Merged with M4 and the polish pass: rules version 9, match rules version 4.
+
 ## State and open questions
 - Phase 2 M1 (the battlefield), the aiming round and M2 (waves) are built, published and shipped; see the Status in `docs/phase-2.md`. Rules version 7, match rules version 2. After M2 the owner asked for weightier key aiming (done: per-gun spin-up and coast, page only) and a weaker mortar (done: 12 s reload).
 - The owner's answers after M1: aiming was far too easy and predictable (done: the standard aim help is the first part of the arc, last shot's trail and landing marker; seeded shot scatter; wind gusts); the mortar's reach is fine; make the keep harder to hit rather than sturdier (judge the keep again with the new aiming).
@@ -37,7 +40,7 @@ You are continuing work on Keepfall (working title), a physics-heavy 3D castle d
 
 ## Next
 1. Both laptops play Versus AI with a full field (Kat's M3 at High especially: the HUD's step, peak and frame numbers), and the open questions above.
-2. Phase 2 M3 (gold and building), the next session's work, as planned in `docs/phase-2.md`: gold from the keep, mills, bounties, masonry and trick shots; plots and the build wheel (Barracks, Powder Mill, Foundry); buildings as physics structures; emplacements to buy and upgrade; sappers and musketeers; each barracks sets its wave's mix and route.
+2. The owner plays M3 and M4 together (gold pace and building costs, the mixes, sieges against masons) before M5, the AI castle.
 
 ## Rules
 - Never use em dashes or en dashes anywhere (code, comments, docs, commits, UI text, messages). Keep messages to the owner concise.

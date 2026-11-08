@@ -43,7 +43,8 @@ import { EventKind } from "./frame";
 import { FLOW_INF, FLOW_REGION, FlowFields, type FieldSpec } from "./flow";
 import type { Ladders } from "./ladders";
 import { LocalFields } from "./local";
-import { MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import type { Specialists, Steer } from "./specialists";
 import { NAV_GRID, NavKind, navCell, navWalkable, type NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
 
@@ -205,6 +206,9 @@ export class Army {
   private waveZ = new Float64Array(64);
   /** Each team's garrison wave (-1 until it has one). */
   private garrisonWave: [number, number] = [-1, -1];
+  /** M3: sappers and musketeers are steered here first (the sandbox sets it in a match). */
+  specialists: Specialists | null = null;
+  private steerOut: Steer = { mx: 0, mz: 0, speed: 0, face: NaN, action: 0 };
 
   constructor(
     private minions: Minions,
@@ -320,6 +324,56 @@ export class Army {
     return count;
   }
 
+  /**
+   * M3: a wave of mixed units (content's Unit numbers, rank by rank from the
+   * front, WAVES.file abreast) forms up at its muster point, offset along the
+   * wall by `offset` metres (barracks side by side), and marches down a route.
+   * M4's options carry over: with a ladder its crew of two comes out of the
+   * pikemen (each other kind keeps its place, or takes the hindmost pikeman's
+   * if the crew has it); mustered inside a courtyard under attack, it forms
+   * up where the garrison's muster is (no offset). Returns the number spawned.
+   */
+  spawnMix(team: 0 | 1, route: number, units: number[], offset = 0, at?: { x: number; z: number }, opts: WaveOptions = {}): number {
+    const first = this.minions.list.length;
+    const inside = opts.inside === true && !at;
+    const base = at ?? MUSTER[team];
+    const n = inside ? this.spawnWave(team, route, units.length, undefined, opts) : this.spawnWave(team, route, units.length, { x: base.x + offset, z: base.z }, opts);
+    const pikes: Minion[] = [];
+    for (let k = 0; k < n; k++) {
+      const m = this.minions.list[first + k];
+      if (m && m.unit === Unit.Pikeman) pikes.push(m);
+    }
+    const used = new Uint8Array(pikes.length);
+    let back = pikes.length - 1;
+    for (let k = 0; k < units.length; k++) {
+      const kind = units[k] ?? 0;
+      if (kind === 0) continue;
+      let i = k < pikes.length && !used[k] ? k : -1;
+      if (i < 0) {
+        while (back >= 0 && used[back]) back--;
+        i = back;
+      }
+      if (i < 0) break;
+      used[i] = 1;
+      const m = pikes[i];
+      const unit = UNIT_DEFS[kind] ?? UNITS.pikeman;
+      m.unit = kind;
+      // Re-draw the speed for its kind from its own pikeman draw, so the army's stream is not touched.
+      m.speed = (m.speed / UNITS.pikeman.speed) * unit.speed;
+    }
+    return n;
+  }
+
+  /**
+   * Who takes a ladder over a wall: anyone but masons, and (M3) but musketeers
+   * (they stay out and shoot; their aux counts their aim) and sappers still on
+   * their keg's errand (their task and aux are their own until then).
+   */
+  private climbs(m: Minion): boolean {
+    if (m.unit === Unit.Mason || m.unit === Unit.Musketeer) return false;
+    return !(this.specialists !== null && this.specialists.busy(m));
+  }
+
   /** Garrison pikemen for a team's courtyard: at their posts (the start of a match) or out of the barracks inside, walking to them. */
   spawnGarrison(team: 0 | 1, count: number, atPosts: boolean): number {
     if (this.garrisonWave[team] < 0) this.garrisonWave[team] = this.newWave(team, 1, true);
@@ -397,7 +451,7 @@ export class Army {
   private think(m: Minion, tick: number) {
     if (m.role === Role.Mason) return; // works.ts
     if (this.ladders && this.ladders.controls(m)) return;
-    const unit = UNIT_DEFS[m.unit];
+    const unit = UNIT_DEFS[m.unit] ?? UNITS.pikeman;
     const nav = this.nav;
     const c = navCell(m.x, m.z);
     // The floor went from under it (a deck blown away, a crater): it falls.
@@ -409,8 +463,17 @@ export class Army {
     let face = NaN; // the yaw to turn to (NaN: wherever it walks)
     let action = Action.Walk;
     const home = m.role === Role.Garrison || m.role === Role.Defend;
-    const t = home ? this.targetInside(m, unit, tick) : this.target(m, unit, tick);
-    if (t) {
+    // M3: a sapper or a musketeer may have his own business this tick (specialists.ts).
+    const sp = this.specialists !== null && this.specialists.steer(m, tick, this.steerOut);
+    const t = sp ? null : home ? this.targetInside(m, unit, tick) : this.target(m, unit, tick);
+    if (sp) {
+      const s = this.steerOut;
+      mx = s.mx;
+      mz = s.mz;
+      speed = s.speed;
+      face = s.face;
+      action = s.action;
+    } else if (t) {
       const dx = t.x - m.x, dz = t.z - m.z;
       const d = dsqrt(dx * dx + dz * dz) + 1e-9;
       if (d <= unit.reach) {
@@ -470,7 +533,7 @@ export class Army {
           }
           speed = m.speed;
         }
-      } else if (this.ladders && m.unit !== Unit.Mason && (tick + m.id) % LADDER_LOOK === 0 && this.order[m.team] !== Order.Hold) {
+      } else if (this.ladders && this.climbs(m) && (tick + m.id) % LADDER_LOOK === 0 && this.order[m.team] !== Order.Hold) {
         this.ladders.claim(m, this.flow.at(breachField(m.team), m.x, m.z) < FLOW_INF);
       }
       if (m.task !== Climb.ToLadder) {
@@ -479,9 +542,13 @@ export class Army {
           const ux = this.dir[0], uz = this.dir[1];
           const door = f < 6 && fieldTeam(f) === m.team ? this.flow.doorAhead(f, m.x, m.z, ux, uz, DOOR_REACH) : -1;
           if (door >= 0) {
-            action = Action.Batter;
             face = yawOf(ux, uz);
-            if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
+            // M3: sappers and musketeers leave a gate to the pikes and wait at it.
+            if (unit.batters === false) action = Action.Stand;
+            else {
+              action = Action.Batter;
+              if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
+            }
           } else {
             mx = ux;
             mz = uz;
@@ -760,7 +827,7 @@ export class Army {
     m.act = 0;
     m.cool = unit.blowMin + Math.floor(this.rng.next() * (unit.blowMax - unit.blowMin + 1));
     if (this.rng.next() >= unit.hit) return;
-    this.minions.knock({ minion: t.id, vx: ux * unit.knock, vy: 1.4, vz: uz * unit.knock, px: t.x - ux * 0.25, py: t.y + 1.25, pz: t.z - uz * 0.25, extra: 0.8 }, tick);
+    this.minions.knock({ minion: t.id, vx: ux * unit.knock, vy: 1.4, vz: uz * unit.knock, px: t.x - ux * 0.25, py: t.y + 1.25, pz: t.z - uz * 0.25, extra: 0.8, cause: Cause.Blow }, tick);
     this.emit(EventKind.Blood, t.x, t.y + 1.25, t.z, 0.45);
     m.target = -1;
   }
@@ -777,7 +844,7 @@ export class Army {
 
   /** Its floor is gone: it falls, keeping its own speed. */
   fall(m: Minion, tick: number) {
-    this.minions.knock({ minion: m.id, vx: m.vx, vy: 0, vz: m.vz, px: m.x, py: m.y + 1, pz: m.z, extra: 0 }, tick);
+    this.minions.knock({ minion: m.id, vx: m.vx, vy: 0, vz: m.vz, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: Cause.Fall }, tick);
   }
 
   /** Height of the floor at a point: the ground's own shape on open ground, the cell's floor on a deck, a heap or a body. */

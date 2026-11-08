@@ -105,6 +105,8 @@ export interface StylePreset {
   plaster: number;
   timber: number;
   roof: number[];
+  /** M3: roofs by building kind (barracks, Powder Mill, Foundry), so a courtyard reads from above. */
+  buildingRoofs: number[][];
   pole: number;
   finial: number;
   bannerEnemy: number;
@@ -232,6 +234,12 @@ export const GRITTY: StylePreset = {
   plaster: 0x958b78,
   timber: 0x34302b,
   roof: [0x3f454d, 0x363b42, 0x474c52],
+  // Weathered oak shingles on a barracks, a light boarded roof on a Powder Mill (built to lift off in a blast), sooty slate on a Foundry.
+  buildingRoofs: [
+    [0x5a4636, 0x523f31, 0x614c3b],
+    [0x8a7b5c, 0x7f7154, 0x948463],
+    [0x3b4046, 0x353a3f, 0x42474c],
+  ],
   pole: 0x3b3731,
   finial: 0x6b6458,
   // Target castle: the sickly yellow-green attacker accent; Ashwright oxblood.

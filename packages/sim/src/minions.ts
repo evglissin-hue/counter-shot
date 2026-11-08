@@ -95,6 +95,10 @@ export interface Minion {
   rest: number;
   /** Tick it fell, for scoring. */
   fellAt: number;
+  /** M3: what knocked it down (Cause), the shot that did (-1: none) and the stone that fell on it (-1: none). */
+  downCause?: number;
+  downShot?: number;
+  downStone?: number;
   /** Height of the floor it stands on (feet). */
   y: number;
   /** Army minions: the wave it marched with (-1 for the patrol), its route (index into ROUTE_NAMES) and marching speed (m/s). */
@@ -140,6 +144,23 @@ export const enum Role {
   Mason = 3,
 }
 
+/** What knocked a minion down (M3: bounties and trick shots). */
+export const enum Cause {
+  Unknown = 0,
+  /** A ball (a shot's): Knock.shot says which. */
+  Ball = 1,
+  /** A powder burst (a shell's, or a keg's): Knock.shot says whose shell, if any. */
+  Burst = 2,
+  /** Masonry falling on it: Knock.stone says which piece. */
+  Masonry = 3,
+  /** A blow in a fight. */
+  Blow = 4,
+  /** Its floor went from under it. */
+  Fall = 5,
+  /** A musket ball. */
+  Musket = 6,
+}
+
 export interface Knock {
   minion: number;
   /** Velocity change for the whole body, plus extra for the part nearest the point. */
@@ -150,6 +171,10 @@ export interface Knock {
   py: number;
   pz: number;
   extra: number;
+  /** M3: what did it, the shot (its id) and the falling stone, if any. */
+  cause?: number;
+  shot?: number;
+  stone?: number;
 }
 
 export class Minions {
@@ -170,6 +195,9 @@ export class Minions {
   private sinking: number[] = [];
   /** Where frozen bodies are registered as floor, once the world has a nav grid. */
   nav: NavGrid | null = null;
+  /** M3: when set, every knockdown is listed in `downs` as [minion, cause, shot, stone], for the match to pay for. */
+  recordDowns = false;
+  downs: number[] = [];
 
   constructor(private R: Rapier, private world: World, private terrain: Terrain) {}
 
@@ -248,7 +276,14 @@ export class Minions {
     const m = this.list[k.minion];
     if (!m || m.state === MinionState.Sinking || m.state === MinionState.Gone) return;
     if (m.state === MinionState.Frozen) this.thaw(m);
-    if (m.state === MinionState.Upright) this.toRagdoll(m, tick);
+    if (m.state === MinionState.Upright) {
+      // M3: what knocked it down, for bounties and trick shots.
+      m.downCause = k.cause ?? Cause.Unknown;
+      m.downShot = k.shot ?? -1;
+      m.downStone = k.stone ?? -1;
+      if (this.recordDowns) this.downs.push(m.id, m.downCause, m.downShot, m.downStone);
+      this.toRagdoll(m, tick);
+    }
     // Push every part, and the part nearest the hit point extra.
     let best = 0, bestD = 1e9;
     for (let i = 0; i < m.parts.length; i++) {

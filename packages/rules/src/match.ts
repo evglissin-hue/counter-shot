@@ -18,20 +18,29 @@ import {
   MATCH_EMPLACEMENTS,
   MID_Z,
   MUSTER,
+  PLOTS,
   REPAIR_KINDS,
   ROUTE_NAMES,
+  START_BUILDINGS,
   STORM,
   UNMANNED,
   WAVES,
+  weaponOf,
   WEAPONS,
+  type BuildingKind,
   type CastleLayout,
   type Emplacement,
+  type MixName,
   type RepairKind,
   type RouteName,
   type UnmannedDef,
+  type UpgradeKind,
+  type WeaponKind,
 } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { MinionState, Order, Role, SandboxSim, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
+import { Economy } from "./economy";
+import { Estate } from "./estate";
 
 export const enum Team {
   Enemy = 0,
@@ -39,7 +48,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 3;
+export const MATCH_RULES_VERSION = 4;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -47,7 +56,7 @@ export type MatchInput =
   | FireInput
   /** All of the team's waves, now and later (SPEC section 8). */
   | { kind: "order"; order: Order }
-  /** The route the team's barracks sends its next waves down. */
+  /** The route every barracks of the team sends its next waves down. */
   | { kind: "route"; route: RouteName }
   /**
    * The emplacement the team is riding now (-1: none, in the overview); every
@@ -58,7 +67,16 @@ export type MatchInput =
   /** Switch the team's masons on or off for one kind of section (SPEC section 4: auto-repair per section). */
   | { kind: "repair"; repair: RepairKind; on: boolean }
   /** The team gives up: the other team wins. */
-  | { kind: "surrender" };
+  | { kind: "surrender" }
+  // M3: building, buying, upgrading and each barracks' waves.
+  /** Build on one of the team's plots (0 to 5), or rebuild the ruin of the same kind there. */
+  | { kind: "build"; plot: number; building: BuildingKind }
+  /** A gun for one of the team's empty emplacements. */
+  | { kind: "buy"; emplacement: number; weapon: WeaponKind }
+  /** A Foundry upgrade for one of the team's guns (one each; needs a working Foundry). */
+  | { kind: "upgrade"; emplacement: number; upgrade: UpgradeKind }
+  /** How a barracks plot sends its waves: its mix, its route, or both. */
+  | { kind: "barracks"; plot: number; mix?: MixName; route?: RouteName };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
@@ -82,6 +100,8 @@ export interface MatchOptions {
   gunnery?: boolean;
   /** When sudden death starts (default MATCH.suddenDeathTick); tests and tools may bring it forward. */
   suddenDeathTick?: number;
+  /** M3: the enemy castle follows its build order (default); tests may turn it off. */
+  plan?: boolean;
 }
 
 /** What a team did in a match, for the end screen. */
@@ -166,10 +186,11 @@ export class Match {
    * holds while they do not, and drains when none are inside.
    */
   readonly storm: [number, number] = [0, 0];
-  readonly earned: [number, number] = [0, 0];
-  readonly spent: [number, number] = [0, 0];
   readonly stormsBegun: [number, number] = [0, 0];
   readonly stormsHeld: [number, number] = [0, 0];
+  /** M3: gold coming in (income, bounties, masonry, trick shots) and going out, and what is built and bought. */
+  readonly economy: Economy;
+  readonly estate: Estate;
   private inputs = new Map<number, Array<{ team: Team; input: MatchInput }>>();
   private garrison: boolean;
   private autoFire: boolean;
@@ -178,11 +199,21 @@ export class Match {
   /** The unmanned weapons' aim errors, drawn in the order they lay on targets. */
   private rng: Rng;
   private barracks: boolean;
+  private plan: boolean;
+  /** Waves the enemy's first barracks has sent (its route turns with them). */
+  private enemyWaves = 0;
+  /** Waves each barracks plot has sent (every other one from the second carries a ladder). */
+  private plotWaves: [number[], number[]] = [PLOTS.map(() => 0), PLOTS.map(() => 0)];
 
   constructor(R: Rapier, layout: CastleLayout, opts: MatchOptions) {
-    this.emplacements = opts.emplacements ?? MATCH_EMPLACEMENTS;
-    this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true });
+    // The match's own copies: empty slots fill in as guns are bought, upgrades are worked in.
+    this.emplacements = (opts.emplacements ?? MATCH_EMPLACEMENTS).map((e) => ({ ...e }));
+    const buildings = [0, 1].flatMap((castle) => START_BUILDINGS.map((b) => ({ castle, ...b })));
+    this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true, buildings });
     this.owner = this.emplacements.map(teamOf);
+    this.economy = new Economy(this.world, this.gold, (emp) => this.owner[emp] ?? -1);
+    this.estate = new Estate(this.world, this.economy, this.emplacements, (emp) => this.owner[emp] ?? -1);
+    this.plan = opts.plan !== false;
     this.guns = this.emplacements.map((e) => {
       const w = WEAPONS[e.weapon];
       const pitch = w.restPitch < w.minPitch ? w.minPitch : w.restPitch > w.maxPitch ? w.maxPitch : w.restPitch;
@@ -197,14 +228,18 @@ export class Match {
     const works = this.world.works!;
     works.policy = {
       allowed: (team, kind) => this.repairs[team][kind],
-      pay: (team, cost) => {
-        if (this.result || this.gold[team] < cost) return false;
-        this.gold[team] -= cost;
-        this.spent[team] += cost;
-        return true;
-      },
+      // Repairs are paid like anything else (M3's economy keeps the books).
+      pay: (team, cost) => !this.result && this.economy.pay(team, cost),
     };
     if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
+  }
+
+  /** Gold each team earned (income included) and spent: the economy's books. */
+  get earned(): [number, number] {
+    return this.economy.earned;
+  }
+  get spent(): [number, number] {
+    return this.economy.spent;
   }
 
   /** Sudden death (15:00 on): income doubles and every gun reloads faster. */
@@ -217,10 +252,13 @@ export class Match {
     return this.suddenDeath ? MATCH.suddenReload : 1;
   }
 
-  /** Gold a team earns this tick from its keep (all income goes through here, so sudden death doubles all of it). */
-  private income(team: Team): number {
-    void team;
-    return MATCH.keepIncome * (this.suddenDeath ? MATCH.suddenIncome : 1);
+  /**
+   * Gold a second a team earns as income now: its keep and each working
+   * Powder Mill (Economy.incomeRate), doubled in sudden death. All income
+   * goes through here.
+   */
+  income(team: Team): number {
+    return this.economy.incomeRate(this.estate.mills(team)) * (this.suddenDeath ? MATCH.suddenIncome : 1);
   }
 
   get tick(): number {
@@ -244,7 +282,7 @@ export class Match {
     list.push({ team, input });
   }
 
-  /** Ticks until both barracks send their next waves. */
+  /** Ticks until the barracks send their next waves. */
   nextWaveIn(): number {
     const t = this.tick;
     if (t <= WAVES.first) return WAVES.first - t;
@@ -261,20 +299,20 @@ export class Match {
       if (!this.result) for (const { team, input } of list) this.apply(team, input, tick);
     }
     if (!this.result) {
+      // M3: the enemy castle follows its build order (until the AI).
+      if (this.plan && tick % 30 === 0) this.estate.followPlan(Team.Enemy, tick);
       if (this.barracks && tick >= WAVES.first && (tick - WAVES.first) % WAVES.every === 0) {
-        this.sendWave(Team.Player);
-        this.sendWave(Team.Enemy);
+        this.sendWaves(Team.Player);
+        this.sendWaves(Team.Enemy);
       }
       if (this.autoFire) this.gunnery(tick);
     }
     this.world.step();
     if (this.result) return;
+    // M3: bounties, masonry and trick shots from this step; then income, through the one income function.
+    this.economy.step(tick);
     if (tick % MATCH.incomeEvery === MATCH.incomeEvery - 1) {
-      for (const team of [Team.Enemy, Team.Player]) {
-        const g = this.income(team);
-        this.gold[team] += g;
-        this.earned[team] += g;
-      }
+      for (const team of [Team.Enemy, Team.Player]) this.economy.payIncome(team, this.income(team));
     }
     // Storming: attackers inside a courtyard who outnumber its defenders, for STORM.hold ticks.
     const army = this.army;
@@ -300,9 +338,9 @@ export class Match {
   private apply(team: Team, input: MatchInput, tick: number) {
     switch (input.kind) {
       case "fire": {
-        // Only from the team's own emplacements, and only when loaded.
+        // Only from the team's own emplacements, armed, and only when loaded.
         const e = this.emplacements[input.emplacement];
-        if (!e || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
+        if (!e || e.empty || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
         this.shots[team]++;
         this.world.queue(tick, { ...input, auto: false, reload: this.reloadScale() });
         this.setGun(e.id, input.yaw, input.pitch);
@@ -312,7 +350,9 @@ export class Match {
         if (input.order === Order.Advance || input.order === Order.Hold || input.order === Order.Push) this.army.setOrder(team, input.order);
         return;
       case "route":
-        if (ROUTE_NAMES.includes(input.route)) this.route[team] = input.route;
+        if (!ROUTE_NAMES.includes(input.route)) return;
+        this.route[team] = input.route;
+        this.estate.setRoutes(team, input.route);
         return;
       case "man": {
         const e = input.emplacement;
@@ -329,12 +369,25 @@ export class Match {
       case "surrender":
         this.result = { winner: team === Team.Player ? Team.Enemy : Team.Player, reason: "surrender", tick };
         return;
+      // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
+      case "build":
+        this.estate.build(team, input.plot, input.building, tick);
+        return;
+      case "buy":
+        this.estate.buy(team, input.emplacement, input.weapon);
+        return;
+      case "upgrade":
+        this.estate.upgrade(team, input.emplacement, input.upgrade);
+        return;
+      case "barracks":
+        this.estate.setBarracks(team, input.plot, input.mix, input.route);
+        return;
     }
   }
 
   /** A gunner put this barrel here (clamped to its limits). */
   private setGun(id: number, yaw: number, pitch: number) {
-    const e = this.emplacements[id], w = WEAPONS[e.weapon];
+    const e = this.emplacements[id], w = weaponOf(e);
     const g = this.guns[id];
     g.yaw = yaw < e.baseYaw - e.yawLimit ? e.baseYaw - e.yawLimit : yaw > e.baseYaw + e.yawLimit ? e.baseYaw + e.yawLimit : yaw;
     g.pitch = pitch < w.minPitch ? w.minPitch : pitch > w.maxPitch ? w.maxPitch : pitch;
@@ -342,25 +395,36 @@ export class Match {
   }
 
   /**
-   * A team's barracks sends a wave down its route (the enemy's in turn, until
-   * the AI arrives), as many as its cap allows. It tops the garrison up
-   * first; with the enemy in its courtyard the wave musters inside and
-   * defends; and every other wave from the second carries a ladder.
+   * Every working barracks of a team sends its wave (M3: its own mix down its
+   * own route, formed up side by side outside the gate; the enemy's first
+   * barracks takes the routes in turn until the AI arrives), as many as the
+   * team's cap allows. The first tops the garrison up (M4); with the enemy in
+   * its courtyard a wave musters inside and defends; and every other wave a
+   * barracks sends from its second carries a ladder.
    */
-  private sendWave(team: Team) {
-    const route = team === Team.Player ? this.route[team] : ENEMY_ROUTES[this.waves[team] % ENEMY_ROUTES.length];
-    const room = WAVES.maxStanding - this.army.standing(team);
-    let count = room < WAVES.size ? room : WAVES.size;
-    const n = ++this.waves[team];
-    if (count <= 0) return;
-    if (this.garrison) {
-      const short = GARRISON.size - this.army.garrisonCount(team);
-      if (short > 0) count -= this.army.spawnGarrison(team, short < count ? short : count, false);
-    }
-    if (count <= 0) return;
+  private sendWaves(team: Team) {
+    const plots = this.estate.workingBarracks(team);
     const inside = this.army.attackers[team] > 0;
-    const ladder = !inside && n >= WAVES.ladderFrom && (n - WAVES.ladderFrom) % WAVES.ladderEvery === 0;
-    this.army.spawnWave(team, ROUTE_NAMES.indexOf(route), count, undefined, { ladder, inside });
+    let k = 0;
+    for (const plot of plots) {
+      const route = team === Team.Enemy && plot === 0 ? ENEMY_ROUTES[this.enemyWaves++ % ENEMY_ROUTES.length] : this.estate.barracks[team][plot].route;
+      const units = this.estate.waveUnits(team, plot);
+      const room = WAVES.maxStanding - this.army.standing(team);
+      let count = room < units.length ? room : units.length;
+      this.waves[team]++;
+      const n = ++this.plotWaves[team][plot];
+      // Side by side: the first in front of the gate, the next to its left and right, then further out.
+      const offset = k === 0 ? 0 : (k & 1 ? -1 : 1) * 5.5 * ((k + 1) >> 1);
+      k++;
+      if (count <= 0) continue;
+      if (this.garrison && k === 1) {
+        const short = GARRISON.size - this.army.garrisonCount(team);
+        if (short > 0) count -= this.army.spawnGarrison(team, short < count ? short : count, false);
+      }
+      if (count <= 0) continue;
+      const ladder = !inside && n >= WAVES.ladderFrom && (n - WAVES.ladderFrom) % WAVES.ladderEvery === 0;
+      this.army.spawnMix(team, ROUTE_NAMES.indexOf(route), units.slice(0, count), offset, undefined, { ladder, inside });
+    }
   }
 
   /**
@@ -373,9 +437,9 @@ export class Match {
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
       const U = UNMANNED[e.weapon];
-      if (!U || this.manned[team] === e.id) continue;
+      if (!U || e.empty || this.manned[team] === e.id) continue;
       const g = this.guns[e.id];
-      const w = WEAPONS[e.weapon];
+      const w = weaponOf(e);
       if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);
       if (g.target < 0) continue;
       const a = stepAim({ yaw: g.yaw, pitch: g.pitch }, { dYaw: g.aimYaw - g.yaw, dPitch: g.aimPitch - g.pitch, fine: false }, e, w);
@@ -453,11 +517,16 @@ export class Match {
     return false;
   }
 
-  /** Pieces of a castle that have come loose or turned to dust. */
+  /** Pieces of a castle that have come loose or turned to dust (of its buildings, only what was built). */
   masonryDown(castle: 0 | 1): number {
     const c = this.world.castle;
+    const st = this.world.structures;
     let n = 0;
-    for (const s of c.layout.stones) if (s.castle === castle && c.dynamic[s.id]) n++;
+    for (const s of c.layout.stones) {
+      if (s.castle !== castle || !c.dynamic[s.id]) continue;
+      if (s.plot !== undefined && (!st || st.slot(castle, s.plot).kind !== s.building)) continue;
+      n++;
+    }
     return n;
   }
 
@@ -498,10 +567,15 @@ export class Match {
     const r = this.result;
     const nums = [this.tick, this.gold[0], this.gold[1], this.shots[0], this.shots[1], this.autoShots[0], this.autoShots[1], r ? r.winner : -2, r ? r.tick : -1, parseInt(w.state, 16)];
     nums.push(ROUTE_NAMES.indexOf(this.route[0]), ROUTE_NAMES.indexOf(this.route[1]), this.waves[0], this.waves[1], this.manned[0], this.manned[1]);
-    nums.push(this.storm[0], this.storm[1], this.earned[0], this.earned[1], this.spent[0], this.spent[1], this.stormsBegun[0], this.stormsBegun[1], this.stormsHeld[0], this.stormsHeld[1]);
+    nums.push(this.storm[0], this.storm[1], this.stormsBegun[0], this.stormsBegun[1], this.stormsHeld[0], this.stormsHeld[1]);
     for (const r of this.repairs) for (const k of REPAIR_KINDS) nums.push(r[k] ? 1 : 0);
     if (r) nums.push(r.reason === "keep" ? 0 : r.reason === "storm" ? 1 : 2);
     for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ);
+    // M3: gold earned and spent, open trick-shot tallies, what is built and bought, the enemy's build order, each barracks' waves.
+    this.economy.hashInto(nums);
+    this.estate.hashInto(nums);
+    nums.push(this.enemyWaves);
+    for (const p of this.plotWaves) nums.push(...p);
     const f = new Float64Array(nums);
     return { state: hex8(hashBytes(new Uint8Array(f.buffer))), world: w.world };
   }

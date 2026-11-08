@@ -74,9 +74,13 @@ export interface Ball {
   struck: number;
   /** Lifetime in steps before it is removed. */
   life: number;
+  /** A full blast's radius as a multiple of a cannonball's (heavy shot, M3). */
+  power: number;
 }
 
 export interface FireOptions {
+  /** A full blast's radius as a multiple of a cannonball's (heavy shot, M3). Default 1. */
+  power?: number;
   radius?: number;
   density?: number;
   restitution?: number;
@@ -167,6 +171,9 @@ export class CastleSim {
   private restoredSince: number[] = [];
   /** Shapes for testing whether a piece's place is clear: a box per size, and the wedge, a little smaller than the pieces. */
   private slotShapes = new Map<string, InstanceType<Rapier["Cuboid"]> | InstanceType<Rapier["ConvexPolyhedron"]>>();
+  /** M3: when set, every piece that goes from standing to loose (or dust) is listed in `fell`, for the match to pay for. */
+  recordFalls = false;
+  fell: number[] = [];
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -294,7 +301,7 @@ export class CastleSim {
     this.owner.set(col.handle, -(slot + 1));
     this.balls[slot] = {
       body, handle: col.handle, radius, vx, vy, vz, age: 0, alive: true,
-      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12,
+      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12, power: o.power ?? 1,
     };
     return slot;
   }
@@ -492,7 +499,7 @@ export class CastleSim {
         changed = true;
         continue;
       }
-      const radius = this.opts.blastBase + speed * this.opts.blastPerSpeed;
+      const radius = (this.opts.blastBase + speed * this.opts.blastPerSpeed) * ball.power;
       const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
       // The ball touches the face; the damage centres inside the masonry, a metre along the shot.
       this.blast(p.x + dx, p.y + dy, p.z + dz, radius, dx, dy, dz, speed);
@@ -759,6 +766,21 @@ export class CastleSim {
     return true;
   }
 
+  /**
+   * M3: take a standing piece out of the world without a sound (a building
+   * that is not built yet): it counts as gone, like dust, until restore()
+   * puts it up. No support check, no impact, nothing recorded as fallen.
+   */
+  withdraw(id: number): boolean {
+    if (this.dynamic[id]) return false;
+    this.dynamic[id] = 1;
+    this.dynList.push(id);
+    this.shattered[id] = 1;
+    this.shatterReported[id] = 1; // never drawn: no dust to show for it
+    this.bodies[id].setEnabled(false);
+    return true;
+  }
+
   /** Loose pieces asleep for 1.5 s become fixed again. The banner never freezes. */
   private freezeResting() {
     const fixed = this.R.RigidBodyType.Fixed;
@@ -806,6 +828,7 @@ export class CastleSim {
       this.dynamic[id] = 1;
       this.dynList.push(id);
       this.supportDirty |= 1 << this.castleOf[id];
+      if (this.recordFalls) this.fell.push(id);
     }
     this.shattered[id] = 1;
     this.frozen[id] = 0;
@@ -818,6 +841,7 @@ export class CastleSim {
     this.dynamic[id] = 1;
     this.dynList.push(id);
     this.supportDirty |= 1 << this.castleOf[id];
+    if (this.recordFalls) this.fell.push(id);
     const body = this.bodies[id];
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();

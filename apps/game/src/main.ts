@@ -3,7 +3,26 @@
 // Aiming runs here at a fixed 60 Hz through the same limiter the sim checks;
 // a fire sends the exact aim to the worker, which owns everything else.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, GAME_LAYOUT, KEEP_STOREYS, MATCH_EMPLACEMENTS, REPAIR_KINDS, ROUTE_NAMES, WEAPONS, type Emplacement, type RepairKind, type RouteName, type Stone } from "@keepfall/content";
+import {
+  ASHWRIGHT_EMPLACEMENTS,
+  ASHWRIGHT_SLOTS,
+  BARREL,
+  buildLayout,
+  GAME_LAYOUT,
+  KEEP_STOREYS,
+  MATCH_EMPLACEMENTS,
+  REPAIR_KINDS,
+  ROUTE_NAMES,
+  UPGRADE_KINDS,
+  WEAPON_KINDS,
+  WEAPONS,
+  weaponOf,
+  type Emplacement,
+  type RepairKind,
+  type RouteName,
+  type Stone,
+} from "@keepfall/content";
+import { Estate } from "./estate-page";
 import {
   aimDir,
   clampAim,
@@ -44,11 +63,20 @@ const sound = new Sound();
 const layout = buildLayout(1, GAME_LAYOUT);
 /** What the battle sounds like: impacts by material, footfalls, clashes, shouting, the stream, crows. */
 const soundscape = new Soundscape(sound, layout);
+/** M3: the build wheel, gold coming in, notes and sounds of the plots. */
+const estate = new Estate(renderer, sound, send, (text, ms) => showNote(text, ms), $);
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
-/** The guns you ride (your castle's); a match also has the enemy's, which fire on their own. */
-const EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
-const ALL_EMP: Emplacement[] = MATCH_EMPLACEMENTS;
+/**
+ * The guns you ride: the Practice range's four, or in a match your castle's
+ * eight emplacements (M3: empty slots fill in as you buy guns). A match also
+ * has the enemy's, which fire on their own: ALL_EMP holds every one as the
+ * worker last reported it (the player's first, the same objects as EMP).
+ */
+const ALL_EMP: Emplacement[] = MATCH_EMPLACEMENTS.map((e) => ({ ...e }));
+let EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
+/** Slots the page keeps aim, zoom, trails and reloads for (the most any mode has). */
+const SLOTS = ASHWRIGHT_SLOTS.length;
 
 const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
@@ -81,10 +109,11 @@ const clock = () => (FIXED ? vclock : performance.now());
 
 // ---- state ------------------------------------------------------------------
 let current = 0;
-const aims: AimState[] = EMP.map((e) => restAim(e, WEAPONS[e.weapon]));
+// Per slot (eight, the most a mode has): the aim, where the player wants it, the zoom.
+const aims: AimState[] = ASHWRIGHT_SLOTS.map((e) => restAim(e, WEAPONS[e.weapon]));
 /** Where the player wants the weapon to point; the weapon turns towards it at its own rate. */
 const wanted: AimState[] = aims.map((a) => ({ ...a }));
-const fov: number[] = EMP.map((e) => WEAPONS[e.weapon].fov[1] * 0.8);
+const fov: number[] = ASHWRIGHT_SLOTS.map((e) => WEAPONS[e.weapon].fov[1] * 0.8);
 let fuseTicks = 0; // mortar: 0 means burst on impact
 /**
  * Aim help: the first part of the flight, your last shot's trail and where it
@@ -95,12 +124,12 @@ let aimHelp: "full" | "partial" = "partial";
 /** Slow motion when a followed shot lands or a ridden shell bursts (off: the physics plays in real time). */
 let slowMo = false;
 /** Shot camera per emplacement: on for the mortar (ride the shell), off for the others. */
-let shotCam: boolean[] = EMP.map((e) => e.weapon === "mortar");
+let shotCam: boolean[] = ASHWRIGHT_SLOTS.map((e) => e.weapon === "mortar");
 try {
   if (localStorage.getItem("keepfall.aimHelp2") === "full") aimHelp = "full";
   slowMo = localStorage.getItem("keepfall.slowmo") === "1";
   const saved = localStorage.getItem("keepfall.shotCam");
-  if (saved && saved.length === EMP.length) shotCam = [...saved].map((c) => c === "1");
+  if (saved && saved.length >= 4) [...saved].slice(0, SLOTS).forEach((c, i) => (shotCam[i] = c === "1"));
 } catch {}
 /** Seconds the current shot is predicted to fly before it lands or bursts. */
 let flightSeconds = 0;
@@ -108,13 +137,13 @@ let flightSeconds = 0;
 let aimHit: PathHit | null = null;
 let spin: Spin = Spin.None;
 let view: "sight" | "overview" = "sight";
-let reload: number[] = EMP.map(() => 0);
+let reload: number[] = ASHWRIGHT_SLOTS.map(() => 0);
 let wind = { x: 0, z: 0 };
 let ready = false;
 let paused = false;
-const trails: Array<Float32Array | null> = EMP.map(() => null);
+const trails: Array<Float32Array | null> = ASHWRIGHT_SLOTS.map(() => null);
 const recording = new Map<number, { emp: number; pts: number[] }>(); // shot id -> trail
-const landing: Array<{ x: number; y: number; z: number } | null> = EMP.map(() => null);
+const landing: Array<{ x: number; y: number; z: number } | null> = ASHWRIGHT_SLOTS.map(() => null);
 let follow: { id: number; lastX: number; lastY: number; lastZ: number; vx: number; vy: number; vz: number; until: number } | null = null;
 let slowUntil = 0;
 /** Sim and effects speed (slow motion around impacts). */
@@ -267,6 +296,8 @@ function onFrame(f: FrameData) {
     } else if (kind === EventKind.Ladder) {
       if (b === 2) sound.ladderUp(c, 7.5, d);
       else sound.ladderDown(c, 1, d);
+    } else if (kind === EventKind.Raised && a >= 0 && a < everMoved.length) {
+      everMoved[a] = 0; // M3: a building's piece back up: its next fall counts again
     }
   }
   laidSounds = clearSounds = 0;
@@ -280,6 +311,8 @@ function onFrame(f: FrameData) {
     malletAct.set(id, act);
     if (was < MALLET_HIT && act >= MALLET_HIT && strokes++ < 3) sound.mallet(f.minions[o + 1], f.minions[o + 2] + 1, f.minions[o + 3], id);
   }
+  // M3: the plots' notes and sounds, muskets and kegs heard.
+  estate.onFrame(f, now);
   // Stones moving for the first time count towards the burst's tally.
   for (let i = 0; i < f.stoneCount; i++) {
     const id = f.stones[i * 8] | 0;
@@ -547,7 +580,7 @@ function aimTick() {
     return;
   }
   const e = EMP[current];
-  const w = WEAPONS[e.weapon];
+  const w = weaponOf(e);
   const fine = input.down("ShiftLeft") || input.down("ShiftRight");
   const pad = input.gamepad();
   const one = (v: number) => Math.max(-1, Math.min(1, v));
@@ -593,7 +626,7 @@ function applyMouse() {
     input.mouseX = input.mouseY = 0;
     return;
   }
-  const e = EMP[current], w = WEAPONS[e.weapon];
+  const e = EMP[current], w = weaponOf(e);
   const fine = input.down("ShiftLeft") || input.down("ShiftRight");
   const zoomK = fov[current] / w.fov[1]; // slower when zoomed in
   const k = MOUSE_RAD_PER_PX * zoomK * (fine ? 0.35 : 1);
@@ -608,15 +641,28 @@ function applyMouse() {
 function fire() {
   if (!ready || reload[current] > 0 || matchInfo?.result) return;
   const e = EMP[current];
+  if (e.empty) {
+    estate.openFor(current);
+    return;
+  }
   const a = aims[current];
   send({ t: "input", input: { kind: "fire", emplacement: current, yaw: a.yaw, pitch: a.pitch, charge: 1, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
-  reload[current] = WEAPONS[e.weapon].reload; // until the worker confirms
+  reload[current] = weaponOf(e).reload; // until the worker confirms
+}
+
+/** Q and E: the next or the previous gun that is armed (M3: empty slots are passed over). */
+function step(dir: number) {
+  for (let k = 1; k <= EMP.length; k++) {
+    const i = (((current + dir * k) % EMP.length) + EMP.length) % EMP.length;
+    if (!EMP[i].empty) return select(i);
+  }
 }
 
 function select(i: number) {
   endRide();
   const prev = current;
   const wasSight = view === "sight";
+  if (i >= EMP.length) return;
   current = ((i % EMP.length) + EMP.length) % EMP.length;
   if (current !== prev) sound.ui("switch");
   view = "sight";
@@ -634,7 +680,7 @@ function select(i: number) {
  */
 function man(e: number, left: number) {
   const g = matchInfo?.guns;
-  if (e >= 0 && g && g.length >= (e + 1) * 2) aims[e] = clampAim({ yaw: g[e * 2], pitch: g[e * 2 + 1] }, EMP[e], WEAPONS[EMP[e].weapon]);
+  if (e >= 0 && g && g.length >= (e + 1) * 2) aims[e] = clampAim({ yaw: g[e * 2], pitch: g[e * 2 + 1] }, EMP[e], weaponOf(EMP[e]));
   send({ t: "input", input: { kind: "man", emplacement: e, left: left >= 0 ? { emplacement: left, yaw: aims[left].yaw, pitch: aims[left].pitch } : undefined } });
 }
 
@@ -762,8 +808,8 @@ function cutPath(path: Float32Array, hit: PathHit): Float32Array {
 
 let predicted: { x: number; y: number; z: number } | null = null;
 function updateAimHelp() {
-  const e = EMP[current], w = WEAPONS[e.weapon], a = aims[current];
-  const showing = view === "sight" && !follow && !ride;
+  const e = EMP[current], w = weaponOf(e), a = aims[current];
+  const showing = view === "sight" && !follow && !ride && !e.empty;
   aimHit = null;
   let marker: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null = null;
   if (!showing) {
@@ -887,21 +933,42 @@ const hud = {
   shotCam: $<HTMLInputElement>("shotcam"),
   sound: $<HTMLButtonElement>("sound-btn"),
 };
-const tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-weapon]")];
-tabs.forEach((b) =>
-  b.addEventListener("click", () => {
-    select(Number(b.dataset.weapon));
-    b.blur(); // keep keys like Space for the game, not the button
-  }),
-);
+/** M3: one tab per gun you can ride (eight in a match, the empty ones dimmed), rebuilt when a gun is bought. */
+let tabs: HTMLButtonElement[] = [];
+function buildTabs() {
+  const group = $("weapons");
+  group.innerHTML = "";
+  tabs = EMP.map((e, i) => {
+    const b = document.createElement("button");
+    b.dataset.weapon = String(i);
+    b.textContent = `${i + 1} ${e.empty ? "Empty" : WEAPONS[e.weapon].name}`;
+    if (e.empty) b.className = "emptyslot";
+    b.addEventListener("click", () => {
+      select(i);
+      b.blur(); // keep keys like Space for the game, not the button
+    });
+    group.append(b);
+    return b;
+  });
+}
+buildTabs();
 
 let hudFrame = 0;
 function updateHud(force = false) {
   if (!force && (hudFrame++ & 3) !== 0) return;
-  const e = EMP[current], w = WEAPONS[e.weapon];
-  hud.name.textContent = w.name;
+  const e = EMP[current], w = weaponOf(e);
+  hud.name.textContent = e.empty ? "Empty emplacement" : w.name;
   hud.slot.textContent = `${current + 1}`;
   tabs.forEach((b, i) => b.setAttribute("aria-pressed", String(i === current)));
+  if (e.empty) {
+    // M3: nothing to fire here yet.
+    hud.reload.textContent = e.place ? `On ${e.place}` : "";
+    hud.reloadFill.style.transform = "scaleX(0)";
+    hud.target.textContent = "B or a click: buy a gun for it";
+    hud.extra.textContent = "";
+    hud.reticle.hidden = true;
+    return;
+  }
   const r = reload[current];
   hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
   hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
@@ -1021,6 +1088,13 @@ function startMode(m: Mode) {
     resetLocal();
     send({ t: "reset", mode: m, seed: SEED, minions: MINIONS });
   }
+  // M3: a match starts with its emplacements as built (empty slots empty); your guns are its first eight.
+  MATCH_EMPLACEMENTS.forEach((e, i) => Object.assign(ALL_EMP[i], e, { upgrade: undefined }));
+  EMP = m === "versus" ? ALL_EMP.slice(0, SLOTS) : ASHWRIGHT_EMPLACEMENTS;
+  if (current >= EMP.length || EMP[current].empty) current = 0;
+  renderer.setArms(ALL_EMP);
+  buildTabs();
+  estate.reset(m);
   renderer.showEmplacements(m === "versus" ? ALL_EMP.length : EMP.length);
   renderer.setMarkers(m === "versus");
   prevGate = null;
@@ -1034,8 +1108,42 @@ function startMode(m: Mode) {
   sound.setStorm(0, 0);
   if (m === "versus") {
     send({ t: "input", input: { kind: "man", emplacement: current } });
-    showNote("Topple the enemy keep or storm its courtyard. Both barracks send a wave every 25 seconds, some with ladders; masons rebuild what is broken, for gold. Ctrl+1, 2, 3: advance, hold, push the breach. L: your route. Alt+1 to 4: repairs.", 10000);
+    showNote("Topple the enemy keep or storm its courtyard. Every barracks sends a wave every 25 seconds, some with ladders. B: build on your plots and buy guns for your empty emplacements; gold comes from your keep, mills, every enemy and every stone you bring down, and pays your masons. Ctrl+1, 2, 3: advance, hold, push the breach. L: your route. Alt+1 to 4: repairs.", 12000);
   }
+}
+
+/**
+ * M3: what each emplacement holds, as the worker reported it: a gun bought
+ * for an empty slot gets its aim and zoom, the tabs and the gun models follow.
+ */
+function syncArms(arms: Int8Array) {
+  let changed = false;
+  for (let i = 0; i < ALL_EMP.length && i * 2 + 1 < arms.length; i++) {
+    const e = ALL_EMP[i];
+    const w = arms[i * 2], u = arms[i * 2 + 1];
+    const kind = w >= 0 ? WEAPON_KINDS[w] : e.weapon;
+    const upgrade = u >= 0 ? UPGRADE_KINDS[u] : undefined;
+    const empty = w < 0;
+    if (e.empty === empty && e.weapon === kind && e.upgrade === upgrade) continue;
+    const bought = !!e.empty && !empty;
+    e.empty = empty;
+    e.weapon = kind;
+    e.upgrade = upgrade;
+    e.barrel = BARREL[kind];
+    changed = true;
+    if (i < SLOTS && bought) {
+      const wd = weaponOf(e);
+      aims[i] = restAim(e, wd);
+      wanted[i] = { ...aims[i] };
+      fov[i] = wd.fov[1] * 0.8;
+      shotCam[i] = kind === "mortar";
+      reload[i] = 0;
+    }
+  }
+  if (!changed) return;
+  renderer.setArms(ALL_EMP);
+  buildTabs();
+  updateHud(true);
 }
 
 /** Forget everything drawn from the old world. */
@@ -1253,6 +1361,10 @@ function onMatch(info: MatchInfo) {
   $("clock").classList.toggle("sudden", info.suddenDeath);
   $("sudden").hidden = !info.suddenDeath || !!info.result;
   $("gold").textContent = `${info.gold[1]} gold`;
+  // M3: the rate it comes in, what was earned since, the guns as built and bought.
+  $("gold-rate").textContent = `+${info.income[1].toFixed(1)}/s`;
+  syncArms(info.arms);
+  estate.onMatch(info, EMP[current] ?? null, current);
   const r = info.result;
   $("match-note").textContent = r ? endLine(r).short : "Topple the enemy keep or storm its courtyard";
   // The end screen a moment after the end, so the collapse (or the storm) can be seen.
@@ -1318,6 +1430,13 @@ function momentsOf(prev: MatchInfo, info: MatchInfo) {
 let lastEnemyMasonNote = -1e9;
 let lastGoldNote = -1e9;
 
+/** M3: trick shots as the end screen says them (ricochet, collapse, multi-kill, keep hit counts). */
+function trickText(t: number[]): string {
+  const names = ["ricochet", "collapse", "multi-kill", "keep hit"];
+  const parts = names.map((k, i) => [k, t[i] ?? 0] as const).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k}${n > 1 ? "s" : ""}`);
+  return parts.length ? parts.join(", ") : "none";
+}
+
 /** How a match ended, in a few words and in a sentence. */
 function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: string } {
   if (r.winner === -1) return { short: "A draw", long: r.reason === "storm" ? "Both courtyards fell together." : "Both banners came down together." };
@@ -1339,8 +1458,10 @@ function showEnd() {
     ["Masonry lost", mas ? mas[1] : "", mas ? mas[0] : ""],
     ["Stones rebuilt", st ? st[1].stonesRebuilt : "", st ? st[0].stonesRebuilt : ""],
     ["Gold earned", st ? st[1].goldEarned : "", st ? st[0].goldEarned : ""],
-    ["Gold on repairs", st ? st[1].goldSpent : "", st ? st[0].goldSpent : ""],
-    ["Pikemen lost", info.fallen[1], info.fallen[0]],
+    ["Gold spent", st ? st[1].goldSpent : "", st ? st[0].goldSpent : ""],
+    // M3: trick shots by kind.
+    ["Trick shots", trickText(info.tricks[1]), trickText(info.tricks[0])],
+    ["Men lost", info.fallen[1], info.fallen[0]],
     ["Waves sent", info.waves[1], info.waves[0]],
     ["Ladders raised", st ? st[1].laddersRaised : "", st ? st[0].laddersRaised : ""],
     ["Storms begun", st ? st[1].stormsBegun : "", st ? st[0].stormsBegun : ""],
@@ -1413,6 +1534,19 @@ const help = $("help");
 $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
 $("help-close").addEventListener("click", () => (help.hidden = true));
 hud.shotCam.addEventListener("change", () => toggleShotCam(hud.shotCam.checked));
+// M3: in the overview, a click (not a drag) on one of your plots opens the build wheel on it.
+let downAtPx: { x: number; y: number } | null = null;
+canvas.addEventListener("pointerdown", (e) => {
+  downAtPx = view === "overview" ? { x: e.clientX, y: e.clientY } : null;
+});
+canvas.addEventListener("pointerup", (e) => {
+  const d = downAtPx;
+  downAtPx = null;
+  if (!d || view !== "overview" || mode !== "versus" || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+  const p = renderer.pick(e.clientX, e.clientY);
+  const plot = p ? estate.plotAt(p.x, p.z) : -1;
+  if (plot >= 0) estate.openPlot(plot);
+});
 $("overview-btn").addEventListener("click", () => toggleOverview());
 
 function toggleShotCam(on = !shotCam[current]) {
@@ -1533,9 +1667,11 @@ function frame(wall: number) {
   } else frames++;
   const now = clock();
   const p = input.read();
-  if (p.weapon >= 0) select(p.weapon);
-  if (p.next) select(current + 1);
-  if (p.prev) select(current - 1);
+  // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
+  const wheelKeys = estate.keys(p, mode === "versus");
+  if (!wheelKeys && p.weapon >= 0) select(p.weapon);
+  if (p.next) step(1);
+  if (p.prev) step(-1);
   if (p.overview) toggleOverview();
   if (p.help) help.hidden = !help.hidden;
   if (p.shotCam) toggleShotCam();
@@ -1549,7 +1685,7 @@ function frame(wall: number) {
   if (p.route && matchInfo) setRoute(ROUTE_NAMES[(ROUTE_NAMES.indexOf(matchInfo.route) + 1) % ROUTE_NAMES.length]);
   if (p.repair >= 0) toggleRepair(REPAIR_KINDS[p.repair]);
   if (p.spin && EMP[current].weapon === "longGun") spin = ((spin + 1) % 5) as Spin;
-  const w = WEAPONS[EMP[current].weapon];
+  const w = weaponOf(EMP[current]);
   const fuseStep = (dir: number) => {
     if (EMP[current].weapon !== "mortar") return;
     // Leaving impact starts the fuse at the predicted flight time, so one press gives a burst just as it lands.
@@ -1573,7 +1709,7 @@ function frame(wall: number) {
   if (ride) {
     // Any fire or skip key takes you back to the gun; it never fires.
     if (p.fire || p.skip) endRide();
-  } else if (p.fire && view === "sight") fire();
+  } else if (p.fire && view === "sight" && !estate.wheelOpen) fire();
 
   applyMouse();
   aimAcc += dt;
@@ -1611,6 +1747,7 @@ function frame(wall: number) {
   updateHud();
   placeWanted();
   if (!paused) renderer.render(dt);
+  estate.update(now);
   sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: timeScale });
   soundscape.update(dt, renderer.listener());
   calibrate(dt);
@@ -1706,6 +1843,15 @@ else {
     return bridgesOpen.slice();
   },
   startMode,
+  /** M3: send a match input as the player (the screenshot tools build and buy with it). */
+  input(i: unknown) {
+    send({ t: "input", input: i as never });
+  },
+  /** M3: the build wheel. */
+  wheel(open: boolean, target = -1) {
+    if (open) estate.wheel.open(target);
+    else estate.wheel.close();
+  },
   toggleNav,
   giveOrder,
   setRoute,
@@ -1738,7 +1884,7 @@ else {
     frozen = on;
   },
   aimAt(emp: number, yaw: number, pitch: number) {
-    aims[emp] = clampAim({ yaw, pitch }, EMP[emp], WEAPONS[EMP[emp].weapon]);
+    aims[emp] = clampAim({ yaw, pitch }, EMP[emp], weaponOf(EMP[emp]));
     wanted[emp] = { ...aims[emp] };
   },
   select,

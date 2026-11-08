@@ -253,6 +253,117 @@ export class Sound {
     this.later(g, t0 + 0.3);
   }
 
+  // --- M3: gold, building, sappers and musketeers --------------------------------------
+
+  /** Gold coming in: a clink of coins, not placed (a few more for a bigger sum). */
+  coin(amount: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.01;
+    const g = ctx.createGain();
+    g.gain.value = 0.11;
+    g.connect(this.dry);
+    const n = amount >= 10 ? 3 : amount >= 5 ? 2 : 1;
+    for (let i = 0; i < n; i++) this.clink(g, t0 + i * 0.055 + Math.random() * 0.02, 0.7 + 0.3 * Math.random());
+    this.later(g, t0 + 0.8);
+  }
+
+  /** A trick shot: a bright brass ping over a jingle of coins, not placed. */
+  trick() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.02;
+    const g = ctx.createGain();
+    g.gain.value = 0.16;
+    g.connect(this.dry);
+    const send = ctx.createGain();
+    send.gain.value = 0.35;
+    g.connect(send);
+    send.connect(this.reverbIn);
+    for (const [f, a, d] of [[880, 0.5, 1.4], [1318, 0.35, 1.1], [2093, 0.22, 0.8], [3150, 0.12, 0.5]] as const) this.tone(g, t0, f, f * 0.995, 1.2, 0.002, d, a);
+    for (let i = 0; i < 6; i++) this.clink(g, t0 + 0.08 + i * 0.045 + Math.random() * 0.03, 0.5 + 0.5 * Math.random());
+    this.later(g, t0 + 2);
+    this.later(send, t0 + 2);
+  }
+
+  /** One coin: two inharmonic partials and a tick. */
+  private clink(to: AudioNode, t0: number, level: number) {
+    const f = 2600 + Math.random() * 900;
+    this.tone(to, t0, f, f, 0.1, 0.001, 0.12, 0.5 * level);
+    this.tone(to, t0, f * 1.53, f * 1.52, 0.1, 0.001, 0.08, 0.3 * level);
+    this.burstNoise(to, t0, this.white, "highpass", 5000, 0.7, 0.001, 0.01, 0.25 * level);
+  }
+
+  /** A mallet on timber as a building's piece goes up. */
+  knock(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 18), 0.25, 1);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 650 + Math.random() * 250, 2.2, 0.001, 0.07, 0.4);
+    this.tone(c.input, c.t0, 210, 140, 0.06, 0.001, 0.09, 0.35);
+    if (Math.random() < 0.5) this.burstNoise(c.input, c.t0 + 0.16 + Math.random() * 0.05, this.white, "bandpass", 800, 2.5, 0.001, 0.05, 0.22);
+  }
+
+  /** A building finished: a heavy settling thud and a long timber creak. */
+  built(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 30), 0.4, 3);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 500, 0.8, 0.003, 0.4, 0.7);
+    this.tone(c.input, c.t0, 95, 55, 0.3, 0.003, 0.45, 0.5, 2);
+    this.sweptNoise(c.input, c.t0 + 0.25, this.white, 1400, 600, 0.9, 0.08, 0.9, 0.12);
+  }
+
+  /** A musket shot: a sharp crack and a short boom. */
+  musket(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 22), 0.35, 2.5);
+    this.burstNoise(c.input, c.t0, this.white, "highpass", 1800, 0.7, 0.0008, 0.05, 0.75);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 1400, 0.7, 0.002, 0.25, 0.5);
+    this.tone(c.input, c.t0, 140, 60, 0.12, 0.001, 0.2, 0.35, 1.5);
+  }
+
+  /** A keg set and lit: its fuse sizzles and crackles for `seconds`. */
+  fuse(x: number, y: number, z: number, seconds: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const c = this.out(this.place(x, y, z, 12), 0.15, seconds + 1);
+    const src = ctx.createBufferSource();
+    src.buffer = this.white;
+    src.loop = true;
+    const band = ctx.createBiquadFilter();
+    band.type = "highpass";
+    band.frequency.value = 3500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, c.t0);
+    g.gain.linearRampToValueAtTime(0.16, c.t0 + 0.05);
+    g.gain.setValueAtTime(0.16, c.t0 + seconds - 0.1);
+    g.gain.linearRampToValueAtTime(0, c.t0 + seconds);
+    src.connect(band);
+    band.connect(g);
+    g.connect(c.input);
+    src.start(c.t0, Math.random() * 2);
+    src.stop(c.t0 + seconds + 0.05);
+    // Crackles in the hiss, quickening as it burns down.
+    for (let t = 0.05; t < seconds; t += 0.05 + 0.18 * (1 - t / seconds) * Math.random()) {
+      this.burstNoise(c.input, c.t0 + t, this.white, "bandpass", 2000 + Math.random() * 3000, 3, 0.0005, 0.008, 0.25 * Math.random());
+    }
+  }
+
+  /** A Foundry at work: a hammer on the anvil, ringing. */
+  anvil(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 20), 0.3, 2);
+    this.burstNoise(c.input, c.t0, this.white, "highpass", 3000, 0.7, 0.0005, 0.012, 0.4);
+    for (const [f, a, d] of [[1046, 0.3, 0.9], [2420, 0.18, 0.6], [3910, 0.1, 0.35]] as const) this.tone(c.input, c.t0, f, f, 0.5, 0.001, d, a);
+  }
+
+  /** A Powder Mill at work: the low grind of its stones and a creak of the wheel. */
+  millGrind(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 16), 0.2, 2.5);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 220, 0.8, 0.4, 1.4, 0.3);
+    this.sweptNoise(c.input, c.t0 + 0.3, this.white, 900, 500, 0.5, 0.05, 0.5, 0.05);
+  }
+
   // --- the siege (M4): masons, ladders, horns, bells and drums ------------------------
 
   /** A mason's mallet on a chisel against stone: a wooden knock and a short ring of iron. `id` varies the pitch a little. */

@@ -5,7 +5,7 @@ export interface Pressed {
   fire: boolean;
   next: boolean;
   prev: boolean;
-  weapon: number; // 0..3, or -1
+  weapon: number; // 0..7 (M3: eight emplacements), or -1
   overview: boolean;
   shotCam: boolean;
   spin: boolean;
@@ -24,6 +24,10 @@ export interface Pressed {
   route: boolean;
   /** Switch a kind of repair on or off: Alt+1 gate, Alt+2 walls, Alt+3 towers, Alt+4 keep (-1: none). */
   repair: number;
+  /** M3: the build wheel (B), and Backspace and Esc on their own (the wheel goes back or closes). */
+  build: boolean;
+  back: boolean;
+  esc: boolean;
 }
 
 export class Input {
@@ -118,7 +122,7 @@ export class Input {
     const edge = (i: number) => !!b[i] && !this.padPrev[i];
     if (pad && b.some(Boolean)) this.usedPad = true;
     let weapon = -1;
-    for (let i = 0; i < 4; i++) if (e.has(`Digit${i + 1}`)) weapon = i;
+    for (let i = 0; i < 8; i++) if (e.has(`Digit${i + 1}`)) weapon = i;
     const out: Pressed = {
       fire: e.has("Space") || e.has("Mouse0") || edge(7),
       next: e.has("KeyE") || edge(5),
@@ -137,6 +141,9 @@ export class Input {
       orderNext: edge(14),
       route: e.has("KeyL") || edge(15),
       repair: e.has("Repair1") ? 0 : e.has("Repair2") ? 1 : e.has("Repair3") ? 2 : e.has("Repair4") ? 3 : -1,
+      build: e.has("KeyB"),
+      back: e.has("Backspace"),
+      esc: e.has("Escape"),
     };
     this.padPrev = b;
     e.clear();

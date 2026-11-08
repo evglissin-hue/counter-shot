@@ -15,7 +15,7 @@ import { DPI, dcos, dsin, dsqrt } from "@keepfall/core";
 import { Action, Climb, type Army, type Emit } from "./army";
 import type { CastleSim, Rapier } from "./castleSim";
 import { EventKind, LADDER_STRIDE } from "./frame";
-import { MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
 import type { Terrain } from "./terrain";
 
 type World = InstanceType<Rapier["World"]>;
@@ -458,7 +458,7 @@ export class Ladders {
     for (const m of this.minions.list) {
       if (m.state !== MinionState.Upright || m.aux !== L.id) continue;
       if (m.task === Climb.Up || (wallGave && (m.task === Climb.Across || m.task === Climb.Down))) {
-        this.minions.knock({ minion: m.id, vx: ix * 0.02, vy: 0.6, vz: sp.out * 2.2 + iz * 0.02, px: m.x, py: m.y + 1.2, pz: m.z, extra: 0.3 }, tick);
+        this.minions.knock({ minion: m.id, vx: ix * 0.02, vy: 0.6, vz: sp.out * 2.2 + iz * 0.02, px: m.x, py: m.y + 1.2, pz: m.z, extra: 0.3, cause: Cause.Fall }, tick);
         this.release(m);
       } else if (m.task === Climb.Wait || m.task === Climb.ToLadder) this.release(m);
     }
