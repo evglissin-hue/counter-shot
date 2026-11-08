@@ -19,4 +19,6 @@ node tools/wave-shots.mjs  # a match on the real clock: waves forming up, meetin
 node tools/estate-shots.mjs  # M3: buildings on the Practice range, then a match: a mill rising, the build wheel, sappers and musketeers
 node tools/online-check.mjs  # M5: two headless pages play each other through the lobby (lockstep must hold), then Versus AI
 node tools/anim-shots.mjs  # contact sheets of the minions' animation on the renderer test page (gait, turning, fights, musket reload, sapper, climbing, a fall); --bench=200 times them
+node tools/hud-check.mjs  # every HUD control in a Versus AI match: the command card's buttons and keys, Build and the build menu, gun tabs, sound, Controls, shot camera, overview, pause
+node tools/first-match-shots.mjs  # the first seconds of a match at the artifact panel's size (1100 x 810), its short-lived messages slowed so they can be seen together
 ```

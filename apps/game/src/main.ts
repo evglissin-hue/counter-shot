@@ -484,6 +484,8 @@ function showTally() {
   tally = null;
   const el = $("tally");
   el.textContent = parts.join(", ");
+  // One result at a time under the match bar: the tally takes the place of a trick shot's banner.
+  $("trick").hidden = true;
   el.hidden = false;
   el.classList.remove("show");
   void el.offsetWidth; // restart the fade
@@ -684,6 +686,7 @@ function aimTick() {
   const dPitch = ((keyVel.pitch + one(stickPitch) * ks) * w.pitchRate) / 60;
   if (dYaw || dPitch) {
     guide.mark("aim");
+    if (!input.locked) playedFree = true;
     // Keys and sticks drive the weapon directly; the wanted aim follows.
     wanted[current] = clampAim({ yaw: aims[current].yaw + dYaw, pitch: aims[current].pitch + dPitch }, e, w);
   }
@@ -711,6 +714,7 @@ function applyMouse() {
 
 function fire(charge = 1) {
   if (!ready || userPause || rl(current) > 0 || matchInfo?.result) return;
+  if (!input.locked) playedFree = true;
   const e = EMP[current];
   if (e.empty) {
     estate.openFor(current);
@@ -761,7 +765,7 @@ function updateCharge(now: number) {
   const last = lastNeedle[current];
   chargeLast.hidden = last < 0;
   if (last >= 0) chargeLast.style.left = `${(last * 100).toFixed(2)}%`;
-  const text = needle >= 0 ? `Charge ${Math.round(needle * 100)}%: let go` : fired ? `Fired at ${Math.round(firedAt.needle * 100)}%` : rl(current) > 0 ? "Reloading" : "Hold Space or the mouse button to load, let go to fire";
+  const text = needle >= 0 ? `Charge ${Math.round(needle * 100)}%` : fired ? `Fired at ${Math.round(firedAt.needle * 100)}%` : rl(current) > 0 ? "Reloading" : "Hold Space to load, let go to fire";
   if (text !== chargeShown) {
     chargeShown = text;
     chargeText.textContent = text;
@@ -843,11 +847,7 @@ function giveOrder(order: number) {
   send({ t: "input", input: { kind: "order", order: order as Order } });
   sound.ui("order");
   guide.mark("waves");
-  const text = [
-    "Your waves: advance on their gate.",
-    "Your waves: hold at the midfield markers.",
-    "Your waves: push through the nearest gap in their walls.",
-  ][order];
+  const text = ["Waves advance on the gate", "Waves hold at midfield", "Waves push the breach"][order];
   showNote(text, 3200);
   matchInfo.order = order;
   updateWaves();
@@ -859,7 +859,7 @@ function setRoute(view: RouteName) {
   send({ t: "input", input: { kind: "route", route } });
   sound.ui("click");
   guide.mark("waves");
-  showNote(`Next waves: the ${view === "centre" ? "centre road" : `${view} flank`}.`, 2200);
+  showNote(`Next waves: ${view === "centre" ? "centre road" : `${view} flank`}`, 2200);
   matchInfo.route = route;
   updateWaves();
 }
@@ -1118,7 +1118,10 @@ function buildTabs() {
   tabs = EMP.map((e, i) => {
     const b = document.createElement("button");
     b.dataset.weapon = String(i);
-    b.textContent = e.empty ? `${i + 1} +` : `${i + 1} ${WEAPONS[e.weapon].name}`;
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = String(i + 1);
+    b.append(n, e.empty ? "+" : WEAPONS[e.weapon].name);
     if (e.empty) {
       // Empty slots stay short, so eight tabs and the buttons beside them fit one row on a laptop.
       b.className = "emptyslot";
@@ -1155,19 +1158,57 @@ buildTabs();
   }
 }
 
+const LOCK_HINT = "<kbd>Click</kbd> take the gun <kbd>Esc</kbd> free the mouse";
+const LOCK_REFUSED = "Mouse not captured: click again, or aim with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and fire with <kbd>Space</kbd>";
+/** The sound button's two faces (a speaker, struck through when muted). */
+const SOUND_ICON = (on: boolean) =>
+  `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor" stroke="none"/>${on ? '<path d="M13 7.2a4 4 0 0 1 0 5.6M15.4 5a7 7 0 0 1 0 10"/>' : '<path d="M13.5 7.5l5 5M18.5 7.5l-5 5"/>'}</svg>`;
+let soundShown: boolean | null = null;
+/** The player aimed or fired with the keys since the mouse was last free (or since the start): the click hint has done its job. */
+let playedFree = false;
 let hudFrame = 0;
+/** The weapon card's settings line: fixed words, numbers and keycaps only (it is set as HTML), redrawn when it changes. */
+function setExtra(html: string) {
+  if (hud.extra.dataset.html === html) return;
+  hud.extra.dataset.html = html;
+  hud.extra.innerHTML = html;
+}
+
+/** The sound button's face and the "click to take the gun" hint, whatever gun is up. */
+function updateChrome() {
+  if (soundShown !== !sound.muted) {
+    soundShown = !sound.muted;
+    hud.sound.innerHTML = SOUND_ICON(soundShown);
+    hud.sound.title = soundShown ? "Sound on (M)" : "Sound off (M)";
+    hud.sound.setAttribute("aria-label", soundShown ? "Sound on" : "Sound off");
+  }
+  hud.sound.setAttribute("aria-pressed", String(!sound.muted));
+  // "Click to take the gun" until the player has the mouse, or plays on with the keys without it (then it has done
+  // its job); it comes back when the mouse is let go (Esc), until the next click or key.
+  if (input.locked) playedFree = false;
+  // A click the browser turned down says so for a few seconds (the keys aim all the same).
+  const refused = input.lockRefusedAt > 0 && performance.now() - input.lockRefusedAt < 5000;
+  const lockText = refused ? LOCK_REFUSED : LOCK_HINT;
+  if (hud.lock.dataset.text !== lockText) {
+    hud.lock.dataset.text = lockText;
+    hud.lock.innerHTML = lockText;
+  }
+  hud.lock.hidden = input.locked || (playedFree && !refused) || view !== "sight" || input.usedPad || !!ride;
+}
+
 function updateHud(force = false) {
   if (!force && (hudFrame++ & 3) !== 0) return;
+  updateChrome();
   const e = EMP[current], w = weaponOf(e);
-  hud.name.textContent = e.empty ? "Empty emplacement" : w.name;
+  hud.name.textContent = e.empty ? "Empty slot" : w.name;
   hud.slot.textContent = `${current + 1}`;
   tabs.forEach((b, i) => b.setAttribute("aria-pressed", String(i === current)));
   if (e.empty) {
     // M3: nothing to fire here yet.
-    hud.reload.textContent = e.place ? `On ${e.place}` : "";
+    hud.reload.textContent = "No gun";
     hud.reloadFill.style.transform = "scaleX(0)";
-    hud.target.textContent = "Empty: click or Space buys a gun for it";
-    hud.extra.textContent = "";
+    hud.target.textContent = "";
+    setExtra("<kbd>Space</kbd> buys one");
     hud.reticle.hidden = true;
     return;
   }
@@ -1177,21 +1218,20 @@ function updateHud(force = false) {
   weaponPanel.classList.toggle("loaded", r === 0);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).
-  const elevation = `Elevation ${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
+  const elevation = `${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
+  // The settings line is fixed words and numbers only (it is set as HTML for its keycaps).
+  let extra = "";
   if (e.weapon === "mortar") {
     const flight = aimHelp === "full" && flightSeconds ? `, ${flightSeconds.toFixed(1)} s` : "";
-    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : `${elevation}, ${Math.round(stillAirRange(aims[current].pitch))} m at full charge`;
-    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? " (bursts in the air)" : fuseTicks > 0 ? " (bounces, then bursts)" : "";
-    hud.extra.textContent = (fuseTicks === 0 ? "Fuse: on impact" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s${air}`) + "  ( [ ] )";
+    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : `${elevation}  ${Math.round(stillAirRange(aims[current].pitch))} m`;
+    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? ", airburst" : "";
+    extra = `Fuse <b>${fuseTicks === 0 ? "impact" : `${(fuseTicks / 60).toFixed(1)} s${air}`}</b> <kbd>[</kbd><kbd>]</kbd>`;
   } else {
     hud.target.textContent = hitText ? `Hits ${hitText}` : elevation;
-    if (e.weapon === "longGun") hud.extra.textContent = `Spin: ${SPIN_NAMES[spin]}  (R)`;
-    else if (e.weapon === "chainShot") hud.extra.textContent = "Two balls on a spinning chain";
-    else hud.extra.textContent = `${w.pellets} balls of grapeshot`;
+    if (e.weapon === "longGun") extra = `Spin <b>${SPIN_NAMES[spin].toLowerCase()}</b> <kbd>R</kbd>`;
   }
+  setExtra(extra);
   hud.shotCam.checked = shotCam[current];
-  hud.sound.textContent = sound.muted ? "Sound off (M)" : "Sound on (M)";
-  hud.sound.setAttribute("aria-pressed", String(!sound.muted));
   // Wind relative to where you look: up on the gauge is straight ahead.
   const a = aims[current];
   const [fx, , fz] = aimDir(a.yaw, 0);
@@ -1203,7 +1243,6 @@ function updateHud(force = false) {
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = isMatch() ? "" : `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}, frame ${pacer.frameMs.toFixed(1)} ms, resolution ${Math.round(SCALES[pacer.scaleIdx] * 100)}%`;
-  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
   // For the mortar the middle of the observer's view is where a full charge comes down in still air.
   hud.reticle.hidden = view !== "sight" || !!ride || !!follow;
 }
@@ -1294,6 +1333,7 @@ function startMode(m: Mode, net?: OnlineStart) {
   $("keep-theirs-name").textContent = m === "online" ? "Their keep" : "Enemy keep";
   const match = m === "versus" || m === "online";
   $("matchbar").hidden = !match;
+  $("command").hidden = !match;
   $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
   // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
@@ -1350,9 +1390,9 @@ function startMode(m: Mode, net?: OnlineStart) {
   advice = { lastBuild: 0, at: -1e9, count: 0, built: 0 };
   if (match) {
     send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
-    const how = guide.open ? " The guide on the left shows how." : "";
-    if (m === "online") showNote(`You hold the ${ME === 1 ? "oxblood" : "green"} castle against ${friendName}: topple their keep or storm their courtyard.${how}`, 6000);
-    else showNote(`Against the ${AI_LEVELS[difficulty].name}: topple its keep or storm its courtyard.${how}`, 5500);
+    const goal = guide.open ? "" : ": bring down its keep or storm its courtyard";
+    if (m === "online") showNote(`Versus ${friendName}: you hold the ${ME === 1 ? "oxblood" : "green"} castle`, 5000);
+    else showNote(`Versus the ${AI_LEVELS[difficulty].name}${goal}`, 4500);
   }
   if (m === "online") {
     online.onGone = () => offerTakeover();
@@ -1364,7 +1404,7 @@ function startMode(m: Mode, net?: OnlineStart) {
 function friendBack() {
   if (mode !== "online" || $("gone").hidden) return;
   $("gone").hidden = true;
-  showNote(`${friendName} is back.`, 3000);
+  showNote(`${friendName} is back`, 3000);
 }
 
 /** Online: the friend has gone (or gone quiet for long): keep playing against the AI, or leave. */
@@ -1378,7 +1418,7 @@ $("gone-ai").addEventListener("click", () => {
   $("gone").hidden = true;
   send({ t: "takeover", difficulty: "knight" });
   void online.leave(false); // the match goes on here, against the AI
-  showNote(`The Knight takes ${friendName}'s castle from here.`, 5000);
+  showNote(`The Knight takes over ${friendName}'s castle`, 5000);
   $("netline").hidden = true;
 });
 $("gone-menu").addEventListener("click", () => {
@@ -1564,8 +1604,8 @@ function toggleRepair(kind: RepairKind, on?: boolean) {
   send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
   matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
   updateRepairs();
-  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep" };
-  showNote(now ? `Your masons repair ${names[kind]}.` : `Your masons leave ${names[kind]} alone.`, 2400);
+  const names: Record<RepairKind, string> = { gate: "Gate", walls: "Wall", towers: "Tower", keep: "Keep" };
+  showNote(`${names[kind]} repairs ${now ? "on" : "off"}`, 2400);
 }
 
 /** Give up the match (a second press within a few seconds confirms). */
@@ -1605,7 +1645,7 @@ function updateWaves() {
   const info = matchInfo;
   if (!info) return;
   const s = Math.ceil(info.nextWave / 60);
-  $("next-wave").textContent = info.result ? "" : info.waves[ME] === 0 ? `First waves in ${s} s` : `Next waves in ${s} s`;
+  $("next-wave").textContent = info.result ? "" : info.waves[ME] === 0 ? `first in ${s} s` : `next in ${s} s`;
   routeChips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.route === ownSide(info.route))));
   orderChips.forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.order) === info.order)));
   $("army-count").textContent = `Pikemen ${info.standing[ME]} (${info.fallen[ME]} down), enemy ${info.standing[FOE]} (${info.fallen[FOE]} down)`;
@@ -1625,19 +1665,19 @@ function logMoment(text: string, bad = false, tick = matchInfo?.tick ?? 0) {
   if (matchLog.length > 60) matchLog.shift();
 }
 
-/** What the masons are doing, in words (hold is the sim's WorksHold). */
-function masonText(m: MasonInfo, own: boolean): string {
-  if (!m.up) return own ? "Masons: all down" : "";
-  if (!m.job) return own ? `Masons: ${m.up} idle` : "";
+/** What your masons are doing, in a word or two for the command card, and in full for its tooltip (hold is the sim's WorksHold). */
+function masonText(m: MasonInfo): { short: string; long: string } {
+  if (!m.up) return { short: "all down", long: "Your masons are all down" };
+  if (!m.job) return { short: `${m.up} idle`, long: `${m.up} masons, nothing to repair` };
   switch (m.hold) {
     case 1:
-      return `Masons need gold (${m.job})`;
+      return { short: "need gold", long: `Your masons need gold to repair ${m.job}` };
     case 2:
-      return `Masons wait (${m.job})`;
+      return { short: "waiting", long: `Your masons wait to repair ${m.job}` };
     case 3:
-      return `Masons driven off ${m.job}`;
+      return { short: "driven off", long: `Your masons were driven off ${m.job}` };
     default:
-      return `Masons: ${m.job}, ${m.left} to lay`;
+      return { short: `${m.left} to lay`, long: `Your masons are repairing ${m.job}: ${m.left} pieces to lay` };
   }
 }
 
@@ -1650,7 +1690,9 @@ function updateRepairs() {
     b.classList.toggle("off", !on);
   });
   const el = $("masons");
-  el.textContent = masonText(info.masons[ME], true);
+  const t = masonText(info.masons[ME]);
+  if (el.textContent !== t.short) el.textContent = t.short;
+  el.title = t.long;
   el.classList.toggle("wait", info.masons[ME].hold === 1 || info.masons[ME].hold === 3);
 }
 
@@ -1696,17 +1738,17 @@ function onMatch(info: MatchInfo) {
     const was = prevGate;
     if (was) {
       if (!was.open[ME] && info.gateOpen[ME]) {
-        showNote("Your gate is down!", 4000);
+        showNote("Your gate is down", 4000);
         logMoment("Your gate was broken down", true);
       } else if (!was.open[FOE] && info.gateOpen[FOE]) {
-        showNote("The enemy gate is down.", 4000);
+        showNote("The enemy gate is down", 4000);
         logMoment("The enemy gate was broken down");
-      } else if (was.hits[ME] === 0 && info.gateHits[ME] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
+      } else if (was.hits[ME] === 0 && info.gateHits[ME] > 0) showNote("Your gate is under attack", 4000);
       else if (was.open[ME] && !info.gateOpen[ME]) {
-        showNote("Your gate is rehung.", 3000);
+        showNote("Your gate is repaired", 3000);
         logMoment("Your masons rehung your gate");
       } else if (was.open[FOE] && !info.gateOpen[FOE]) {
-        showNote("They have rehung their gate.", 3000);
+        showNote("The enemy gate is repaired", 3000);
         logMoment("The enemy rehung its gate", true);
       }
     }
@@ -1739,28 +1781,28 @@ function onMatch(info: MatchInfo) {
 function momentsOf(prev: MatchInfo, info: MatchInfo) {
   // Ladders up against a wall.
   if (info.ladders[ME] > prev.ladders[ME]) {
-    showNote("Enemy ladder on your wall: they are climbing in!", 4500);
+    showNote("Enemy ladder on your wall", 4500);
     logMoment("The enemy raised a ladder against your wall", true);
   }
   if (info.ladders[FOE] > prev.ladders[FOE]) {
-    showNote("Your ladder is up: your men are climbing in.", 3500);
+    showNote("Your ladder is up", 3500);
     logMoment("Your crew raised a ladder against the enemy wall");
   }
   // Storms begun and beaten off.
   if (!prev.storm[FOE] && info.storm[FOE]) {
-    showNote("Storming their courtyard: outnumber them inside for 20 s!", 5000);
+    showNote("Storming their courtyard: hold it for 20 s", 5000);
     logMoment("Your men began to storm the enemy courtyard");
     sound.horn(true);
   } else if (prev.storm[FOE] && !info.storm[FOE]) {
-    showNote("Your storm was beaten off.", 3500);
+    showNote("Your storm was beaten off", 3500);
     logMoment("The enemy beat your storm off", true);
   }
   if (!prev.storm[ME] && info.storm[ME]) {
-    showNote("They are storming your courtyard!", 5000);
+    showNote("Your courtyard is being stormed", 5000);
     logMoment("The enemy began to storm your courtyard", true);
     sound.horn(false);
   } else if (prev.storm[ME] && !info.storm[ME]) {
-    showNote("Storm beaten off: your courtyard is clear.", 3500);
+    showNote("Storm beaten off", 3500);
     logMoment("You beat the enemy's storm off");
   }
   // The garrisons.
@@ -1772,21 +1814,21 @@ function momentsOf(prev: MatchInfo, info: MatchInfo) {
   if (theirs.job && !prev.masons[FOE].job) {
     if (info.tick - lastEnemyMasonNote > 40 * 60) {
       lastEnemyMasonNote = info.tick;
-      showNote(`Enemy masons at ${theirs.job}: shoot them.`, 4000);
+      showNote(`Enemy masons repairing ${theirs.job}`, 4000);
     }
     logMoment(`Enemy masons began rebuilding ${theirs.job}`, true);
   }
   if (mine.up && mine.hold === 1 && prev.masons[ME].hold !== 1 && info.tick - lastGoldNote > 30 * 60) {
     lastGoldNote = info.tick;
-    showNote("Your masons are waiting for gold.", 3500);
+    showNote("Your masons are waiting for gold", 3500);
   }
   if (info.suddenDeath && !prev.suddenDeath) {
-    showNote("Sudden death: double income, faster reloads. Time is called at 25:00.", 5000);
+    showNote("Sudden death: double income, faster reloads", 5000);
     logMoment("Sudden death");
     sound.suddenDeath();
   }
   // Time is called at 25:00: the keep with more floors under its banner wins, then the less battered castle.
-  for (const [at, text] of [[20, "Five minutes left: at 25:00 the keep with more floors under its banner wins."], [24, "One minute left!"]] as const) {
+  for (const [at, text] of [[20, "Five minutes left: then the taller keep wins"], [24, "One minute left"]] as const) {
     const t = at * 3600;
     if (prev.tick < t && info.tick >= t) showNote(text, 5000);
   }
@@ -1841,12 +1883,12 @@ function updateKeeps(info: MatchInfo) {
   if (!floorGone || info.result) return;
   const theirs = mode === "online" ? `${friendName}'s` : "The enemy";
   if (now[FOE] < was[FOE] && now[FOE] > 0) {
-    showNote(now[FOE] === 2 ? `${theirs} roof is in: two floors to go.` : `${theirs} banner is on its last floor!`, 4500);
+    showNote(now[FOE] === 2 ? `${theirs} roof is in: two floors to go` : `${theirs} banner is on its last floor`, 4500);
     logMoment(now[FOE] === 2 ? `${theirs} keep's roof caved in` : `${theirs} banner came down to the lowest floor`);
     sound.horn(true);
   }
   if (now[ME] < was[ME] && now[ME] > 0) {
-    showNote(now[ME] === 2 ? "Your roof is in: two floors left." : "Your banner is on its last floor!", 4500);
+    showNote(now[ME] === 2 ? "Your roof is in: two floors left" : "Your banner is on its last floor", 4500);
     logMoment(now[ME] === 2 ? "Your keep's roof caved in" : "Your banner came down to the lowest floor", true);
     sound.horn(false);
   }
@@ -1869,7 +1911,7 @@ function advise(info: MatchInfo) {
   if (!plots && !slots) return;
   advice.at = t;
   advice.count++;
-  showNote(`${gold} gold to spend: Build (B) or the button by your gold.`, 5000);
+  showNote(`${gold} gold unspent: press B to build`, 5000);
 }
 
 /** The Build button by your gold: it opens the build menu, and glows while there is gold to spend and nothing built yet, or gold piling up. */
@@ -1983,7 +2025,7 @@ function onBridges(open: boolean[]) {
   bridgesOpen = open;
   updateBridges();
   for (let k = 0; k < open.length; k++) {
-    if (was[k] && !open[k]) showNote(`The ${ownSide(layout.bridges[k].site.name)} bridge is down: that route is closed.`, 4500);
+    if (was[k] && !open[k]) showNote(`The ${ownSide(layout.bridges[k].site.name)} bridge is down: that route is closed`, 4500);
   }
 }
 

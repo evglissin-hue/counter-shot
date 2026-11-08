@@ -10,32 +10,34 @@ export type GuideKind = "match" | "practice";
 
 interface Step {
   id: GuideStep;
-  /** The line, with keys in <kbd>. Fixed text, never from the match or a friend. */
+  /** A few words: all the guide shows of a step done or still to come. */
+  title: string;
+  /** How, with keys in <kbd>: shown for the step to do next only. Fixed text, never from the match or a friend. */
   html: string;
 }
 
 const STEPS: Record<GuideKind, Step[]> = {
   match: [
-    { id: "aim", html: "Click the field to take the gun: the mouse aims (or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)" },
-    { id: "fire", html: "Fire the long gun at the enemy keep: <kbd>Space</kbd> or click. Correct from where it lands" },
-    { id: "mortar", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> to load the charge and let go at the full mark to drop a shell on the enemy keep's roof" },
-    { id: "build", html: "Spend your gold: <kbd>B</kbd> or the Build button opens the menu. A Powder Mill earns more, a Barracks sends more waves, an empty slot takes a gun" },
-    { id: "waves", html: "Command your waves: <kbd>L</kbd> picks their route, <kbd>Ctrl</kbd>+<kbd>3</kbd> sends them through a breach" },
+    { id: "aim", title: "Take the gun", html: "Click the field: the mouse aims (or <span class=\"nw\"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)</span>" },
+    { id: "fire", title: "Fire at the enemy keep", html: "<kbd>Space</kbd> or click. Correct from where it lands" },
+    { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> to load the charge, let go at the full mark to land a shell on the enemy keep's roof" },
+    { id: "build", title: "Spend your gold", html: "<kbd>B</kbd> opens the build menu: a Powder Mill earns more, a Barracks sends more waves" },
+    { id: "waves", title: "Command your waves", html: "Pick a route and an order in the panel under the map (<kbd>L</kbd>, <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>3</kbd>)" },
   ],
   practice: [
-    { id: "aim", html: "Click the field to take the gun: the mouse aims (or <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)" },
-    { id: "fire", html: "Fire the long gun at the target keep: <kbd>Space</kbd> or click" },
-    { id: "mortar", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> to load the charge, let go at the full mark: a full charge lands mid-view" },
-    { id: "others", html: "Try the chain shot <kbd>3</kbd> or the swivel gun <kbd>4</kbd> on the pikemen" },
-    { id: "overview", html: "<kbd>Tab</kbd> shows the whole valley from above" },
+    { id: "aim", title: "Take the gun", html: "Click the field: the mouse aims (or <span class=\"nw\"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)</span>" },
+    { id: "fire", title: "Fire at the target keep", html: "<kbd>Space</kbd> or click" },
+    { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> to load the charge, let go at the full mark: a full charge lands mid-view" },
+    { id: "others", title: "Try the other guns", html: "The chain shot <kbd>3</kbd> or the swivel gun <kbd>4</kbd> on the pikemen" },
+    { id: "overview", title: "See the whole valley", html: "<kbd>Tab</kbd> shows it from above" },
   ],
 };
 
 const TITLES: Record<GuideKind, string> = { match: "Your first match", practice: "First shots" };
 
 const GOALS: Record<GuideKind, string> = {
-  match: "Win by bringing the enemy banner down through its keep's three floors, or by holding its courtyard for 20 seconds.",
-  practice: "No clock and no enemy: learn the guns. Rebuild the castles from the Controls panel any time.",
+  match: "Bring down the three floors of the enemy keep, or hold its courtyard for 20 s.",
+  practice: "No clock, no enemy: learn the guns.",
 };
 
 export class Guide {
@@ -88,7 +90,7 @@ export class Guide {
       this.remember("done");
       const p = document.createElement("li");
       p.className = "all";
-      p.textContent = "That is the lot. H shows every control.";
+      p.textContent = "All done. H lists every control.";
       this.list.append(p);
       this.hideTimer = setTimeout(() => this.close(), 6000);
     }
@@ -101,10 +103,16 @@ export class Guide {
     let next = true;
     for (const s of STEPS[kind]) {
       const li = document.createElement("li");
-      li.innerHTML = s.html;
+      const b = document.createElement("b");
+      b.textContent = s.title;
+      li.append(b);
       if (this.done.has(s.id)) li.className = "done";
       else if (next) {
+        // The step to do next says how; the rest are their titles only, so the guide stays small beside the field.
         li.className = "next";
+        const how = document.createElement("span");
+        how.innerHTML = s.html;
+        li.append(how);
         next = false;
       }
       this.list.append(li);

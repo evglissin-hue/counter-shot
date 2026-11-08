@@ -44,6 +44,11 @@ export class Input {
   private edges = new Set<string>();
   private padPrev: boolean[] = [];
   locked = false;
+  /**
+   * When the browser last refused to give the game the mouse (performance.now(), 0 for never): a click too
+   * soon after Esc, or a page framed without pointer lock. The keys still aim; the page says so.
+   */
+  lockRefusedAt = 0;
   usedPad = false;
   /** The left mouse button is down with the gun taken (the mortar's charge goes in while it is held). */
   private mouse0 = false;
@@ -76,8 +81,15 @@ export class Input {
     });
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 0) {
-        if (!this.locked) canvas.requestPointerLock?.();
-        else {
+        if (!this.locked) {
+          const refused = () => (this.lockRefusedAt = performance.now());
+          try {
+            const p: unknown = canvas.requestPointerLock?.();
+            if (p instanceof Promise) p.catch(refused);
+          } catch {
+            refused();
+          }
+        } else {
           this.edges.add("Mouse0");
           this.mouse0 = true;
         }
@@ -92,7 +104,9 @@ export class Input {
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) this.mouse0 = false;
+      else this.lockRefusedAt = 0;
     });
+    document.addEventListener("pointerlockerror", () => (this.lockRefusedAt = performance.now()));
     window.addEventListener("mousemove", (e) => {
       if (!this.locked) return;
       this.mouseX += e.movementX;

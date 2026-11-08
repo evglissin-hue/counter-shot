@@ -285,8 +285,10 @@ export class Effects {
     const d: N = attribute("iDot", "vec4");
     const centre: N = d.xyz;
     const dist: N = centre.sub(cameraPosition).length();
+    // A dot keeps about the same size on screen however far along the flight it is. The floor is small: the first
+    // dots are a few metres off the muzzle, and a larger one (14 cm) swelled them into a string of beads up the sight.
     const base = trail ? 0.0032 : 0.008;
-    const size: N = clamp(dist.mul(base), trail ? 0.06 : 0.14, trail ? 0.8 : 1.6);
+    const size: N = clamp(dist.mul(base), trail ? 0.015 : 0.035, trail ? 0.8 : 1.6);
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
     const up: N = (cameraWorldMatrix as N).element(1).xyz;
     const qp: N = positionGeometry.xy;

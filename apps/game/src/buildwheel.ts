@@ -155,11 +155,11 @@ export class BuildWheel {
     }
     if (!c || !c.input) return;
     if (!c.ok) {
-      this.note(c.cost > this.state.gold ? `Not enough gold: ${c.label} costs ${c.cost}.` : `${c.label}: not now.`);
+      this.note(c.cost > this.state.gold ? `Not enough gold: ${c.cost} needed` : `${c.label}: not now`);
       return;
     }
     this.send(c.input);
-    if (c.input.kind === "build") this.note(`${c.label}: it goes up on plot ${c.input.plot + 1}, ${plotName(this.state.team, c.input.plot)}.`);
+    if (c.input.kind === "build") this.note(`Building on plot ${c.input.plot + 1}, ${plotName(this.state.team, c.input.plot)}`);
     // Building and buying close the wheel; settings stay open to adjust.
     if (c.input.kind === "build" || c.input.kind === "buy" || c.input.kind === "upgrade") this.close();
     else this.render();
@@ -201,21 +201,21 @@ export class BuildWheel {
       const cls = `plot${this.target === i ? " sel" : ""}${v.state === RUINED ? " ruin" : ""}${v.kind < 0 ? " empty" : ""}`;
       return `<button class="${cls}" data-pick="${i}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b><span>${what}</span></button>`;
     };
-    const gold = `Gold: <b class="goldtxt">${s.gold}</b>`;
+    const gold = `<b class="goldtxt">${s.gold} gold</b>`;
     const slotGun = t >= SLOT && t < SLOT + 8 ? s.guns[t - SLOT] : t === RIDDEN ? s.gun : null;
     const head =
       t < 0
-        ? `<p class="small">${gold}. Spend it here: pick from the list (or press its number). To build on a plot of your choosing, click it on the map.</p>`
+        ? `<p class="small">A number key buys; a plot on the map builds there.</p>`
         : slotGun
-          ? `<p class="small"><b>Gun slot ${(t === RIDDEN ? s.gunSlot : t - SLOT) + 1}: ${slotGun.empty ? "empty" : WEAPONS[slotGun.weapon].name}</b>${slotGun.place ? `, ${slotGun.place}` : ""}. ${gold}</p>`
+          ? `<p class="small"><b>Slot ${(t === RIDDEN ? s.gunSlot : t - SLOT) + 1}: ${slotGun.empty ? "empty" : WEAPONS[slotGun.weapon].name}</b>${slotGun.place ? `, ${slotGun.place}` : ""}</p>`
           : t === UPGRADE_LIST
-            ? `<p class="small"><b>Upgrades</b>: one for each gun, from a working Foundry. ${gold}</p>`
-            : `<p class="small"><b>Plot ${t + 1}</b>, ${plotName(s.team, t)}. ${gold}</p>`;
+            ? `<p class="small"><b>Upgrades</b>: one per gun, from a working Foundry</p>`
+            : `<p class="small"><b>Plot ${t + 1}</b>, ${plotName(s.team, t)}</p>`;
     const list = this.choices
-      .map((c, i) => `<button class="choice2${c.ok ? "" : " no"}${c.pressed ? " on" : ""}${c.sub !== undefined ? " more" : ""}" data-choice="${i}"><span class="k">${i < 8 ? i + 1 : ""}</span><b>${c.label}</b><span class="d">${c.detail}</span>${c.cost ? `<span class="c">${c.from ? "from " : ""}${c.cost}</span>` : ""}</button>`)
+      .map((c, i) => `<button class="choice2${c.ok ? "" : " no"}${c.pressed ? " on" : ""}${c.sub !== undefined ? " more" : ""}" data-choice="${i}"><span class="k">${i < 8 ? i + 1 : ""}</span><b>${c.label}</b>${c.detail ? `<span class="d">${c.detail}</span>` : ""}${c.cost ? `<span class="c">${c.from ? "from " : ""}${c.cost}</span>` : ""}</button>`)
       .join("");
     const html =
-      `<div class="wheel-head"><h2>Build</h2><span class="small">B or Esc closes${t >= 0 ? ", Backspace goes back" : ""}</span>${t >= 0 ? `<button data-act="back">Back</button>` : ""}<button data-act="close">Close</button></div>` +
+      `<div class="wheel-head"><h2>Build</h2>${gold}${t >= 0 ? `<button data-act="back" title="Back (Backspace)">Back</button>` : ""}<button data-act="close" title="Close (B or Esc)">Close</button></div>` +
       head +
       `<div class="yard" aria-label="Your courtyard, the gate at the top: click a plot"><div class="keep" style="left:35.5%;top:47.1%;width:29%;height:29%">Keep</div><div class="gatemark">Gate</div>${PLOTS.map((_, i) => plotBox(i)).join("")}</div>` +
       `<div class="choices2">${list || `<p class="small">Nothing to do here now.</p>`}</div>`;
@@ -231,14 +231,14 @@ export class BuildWheel {
     if (v.state === EMPTY) {
       for (const k of BUILDING_KINDS as BuildingKind[]) {
         const b = BUILDINGS[k];
-        out.push({ label: b.name, detail: `${b.blurb}. Rises in ${Math.round(b.buildTicks / 60)} s`, cost: b.cost, ok: s.gold >= b.cost, input: { kind: "build", plot: i, building: k } });
+        out.push({ label: b.name, detail: `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`, cost: b.cost, ok: s.gold >= b.cost, input: { kind: "build", plot: i, building: k } });
       }
       return out;
     }
     if (v.state === RUINED) {
       const k = BUILDING_KINDS[v.kind];
       const cost = Math.round(BUILDINGS[k].cost * BUILDING_REBUILD);
-      out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `${Math.round(v.health * 100)}% of it stands; it works again once rebuilt`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
+      out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `${Math.round(v.health * 100)}% stands; half price`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
       return out;
     }
     if (BUILDING_KINDS[v.kind] === "barracks") {
@@ -257,7 +257,7 @@ export class BuildWheel {
       const own = (r: RouteName): RouteName => (s.team === 0 && r !== "centre" ? (r === "left" ? "right" : "left") : r);
       for (const v of ROUTE_NAMES as RouteName[]) {
         const r = own(v);
-        out.push({ label: `Route: ${ROUTE_LABEL[v]}`, detail: v === "centre" ? "Its waves march down the centre road" : `Its waves march down your ${v} flank`, cost: 0, ok: true, pressed: r === route, input: { kind: "barracks", plot: i, route: r } });
+        out.push({ label: `Route: ${ROUTE_LABEL[v]}`, detail: "", cost: 0, ok: true, pressed: r === route, input: { kind: "barracks", plot: i, route: r } });
       }
       return out;
     }
@@ -272,23 +272,23 @@ export class BuildWheel {
       if (v.state !== RUINED || v.kind < 0) return;
       const k = BUILDING_KINDS[v.kind];
       const cost = Math.round(BUILDINGS[k].cost * BUILDING_REBUILD);
-      out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `Plot ${i + 1}, ${plotName(s.team, i)}: it works again once rebuilt`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
+      out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `Plot ${i + 1}, ${plotName(s.team, i)}; half price`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
     });
     const free = PLOT_ORDER.find((p) => this.plots[p].state === EMPTY);
     // Gold first (the cheapest and the one a new castle wants), then waves, then upgrades.
     for (const k of ["mill", "barracks", "foundry"] as BuildingKind[]) {
       const b = BUILDINGS[k];
       const ok = free !== undefined && s.gold >= b.cost;
-      out.push({ label: `Build a ${b.name}`, detail: free === undefined ? "Every plot is taken" : `${b.blurb}. Rises in ${Math.round(b.buildTicks / 60)} s`, cost: b.cost, ok, input: free === undefined ? null : { kind: "build", plot: free, building: k } });
+      out.push({ label: b.name, detail: free === undefined ? "Every plot is taken" : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`, cost: b.cost, ok, input: free === undefined ? null : { kind: "build", plot: free, building: k } });
     }
     s.guns.forEach((e, slot) => {
       if (!e.empty) return;
       const kinds = e.allowed ?? [];
       const cheapest = Math.min(...kinds.map((k) => WEAPON_COST[k]));
-      out.push({ label: `A gun for slot ${slot + 1}`, detail: `${e.place ?? "An empty emplacement"}: ${kinds.map((k) => WEAPONS[k].name.toLowerCase()).join(", ")}`, cost: cheapest, from: kinds.length > 1, ok: s.gold >= cheapest, input: null, sub: SLOT + slot });
+      out.push({ label: `Gun for slot ${slot + 1}`, detail: kinds.map((k) => WEAPONS[k].name.toLowerCase()).join(", "), cost: cheapest, from: kinds.length > 1, ok: s.gold >= cheapest, input: null, sub: SLOT + slot });
     });
     if (s.guns.some((e) => !e.empty && !e.upgrade && upgradesFor(e.weapon).length)) {
-      out.push({ label: "Upgrade a gun", detail: s.foundry ? "Heavier shot, rifled barrels, quicker loaders: one for each gun" : "Needs a working Foundry first", cost: 0, ok: s.foundry, input: null, sub: UPGRADE_LIST });
+      out.push({ label: "Upgrade a gun", detail: s.foundry ? "One per gun" : "Needs a working Foundry", cost: 0, ok: s.foundry, input: null, sub: UPGRADE_LIST });
     }
     return out;
   }
@@ -324,12 +324,12 @@ export class BuildWheel {
 function gunBlurb(k: WeaponKind): string {
   switch (k) {
     case "longGun":
-      return "Fast and flat: the wall breaker";
+      return "Flat and fast: breaks walls";
     case "mortar":
-      return "A high arc and a fused shell: roofs, keeps and waves";
+      return "High arc: roofs, keeps and waves";
     case "chainShot":
-      return "Two balls on a chain: scythes through ranks";
+      return "Scythes through ranks";
     default:
-      return "Grapeshot at short range: the last line at your walls";
+      return "Grapeshot at close range";
   }
 }
