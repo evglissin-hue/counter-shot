@@ -17,4 +17,5 @@ npm run check:browser  # headless Chromium replays the session and both scripted
 node tools/game-shots.mjs  # screenshots of every camera view into tools/.shots/ (slow: software rendering)
 node tools/wave-shots.mjs  # a match on the real clock: waves forming up, meeting, fighting, at the gates
 node tools/estate-shots.mjs  # M3: buildings on the Practice range, then a match: a mill rising, the build wheel, sappers and musketeers
+node tools/anim-shots.mjs  # contact sheets of the minions' animation on the renderer test page (gait, turning, fights, musket reload, sapper, climbing, a fall); --bench=200 times them
 ```

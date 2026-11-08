@@ -832,7 +832,7 @@ export class GameRenderer implements GameRendererApi {
     const cam = this.views.camera;
     cam.updateMatrixWorld();
     this.clear.update(cam);
-    this.minions.step(dt, (x, z) => this.terrain.heightAt(x, z));
+    this.minions.step(dt, (x, z) => this.terrain.heightAt(x, z), cam);
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
     // M3: plots' trades at work, and building pieces easing into place.
