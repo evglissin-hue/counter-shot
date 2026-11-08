@@ -102,6 +102,10 @@ export interface GameRendererApi {
 
   /** Show or hide where minions can walk. */
   setNavOverlay(on: boolean): void;
+  /** Show the first n emplacements' guns (a match has the enemy castle's too). */
+  showEmplacements(n: number): void;
+  /** Show the midfield markers, where each team's waves hold (a match). */
+  setMarkers(on: boolean): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */
   updateNav(kind: Uint8Array, floor: Float32Array): void;
 

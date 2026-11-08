@@ -115,6 +115,8 @@ function supportHeight(layout: CastleLayout, x: number, y: number, z: number): {
 
 export class Guns {
   readonly root = new THREE.Group();
+  /** How many guns are shown (the rest are another mode's). */
+  showN = Infinity;
   private guns: Gun[] = [];
   private noise: THREE.Texture;
   private wood: THREE.MeshStandardNodeMaterial;
@@ -214,6 +216,11 @@ export class Guns {
     // Rotating about local X by -pitch lifts the barrel (+Z) towards +Y.
     g.pitch.rotation.set(-pitch, 0, 0);
     g.activeTarget = active ? 1 : 0;
+  }
+
+  /** Show the first n guns (the rest belong to a castle that has none in this mode). */
+  setShown(n: number) {
+    this.guns.forEach((g, i) => (g.root.visible = i < n));
   }
 
   /** World position of an emplacement's muzzle at its current pose, and the barrel direction. */

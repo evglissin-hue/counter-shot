@@ -1,11 +1,12 @@
 // Debug overlay of the nav grid (N): one flat tile per square metre at its
-// walking height. Cold green where a minion can walk from your gate, amber
-// where it could walk but is cut off, blue water, red where something blocks
-// the way, and dim brown slopes too steep to climb. When a bridge goes, its
-// deck turns blue and, once every crossing is down, the far bank turns amber.
+// walking height. Cold green where a minion can walk from your gate, sandy
+// where it scrambles over rubble or the fallen, amber where it could walk but
+// is cut off, blue water, red where something blocks the way, and dim brown
+// slopes too steep to climb. When a bridge goes, its deck turns blue and, once
+// every crossing is down, the far bank turns amber.
 
 import * as THREE from "three/webgpu";
-import { NavKind, NAV_GRID, NAV_STEP, navCell } from "@keepfall/sim";
+import { NavKind, NAV_GRID, navCell, navStep, navWalkable } from "@keepfall/sim";
 
 const COLORS: Record<number, [number, number, number, number]> = {
   // r, g, b (0..1), opacity weight
@@ -14,6 +15,7 @@ const COLORS: Record<number, [number, number, number, number]> = {
   [NavKind.Water]: [0.3, 0.55, 0.9, 0.45],
   [NavKind.Steep]: [0.48, 0.4, 0.32, 0.2],
   [NavKind.Blocked]: [0.86, 0.32, 0.27, 0.55],
+  [NavKind.Rubble]: [0.86, 0.76, 0.48, 0.5],
 };
 const CUT_OFF: [number, number, number, number] = [0.9, 0.66, 0.26, 0.4];
 
@@ -78,7 +80,7 @@ export class NavOverlay {
     const seen = this.seen, q = this.queue;
     seen.fill(0);
     let head = 0, tail = 0;
-    const walk = (k: number) => k === NavKind.Ground || k === NavKind.Raised;
+    const walk = navWalkable;
     if (this.start >= 0 && walk(kind[this.start])) {
       seen[this.start] = 1;
       q[tail++] = this.start;
@@ -86,11 +88,12 @@ export class NavOverlay {
     while (head < tail) {
       const c = q[head++];
       const i = c % nx, j = (c - i) / nx;
-      const f = floor[c];
+      const f = floor[c], kc = kind[c];
       const visit = (nc: number) => {
         if (seen[nc] || !walk(kind[nc])) return;
         const d = floor[nc] - f;
-        if (d > NAV_STEP || d < -NAV_STEP) return;
+        const lim = navStep(kc, kind[nc]);
+        if (d > lim || d < -lim) return;
         seen[nc] = 1;
         q[tail++] = nc;
       };

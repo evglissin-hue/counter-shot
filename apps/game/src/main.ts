@@ -3,7 +3,7 @@
 // Aiming runs here at a fixed 60 Hz through the same limiter the sim checks;
 // a fire sends the exact aim to the worker, which owns everything else.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, GAME_LAYOUT, KEEP_STOREYS, WEAPONS, type Emplacement, type Stone } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, GAME_LAYOUT, KEEP_STOREYS, MATCH_EMPLACEMENTS, ROUTE_NAMES, WEAPONS, type Emplacement, type RouteName, type Stone } from "@keepfall/content";
 import {
   aimDir,
   clampAim,
@@ -12,6 +12,7 @@ import {
   flightCoef,
   G,
   muzzle,
+  Order,
   predictPath,
   PROJECTILE_STRIDE,
   ProjectileKind,
@@ -40,7 +41,9 @@ const sound = new Sound();
 const layout = buildLayout(1, GAME_LAYOUT);
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
+/** The guns you ride (your castle's); a match also has the enemy's, which fire on their own. */
 const EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
+const ALL_EMP: Emplacement[] = MATCH_EMPLACEMENTS;
 
 const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
@@ -205,13 +208,16 @@ function onFrame(f: FrameData) {
     const kind = f.events[o];
     const a = f.events[o + 1], b = f.events[o + 2], c = f.events[o + 3], d = f.events[o + 4];
     if (kind === EventKind.Muzzle) {
-      const emp = a, id = b;
-      recording.set(id, { emp, pts: [] });
-      const e = EMP[emp];
-      if (e) sound.fire(e.weapon, e.x, e.y, e.z, emp === current);
-      if (shotCam[emp] && emp === current && e) {
-        if (e.weapon === "mortar") startRide(id, emp, now);
-        else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
+      // c is 1 for a shot from a gun nobody mans: heard where it is, never your trail or your shot camera.
+      const emp = a, id = b, auto = c === 1;
+      const e = ALL_EMP[emp];
+      if (e) sound.fire(e.weapon, e.x, e.y, e.z, emp === current && !auto);
+      if (!auto && emp < EMP.length && e) {
+        recording.set(id, { emp, pts: [] });
+        if (shotCam[emp] && emp === current) {
+          if (e.weapon === "mortar") startRide(id, emp, now);
+          else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
+        }
       }
     } else if (kind === EventKind.Explosion) {
       pacer.burst(now);
@@ -228,7 +234,7 @@ function onFrame(f: FrameData) {
       if (!tally) tally = { until: now + 4500, stones: 0, down0: lastDown };
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
-      landing[a] = { x: b, y: c, z: d };
+      if (a >= 0 && a < EMP.length) landing[a] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
     } else if (kind === EventKind.Impact) {
       if (impacts++ < 3) sound.impact(a, b, c, d);
     } else if (kind === EventKind.Blood) {
@@ -543,14 +549,54 @@ function fire() {
 
 function select(i: number) {
   endRide();
+  const prev = current;
+  const wasSight = view === "sight";
   current = ((i % EMP.length) + EMP.length) % EMP.length;
   view = "sight";
   obs.primed = false;
+  if (mode === "versus" && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
   updateHud(true);
 }
 
+/**
+ * In a match: ride gun `e` (-1: none, in the overview), leaving gun `left`
+ * where you put it. Every gun you do not ride fires at enemy minions near
+ * your walls on its own, so you take a gun as it points: it swings back to
+ * where you last wanted it at its own rate.
+ */
+function man(e: number, left: number) {
+  const g = matchInfo?.guns;
+  if (e >= 0 && g && g.length >= (e + 1) * 2) aims[e] = clampAim({ yaw: g[e * 2], pitch: g[e * 2 + 1] }, EMP[e], WEAPONS[EMP[e].weapon]);
+  send({ t: "input", input: { kind: "man", emplacement: e, left: left >= 0 ? { emplacement: left, yaw: aims[left].yaw, pitch: aims[left].pitch } : undefined } });
+}
+
+/** Orders for all your waves (Ctrl+1, 2, 3) and the route of your next ones (L). */
+function giveOrder(order: number) {
+  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  send({ t: "input", input: { kind: "order", order: order as Order } });
+  const text = [
+    "Your waves advance on the enemy gate.",
+    "Your waves hold at the midfield markers, short of the bridges.",
+    "Your waves push for the nearest gap in the enemy walls (they make for the gate while there is none).",
+  ][order];
+  showNote(text, 3200);
+  matchInfo.order = order;
+  updateWaves();
+}
+function setRoute(route: RouteName) {
+  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  send({ t: "input", input: { kind: "route", route } });
+  showNote(`Your next waves march down the ${route === "centre" ? "centre road" : `${route} flank`}.`, 2600);
+  matchInfo.route = route;
+  updateWaves();
+}
+
 // ---- camera and aim help ---------------------------------------------------------
+/** Test hook (the screenshot tools): a fixed camera, eye and target, instead of the player's view. */
+let testCamera: { x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number } | null = null;
+
 function cameraPose(now: number, dt: number): CameraPose {
+  if (testCamera) return { mode: "free", ...testCamera };
   if (ride) {
     const p = ridePose(now, dt);
     if (p) return p;
@@ -682,7 +728,12 @@ function updateAimHelp() {
   // Full aim help marks where this shot will land or burst, with the reach of a burst; partial marks where the last one landed.
   if (marker) renderer.setLandingMarker(marker, e.weapon === "mortar" && w.burst ? w.burst.radius : 0);
   else renderer.setLandingMarker(showing ? landing[current] : null);
-  for (let i = 0; i < EMP.length; i++) renderer.setWeaponPose(i, aims[i].yaw, aims[i].pitch, i === current);
+  const guns = mode === "versus" ? matchInfo?.guns : undefined;
+  for (let i = 0; i < ALL_EMP.length; i++) {
+    const riding = i === current && view === "sight";
+    if (guns && !riding && guns.length >= (i + 1) * 2) renderer.setWeaponPose(i, guns[i * 2], guns[i * 2 + 1], false);
+    else if (i < EMP.length) renderer.setWeaponPose(i, aims[i].yaw, aims[i].pitch, i === current);
+  }
 }
 
 /** The keep's top storey is its roof. */
@@ -871,7 +922,13 @@ function startMode(m: Mode) {
     resetLocal();
     send({ t: "reset", mode: m, seed: SEED, minions: MINIONS });
   }
-  if (m === "versus") showNote("The enemy castle does not fight back yet. Bring its keep's banner to the ground.", 6000);
+  renderer.showEmplacements(m === "versus" ? ALL_EMP.length : EMP.length);
+  renderer.setMarkers(m === "versus");
+  prevGate = null;
+  if (m === "versus") {
+    send({ t: "input", input: { kind: "man", emplacement: current } });
+    showNote("Both barracks send a wave every 25 seconds. Guns you do not ride fire at enemy pikemen near your walls. Ctrl+1, 2, 3: advance, hold, push the breach. L: the route of your next waves.", 9000);
+  }
 }
 
 /** Forget everything drawn from the old world. */
@@ -912,14 +969,53 @@ $("end-look").addEventListener("click", () => {
   view = "overview";
 });
 
+const routeChips = [...document.querySelectorAll<HTMLButtonElement>("[data-route]")];
+const orderChips = [...document.querySelectorAll<HTMLButtonElement>("[data-order]")];
+routeChips.forEach((b) =>
+  b.addEventListener("click", () => {
+    setRoute(b.dataset.route as RouteName);
+    b.blur();
+  }),
+);
+orderChips.forEach((b) =>
+  b.addEventListener("click", () => {
+    giveOrder(Number(b.dataset.order));
+    b.blur();
+  }),
+);
+
+/** The match bar's waves line: the next wave, your route and order, and both sides' pikemen. */
+function updateWaves() {
+  const info = matchInfo;
+  if (!info) return;
+  const s = Math.ceil(info.nextWave / 60);
+  $("next-wave").textContent = info.result ? "" : info.waves[1] === 0 ? `First waves in ${s} s` : `Next waves in ${s} s`;
+  routeChips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.route === info.route)));
+  orderChips.forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.order) === info.order)));
+  $("army-count").textContent = `Pikemen ${info.standing[1]} (${info.fallen[1]} down), enemy ${info.standing[0]} (${info.fallen[0]} down)`;
+}
+
 function clockText(ticks: number): string {
   const s = Math.floor(ticks / 60);
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/** Gate state as last shown, for notes when it changes. */
+let prevGate: { hits: [number, number]; open: [boolean, boolean] } | null = null;
+
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null };
+  updateWaves();
+  if (!info.result) {
+    const was = prevGate;
+    if (was) {
+      if (!was.open[1] && info.gateOpen[1]) showNote("Your gate is down: enemy pikemen can get into your courtyard.", 5000);
+      else if (!was.open[0] && info.gateOpen[0]) showNote("The enemy gate is down.", 4000);
+      else if (was.hits[1] === 0 && info.gateHits[1] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
+    }
+    prevGate = { hits: [info.gateHits[0], info.gateHits[1]], open: [info.gateOpen[0], info.gateOpen[1]] };
+  }
   $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
   $("gold").textContent = `${info.gold[1]} gold`;
   const r = info.result;
@@ -944,6 +1040,8 @@ function showEnd() {
   $("end-enemy").textContent = mas ? pieces(mas[0]) : "";
   $("end-yours").textContent = mas ? pieces(mas[1]) : "";
   $("end-shots").textContent = `${info.shots[1]}`;
+  $("end-lost").textContent = `${info.fallen[1]}`;
+  $("end-downed").textContent = `${info.fallen[0]}`;
   $("end").hidden = false;
   document.exitPointerLock?.();
 }
@@ -1060,6 +1158,7 @@ function toggleOverview() {
   endRide();
   view = view === "sight" ? "overview" : "sight";
   if (view === "overview") document.exitPointerLock?.();
+  if (mode === "versus") man(view === "sight" ? current : -1, view === "sight" ? -1 : current);
 }
 
 function showError(msg: string) {
@@ -1119,6 +1218,9 @@ function frame(wall: number) {
     updateHud(true);
   }
   if (p.nav) toggleNav();
+  if (p.order >= 0) giveOrder(p.order);
+  if (p.orderNext && matchInfo) giveOrder((matchInfo.order + 1) % 3);
+  if (p.route && matchInfo) setRoute(ROUTE_NAMES[(ROUTE_NAMES.indexOf(matchInfo.route) + 1) % ROUTE_NAMES.length]);
   if (p.spin && EMP[current].weapon === "longGun") spin = ((spin + 1) % 5) as Spin;
   const w = WEAPONS[EMP[current].weapon];
   const fuseStep = (dir: number) => {
@@ -1174,7 +1276,7 @@ function frame(wall: number) {
     }
   }
   const pose = cameraPose(now, dt);
-  if (pose.mode === "sight" || (pose.mode === "free" && !ride)) pose.fov = shownFov;
+  if (!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride))) pose.fov = shownFov;
   applyShake(pose, now);
   renderer.setCamera(pose);
   updateAimHelp();
@@ -1224,7 +1326,9 @@ async function start() {
   }
   if (location.hash.includes("low")) tier = "low";
   quality.value = tier;
-  renderer.setLayout(layout, EMP);
+  renderer.setLayout(layout, ALL_EMP);
+  renderer.showEmplacements(mode === "versus" ? ALL_EMP.length : EMP.length);
+  renderer.setMarkers(mode === "versus");
   renderer.setQuality(tier);
   renderer.setGore(gore.checked);
   renderer.resize();
@@ -1270,6 +1374,12 @@ else view = "overview";
   },
   startMode,
   toggleNav,
+  giveOrder,
+  setRoute,
+  toggleOverview,
+  get view() {
+    return view;
+  },
   /** Rendered frames so far (with #fixed, 30 per game second). */
   get frames() {
     return frames;
@@ -1284,6 +1394,10 @@ else view = "overview";
   },
   select,
   fire,
+  /** Point a fixed camera (null: back to the game's own). */
+  look(cam: typeof testCamera) {
+    testCamera = cam;
+  },
   setFov(emp: number, f: number) {
     fov[emp] = f;
   },

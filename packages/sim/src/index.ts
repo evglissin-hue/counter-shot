@@ -8,5 +8,8 @@ export * from "./wind";
 export * from "./terrain";
 export * from "./minions";
 export * from "./nav";
+export * from "./flow";
+export * from "./army";
+export * from "./gunnery";
 export * from "./sandbox";
 export * from "./session";

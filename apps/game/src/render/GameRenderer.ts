@@ -16,6 +16,7 @@ import { Decals } from "./decals";
 import { Effects } from "./effects";
 import { Flags } from "./flags";
 import { Guns } from "./guns";
+import { Markers } from "./markers";
 import { Minions } from "./minions";
 import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
@@ -59,6 +60,8 @@ export class GameRenderer implements GameRendererApi {
   private projectiles: Projectiles;
   private minions: Minions;
   private guns: Guns;
+  /** Where each team's waves stop on Hold. */
+  private markers = new Markers();
   private decals: Decals;
   private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
   private shock: Shock;
@@ -173,6 +176,18 @@ export class GameRenderer implements GameRendererApi {
     this.blastRing = this.buildBlastRing();
     this.scene.add(this.blastRing);
     this.scene.add(this.navOverlay.mesh);
+    this.scene.add(this.markers.root);
+  }
+
+  /** Show the first n emplacements' guns (a match has the enemy's too). */
+  showEmplacements(n: number): void {
+    this.guns.showN = n;
+    this.guns.setShown(n);
+  }
+
+  /** Show the midfield markers (a match). */
+  setMarkers(on: boolean): void {
+    this.markers.root.visible = on;
   }
 
   setNavOverlay(on: boolean): void {
@@ -233,6 +248,7 @@ export class GameRenderer implements GameRendererApi {
     this.stones.setStyle(STYLE);
     this.flags.setStyle(STYLE);
     this.guns.build(layout, emplacements);
+    this.guns.setShown(this.guns.showN);
   }
 
   setQuality(tier: QualityTier): void {
@@ -258,7 +274,7 @@ export class GameRenderer implements GameRendererApi {
       this.stones.updateBodies(frame.stones, frame.stoneCount);
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
-    this.minions.update(frame.minions, frame.minionCount, frame.parts, frame.partCount);
+    this.minions.update(frame);
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
@@ -771,6 +787,7 @@ export class GameRenderer implements GameRendererApi {
     this.projectiles.dispose();
     this.minions.dispose();
     this.guns.dispose();
+    this.markers.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();

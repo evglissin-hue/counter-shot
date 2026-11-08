@@ -9,9 +9,11 @@
 // - an intact bridge deck plank is a floor, whatever lies under it;
 // - a piece high enough overhead (the wall over a broken gate) leaves the
 //   way open, and one lower than headroom blocks the cell.
-// Only standing (fixed) pieces and settled (frozen) rubble count: moving
-// pieces do not, and shattered ones are gone. The grid updates on fixed ticks,
-// only for the cells around whatever changed. It will steer minions, so it is
+// Only standing (fixed) pieces, settled (frozen) rubble and fallen bodies
+// count: moving pieces do not, and shattered ones are gone. The grid updates
+// on fixed ticks, only for the cells around whatever changed, and keeps a
+// topology version that bumps only when a step between neighbours opens or
+// closes (what flow fields depend on). It steers minions, so it is
 // deterministic: poses from the deterministic Rapier build, + - * / and
 // comparisons, and a fixed order everywhere.
 
@@ -31,10 +33,14 @@ export const enum NavKind {
   Steep = 3,
   /** Something in the way with no room to pass under it. */
   Blocked = 4,
+  /** Walkable on top of settled rubble or the fallen: a heap you can scramble over. */
+  Rubble = 5,
 }
 
 /** The highest step up between neighbouring cells. */
 export const NAV_STEP = 0.6;
+/** The highest step up onto or off a rubble cell: minions scramble over heaps, not up masonry. */
+export const NAV_RUBBLE_STEP = 1.0;
 /** Headroom a minion needs under anything overhead. */
 export const NAV_HEAD = 1.9;
 /** Water deeper than this blocks. */
@@ -61,7 +67,12 @@ export function navCell(x: number, z: number): number {
 }
 
 export function navWalkable(kind: number): boolean {
-  return kind === NavKind.Ground || kind === NavKind.Raised;
+  return kind === NavKind.Ground || kind === NavKind.Raised || kind === NavKind.Rubble;
+}
+
+/** The highest step between two walkable cells of these kinds. */
+export function navStep(a: number, b: number): number {
+  return a === NavKind.Rubble || b === NavKind.Rubble ? NAV_RUBBLE_STEP : NAV_STEP;
 }
 
 /** The layout's pieces by cell, sorted by their bottoms: built once per layout. */
@@ -150,7 +161,13 @@ export class NavGrid {
   readonly kind: Uint8Array;
   /** Bumps whenever a cell changes. */
   version = 0;
+  /** Bumps only when walking between some pair of neighbours became possible or impossible. */
+  topo = 0;
   private castle: CastleSim;
+  /** Per cell: can you step to the neighbour at +x (bit 1) and at +z (bit 2)? */
+  private edges: Uint8Array;
+  /** Keys of fallen bodies start here, after every piece id. */
+  private bodyBase: number;
   private terrain: Terrain;
   private idx: StaticIndex;
   private state: Uint8Array;
@@ -162,6 +179,8 @@ export class NavGrid {
   private scratchB = new Float32Array(256);
   private scratchT = new Float32Array(256);
   private scratchD = new Uint8Array(256);
+  /** 1 for settled rubble and bodies, 0 for standing pieces. */
+  private scratchS = new Uint8Array(256);
   private queue: Int32Array;
   private seen: Uint8Array;
 
@@ -178,7 +197,18 @@ export class NavGrid {
     const n = castle.layout.stones.length;
     this.state = new Uint8Array(n);
     for (let id = 0; id < n; id++) this.state[id] = this.stateOf(id);
+    this.bodyBase = n;
     for (let c = 0; c < cells; c++) this.compute(c);
+    this.edges = new Uint8Array(cells);
+    for (let c = 0; c < cells; c++) this.edges[c] = this.edgeBits(c);
+  }
+
+  private edgeBits(c: number): number {
+    const i = c % this.nx;
+    let b = 0;
+    if (i + 1 < this.nx && this.passable(c, c + 1)) b |= 1;
+    if (c + this.nx < this.kind.length && this.passable(c, c + this.nx)) b |= 2;
+    return b;
   }
 
   private stateOf(id: number): PieceState {
@@ -237,6 +267,11 @@ export class NavGrid {
     } else {
       for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) visit(sx * s.hx, sy * s.hy, sz * s.hz);
     }
+    this.indexBox(id, x0, y0, z0, x1, y1, z1);
+  }
+
+  /** Index something lying across a box (settled rubble, a fallen body) by the cells it covers. */
+  private indexBox(key: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
     const [i0, i1] = cellSpan(x0, x1, NAV_GRID.x0, this.nx);
     const [j0, j1] = cellSpan(z0, z1, NAV_GRID.z0, this.nz);
     const cells: number[] = [];
@@ -246,11 +281,42 @@ export class NavGrid {
         cells.push(c);
         let list = this.settledAt.get(c);
         if (!list) this.settledAt.set(c, (list = []));
-        list.push(id);
+        list.push(key);
         this.mark(c);
       }
     }
-    this.settled.set(id, { cells, bottom: y0, top: y1 });
+    this.settled.set(key, { cells, bottom: y0, top: y1 });
+  }
+
+  /**
+   * A fallen body (frozen) lying across a box: it raises the floor like
+   * settled rubble, so the dead become ramps and blockages. The key (a
+   * minion id) must not be in use; the cells catch up on the next update.
+   */
+  addBody(key: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
+    this.indexBox(this.bodyBase + key, x0, y0, z0, x1, y1, z1);
+  }
+
+  /** The body moved again or left the world. */
+  removeBody(key: number) {
+    this.removeSettled(this.bodyBase + key);
+  }
+
+  /** Cells a piece covers where it stands in the layout (its footprint), in order. */
+  pieceCells(id: number): number[] {
+    const b = stoneBounds(this.castle.layout.stones[id], this.castle.layout.wedge);
+    const [i0, i1] = cellSpan(b[0], b[3], NAV_GRID.x0, this.nx);
+    const [j0, j1] = cellSpan(b[2], b[5], NAV_GRID.z0, this.nz);
+    const out: number[] = [];
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) out.push(j * this.nx + i);
+    return out;
+  }
+
+  /** The bare ground's height in a cell (the mean of its corners), whatever stands on it. */
+  groundFloor(c: number): number {
+    const i = c % this.nx, j = (c - i) / this.nx;
+    const H = this.terrain.h, nv = this.terrain.nx;
+    return (H[j * nv + i] + H[j * nv + i + 1] + H[(j + 1) * nv + i] + H[(j + 1) * nv + i + 1]) * 0.25;
   }
 
   private removeSettled(id: number) {
@@ -291,6 +357,20 @@ export class NavGrid {
       this.dirtyMark[c] = 0;
       this.compute(c);
     }
+    // Steps into and out of every changed cell: did any open or close?
+    let opened = false;
+    const nx = this.nx;
+    for (const c of this.dirty) {
+      for (const e of [c, c - 1, c - nx]) {
+        if (e < 0 || (e === c - 1 && c % nx === 0)) continue;
+        const b = this.edgeBits(e);
+        if (b !== this.edges[e]) {
+          this.edges[e] = b;
+          opened = true;
+        }
+      }
+    }
+    if (opened) this.topo++;
     this.dirty.length = 0;
     return this.version !== before;
   }
@@ -303,9 +383,9 @@ export class NavGrid {
     const hi = Math.max(a, b, d, e), lo = Math.min(a, b, d, e);
     let water = floor < STREAM.level - WADE;
     let steep = hi - lo > STEEP;
-    let raised = false, blocked = false;
+    let raised = false, blocked = false, rubble = false;
     // Standing pieces (already in order of their bottoms) and settled rubble here, merged by bottom.
-    const B = this.scratchB, T = this.scratchT, D = this.scratchD;
+    const B = this.scratchB, T = this.scratchT, D = this.scratchD, S = this.scratchS;
     let m = 0;
     const idx = this.idx;
     for (let k = idx.off[c]; k < idx.off[c + 1] && m < B.length; k++) {
@@ -314,6 +394,7 @@ export class NavGrid {
       B[m] = idx.bottom[id];
       T[m] = idx.top[id];
       D[m] = idx.deck[id];
+      S[m] = 0;
       m++;
     }
     const here = this.settledAt.get(c);
@@ -326,11 +407,13 @@ export class NavGrid {
           B[k] = B[k - 1];
           T[k] = T[k - 1];
           D[k] = D[k - 1];
+          S[k] = S[k - 1];
           k--;
         }
         B[k] = f.bottom;
         T[k] = f.top;
         D[k] = 0;
+        S[k] = 1;
       }
     }
     for (let k = 0; k < m; k++) {
@@ -341,20 +424,23 @@ export class NavGrid {
         steep = false;
         blocked = false;
         raised = true;
+        rubble = false;
         continue;
       }
       if (B[k] <= floor + NAV_STEP) {
         if (T[k] > floor) {
           floor = T[k];
-          water = false;
+          // A piece lying under the stream's surface leaves the cell wet: wreckage does not bridge the water.
+          water = floor < STREAM.level - WADE;
           steep = false;
           raised = true;
+          rubble = S[k] === 1;
         }
       } else if (B[k] < floor + NAV_HEAD) {
         blocked = true;
       }
     }
-    const kind = blocked ? NavKind.Blocked : water ? NavKind.Water : steep ? NavKind.Steep : raised ? NavKind.Raised : NavKind.Ground;
+    const kind = blocked ? NavKind.Blocked : water ? NavKind.Water : steep ? NavKind.Steep : raised ? (rubble ? NavKind.Rubble : NavKind.Raised) : NavKind.Ground;
     if (this.kind[c] !== kind || this.floor[c] !== floor) {
       this.kind[c] = kind;
       this.floor[c] = floor;
@@ -364,9 +450,11 @@ export class NavGrid {
 
   /** Can you walk from cell a to its neighbour b? */
   passable(a: number, b: number): boolean {
-    if (!navWalkable(this.kind[a]) || !navWalkable(this.kind[b])) return false;
+    const ka = this.kind[a], kb = this.kind[b];
+    if (!navWalkable(ka) || !navWalkable(kb)) return false;
     const d = this.floor[a] - this.floor[b];
-    return d <= NAV_STEP && d >= -NAV_STEP;
+    const lim = navStep(ka, kb);
+    return d <= lim && d >= -lim;
   }
 
   /**

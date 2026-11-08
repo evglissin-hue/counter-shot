@@ -19,8 +19,12 @@ export const PROJECTILE_STRIDE = 9;
 /** Chains between chain-shot balls: [x1, y1, z1, x2, y2, z2]. */
 export const CHAIN_STRIDE = 6;
 
-/** Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team]. Feet at y. */
-export const MINION_STRIDE = 7;
+/**
+ * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act].
+ * Feet at y. Action (army.ts): 0 walking, 1 standing, 2 fighting, 3
+ * battering a gate; act counts ticks since its last blow began.
+ */
+export const MINION_STRIDE = 9;
 
 /** Ragdoll parts: [minionId, part, x, y, z, qx, qy, qz, qw]. Part shapes are in MINION_PARTS. */
 export const PART_STRIDE = 9;
@@ -28,9 +32,9 @@ export const PART_STRIDE = 9;
 export const enum EventKind {
   Impact = 0, // [kind, x, y, z, strength 0..1]: ball on masonry or ground
   Explosion = 1, // [kind, x, y, z, radius]
-  Muzzle = 2, // [kind, emplacement, shot id, 0, 0]
+  Muzzle = 2, // [kind, emplacement, shot id, unmanned (1) or not (0), 0]
   Blood = 3, // [kind, x, y, z, strength]: cosmetic, the renderer may ignore it
-  Landed = 4, // [kind, emplacement, x, y, z]: first touch of a shot, for the landing marker
+  Landed = 4, // [kind, emplacement, x, y, z]: first touch of a shot, for the landing marker; emplacement is -(id + 1) for an unmanned shot
 }
 export const EVENT_STRIDE = 5;
 
@@ -58,8 +62,14 @@ export interface FrameData {
   chainCount: number;
   minions: Float32Array;
   minionCount: number;
+  /** Parts of moving bodies (ragdolls, and frozen bodies sinking into the ground). */
   parts: Float32Array;
   partCount: number;
+  /** Parts of bodies that froze since the last frame, sent once: keep drawing them until their id moves again or is gone. */
+  settled: Float32Array;
+  settledCount: number;
+  /** Minions whose bodies left the world (sank into the ground). */
+  gone: Int32Array;
   events: Float32Array;
   eventCount: number;
   terrain: TerrainPatch[];

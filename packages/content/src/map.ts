@@ -181,6 +181,19 @@ function flankSlope(u: number): number {
 /** Half widths of the worn routes. */
 export const ROUTE_HALF: Record<RouteName, number> = { left: 1.8, centre: 2.6, right: 1.8 };
 
+/** A route's centreline at u: its x and its slope dx/du. */
+export function routeAt(name: RouteName, u: number): [number, number] {
+  if (name === "centre") return [roadX(u), roadSlope(u)];
+  const s = name === "left" ? 1 : -1;
+  return [s * flankX(u), s * flankSlope(u)];
+}
+
+/** Distance (m) across a route from its centreline to a point. */
+export function routeDistance(name: RouteName, x: number, z: number): number {
+  const [rx, slope] = routeAt(name, z - MID_Z);
+  return Math.abs(x - rx) / dsqrt(1 + slope * slope);
+}
+
 /** The routes from the player's gate (u = -59.6) to the enemy's (u = +59.6), as x, z points 2 m apart along the valley. */
 export interface Route {
   name: RouteName;

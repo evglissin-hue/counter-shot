@@ -17,6 +17,11 @@ export interface Pressed {
   nav: boolean;
   /** Leave the shot camera and go back to the gun. */
   skip: boolean;
+  /** Orders for all your waves: Ctrl+1 advance, Ctrl+2 hold, Ctrl+3 push the breach (-1: none); the gamepad cycles them. */
+  order: number;
+  orderNext: boolean;
+  /** Next route for your barracks' waves (L). */
+  route: boolean;
 }
 
 export class Input {
@@ -39,6 +44,12 @@ export class Input {
       if (isTyping(e)) return;
       // Tab and Space are game keys: never let them move focus or press a focused button.
       if (e.code === "Tab" || e.code === "Space") e.preventDefault();
+      // Ctrl+1, 2, 3 give orders (and must not switch the browser's tab or the weapon).
+      if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3")) {
+        e.preventDefault();
+        if (!e.repeat) this.edges.add(`Order${e.code.slice(5)}`);
+        return;
+      }
       if (!e.repeat) this.edges.add(e.code);
       this.keys.add(e.code);
       this.usedPad = false;
@@ -114,6 +125,9 @@ export class Input {
       mute: e.has("KeyM"),
       nav: e.has("KeyN"),
       skip: e.has("Escape") || e.has("Enter") || e.has("Backspace") || edge(1),
+      order: e.has("Order1") ? 0 : e.has("Order2") ? 1 : e.has("Order3") ? 2 : -1,
+      orderNext: edge(14),
+      route: e.has("KeyL") || edge(15),
     };
     this.padPrev = b;
     e.clear();

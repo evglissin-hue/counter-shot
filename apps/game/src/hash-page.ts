@@ -1,8 +1,8 @@
-// Replays the scripted sandbox session and the scripted match in this browser
+// Replays the scripted sandbox session and the scripted matches (the keep and the waves) in this browser
 // and compares their hashes with the ones pinned from Node. Used by the
 // headless check and on devices.
 
-import { MATCH_HASH, runMatchSession } from "@keepfall/rules";
+import { MATCH_HASH, runMatchSession, runWaveMatch, WAVE_MATCH_HASH } from "@keepfall/rules";
 import { runSession, SESSION_HASH, type Rapier } from "@keepfall/sim";
 
 const out = document.getElementById("out")!;
@@ -16,11 +16,14 @@ const out = document.getElementById("out")!;
     const t1 = performance.now();
     const g = runMatchSession(R);
     const t2 = performance.now();
+    const w = runWaveMatch(R);
+    const t3 = performance.now();
     const same = (a: { state: string; world: string }, b: { state: string; world: string }) => a.state === b.state && a.world === b.world;
-    const ok = same(r.hash, SESSION_HASH) && same(g.hash, MATCH_HASH);
+    const ok = same(r.hash, SESSION_HASH) && same(g.hash, MATCH_HASH) && same(w.hash, WAVE_MATCH_HASH);
     out.textContent =
       `${ok ? "MATCH" : "MISMATCH"} session state ${r.hash.state} world ${r.hash.world} (Node: ${SESSION_HASH.state} ${SESSION_HASH.world}), ${r.down} down, ${Math.round(t1 - t0)} ms; ` +
-      `match state ${g.hash.state} world ${g.hash.world} (Node: ${MATCH_HASH.state} ${MATCH_HASH.world}), won at tick ${g.result?.tick ?? "none"}, ${Math.round(t2 - t1)} ms`;
+      `match state ${g.hash.state} world ${g.hash.world} (Node: ${MATCH_HASH.state} ${MATCH_HASH.world}), won at tick ${g.result?.tick ?? "none"}, ${Math.round(t2 - t1)} ms; ` +
+      `wave match state ${w.hash.state} world ${w.hash.world} (Node: ${WAVE_MATCH_HASH.state} ${WAVE_MATCH_HASH.world}), ${w.fallen[0] + w.fallen[1]} fallen, ${Math.round(t3 - t2)} ms`;
     out.dataset.result = ok ? "match" : "mismatch";
   } catch (err) {
     out.textContent = `ERROR ${err instanceof Error ? err.message : String(err)}`;

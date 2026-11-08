@@ -32,6 +32,8 @@ let navAt = 0;
 let bridgesSent = -1;
 /** The match's end is reported once with the masonry counts. */
 let endSent = false;
+/** Each castle's gate leaves (stone ids). */
+let gateLeaves: [number[], number[]] = [[], []];
 
 async function load(): Promise<Rapier> {
   if (R) return R;
@@ -62,6 +64,7 @@ function build(mode: Mode, seed: number, minions: number) {
   sim?.free();
   const t0 = performance.now();
   layout ??= buildLayout(1, GAME_LAYOUT);
+  gateLeaves = [0, 1].map((c) => layout!.stones.filter((st) => st.part === "gate" && st.castle === c).map((st) => st.id)) as [number[], number[]];
   if (mode === "versus") {
     match = new Match(R, layout, { seed });
     sim = match.world;
@@ -78,12 +81,28 @@ function build(mode: Mode, seed: number, minions: number) {
 function matchInfo(): MatchInfo | null {
   if (!match) return null;
   const ended = !!match.result;
+  const army = match.army;
+  const counts = match.armyCounts();
+  const guns = new Float32Array(match.guns.length * 2);
+  match.guns.forEach((g, i) => guns.set([g.yaw, g.pitch], i * 2));
+  const hits = (c: 0 | 1) => gateLeaves[c].reduce((n, id) => n + (army.gateHits.get(id) ?? 0), 0);
+  const open = (c: 0 | 1) => gateLeaves[c].some((id) => match!.world.castle.dynamic[id] === 1);
   const info: MatchInfo = {
     tick: match.tick,
     gold: [match.gold[0], match.gold[1]],
     result: match.result,
     shots: [match.shots[0], match.shots[1]],
     masonry: ended && !endSent ? [match.masonryDown(0), match.masonryDown(1)] : null,
+    nextWave: match.nextWaveIn(),
+    waves: [match.waves[0], match.waves[1]],
+    route: match.route[Team.Player],
+    order: army.order[Team.Player],
+    standing: counts.standing,
+    fallen: counts.fallen,
+    autoShots: [match.autoShots[0], match.autoShots[1]],
+    guns,
+    gateHits: [hits(0), hits(1)],
+    gateOpen: [open(0), open(1)],
   };
   if (info.masonry) endSent = true;
   return info;
@@ -121,7 +140,9 @@ function tick(advanceMs = -1) {
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
-  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.events.buffer];
+  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer];
+  const info = matchInfo();
+  if (info) transfer.push(info.guns.buffer);
   for (const p of frame.terrain) transfer.push(p.h.buffer);
   // Bridges: whenever the nav grid changed.
   let bridges: boolean[] | null = null;
@@ -147,7 +168,7 @@ function tick(advanceMs = -1) {
       down: counts.down,
       standing: counts.standing,
       awake: sim.castle.awakeCount(),
-      match: matchInfo(),
+      match: info,
       bridges,
       nav,
     },
@@ -177,11 +198,13 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
         build(msg.mode, msg.seed, msg.minions);
         start();
         break;
-      case "input":
+      case "input": {
+        const input = msg.input;
         if (match) {
-          if (msg.input.kind === "fire") match.queue(match.tick, Team.Player, msg.input);
-        } else if (sim) sim.queue(sim.tick, msg.input);
+          if (input.kind !== "minions") match.queue(match.tick, Team.Player, input);
+        } else if (sim && (input.kind === "fire" || input.kind === "minions")) sim.queue(sim.tick, input);
         break;
+      }
       case "speed":
         speed = msg.factor;
         break;

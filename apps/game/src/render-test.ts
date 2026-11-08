@@ -184,7 +184,7 @@ function buildFrame(dt: number): FrameData {
     const z = team === 0 ? -22 - ((t * speed) % 10) - col * 1.6 : -40 + Math.sin(t * 0.3 + k) * 2;
     const x = team === 0 ? -3 + row * 1.6 : 6 + k;
     const yaw = team === 0 ? Math.PI : Math.PI / 2;
-    minions.set([k, x, 0, z, yaw, (t * 0.9 + k * 0.13) % 1, team], nm * MINION_STRIDE);
+    minions.set([k, x, 0, z, yaw, (t * 0.9 + k * 0.13) % 1, team, 0, 0], nm * MINION_STRIDE);
     nm++;
   }
 
@@ -228,6 +228,9 @@ function buildFrame(dt: number): FrameData {
     minionCount: nm,
     parts,
     partCount: 2 * MINION_PARTS.length,
+    settled: new Float32Array(0),
+    settledCount: 0,
+    gone: new Int32Array(0),
     events,
     eventCount: ne,
     terrain,

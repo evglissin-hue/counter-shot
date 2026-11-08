@@ -638,6 +638,20 @@ export class CastleSim {
     }
   }
 
+  /**
+   * Knock one standing piece loose with an impulse (a battered gate leaf).
+   * Pieces it held up fall too. Returns false if it was already loose.
+   */
+  knockLoose(id: number, ix: number, iy: number, iz: number): boolean {
+    if (this.dynamic[id]) return false;
+    this.loosen(id);
+    this.bodies[id].applyImpulse({ x: ix, y: iy, z: iz }, true);
+    const s = this.layout.stones[id];
+    this.impacts.push({ x: s.x, y: s.y, z: s.z, strength: 0.4 });
+    this.supportCheck();
+    return true;
+  }
+
   /** Thaw frozen rubble around a point (craters, explosions near rubble). */
   thawAt(x: number, y: number, z: number, radius: number) {
     this.thaw(x, y, z, radius);

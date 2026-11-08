@@ -1,8 +1,11 @@
 // Minions: a low-detail human figure built from the ragdoll's own capsules
 // (MINION_PARTS) plus a kettle helmet and, while upright, a pike. Upright
-// minions get a procedural walk from walkPhase; ragdolls take each part's
-// transform from the sim. One instanced mesh per part shape, colours per
-// instance (team tabard, cloth, skin).
+// minions get a procedural pose from what they are doing (walking, standing,
+// pike levelled in a fight or against a gate, with a thrust at each blow);
+// ragdolls take each part's transform from the sim. The fallen arrive once,
+// when they freeze, and are kept until they move again or sink away, so a
+// field of bodies costs nothing per frame. One instanced mesh per part shape,
+// colours per instance (team tabard, cloth, skin).
 //
 // Gore (cosmetic only, the sim never knows): a heavy hit can take off an arm
 // or a leg of a ragdoll. The renderer hides that limb's two parts, caps the
@@ -10,18 +13,25 @@
 // with simple kinematics.
 
 import * as THREE from "three/webgpu";
-import { MINION_PARTS, MINION_STRIDE, PART_STRIDE } from "@keepfall/sim";
+import { MINION_PARTS, MINION_STRIDE, PART_STRIDE, type FrameData } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
 
-const MAX_FIGURES = 128;
+/** Figures drawn at once: upright, falling and the fallen (the sim keeps at most 240 bodies). */
+const MAX_FIGURES = 640;
+const MAX_PIKES = 360;
 const MAX_LIMBS = 32;
 const CAPACITY = MAX_FIGURES + MAX_LIMBS;
+/** Upright actions (army.ts Action). */
+const STAND = 1, FIGHT = 2, BATTER = 3;
+/** A thrust's length in ticks. */
+const THRUST = 22;
 const STUMP = 0x2b0d0a;
 const NPARTS = MINION_PARTS.length;
 const PELVIS = 0, TORSO = 1, HEAD = 2, UARM_L = 3, LARM_L = 4, UARM_R = 5, LARM_R = 6, THIGH_L = 7, SHIN_L = 8, THIGH_R = 9, SHIN_R = 10;
 
 /** Tabard colours: team 0 sickly yellow-green (the attackers' accent), team 1 Ashwright oxblood. */
-const TEAM = [0x93a524, 0x7a1519];
+export const TEAM_COLORS = [0x93a524, 0x7a1519];
+const TEAM = TEAM_COLORS;
 const CLOTH = 0x4a443b;
 const LEGS = 0x2c2925;
 const SKIN = 0x8c6d58;
@@ -66,6 +76,12 @@ export class Minions {
   private lastParts = new Float32Array(0);
   private lastPartCount = 0;
   private gore = true;
+  /** The fallen, by minion id: their parts as they froze (PART_STRIDE each). Drawn first, rewritten only when this changes. */
+  private frozen = new Map<number, Float32Array>();
+  private frozenDirty = false;
+  private frozenCounts = new Int32Array(NPARTS);
+  private frozenStumps = 0;
+  private frozenHelmets = 0;
 
   constructor() {
     this.root.name = "minions";
@@ -116,7 +132,7 @@ export class Minions {
     pm.name = "minion-pike";
     pm.color = new THREE.Color(POLE);
     pm.roughness = 0.8;
-    this.pike = new THREE.InstancedMesh(pikeGeo, pm, MAX_FIGURES);
+    this.pike = new THREE.InstancedMesh(pikeGeo, pm, MAX_PIKES);
     this.pike.name = "minion-pike";
     this.pike.count = 0;
     this.pike.frustumCulled = false;
@@ -151,6 +167,7 @@ export class Minions {
 
   setGore(on: boolean) {
     this.gore = on;
+    this.frozenDirty = true;
   }
 
   private putStump(pos: THREE.Vector3, q: THREE.Quaternion, r: number) {
@@ -332,10 +349,37 @@ export class Minions {
     this.put(part, _p, _q, team);
   }
 
-  update(minions: Float32Array, minionCount: number, parts: Float32Array, partCount: number) {
-    this.counts.fill(0);
-    this.nStump = 0;
-    this.nHelmet = 0;
+  /** One sim frame: upright figures, moving bodies, and the fallen that froze or left since the last one. */
+  update(f: Pick<FrameData, "minions" | "minionCount" | "parts" | "partCount" | "settled" | "settledCount" | "gone">) {
+    const { minions, minionCount, parts, partCount, settled, settledCount, gone } = f;
+    // The fallen: who left, who moves again, who froze.
+    for (let i = 0; i < gone.length; i++) {
+      const id = gone[i];
+      if (this.frozen.delete(id)) this.frozenDirty = true;
+      this.teamOf.delete(id);
+      this.severed.delete(id);
+    }
+    const np = Math.max(0, partCount | 0);
+    for (let i = 0; i < np; i++) {
+      const id = parts[i * PART_STRIDE] | 0;
+      if (this.frozen.delete(id)) this.frozenDirty = true;
+    }
+    for (let i = 0; i < (settledCount | 0); i++) {
+      const o = i * PART_STRIDE;
+      const id = settled[o] | 0, part = settled[o + 1] | 0;
+      if (part < 0 || part >= NPARTS) continue;
+      let body = this.frozen.get(id);
+      if (!body) {
+        body = new Float32Array(NPARTS * PART_STRIDE).fill(NaN);
+        this.frozen.set(id, body);
+      }
+      body.set(settled.subarray(o, o + PART_STRIDE), part * PART_STRIDE);
+      this.frozenDirty = true;
+    }
+    if (this.frozenDirty) this.drawFrozen();
+    this.counts.set(this.frozenCounts);
+    this.nStump = this.frozenStumps;
+    this.nHelmet = this.frozenHelmets;
     this.nPike = 0;
     const yawQ = this.yawQ;
     const base = this.base;
@@ -345,27 +389,33 @@ export class Minions {
       const o = i * MINION_STRIDE;
       const id = minions[o] | 0;
       const team = minions[o + 6] | 0;
+      const action = minions[o + 7] | 0;
+      const act = minions[o + 8];
       this.teamOf.set(id, team);
       base.set(minions[o + 1], minions[o + 2], minions[o + 3]);
       yawQ.setFromAxisAngle(_y, minions[o + 4]);
+      if (action === FIGHT || action === BATTER) {
+        this.drawLevelled(team, act, action === BATTER);
+        continue;
+      }
+      const standing = action === STAND;
       const ph = minions[o + 5] * Math.PI * 2;
-      const bob = Math.abs(Math.cos(ph)) * 0.035;
-      const pikeman = team === 0;
-      // Legs: swing forward and back, knee bends on the forward swing.
+      const bob = standing ? 0 : Math.abs(Math.cos(ph)) * 0.035;
+      // Legs: swing forward and back, knee bends on the forward swing (straight when standing).
       for (let side = 1; side >= -1; side -= 2) {
-        const s = Math.sin(ph + (side > 0 ? 0 : Math.PI));
+        const s = standing ? 0 : Math.sin(ph + (side > 0 ? 0 : Math.PI));
         const a = s * 0.42;
-        const bend = Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65;
+        const bend = standing ? 0.04 : Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65;
         hip.set(side * 0.1, 0.9 + bob, 0);
         knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
         ankle.set(0, -Math.cos(a - bend), Math.sin(a - bend)).multiplyScalar(0.4).add(knee);
         this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
         this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
-        // Arms swing against the leg on the same side; a pikeman's right hand holds the pike.
+        // Arms swing against the leg on the same side; the right hand holds the pike.
         sh.set(side * 0.25, 1.46 + bob, 0);
-        let c = -a * 0.75;
+        let c = standing ? 0.06 : -a * 0.75;
         let e = 0.35;
-        if (pikeman && side < 0) {
+        if (side < 0) {
           c = 0.35;
           e = 1.35;
         }
@@ -373,9 +423,9 @@ export class Minions {
         hand.set(0, -Math.cos(c + e), Math.sin(c + e)).multiplyScalar(0.25).add(elbow);
         this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
         this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
-        if (pikeman && side < 0 && this.nPike < MAX_FIGURES) {
+        if (side < 0 && this.nPike < MAX_PIKES) {
           // Pike held upright at the hand, leaning slightly forward.
-          _q2.setFromAxisAngle(_x, 0.12);
+          _q2.setFromAxisAngle(_x, standing ? 0.05 : 0.12);
           _q.copy(yawQ).multiply(_q2);
           _a.set(hand.x - 0.02, 0.15 + bob, hand.z).applyQuaternion(yawQ).add(base);
           _m.compose(_a, _q, _one);
@@ -387,7 +437,7 @@ export class Minions {
       _q.copy(yawQ).multiply(_q2);
       _p.set(0, 0.97 + bob, 0).applyQuaternion(yawQ).add(base);
       this.put(PELVIS, _p, _q, team);
-      _q2.setFromAxisAngle(_x, 0.07);
+      _q2.setFromAxisAngle(_x, standing ? 0.02 : 0.07);
       _q.copy(yawQ).multiply(_q2);
       _p.set(0, 1.27 + bob, 0.01).applyQuaternion(yawQ).add(base);
       this.put(TORSO, _p, _q, team);
@@ -395,29 +445,10 @@ export class Minions {
       this.put(HEAD, _p, yawQ, team);
     }
     // Ragdolls: one capsule per part straight from the sim.
-    const np = Math.max(0, partCount | 0);
     if (this.lastParts.length < np * PART_STRIDE) this.lastParts = new Float32Array(np * PART_STRIDE * 2);
     this.lastParts.set(parts.subarray(0, np * PART_STRIDE));
     this.lastPartCount = np;
-    for (let i = 0; i < np; i++) {
-      const o = i * PART_STRIDE;
-      const id = parts[o] | 0;
-      const part = parts[o + 1] | 0;
-      if (part < 0 || part >= NPARTS) continue;
-      const team = this.teamOf.get(id) ?? 0;
-      _p.set(parts[o + 2], parts[o + 3], parts[o + 4]);
-      _q.set(parts[o + 5], parts[o + 6], parts[o + 7], parts[o + 8]);
-      const cut = this.gore ? this.severed.get(id) : undefined;
-      if (cut && (part === UARM_L + cut.limb * 2 || part === UARM_L + cut.limb * 2 + 1)) {
-        if (part === UARM_L + cut.limb * 2) {
-          // Stump cap where the limb joined the body.
-          _a.set(0, cut.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
-          this.putStump(_a, _q, MINION_PARTS[part].radius);
-        }
-        continue;
-      }
-      this.put(part, _p, _q, team);
-    }
+    for (let i = 0; i < np; i++) this.putPart(parts, i * PART_STRIDE);
     this.baseCounts.set(this.counts);
     this.baseStumps = this.nStump;
     this.drawLimbs();
@@ -427,10 +458,121 @@ export class Minions {
     if (this.nPike > 0) this.pike.instanceMatrix.needsUpdate = true;
   }
 
+  /** One ragdoll part from a parts array at offset o (with gore, a severed limb is left out and its stump capped). */
+  private putPart(parts: Float32Array, o: number) {
+    const id = parts[o] | 0;
+    const part = parts[o + 1] | 0;
+    if (part < 0 || part >= NPARTS || parts[o + 2] !== parts[o + 2]) return;
+    const team = this.teamOf.get(id) ?? 0;
+    _p.set(parts[o + 2], parts[o + 3], parts[o + 4]);
+    _q.set(parts[o + 5], parts[o + 6], parts[o + 7], parts[o + 8]);
+    const cut = this.gore ? this.severed.get(id) : undefined;
+    if (cut && (part === UARM_L + cut.limb * 2 || part === UARM_L + cut.limb * 2 + 1)) {
+      if (part === UARM_L + cut.limb * 2) {
+        // Stump cap where the limb joined the body.
+        _a.set(0, cut.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
+        this.putStump(_a, _q, MINION_PARTS[part].radius);
+      }
+      return;
+    }
+    this.put(part, _p, _q, team);
+  }
+
+  /** Rewrite the fallen, which come first in every mesh. */
+  private drawFrozen() {
+    this.counts.fill(0);
+    this.nStump = 0;
+    this.nHelmet = 0;
+    for (const body of this.frozen.values()) for (let k = 0; k < NPARTS; k++) this.putPart(body, k * PART_STRIDE);
+    this.frozenCounts.set(this.counts);
+    this.frozenStumps = this.nStump;
+    this.frozenHelmets = this.nHelmet;
+    this.frozenDirty = false;
+  }
+
+  /**
+   * A pikeman with his pike levelled at an enemy or a gate: feet apart, left
+   * foot forward, both hands on the shaft, and a thrust that drives the pike
+   * out and back at each blow (`act` counts ticks since the blow began).
+   */
+  private drawLevelled(team: number, act: number, gate: boolean) {
+    const yawQ = this.yawQ, base = this.base;
+    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
+    const t = act / THRUST;
+    const thrust = t >= 1 ? 0 : (t < 0.23 ? t / 0.23 : 1 - (t - 0.23) / 0.77) * (gate ? 0.6 : 0.5);
+    const lean = 0.16 + thrust * 0.25;
+    const drop = 0.05 + thrust * 0.05;
+    for (let side = 1; side >= -1; side -= 2) {
+      const a = side > 0 ? 0.32 : -0.24;
+      const bend = side > 0 ? 0.32 : 0.12;
+      hip.set(side * 0.11, 0.9 - drop, 0);
+      knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
+      ankle.set(0, -Math.cos(a - bend), Math.sin(a - bend)).multiplyScalar(0.4).add(knee);
+      this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
+      this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
+    }
+    // The shaft runs along the right side, rising a little towards the head: rear hand at the hip, front hand ahead.
+    const shaftX = -0.16;
+    const rearZ = -0.05 + thrust * 0.75, frontZ = 0.42 + thrust * 0.75;
+    const rearY = (gate ? 1.0 : 1.05) - drop, frontY = (gate ? 1.08 : 1.16) - drop;
+    for (let side = 1; side >= -1; side -= 2) {
+      sh.set(side * 0.25, 1.44 - drop, lean * 0.35);
+      hand.set(shaftX + (side > 0 ? 0.04 : 0), side > 0 ? frontY : rearY, side > 0 ? frontZ : rearZ);
+      this.elbowFor(sh, hand, side, elbow);
+      this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
+      this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
+    }
+    if (this.nPike < MAX_PIKES) {
+      // The butt sits a metre behind the rear hand, the shaft through both hands.
+      _d.set(0, frontY - rearY, frontZ - rearZ).normalize();
+      _a.set(shaftX, rearY, rearZ).addScaledVector(_d, -1.0);
+      _q2.setFromUnitVectors(_y, _d);
+      _q.copy(yawQ).multiply(_q2);
+      _a.applyQuaternion(yawQ).add(base);
+      _m.compose(_a, _q, _one);
+      this.pike.setMatrixAt(this.nPike++, _m);
+    }
+    _q2.setFromAxisAngle(_z, Math.PI / 2);
+    _q.copy(yawQ).multiply(_q2);
+    _p.set(0, 0.97 - drop, 0).applyQuaternion(yawQ).add(base);
+    this.put(PELVIS, _p, _q, team);
+    _q2.setFromAxisAngle(_x, lean);
+    _q.copy(yawQ).multiply(_q2);
+    _p.set(0, 1.27 - drop, 0.04 + lean * 0.12).applyQuaternion(yawQ).add(base);
+    this.put(TORSO, _p, _q, team);
+    _p.set(0, 1.6 - drop, 0.08 + lean * 0.3).applyQuaternion(yawQ).add(base);
+    this.put(HEAD, _p, yawQ, team);
+  }
+
+  /** Two-bone arm: where the elbow goes for a hand at `hand` (minion space), bending down and out. */
+  private elbowFor(shoulder: THREE.Vector3, hand: THREE.Vector3, side: number, out: THREE.Vector3) {
+    const L1 = 0.27, L2 = 0.25;
+    _b.copy(hand).sub(shoulder);
+    let d = _b.length();
+    if (d > L1 + L2 - 0.005) {
+      // Out of reach: straight arm towards the hand (the hand is drawn where the arm ends).
+      _b.multiplyScalar((L1 + L2 - 0.005) / d);
+      hand.copy(shoulder).add(_b);
+      d = L1 + L2 - 0.005;
+    }
+    const along = (L1 * L1 - L2 * L2 + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, L1 * L1 - along * along));
+    _b.normalize();
+    // Bend direction: down and outward, square to the arm.
+    _d.set(side * 0.6, -1, -0.15);
+    _d.addScaledVector(_b, -_d.dot(_b)).normalize();
+    out.copy(shoulder).addScaledVector(_b, along).addScaledVector(_d, h);
+  }
+
   /** Forget the team of every minion (after a reset). */
   clear() {
     this.teamOf.clear();
     this.severed.clear();
+    this.frozen.clear();
+    this.frozenCounts.fill(0);
+    this.frozenStumps = 0;
+    this.frozenHelmets = 0;
+    this.frozenDirty = false;
     this.limbs = [];
     this.nextLimb = 0;
     this.lastPartCount = 0;
