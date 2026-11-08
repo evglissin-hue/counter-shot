@@ -45,6 +45,13 @@ const state = () => page.evaluate(() => {
   const s = window.__sandbox;
   return { ride: s.ride, aimHit: s.aimHit, flight: s.flightSeconds, slow: s.timeScale, reload: s.reload, hud: document.getElementById("w-target")?.textContent };
 });
+/** The aim help setting lives in the Controls panel, which is hidden: set it through the page. */
+const setAimHelp = (v) =>
+  page.evaluate((value) => {
+    const s = document.getElementById("aimhelp");
+    s.value = value;
+    s.dispatchEvent(new Event("change"));
+  }, v);
 /** Wait until fn() is true, at most `limit` game frames. */
 async function waitFor(fn, limit = 600) {
   const start = await page.evaluate(() => window.__sandbox.frames);
@@ -81,7 +88,7 @@ async function tour() {
 
   // Find an elevation that lands on the target keep's roof (else anywhere on the keep), then ride a shell into it.
   // The search reads where the shell lands, which only the full aim help shows (the standard is the first part of the arc).
-  await page.selectOption("#aimhelp", "full");
+  await setAimHelp("full");
   let aim = null, fallback = null;
   for (let p = 1.34; p >= 0.7 && !aim; p -= 0.005) {
     await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), p);
@@ -95,7 +102,7 @@ async function tour() {
     await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), aim.pitch);
   }
   console.log("aim at the keep:", JSON.stringify(aim));
-  await page.selectOption("#aimhelp", "partial");
+  await setAimHelp("partial");
   await frames(45);
   await shot("04-mortar-on-keep");
   await page.evaluate(() => window.__sandbox.fire());
