@@ -1,0 +1,171 @@
+// The AI castle (phase 2 M5), as data: how quick, how accurate and how
+// thrifty each difficulty is, and the build plan each one follows. The AI
+// itself (@keepfall/ai) reads the match and sends the same inputs a player
+// does; nothing here gives it powers a player lacks.
+// Starting numbers for tuning: everything here is data.
+
+import type { BuildingKind } from "./buildings";
+import type { MixName } from "./army";
+import type { RouteName } from "./map";
+import type { UpgradeKind, WeaponKind } from "./weapons";
+
+export type Difficulty = "squire" | "knight" | "warlord";
+export const DIFFICULTIES: Difficulty[] = ["squire", "knight", "warlord"];
+
+export interface AiLevel {
+  name: string;
+  /** What it says about itself on the start menu. */
+  blurb: string;
+  /** Ticks between looks at the field: choosing a target and a gun. */
+  think: number;
+  /** Ticks from deciding something to doing it (reaction time). */
+  react: number;
+  /** Ticks after taking a gun before it fires it (getting its eye in). */
+  settle: number;
+  /** Ticks after a shot lands before the next one leaves (watching, correcting), on top of the reload. */
+  look: number;
+  /**
+   * Aim. A new target's first shot is off by up to `firstErr` (rad, either
+   * way, for flat fire) or `firstErrM` metres plus `firstErrPerM` of the range
+   * (lobbed shells); every shot after adds the hand's own noise (`noise`, rad,
+   * or `noiseM` m for shells). After each landing it takes `learn` of the
+   * miss out of its aim, so the wind and its first error are corrected away
+   * over a few shots, as you do with your trail and landing marker.
+   */
+  firstErr: number;
+  firstErrM: number;
+  firstErrPerM: number;
+  noise: number;
+  noiseM: number;
+  learn: number;
+  /** Share of its looks at the field in which it picks the best target rather than whatever is in front of it. */
+  focus: number;
+  /** It fires its mortar on enemy minions at its own gate (big events: only on a crowd of at least this many). */
+  crowd: number;
+  /** It shells the enemy's buildings and masons, not only walls, gate and keep. */
+  raids: boolean;
+  /** Ticks between looks at its build plan, its barracks, its orders and its repairs. */
+  plan: number;
+  /** Gold it keeps back for its masons before it builds or buys. */
+  reserve: number;
+  /** It sets its barracks' mixes and routes from what it sees (else it keeps its plan's). */
+  adapts: boolean;
+}
+
+export const AI_LEVELS: Record<Difficulty, AiLevel> = {
+  squire: {
+    name: "Squire",
+    blurb: "Slow to aim and slow to learn; spends when it remembers",
+    think: 4 * 60,
+    react: 50,
+    settle: 4 * 60,
+    look: 4 * 60,
+    firstErr: 0.03,
+    firstErrM: 9,
+    firstErrPerM: 0.06,
+    noise: 0.009,
+    noiseM: 4,
+    learn: 0.35,
+    focus: 0.35,
+    crowd: 7,
+    raids: false,
+    plan: 9 * 60,
+    reserve: 40,
+    adapts: false,
+  },
+  knight: {
+    name: "Knight",
+    blurb: "A fair gunner who corrects every shot and runs a tidy castle",
+    think: 2 * 60,
+    react: 30,
+    settle: 2 * 60,
+    look: 100,
+    firstErr: 0.018,
+    firstErrM: 6,
+    firstErrPerM: 0.04,
+    noise: 0.005,
+    noiseM: 2.2,
+    learn: 0.6,
+    focus: 0.7,
+    crowd: 5,
+    raids: true,
+    plan: 4 * 60,
+    reserve: 60,
+    adapts: true,
+  },
+  warlord: {
+    name: "Warlord",
+    blurb: "Quick, sharp-eyed and ruthless with its gold",
+    think: 60,
+    react: 18,
+    settle: 70,
+    look: 40,
+    firstErr: 0.01,
+    firstErrM: 3.5,
+    firstErrPerM: 0.025,
+    noise: 0.0028,
+    noiseM: 1.2,
+    learn: 0.8,
+    focus: 0.92,
+    crowd: 4,
+    raids: true,
+    plan: 2 * 60,
+    reserve: 80,
+    adapts: true,
+  },
+};
+
+/**
+ * One step of an AI's build plan. Steps are taken in order, each as soon as
+ * it can be paid for above the reserve; one that can no longer be done (the
+ * plot is taken, the slot armed) is passed over. `after` holds a step back
+ * until that many seconds of the match have passed. Slots are the castle's
+ * own (0 to 7), plots its own (0 to 5).
+ */
+export type AiStep =
+  | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number }
+  | { kind: "buy"; slot: number; weapon: WeaponKind; after?: number }
+  | { kind: "upgrade"; slot: number; upgrade: UpgradeKind; after?: number };
+
+export const AI_PLANS: Record<Difficulty, AiStep[]> = {
+  // A slow, plain plan: a mill, then guns, a second barracks late.
+  squire: [
+    { kind: "build", plot: 1, building: "mill", after: 60 },
+    { kind: "buy", slot: 4, weapon: "swivel", after: 150 },
+    { kind: "build", plot: 2, building: "barracks", mix: "pikemen", route: "centre", after: 240 },
+    { kind: "build", plot: 4, building: "mill", after: 330 },
+    { kind: "buy", slot: 5, weapon: "chainShot", after: 420 },
+    { kind: "build", plot: 3, building: "foundry", after: 540 },
+    { kind: "upgrade", slot: 0, upgrade: "heavyShot", after: 600 },
+  ],
+  // Economy first, then a second front and a second mortar.
+  knight: [
+    { kind: "build", plot: 1, building: "mill", after: 20 },
+    { kind: "build", plot: 2, building: "barracks", mix: "breach", route: "left", after: 90 },
+    { kind: "build", plot: 4, building: "mill", after: 150 },
+    { kind: "buy", slot: 4, weapon: "chainShot", after: 200 },
+    { kind: "build", plot: 3, building: "foundry", after: 240 },
+    { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
+    { kind: "buy", slot: 7, weapon: "mortar", after: 330 },
+    { kind: "buy", slot: 5, weapon: "swivel" },
+    { kind: "build", plot: 5, building: "barracks", mix: "volley", route: "right", after: 450 },
+    { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
+    { kind: "buy", slot: 6, weapon: "longGun", after: 600 },
+  ],
+  // Fast mills, three barracks and the guns to break a keep.
+  warlord: [
+    { kind: "build", plot: 1, building: "mill" },
+    { kind: "build", plot: 4, building: "mill", after: 45 },
+    { kind: "build", plot: 2, building: "barracks", mix: "breach", route: "left", after: 70 },
+    { kind: "build", plot: 3, building: "foundry", after: 120 },
+    { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
+    { kind: "buy", slot: 7, weapon: "mortar", after: 180 },
+    { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
+    { kind: "build", plot: 5, building: "barracks", mix: "volley", route: "right", after: 240 },
+    { kind: "buy", slot: 4, weapon: "chainShot" },
+    { kind: "buy", slot: 6, weapon: "longGun", after: 330 },
+    { kind: "upgrade", slot: 7, upgrade: "heavyShell" },
+    { kind: "buy", slot: 5, weapon: "swivel" },
+    { kind: "upgrade", slot: 6, upgrade: "rifled" },
+  ],
+};

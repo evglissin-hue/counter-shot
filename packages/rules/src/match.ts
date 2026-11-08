@@ -48,7 +48,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 4;
+export const MATCH_RULES_VERSION = 5;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -76,7 +76,13 @@ export type MatchInput =
   /** A Foundry upgrade for one of the team's guns (one each; needs a working Foundry). */
   | { kind: "upgrade"; emplacement: number; upgrade: UpgradeKind }
   /** How a barracks plot sends its waves: its mix, its route, or both. */
-  | { kind: "barracks"; plot: number; mix?: MixName; route?: RouteName };
+  | { kind: "barracks"; plot: number; mix?: MixName; route?: RouteName }
+  /**
+   * M5: where the gun a team rides points now, between shots (so the other
+   * side sees it turn: the AI, and a player online). Only for drawing it; a
+   * fire carries its own aim.
+   */
+  | { kind: "aim"; emplacement: number; yaw: number; pitch: number };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
@@ -102,6 +108,11 @@ export interface MatchOptions {
   suddenDeathTick?: number;
   /** M3: the enemy castle follows its build order (default); tests may turn it off. */
   plan?: boolean;
+  /**
+   * The enemy's first barracks takes the routes in turn (default). Off when
+   * someone commands the enemy castle (M5: the AI, or a second player).
+   */
+  rotate?: boolean;
 }
 
 /** What a team did in a match, for the end screen. */
@@ -200,6 +211,7 @@ export class Match {
   private rng: Rng;
   private barracks: boolean;
   private plan: boolean;
+  private rotate: boolean;
   /** Waves the enemy's first barracks has sent (its route turns with them). */
   private enemyWaves = 0;
   /** Waves each barracks plot has sent (every other one from the second carries a ladder). */
@@ -214,6 +226,7 @@ export class Match {
     this.economy = new Economy(this.world, this.gold, (emp) => this.owner[emp] ?? -1);
     this.estate = new Estate(this.world, this.economy, this.emplacements, (emp) => this.owner[emp] ?? -1);
     this.plan = opts.plan !== false;
+    this.rotate = opts.rotate !== false;
     this.guns = this.emplacements.map((e) => {
       const w = WEAPONS[e.weapon];
       const pitch = w.restPitch < w.minPitch ? w.minPitch : w.restPitch > w.maxPitch ? w.maxPitch : w.restPitch;
@@ -295,6 +308,9 @@ export class Match {
     const list = this.inputs.get(tick);
     if (list) {
       this.inputs.delete(tick);
+      // Team by team, each in the order it sent them (M5: online, each page queues its own inputs before the
+      // friend's arrive, so the order of arrival is not the same on both machines; this order is).
+      list.sort((a, b) => a.team - b.team);
       // Only while the match is on.
       if (!this.result) for (const { team, input } of list) this.apply(team, input, tick);
     }
@@ -338,9 +354,10 @@ export class Match {
   private apply(team: Team, input: MatchInput, tick: number) {
     switch (input.kind) {
       case "fire": {
-        // Only from the team's own emplacements, armed, and only when loaded.
+        // Only from the team's own emplacements, armed, and only when loaded (and with a real aim: online it is another page's).
         const e = this.emplacements[input.emplacement];
         if (!e || e.empty || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
+        if (!Number.isFinite(input.yaw) || !Number.isFinite(input.pitch) || !Number.isFinite(input.charge) || !Number.isFinite(input.fuse)) return;
         this.shots[team]++;
         this.world.queue(tick, { ...input, auto: false, reload: this.reloadScale() });
         this.setGun(e.id, input.yaw, input.pitch);
@@ -382,6 +399,14 @@ export class Match {
       case "barracks":
         this.estate.setBarracks(team, input.plot, input.mix, input.route);
         return;
+      case "aim": {
+        // Only the gun the team rides: the others are laid by their crews.
+        const e = this.emplacements[input.emplacement];
+        if (!e || e.empty || this.owner[e.id] !== team || this.manned[team] !== e.id) return;
+        if (!Number.isFinite(input.yaw) || !Number.isFinite(input.pitch)) return;
+        this.setGun(e.id, input.yaw, input.pitch);
+        return;
+      }
     }
   }
 
@@ -407,7 +432,7 @@ export class Match {
     const inside = this.army.attackers[team] > 0;
     let k = 0;
     for (const plot of plots) {
-      const route = team === Team.Enemy && plot === 0 ? ENEMY_ROUTES[this.enemyWaves++ % ENEMY_ROUTES.length] : this.estate.barracks[team][plot].route;
+      const route = this.rotate && team === Team.Enemy && plot === 0 ? ENEMY_ROUTES[this.enemyWaves++ % ENEMY_ROUTES.length] : this.estate.barracks[team][plot].route;
       const units = this.estate.waveUnits(team, plot);
       const room = WAVES.maxStanding - this.army.standing(team);
       let count = room < units.length ? room : units.length;

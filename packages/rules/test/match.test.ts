@@ -30,7 +30,7 @@ test("a team fires only its own emplacements, and only after they reload", () =>
   m.free();
 });
 
-test("the scripted match: a long gun hit and two shells down the enemy keep win it, and nothing counts after the end", () => {
+test("the scripted match: shells down the sturdy enemy keep, two or more a floor, win it, and nothing counts after the end", () => {
   const a = runMatchSession(R);
   const b = runMatchSession(R);
   assert.deepEqual(a.hash, b.hash);
@@ -38,16 +38,16 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.ok(a.result, "the match ended");
   assert.equal(a.result.winner, Team.Player);
   assert.equal(a.result.reason, "keep");
-  assert.ok(a.result.tick > 760 && a.result.tick < 1400, `won at tick ${a.result.tick}, after the second shell`);
-  assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
+  assert.ok(a.result.tick > 6510 && a.result.tick < 7230, `won at tick ${a.result.tick}, after the tenth shell`);
+  assert.deepEqual(a.shots, [0, 11], "the shell and the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
   const income = incomeTicks * MATCH.keepIncome;
   assert.equal(a.earned[0], income, "the enemy earned its keep's income and nothing more, and income stops at the end");
   // M3: the player's shots brought enemy keep masonry down and struck the keep itself: both pay.
   assert.ok(a.earned[1] > income + 30, `the player earned ${a.earned[1] - income} gold besides income`);
   assert.deepEqual([a.gold[0] + a.spent[0], a.gold[1] + a.spent[1]], [MATCH.startGold + a.earned[0], MATCH.startGold + a.earned[1]], "what was not earned was not spent");
-  // M4's masons put the keep back; M3: rubble off the keep may wreck the enemy's barracks beside it, which it rebuilds.
-  assert.ok(a.spent[0] > 0, `the enemy spent ${a.spent[0]} gold on its keep`);
+  // Nothing to build, no masons: the enemy spends nothing in this match.
+  assert.equal(a.spent[0], 0);
   assert.deepEqual(a.hash, MATCH_HASH);
 });
 

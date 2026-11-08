@@ -15,7 +15,6 @@ import type { Sound } from "./sound";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2, RUINED = 3;
-const PLAYER = 1;
 const TRICK_NAMES: Partial<Record<Earn, string>> = {
   [Earn.Ricochet]: "Ricochet kill",
   [Earn.Collapse]: "Collapse kill",
@@ -35,6 +34,8 @@ interface Float {
 export class Estate {
   readonly wheel: BuildWheel;
   private mode: Mode | null = null;
+  /** The team this page plays (M5: online, the guest plays team 0). */
+  private team: 0 | 1 = 1;
   /** Each castle's plots as last seen: kind and state. */
   private plots: Array<Array<{ kind: number; state: number }>> = [0, 1].map(() => PLOTS.map(() => ({ kind: -1, state: EMPTY })));
   private plotsSeen = false;
@@ -70,9 +71,15 @@ export class Estate {
     return this.wheel.isOpen;
   }
 
+  /** In a match (against the AI or a friend)? */
+  private get inMatch(): boolean {
+    return this.mode === "versus" || this.mode === "online";
+  }
+
   /** A new world: nothing built yet, the wheel shut, no numbers in the air. */
-  reset(mode: Mode) {
+  reset(mode: Mode, team: 0 | 1 = 1) {
     this.mode = mode;
+    this.team = team;
     this.wheel.close();
     this.plots = [0, 1].map(() => PLOTS.map(() => ({ kind: -1, state: EMPTY })));
     this.plotsSeen = false;
@@ -84,7 +91,7 @@ export class Estate {
 
   /** Open the wheel on the gun in this slot (an empty slot's click, or B then 7). */
   openFor(slot: number) {
-    if (this.mode !== "versus") return;
+    if (!this.inMatch) return;
     void slot;
     document.exitPointerLock?.();
     this.wheel.open(6);
@@ -92,7 +99,7 @@ export class Estate {
 
   /** Open the wheel on one of the player's plots (a click in the overview). */
   openPlot(plot: number) {
-    if (this.mode !== "versus") return;
+    if (!this.inMatch) return;
     document.exitPointerLock?.();
     this.wheel.open(plot);
   }
@@ -100,7 +107,7 @@ export class Estate {
   /** The player's plot under a world point, or -1. */
   plotAt(x: number, z: number): number {
     for (const p of PLOTS) {
-      const c = plotCentre(PLAYER, p.index);
+      const c = plotCentre(this.team, p.index);
       if (Math.abs(x - c.x) <= p.w / 2 + 0.5 && Math.abs(z - c.z) <= p.d / 2 + 0.5) return p.index;
     }
     return -1;
@@ -163,9 +170,9 @@ export class Estate {
       const castle = data[o] | 0, plot = data[o + 1] | 0, kind = data[o + 2] | 0, state = data[o + 3] | 0;
       const was = this.plots[castle]?.[plot];
       if (!was) continue;
-      if (this.plotsSeen && this.mode === "versus" && (was.state !== state || was.kind !== kind) && kind >= 0) {
+      if (this.plotsSeen && this.inMatch && (was.state !== state || was.kind !== kind) && kind >= 0) {
         const name = BUILDINGS[BUILDING_KINDS[kind]].name;
-        if (castle === PLAYER) {
+        if (castle === this.team) {
           if (state === STANDING && was.state === RISING) {
             const what = BUILDING_KINDS[kind] === "mill" ? `${name} is up: ${BUILDINGS.mill.income} more gold a second.` : BUILDING_KINDS[kind] === "barracks" ? "new barracks is ready: its waves leave with the others. B sets its mix and route." : `${name} is lit: B, then 7, upgrades the gun you ride.`;
             this.note(`Your ${what}`, 4500);
@@ -182,11 +189,11 @@ export class Estate {
 
   /** The match: gold coming in, and what the wheel shows. */
   onMatch(info: MatchInfo, gun: Emplacement | null, slot: number) {
-    this.gold = info.gold[PLAYER];
+    this.gold = info.gold[this.team];
     const e = info.earned;
     for (let k = 0; k + EARN_STRIDE - 1 < e.length; k += EARN_STRIDE) {
       const team = e[k], amount = e[k + 1], kind = e[k + 2] as Earn;
-      if (team !== PLAYER || kind === Earn.Income) continue;
+      if (team !== this.team || kind === Earn.Income) continue;
       const trick = TRICK_NAMES[kind];
       this.float(e[k + 3], e[k + 4], e[k + 5], trick ? `+${amount} ${trick}` : `+${amount}`, !!trick);
       if (trick) this.toast(trick, amount);
@@ -199,7 +206,7 @@ export class Estate {
         }
       }
     }
-    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: PLAYER, barracks: info.barracks, foundry: info.foundry[PLAYER], gun, gunSlot: slot });
+    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot });
   }
 
   private toast(name: string, amount: number) {
@@ -253,7 +260,7 @@ export class Estate {
       this.feedSum.clear();
     }
     // The mills grind and the foundries ring, near enough to hear.
-    if (this.mode !== "versus") return;
+    if (!this.inMatch) return;
     const ear = this.renderer.listener();
     const sec = now / 1000;
     for (const castle of [0, 1]) {

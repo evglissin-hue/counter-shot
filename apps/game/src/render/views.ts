@@ -50,6 +50,24 @@ export class Views {
     this.controls.update();
   }
 
+  /**
+   * M5: whose castle the overview starts behind: team 1's (the castle at
+   * z = -150, the default) or team 0's, the same view turned through the
+   * middle of the field (the valley is point symmetric). Resets the orbit.
+   */
+  setSide(team: 0 | 1) {
+    const s = OVERVIEW_START;
+    if (team === 1) this.orbitPos.copy(s);
+    else this.orbitPos.set(-s.x, s.y, -150 - s.z);
+    this.orbitTarget.copy(OVERVIEW_TARGET);
+    if (this.mode === "overview") {
+      this.camera.position.copy(this.orbitPos);
+      this.controls.target.copy(this.orbitTarget);
+      this.camera.lookAt(this.orbitTarget);
+      this.controls.update();
+    }
+  }
+
   setPose(pose: CameraPose) {
     const cam = this.camera;
     const was = this.mode;

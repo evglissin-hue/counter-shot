@@ -95,6 +95,25 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .chips button.off { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: rgba(236,228,210,0.35); }
 .masons { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .masons.wait { color: var(--brass); }
+.netline.wait { color: var(--brass); }
+/* M5: Versus AI's card holds its difficulties; Play a friend opens the lobby. */
+.choice.versus { padding: 0; gap: 0; }
+.choice.versus:hover { background: rgba(236, 228, 210, 0.04); transform: none; }
+.choice-go { display: grid; gap: 4px; text-align: left; padding: 14px 16px 8px; border-radius: 10px 10px 0 0; }
+.choice-go b { font: 24px/1.1 var(--display); font-weight: 400; color: var(--ink); }
+.choice-go span { font: 400 14px/1.35 var(--ui); color: var(--ink-dim); }
+.choice-go:hover b::after, .choice-go:focus-visible b::after { content: " \203A"; color: var(--brass); }
+.levels { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 16px 14px; }
+.levels button { border: 1px solid var(--line); }
+.levels .small { flex: 1 1 180px; }
+.online { display: grid; gap: 12px; }
+.matches { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.matches li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: rgba(236, 228, 210, 0.04); }
+.matches li button.primary { background: var(--brass); color: var(--brass-ink); }
+.matches li button:disabled { opacity: 0.45; cursor: default; }
+.code { font: 500 16px/1 var(--mono); letter-spacing: 0.12em; color: var(--brass); }
+#online-cancel { display: none; }
+#online-wait:not([hidden]) ~ .actions #online-cancel { display: inline-block; }
 .storm { justify-self: stretch; width: min(460px, 100%); margin: 2px auto 0; padding: 7px 10px 9px; display: grid; gap: 6px; border-radius: 8px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.25); }
 .storm .title { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; font: 500 14px/1.2 var(--ui); }
 .storm .title b { font: 19px/1 var(--display); font-weight: 400; }
@@ -268,6 +287,7 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
       <span class="chips" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><span class="key">Alt</span><button data-repair="gate" aria-pressed="true">1 Gate</button><button data-repair="walls" aria-pressed="true">2 Walls</button><button data-repair="towers" aria-pressed="true">3 Towers</button><button data-repair="keep" aria-pressed="true">4 Keep</button></span>
       <span class="small masons" id="masons"></span>
     </div>
+    <div class="line"><span class="small netline" id="netline" hidden role="status"></span></div>
     <div id="storm" class="storm" hidden role="status" aria-live="polite">
       <div class="title"><b id="storm-title"></b><span class="mono" id="storm-count"></span></div>
       <div class="meter"><i id="storm-fill"></i></div>
@@ -340,9 +360,23 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
     <div class="card glass" role="dialog" aria-labelledby="menu-title">
       <h1 id="menu-title">Keepfall</h1>
       <p>Two castles across a valley, a stream with three timber bridges between them. Ride the siege guns of the Ashwright castle.</p>
-      <div class="choices">
+      <div class="choices" id="choices">
         <button class="choice" data-mode="practice"><b>Practice range</b><span>Every weapon against the target castle and a patrol of pikemen. No clock, no rules: rebuild the castles any time.</span></button>
-        <button class="choice" data-mode="versus"><b>Versus AI</b><span>A match on the clock: bring the enemy keep's banner to the ground, or storm its courtyard. Build barracks, mills and a foundry on your plots, buy and upgrade guns, and send waves of pikemen, sappers and musketeers (some with ladders) to batter gates, blow breaches and climb walls; earn gold from every enemy and every stone you bring down, and pay your masons to rebuild what the enemy breaks. The enemy builds by a fixed plan and does not aim at your castle yet.</span></button>
+        <div class="choice versus">
+          <button class="choice-go" id="versus-go"><b>Versus AI</b><span>A match on the clock against a castle that plays by your rules: it builds, buys guns, rides them, sends waves and repairs. Bring its keep's banner to the ground (its keep takes a real siege: thick walls, and floors that need two shells each) or storm its courtyard.</span></button>
+          <div class="levels" role="group" aria-label="Difficulty">
+            <button data-level="squire">Squire</button><button data-level="knight">Knight</button><button data-level="warlord">Warlord</button>
+            <span class="small" id="level-blurb"></span>
+          </div>
+        </div>
+        <button class="choice" id="online-go"><b>Play a friend</b><span>The same match against a friend on their own laptop. Both of you open this game's link; one hosts, the other joins.</span></button>
+      </div>
+      <div id="online" class="online" hidden>
+        <p id="online-status" class="small">Looking for the room...</p>
+        <div id="online-wait" hidden><p>Waiting for your friend to join match <b id="online-code" class="code"></b>. It shows in their lobby.</p></div>
+        <ul id="online-list" class="matches" aria-label="Matches waiting for a player"></ul>
+        <div class="actions"><button class="primary" id="online-host">Host a match</button><button id="online-cancel">Cancel</button><button id="online-back">Back</button></div>
+        <p class="small">The host plays the oxblood castle, the friend who joins the green one. Your friend needs this game's link with permission to use it: share it from the artifact's Share menu.</p>
       </div>
       <div class="actions"><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
@@ -353,7 +387,7 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
       <h2 id="end-title">Victory</h2>
       <p id="end-line"></p>
       <table class="versus" aria-label="The match, side by side">
-        <thead><tr><th></th><th>You</th><th>Enemy</th></tr></thead>
+        <thead><tr><th></th><th>You</th><th id="end-them">Enemy</th></tr></thead>
         <tbody id="end-table"></tbody>
       </table>
       <ul class="log" id="end-log" aria-label="What happened"></ul>
@@ -362,6 +396,13 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
         <button id="end-practice">Practice range</button>
         <button id="end-look">Look around</button>
       </div>
+    </div>
+  </div>
+  <div id="gone" class="overlay" hidden>
+    <div class="card glass" role="dialog" aria-labelledby="gone-title">
+      <h2 id="gone-title">Your friend has gone</h2>
+      <p id="gone-line"></p>
+      <div class="actions"><button class="primary" id="gone-ai">Keep playing against the AI</button><button id="gone-menu">Back to the menu</button></div>
     </div>
   </div>
   <div id="error" hidden role="alert"></div>

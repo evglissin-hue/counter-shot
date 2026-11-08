@@ -6,3 +6,4 @@ export * from "./army";
 export * from "./buildings";
 export * from "./arsenal";
 export * from "./siege";
+export * from "./ai";

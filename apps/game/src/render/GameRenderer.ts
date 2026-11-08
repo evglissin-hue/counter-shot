@@ -219,6 +219,13 @@ export class GameRenderer implements GameRendererApi {
   }
 
   /** M3: what each emplacement holds now (guns bought for empty slots appear). */
+  /** M5: the castle this page plays (team 1 at z = -150, team 0 at the origin): where the overview starts and debris is thrown towards. */
+  private side: 0 | 1 = 1;
+  setSide(team: 0 | 1) {
+    this.side = team;
+    this.views.setSide(team);
+  }
+
   setArms(emplacements: Emplacement[]): void {
     this.guns.arm(emplacements);
   }
@@ -473,8 +480,8 @@ export class GameRenderer implements GameRendererApi {
       this.splashes.spawn(this.now, x, z, Math.min(1.4, 0.3 + strength * 0.6), false);
       return;
     }
-    // Debris is thrown back towards the shooter (the player's castle).
-    const cz = this.layout ? this.layout.castleZ[1] : -150;
+    // Debris is thrown back towards the shooter (this page's castle).
+    const cz = this.layout ? this.layout.castleZ[this.side] : -150;
     this.effects.bias.set(0 - x, 0, cz - z);
     this.effects.spawnImpact(x, y, z, strength, dust);
   }

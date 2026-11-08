@@ -49,6 +49,14 @@ export interface Stone {
   /** A piece of a plot's building (M3, layout option plots): the plot (0 to 5) and the building kind (index into BUILDING_KINDS). */
   plot?: number;
   building?: number;
+  /**
+   * Dressed, well bonded masonry (M5, layout option keep): a blast reaches
+   * only 1/hard as far into this piece, and a ball that strikes it keeps less
+   * of its speed. Absent: 1.
+   */
+  hard?: number;
+  /** Blasts (a ball's or a burst's) it takes to break this piece loose; the ones before only crack it (M5). Absent: 1. */
+  tough?: number;
 }
 
 export interface WedgeSpec {
@@ -252,9 +260,20 @@ class Builder {
     }
   }
 
-  keep(floors: boolean): { platformTop: number } {
+  keep(floors: boolean, opts: KeepOptions = {}): { platformTop: number } {
+    const first = this.stones.length;
+    const out = this.keepPieces(floors, opts.thick ?? KEEP_THICK);
+    // M5: the keep's masonry and floors resist blasts (the lab's keep has neither).
+    for (let i = first; i < this.stones.length; i++) {
+      const s = this.stones[i];
+      if (opts.hard !== undefined && opts.hard > 1) s.hard = opts.hard;
+      if (s.part === "storey" && opts.storeyHits !== undefined && opts.storeyHits > 1) s.tough = opts.storeyHits;
+    }
+    return out;
+  }
+
+  private keepPieces(floors: boolean, t: number): { platformTop: number } {
     const h = KEEP_SIZE / 2;
-    const t = KEEP_THICK;
     for (let c = 0; c < KEEP_COURSES; c++) {
       const nsFull = (c & 1) === 0;
       // North and south faces run along X; east and west along Z. Corners interlock.
@@ -403,7 +422,7 @@ export function stoneBounds(s: Stone, wedge: WedgeSpec): [number, number, number
 
 type PlotRange = { plot: number; kind: number; first: number; count: number };
 
-function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boolean): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[] } {
+function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boolean, keep: KeepOptions = {}): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[] } {
   const b = new Builder(seed);
   const e = TOWER_R_OUT - 0.13; // wall ends just inside the tower's skin
   // Front wall (z = -T) with the gate, back wall, and the two side walls.
@@ -434,7 +453,7 @@ function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boole
     });
   }
   for (const [tx, tz] of [[-T, -T], [T, -T], [-T, T], [T, T]] as const) b.tower(tx, tz, wedge);
-  const { platformTop } = b.keep(floors);
+  const { platformTop } = b.keep(floors, keep);
   const ranges: PlotRange[] = [];
   if (plots) {
     // M3: every kind of building stands ready on every plot (the sim keeps only what is built).
@@ -487,17 +506,32 @@ export interface LayoutOptions {
   bridges?: BridgeSite[];
   /** Plots with their buildings in each courtyard instead of the old houses (M3). Off in the lab. */
   plots?: boolean;
+  /** A sturdier keep (M5): thicker, harder walls and floors that take more than one shell. Off in the lab. */
+  keep?: KeepOptions;
 }
 
-/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots. */
-export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true };
+/** How a keep is built (M5). Everything absent is the old keep. */
+export interface KeepOptions {
+  /** Wall thickness (m); the keep stays 10 m square outside. */
+  thick?: number;
+  /** Blast reach divisor for the keep's walls, battlements and floors (Stone.hard). */
+  hard?: number;
+  /** Blasts each floor board takes before it gives way (Stone.tough). */
+  storeyHits?: number;
+}
+
+/** The match keep: thick, hard walls and floors that crack under the first shell and give way under the next. */
+export const MATCH_KEEP: KeepOptions = { thick: 2.0, hard: 2, storeyHits: 2 };
+
+/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots, the sturdy keep. */
+export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true, keep: MATCH_KEEP };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
   const floors = opts.keepFloors === true;
   const withPlots = opts.plots === true;
-  const enemy = oneCastle(seed, wedge, floors, withPlots);
-  const player = oneCastle(seed + 1, wedge, floors, withPlots);
+  const enemy = oneCastle(seed, wedge, floors, withPlots, opts.keep);
+  const player = oneCastle(seed + 1, wedge, floors, withPlots, opts.keep);
   const stones: Stone[] = [];
   for (const s of enemy.stones) stones.push({ ...s, id: stones.length, castle: 0 });
   const offset = stones.length;

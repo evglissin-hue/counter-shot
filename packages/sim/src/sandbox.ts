@@ -36,7 +36,7 @@ import { Wind } from "./wind";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 9;
+export const RULES_VERSION = 10;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -127,6 +127,12 @@ export class SandboxSim {
   private slotShot = new Int32Array(64).fill(-1);
   readonly shotInfo = new Map<number, ShotInfo>();
   keepHits: number[] = [];
+  /**
+   * M5: shots that first touched something during the last step (the
+   * landing marker's events, kept per step so a player in the sim, the AI,
+   * can read where its shots came down).
+   */
+  readonly landings: Array<{ shot: number; emplacement: number; auto: boolean; x: number; y: number; z: number }> = [];
   readonly emplacements: Emplacement[];
   tick = 0;
   /** Ticks until each emplacement can fire again. */
@@ -209,6 +215,7 @@ export class SandboxSim {
 
   step() {
     const tick = this.tick;
+    this.landings.length = 0;
     const list = this.inputs.get(tick);
     if (list) {
       this.inputs.delete(tick);
@@ -382,6 +389,12 @@ export class SandboxSim {
   private afterStep() {
     const castle = this.castle;
     for (const im of castle.impacts) this.event(EventKind.Impact, im.x, im.y, im.z, im.strength);
+    // M5: tough pieces (keep floor boards) cracked by a blast but still standing.
+    for (const id of castle.cracked) {
+      const s = this.castle.layout.stones[id];
+      this.event(EventKind.Cracked, id, s.x, s.y, s.z);
+    }
+    castle.cracked.length = 0;
     // M3: a ball that glances off stone keeps that on its shot's record (a ricochet kill, if it fells a man after).
     for (const [bi] of castle.glances) {
       const info = this.shotInfo.get(this.shotOf(bi));
@@ -436,6 +449,7 @@ export class SandboxSim {
           shot.landed = true;
           const p = ball.body.translation();
           this.event(EventKind.Landed, shot.auto ? -(shot.emplacement + 1) : shot.emplacement, p.x, p.y, p.z);
+          this.landings.push({ shot: shot.id, emplacement: shot.emplacement, auto: shot.auto, x: p.x, y: p.y, z: p.z });
           // M3: its first touch is a keep (a keep hit, for the match to pay for).
           if (ball.struck >= 0 && this.army) {
             const s = castle.layout.stones[ball.struck];

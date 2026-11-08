@@ -80,6 +80,8 @@ export const enum EventKind {
   Keg = 10,
   /** [kind, castle, plot, building kind, 0]: a plot's building is finished (M3). */
   Built = 11,
+  /** [kind, stone id, x, y, z]: a blast cracked a tough piece (a keep floor board) without breaking it (M5); x, y, z is the piece's place. */
+  Cracked = 12,
 }
 export const EVENT_STRIDE = 5;
 

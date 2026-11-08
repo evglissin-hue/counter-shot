@@ -1,0 +1,10 @@
+{
+  "name": "@keepfall/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The AI castle: reads the match and sends the same inputs a player does.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@dimforge/rapier3d-deterministic-compat": "0.21.0", "@keepfall/content": "0.0.0", "@keepfall/core": "0.0.0", "@keepfall/rules": "0.0.0", "@keepfall/sim": "0.0.0" }
+}

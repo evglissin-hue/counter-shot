@@ -106,8 +106,8 @@ const STOREY_BREAK = 8_000_000;
 /**
  * Collision groups (membership << 16 | filter) for layouts with keep floors.
  * Intact keep walls and storeys carry the STRUCTURE bit and lose it when they
- * come loose; a banner collides only with colliders that have it (the ground,
- * shots and intact keep structure), so rubble never lifts it off its keep.
+ * come loose; a banner collides only with colliders that have it (the ground
+ * and intact keep structure), so neither rubble nor shots lift it off its keep.
  */
 const STRUCTURE = 0x0010;
 const BANNER = 0x0008;
@@ -174,6 +174,14 @@ export class CastleSim {
   /** M3: when set, every piece that goes from standing to loose (or dust) is listed in `fell`, for the match to pay for. */
   recordFalls = false;
   fell: number[] = [];
+  /** M5: blasts each tough piece (Stone.tough) has taken without breaking, and the pieces of the layout that are tough, in id order. */
+  readonly hits: Uint8Array;
+  private toughIds: Int32Array;
+  /** M5: sideways bonds each piece may hang by before it falls (the span; hard masonry bridges more), and the most any piece may. */
+  private spanOf: Uint8Array;
+  private maxSpan: number;
+  /** M5: tough pieces a blast cracked this step without breaking them loose (for the page: splinters and a crack). */
+  cracked: number[] = [];
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -185,6 +193,15 @@ export class CastleSim {
     this.frozen = new Uint8Array(n);
     this.shattered = new Uint8Array(n);
     this.shatterReported = new Uint8Array(n);
+    this.hits = new Uint8Array(n);
+    this.toughIds = Int32Array.from(layout.stones.filter((s) => (s.tough ?? 1) > 1).map((s) => s.id));
+    this.spanOf = new Uint8Array(n);
+    this.maxSpan = opts.span;
+    for (const st of layout.stones) {
+      const sp = st.hard !== undefined && st.hard > 1 ? Math.round(opts.span * st.hard) : opts.span;
+      this.spanOf[st.id] = sp;
+      if (sp > this.maxSpan) this.maxSpan = sp;
+    }
     this.restSteps = new Uint16Array(n);
     this.cost = new Int32Array(n);
     this.deque = new Int32Array(n * 4 + 16);
@@ -242,7 +259,8 @@ export class CastleSim {
       if (layout.keepFloors) cd.setCollisionGroups(s.part === "banner" ? BANNER_GROUPS : s.part === "keep" || s.part === "storey" ? STRUCTURE_GROUPS : RUBBLE_GROUPS);
       if (!loose) {
         // Keep floors carry falling rubble: only a burst or a direct hit breaks a storey board.
-        const threshold = s.part === "storey" ? STOREY_BREAK : opts.breakForce;
+        // M5: hard masonry (the match keep) takes heavier falling rubble before it breaks.
+        const threshold = s.part === "storey" ? STOREY_BREAK : opts.breakForce * (s.hard ?? 1);
         cd.setActiveEvents(R.ActiveEvents.CONTACT_FORCE_EVENTS).setContactForceEventThreshold(threshold);
       }
       const col = this.world.createCollider(cd, body);
@@ -291,7 +309,9 @@ export class CastleSim {
         .setFriction(0.4)
         .setRestitution(o.restitution ?? 0.1)
         .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS)
-        .setCollisionGroups(o.groups ?? 0xffffffff),
+        // M5: with keep floors, shots pass the banner pole like rubble does: a banner comes down only with
+        // the floor under it (a ball that clipped the pole used to knock it off the keep, a win in seconds).
+        .setCollisionGroups(o.groups ?? (this.layout.keepFloors ? RUBBLE_GROUPS : 0xffffffff)),
       body,
     );
     if (slot < this.balls.length) {
@@ -371,13 +391,17 @@ export class CastleSim {
     for (const id of found) {
       const s = this.layout.stones[id];
       const ex = s.x - x, ey = s.y - y, ez = s.z - z;
-      const d2 = ex * ex + ey * ey + ez * ez;
+      // M5: a burst reaches only 1/hard as far into hard masonry, and a tough piece only cracks at first.
+      const h = s.hard ?? 1;
+      const d2 = (ex * ex + ey * ey + ez * ez) * h * h;
+      if (d2 > r2 || this.withstands(id)) continue;
       if (d2 <= core2 && s.part !== "banner") {
         this.shatter(id);
         continue;
       }
       this.loosen(id);
-      this.throwPiece(id, ex, ey, ez, d2, r2, power, lift);
+      // (scaled with the reach, so a hard piece is thrown the same way, only less hard)
+      this.throwPiece(id, ex * h, ey * h, ez * h, d2, r2, power, lift);
     }
     for (const id of rubble) {
       const p = this.bodies[id].translation();
@@ -461,8 +485,11 @@ export class CastleSim {
     this.queue.drainContactForceEvents((e) => {
       const a = this.owner.get(e.collider1());
       const b = this.owner.get(e.collider2());
-      if (a !== undefined && a >= 0 && (!this.dynamic[a] || this.frozen[a])) breaks.push(a);
-      if (b !== undefined && b >= 0 && (!this.dynamic[b] || this.frozen[b])) breaks.push(b);
+      // M5: only masonry, timber and shot break a piece. A man, a ladder or a keg pressing on one never does:
+      // a ragdoll set down a little inside a deck plank was pushed out with half a meganewton, and every fight on a bridge broke it.
+      if (a === undefined || b === undefined) return;
+      if (a >= 0 && (!this.dynamic[a] || this.frozen[a])) breaks.push(a);
+      if (b >= 0 && (!this.dynamic[b] || this.frozen[b])) breaks.push(b);
     });
     hits.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
     breaks.sort((p, q) => p - q);
@@ -503,8 +530,9 @@ export class CastleSim {
       const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
       // The ball touches the face; the damage centres inside the masonry, a metre along the shot.
       this.blast(p.x + dx, p.y + dy, p.z + dz, radius, dx, dy, dz, speed);
-      // Give the ball its momentum back (minus what breaking the bond cost).
-      ball.body.setLinvel({ x: ball.vx * 0.85, y: ball.vy * 0.85, z: ball.vz * 0.85 }, true);
+      // Give the ball its momentum back (minus what breaking the bond cost; hard masonry costs it more).
+      const keepV = 0.85 / (this.layout.stones[stoneId].hard ?? 1);
+      ball.body.setLinvel({ x: ball.vx * keepV, y: ball.vy * keepV, z: ball.vz * keepV }, true);
       this.impacts.push({ x: p.x, y: p.y, z: p.z, strength: Math.min(1, speed / 80) });
       changed = true;
     }
@@ -574,7 +602,12 @@ export class CastleSim {
     for (const id of found) {
       const s = this.layout.stones[id];
       const ex = s.x - x, ey = s.y - y, ez = s.z - z;
-      const d2 = ex * ex + ey * ey + ez * ez;
+      // M5: a blast reaches only 1/hard as far into hard masonry, and a ball punches through a tough floor
+      // board without bringing it down (only shells break the match keep's floors, or losing their walls).
+      if (s.tough !== undefined && s.part === "storey") continue;
+      const h = s.hard ?? 1;
+      const d2 = (ex * ex + ey * ey + ez * ez) * h * h;
+      if (d2 > r2 || this.withstands(id)) continue;
       if (d2 <= core2 && s.part !== "banner") {
         this.shatter(id);
         continue;
@@ -583,7 +616,7 @@ export class CastleSim {
       const body = this.bodies[id];
       const fall = 1 - d2 / r2; // 1 at the centre, 0 at the edge
       // Debris flies along the shot and bursts out from the point of impact, with a little lift.
-      const d = dsqrt(d2) + 0.001;
+      const d = dsqrt(d2) / h + 0.001;
       let px = dx + 0.6 * (ex / d), py = dy + 0.6 * (ey / d) + 0.25, pz = dz + 0.6 * (ez / d);
       const pl = dsqrt(px * px + py * py + pz * pz) + 0.001;
       px /= pl; py /= pl; pz /= pl;
@@ -636,12 +669,16 @@ export class CastleSim {
             if (this.dynamic[id]) continue;
             const s = this.layout.stones[id];
             const ex = s.x - x, ey = s.y - y, ez = s.z - z;
-            if (ex * ex + ey * ey + ez * ez <= r2) found.push(id);
+            const h = s.hard ?? 1;
+            if ((ex * ex + ey * ey + ez * ez) * h * h <= r2) found.push(id);
           }
         }
     this.thaw(x, y, z, radius);
     found.sort((p, q) => p - q);
     for (const id of found) {
+      const st = this.layout.stones[id];
+      if (st.tough !== undefined && st.part === "storey") continue; // (as a full ball's blast)
+      if (this.withstands(id)) continue;
       this.loosen(id);
       const body = this.bodies[id];
       const k = body.mass() * speed * this.opts.push * 0.5;
@@ -727,6 +764,7 @@ export class CastleSim {
     if (!this.dynamic[id]) return false;
     const s = this.layout.stones[id];
     const body = this.bodies[id];
+    this.hits[id] = 0; // a new board or stone: no cracks
     if (this.shattered[id]) {
       this.shattered[id] = 0;
       this.shatterReported[id] = 0;
@@ -819,6 +857,18 @@ export class CastleSim {
       }
     }
     this.frozenList = keep;
+  }
+
+  /**
+   * M5: a tough piece takes a blast without breaking until its last: it
+   * cracks (counted, and reported for the page) and stays standing.
+   */
+  private withstands(id: number): boolean {
+    const tough = this.layout.stones[id].tough ?? 1;
+    if (tough <= 1 || this.hits[id] + 1 >= tough) return false;
+    this.hits[id]++;
+    this.cracked.push(id);
+    return true;
   }
 
   /** A direct hit turns the piece to dust and chips: it leaves the simulation. */
@@ -936,7 +986,7 @@ export class CastleSim {
         tail = (tail + 1) % cap;
       }
     }
-    const span = this.opts.span;
+    const spanOf = this.spanOf, maxSpan = this.maxSpan;
     while (head !== tail) {
       const u = dq[head];
       head = (head + 1) % cap;
@@ -949,17 +999,17 @@ export class CastleSim {
         dq[head] = v;
       }
       const c1 = cu + 1;
-      if (c1 > span) continue;
+      if (c1 > maxSpan) continue;
       for (let k = sOff[u], k1 = sOff[u + 1]; k < k1; k++) {
         const v = sIds[k];
-        if (dynamic[v] || cost[v] <= c1) continue;
+        if (dynamic[v] || cost[v] <= c1 || c1 > spanOf[v]) continue;
         cost[v] = c1;
         dq[tail] = v;
         tail = (tail + 1) % cap;
       }
       for (let k = bOff[u], k1 = bOff[u + 1]; k < k1; k++) {
         const v = bIds[k];
-        if (dynamic[v] || cost[v] <= c1) continue;
+        if (dynamic[v] || cost[v] <= c1 || c1 > spanOf[v]) continue;
         cost[v] = c1;
         dq[tail] = v;
         tail = (tail + 1) % cap;
@@ -1063,7 +1113,15 @@ export class CastleSim {
       const r = this.bodies[i].rotation();
       f.set([t.x, t.y, t.z, r.x, r.y, r.z, r.w], i * 7);
     }
-    const state = hex8(hashBytes(new Uint8Array(f.buffer)));
+    let bytes = new Uint8Array(f.buffer);
+    if (this.toughIds.length) {
+      // M5: the cracks in tough pieces are state too (layouts without tough pieces hash as before).
+      const all = new Uint8Array(bytes.length + this.toughIds.length);
+      all.set(bytes);
+      for (let k = 0; k < this.toughIds.length; k++) all[bytes.length + k] = this.hits[this.toughIds[k]];
+      bytes = all;
+    }
+    const state = hex8(hashBytes(bytes));
     const snapshot = hex8(hashBytes(this.world.takeSnapshot()));
     return { state, snapshot };
   }

@@ -4,9 +4,12 @@
 // a fire sends the exact aim to the worker, which owns everything else.
 
 import {
+  AI_LEVELS,
   ASHWRIGHT_EMPLACEMENTS,
   ASHWRIGHT_SLOTS,
   BARREL,
+  DIFFICULTIES,
+  type Difficulty,
   buildLayout,
   GAME_LAYOUT,
   KEEP_STOREYS,
@@ -44,7 +47,8 @@ import {
   type FrameData,
 } from "@keepfall/sim";
 import { Input } from "./input";
-import type { FromWorker, MasonInfo, MatchInfo, Mode, ToWorker } from "./protocol";
+import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, ToWorker } from "./protocol";
+import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { LAY_SECONDS } from "./render/works";
@@ -77,6 +81,23 @@ const ALL_EMP: Emplacement[] = MATCH_EMPLACEMENTS.map((e) => ({ ...e }));
 let EMP: Emplacement[] = ASHWRIGHT_EMPLACEMENTS;
 /** Slots the page keeps aim, zoom, trails and reloads for (the most any mode has). */
 const SLOTS = ASHWRIGHT_SLOTS.length;
+/**
+ * M5: the team this page plays and the other one (team 1 holds the castle at
+ * z = -DIST, team 0 the one at the origin), and the first match id of its
+ * guns: the page keeps its own guns as slots 0 to 7 and speaks to the worker
+ * in the match's emplacement ids (the guest online plays team 0, ids 8 to 15).
+ */
+let ME: 0 | 1 = 1;
+let FOE: 0 | 1 = 0;
+let BASE = 0;
+/** Versus AI's difficulty (remembered). */
+let difficulty: Difficulty = "knight";
+try {
+  const d = localStorage.getItem("keepfall.difficulty") as Difficulty | null;
+  if (d && DIFFICULTIES.includes(d)) difficulty = d;
+} catch {}
+/** Online: who the friend is, as the lobby found them. */
+let friendName = "";
 
 const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
@@ -93,7 +114,14 @@ const SHELL_G = G * MORTAR.projectile.gravity;
 const FIXED = location.hash.includes("fixed");
 /** The mode being played (null while the start menu is up). #practice or #versus in the address skips the menu (tests use #fixed: the Practice range). */
 let mode: Mode | null = null;
+/** In a match (against the AI or a friend), not the Practice range. */
+const isMatch = () => mode === "versus" || mode === "online";
+/** A gun slot's match id, and its reload in ticks. */
+const gid = (i: number) => EMP[i]?.id ?? i;
+const rl = (i: number) => reload[gid(i)] ?? 0;
 const hashMode: Mode | null = location.hash.includes("versus") ? "versus" : location.hash.includes("practice") || FIXED ? "practice" : null;
+// #versus=squire (or knight, warlord) picks the difficulty too.
+for (const d of ["squire", "knight", "warlord"] as const) if (location.hash.includes(`versus=${d}`)) difficulty = d;
 /** The match as the worker last reported it (Versus AI only). */
 let matchInfo: MatchInfo | null = null;
 let endShownFor = -1;
@@ -223,11 +251,15 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     showError(m.message);
     return;
   }
+  if (m.t === "net") {
+    online.fromWorker(m.state, m.waiting, m.desync);
+    return;
+  }
   if (m.t === "frame") {
-    const was = reload[current];
+    const was = rl(current);
     reload = m.reload;
-    soundscape.reload(EMP[current].weapon, reload[current], WEAPONS[EMP[current].weapon].reload, view === "sight" && mode !== null);
-    if (was > 0 && reload[current] === 0) {
+    soundscape.reload(EMP[current].weapon, rl(current), WEAPONS[EMP[current].weapon].reload, view === "sight" && mode !== null);
+    if (was > 0 && rl(current) === 0) {
       sound.ready(EMP[current].weapon);
       flashLoaded();
     }
@@ -255,11 +287,14 @@ function onFrame(f: FrameData) {
       // c is 1 for a shot from a gun nobody mans: heard where it is, never your trail or your shot camera.
       const emp = a, id = b, auto = c === 1;
       const e = ALL_EMP[emp];
-      if (e) sound.fire(e.weapon, e.x, e.y, e.z, emp === current && !auto);
-      if (!auto && emp < EMP.length && e) {
-        recording.set(id, { emp, pts: [] });
-        if (shotCam[emp] && emp === current) {
-          if (e.weapon === "mortar") startRide(id, emp, now);
+      // Your own gun slot (the match id less your first one), or out of range for the other side's.
+      const slot = emp - BASE;
+      const yours = slot >= 0 && slot < EMP.length;
+      if (e) sound.fire(e.weapon, e.x, e.y, e.z, yours && slot === current && !auto);
+      if (!auto && yours && e) {
+        recording.set(id, { emp: slot, pts: [] });
+        if (shotCam[slot] && slot === current) {
+          if (e.weapon === "mortar") startRide(id, slot, now);
           else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
         }
       }
@@ -278,7 +313,7 @@ function onFrame(f: FrameData) {
       if (!tally) tally = { until: now + 4500, stones: 0, down0: lastDown };
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
-      if (a >= 0 && a < EMP.length) landing[a] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+      if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
       soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
       if (impacts++ < 3) soundscape.impact(a, b, c, d);
@@ -429,7 +464,7 @@ let tallyTimer: ReturnType<typeof setTimeout> | undefined;
 function landedNow(f: FrameData): boolean {
   for (let k = 0; k < f.eventCount; k++) {
     const kind = f.events[k * EVENT_STRIDE];
-    if ((kind === EventKind.Landed && f.events[k * EVENT_STRIDE + 1] === current) || kind === EventKind.Explosion) return true;
+    if ((kind === EventKind.Landed && f.events[k * EVENT_STRIDE + 1] === gid(current)) || kind === EventKind.Explosion) return true;
   }
   return false;
 }
@@ -639,15 +674,15 @@ function applyMouse() {
 }
 
 function fire() {
-  if (!ready || reload[current] > 0 || matchInfo?.result) return;
+  if (!ready || rl(current) > 0 || matchInfo?.result) return;
   const e = EMP[current];
   if (e.empty) {
     estate.openFor(current);
     return;
   }
   const a = aims[current];
-  send({ t: "input", input: { kind: "fire", emplacement: current, yaw: a.yaw, pitch: a.pitch, charge: 1, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
-  reload[current] = weaponOf(e).reload; // until the worker confirms
+  send({ t: "input", input: { kind: "fire", emplacement: gid(current), yaw: a.yaw, pitch: a.pitch, charge: 1, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
+  reload[gid(current)] = weaponOf(e).reload; // until the worker confirms
 }
 
 /** Q and E: the next or the previous gun that is armed (M3: empty slots are passed over). */
@@ -668,7 +703,7 @@ function select(i: number) {
   view = "sight";
   obs.primed = false;
   keyVel.yaw = keyVel.pitch = 0;
-  if (mode === "versus" && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
+  if (isMatch() && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
   updateHud(true);
 }
 
@@ -680,13 +715,14 @@ function select(i: number) {
  */
 function man(e: number, left: number) {
   const g = matchInfo?.guns;
-  if (e >= 0 && g && g.length >= (e + 1) * 2) aims[e] = clampAim({ yaw: g[e * 2], pitch: g[e * 2 + 1] }, EMP[e], weaponOf(EMP[e]));
-  send({ t: "input", input: { kind: "man", emplacement: e, left: left >= 0 ? { emplacement: left, yaw: aims[left].yaw, pitch: aims[left].pitch } : undefined } });
+  const id = e >= 0 ? gid(e) : -1;
+  if (e >= 0 && g && g.length >= (id + 1) * 2) aims[e] = clampAim({ yaw: g[id * 2], pitch: g[id * 2 + 1] }, EMP[e], weaponOf(EMP[e]));
+  send({ t: "input", input: { kind: "man", emplacement: id, left: left >= 0 ? { emplacement: gid(left), yaw: aims[left].yaw, pitch: aims[left].pitch } : undefined } });
 }
 
 /** Orders for all your waves (Ctrl+1, 2, 3) and the route of your next ones (L). */
 function giveOrder(order: number) {
-  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  if (!isMatch() || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "order", order: order as Order } });
   sound.ui("order");
   const text = [
@@ -699,12 +735,26 @@ function giveOrder(order: number) {
   updateWaves();
 }
 function setRoute(route: RouteName) {
-  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  if (!isMatch() || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "route", route } });
   sound.ui("click");
   showNote(`Your next waves march down the ${route === "centre" ? "centre road" : `${route} flank`}.`, 2600);
   matchInfo.route = route;
   updateWaves();
+}
+
+/** Online (M5): where the gun you ride points, a few times a second while it turns, so your friend sees it move. */
+const aimSent = { yaw: NaN, pitch: NaN, at: 0, slot: -1 };
+function sendAim(now: number) {
+  if (mode !== "online" || view !== "sight" || ride || EMP[current].empty || matchInfo?.result) return;
+  const a = aims[current];
+  const moved = aimSent.slot !== current || Math.abs(a.yaw - aimSent.yaw) > 0.003 || Math.abs(a.pitch - aimSent.pitch) > 0.003;
+  if (!moved || now - aimSent.at < 250) return;
+  aimSent.yaw = a.yaw;
+  aimSent.pitch = a.pitch;
+  aimSent.at = now;
+  aimSent.slot = current;
+  send({ t: "input", input: { kind: "aim", emplacement: gid(current), yaw: a.yaw, pitch: a.pitch } });
 }
 
 // ---- camera and aim help ---------------------------------------------------------
@@ -845,11 +895,14 @@ function updateAimHelp() {
   // Full aim help marks where this shot will land or burst, with the reach of a burst; partial marks where the last one landed.
   if (marker) renderer.setLandingMarker(marker, e.weapon === "mortar" && w.burst ? w.burst.radius : 0);
   else renderer.setLandingMarker(showing ? landing[current] : null);
-  const guns = mode === "versus" ? matchInfo?.guns : undefined;
+  const guns = isMatch() ? matchInfo?.guns : undefined;
   for (let i = 0; i < ALL_EMP.length; i++) {
-    const riding = i === current && view === "sight";
+    // The renderer's guns go by match id; yours are your slots from BASE on.
+    const slot = i - BASE;
+    const yours = slot >= 0 && slot < EMP.length;
+    const riding = yours && slot === current && view === "sight";
     if (guns && !riding && guns.length >= (i + 1) * 2) renderer.setWeaponPose(i, guns[i * 2], guns[i * 2 + 1], false);
-    else if (i < EMP.length) renderer.setWeaponPose(i, aims[i].yaw, aims[i].pitch, i === current);
+    else if (yours) renderer.setWeaponPose(i, aims[slot].yaw, aims[slot].pitch, slot === current);
   }
 }
 
@@ -876,7 +929,7 @@ function describeHit(h: PathHit | null): string {
   const dist = Math.hypot(h.x - e.x, h.z - e.z);
   let what = "the ground";
   for (const c of [0, 1] as const) {
-    if (h.stone < 0 && Math.abs(h.x) < 14 && Math.abs(h.z - layout.castleZ[c]) < 14) what = c === 0 ? "the target courtyard" : "your own courtyard";
+    if (h.stone < 0 && Math.abs(h.x) < 14 && Math.abs(h.z - layout.castleZ[c]) < 14) what = c === FOE ? "the target courtyard" : "your own courtyard";
   }
   const bridge = h.stone >= 0 ? layout.bridges.find((b) => h.stone >= b.first && h.stone < b.first + b.count) : undefined;
   if (bridge) {
@@ -884,7 +937,7 @@ function describeHit(h: PathHit | null): string {
   } else if (h.stone >= 0) {
     const s = layout.stones[h.stone];
     const part = s && s.part === "storey" && s.course === KEEP_TOP_COURSE ? "keep roof" : s ? PART_NAMES[s.part] : "";
-    what = s ? `${s.castle === 0 ? "the target" : "your own"} ${part}` : "rubble";
+    what = s ? `${s.castle === FOE ? "the target" : "your own"} ${part}` : "rubble";
   }
   return `${what}, ${Math.round(dist)} m`;
 }
@@ -984,7 +1037,7 @@ function updateHud(force = false) {
     hud.reticle.hidden = true;
     return;
   }
-  const r = reload[current];
+  const r = rl(current);
   hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
   hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
   weaponPanel.classList.toggle("loaded", r === 0);
@@ -1014,7 +1067,7 @@ function updateHud(force = false) {
   hud.windArrow.style.transform = `rotate(${ang}deg)`;
   const ws = Math.hypot(wind.x, wind.z);
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
-  hud.minions.textContent = mode === "versus" ? "" : `${stats.down} down, ${stats.standing} standing`;
+  hud.minions.textContent = isMatch() ? "" : `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}, frame ${pacer.frameMs.toFixed(1)} ms, resolution ${Math.round(SCALES[pacer.scaleIdx] * 100)}%`;
   hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
   hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
@@ -1078,17 +1131,29 @@ hud.sound.addEventListener("click", () => {
   hud.sound.blur();
   updateHud(true);
 });
-/** Start (or restart) a mode: the worker builds a fresh world for it. */
-function startMode(m: Mode) {
+/** Start (or restart) a mode: the worker builds a fresh world for it. Online, `net` says which castle is yours and the host's seed. */
+function startMode(m: Mode, net?: OnlineStart) {
   const first = mode === null;
+  if (mode === "online" && m !== "online") void online.leave();
   mode = m;
+  ME = m === "online" && net ? net.team : 1;
+  FOE = ME === 1 ? 0 : 1;
+  BASE = ME === 1 ? 0 : SLOTS;
+  friendName = net?.friend ?? "";
   $("menu").hidden = true;
+  $("choices").hidden = false;
+  $("online").hidden = true;
+  $("gone").hidden = true;
   document.body.classList.remove("title-screen");
   $("end").hidden = true;
-  $("mode-name").textContent = m === "versus" ? "Versus AI" : "Practice range";
-  $("matchbar").hidden = m !== "versus";
+  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "online" ? `Against ${friendName}` : "Practice range";
+  const match = m === "versus" || m === "online";
+  $("matchbar").hidden = !match;
+  $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
-  $("reset").textContent = m === "versus" ? "Restart the match" : "Rebuild the castles";
+  // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
+  $("reset").hidden = m === "online";
+  $("reset").textContent = match ? "Restart the match" : "Rebuild the castles";
   $("menu-back").hidden = false;
   matchInfo = null;
   endShownFor = -1;
@@ -1098,20 +1163,28 @@ function startMode(m: Mode) {
   view = "sight";
   ready = false;
   if (rendererReady) $("loading").hidden = false;
-  if (first) send({ t: "init", mode: m, seed: SEED, minions: MINIONS });
+  const setup: MatchSetup = m === "versus" ? { difficulty } : m === "online" && net ? { team: net.team, delay: net.delay } : {};
+  const seed = m === "online" && net ? net.seed : SEED;
+  if (first) send({ t: "init", mode: m, seed, minions: MINIONS, setup });
   else {
     resetLocal();
-    send({ t: "reset", mode: m, seed: SEED, minions: MINIONS });
+    send({ t: "reset", mode: m, seed, minions: MINIONS, setup });
   }
-  // M3: a match starts with its emplacements as built (empty slots empty); your guns are its first eight.
+  // M3: a match starts with its emplacements as built (empty slots empty); your guns are your castle's eight.
   MATCH_EMPLACEMENTS.forEach((e, i) => Object.assign(ALL_EMP[i], e, { upgrade: undefined }));
-  EMP = m === "versus" ? ALL_EMP.slice(0, SLOTS) : ASHWRIGHT_EMPLACEMENTS;
+  EMP = match ? ALL_EMP.slice(BASE, BASE + SLOTS) : ASHWRIGHT_EMPLACEMENTS;
   if (current >= EMP.length || EMP[current].empty) current = 0;
+  aims.forEach((_, i) => {
+    if (i >= EMP.length) return;
+    aims[i] = restAim(EMP[i], weaponOf(EMP[i]));
+    wanted[i] = { ...aims[i] };
+  });
   renderer.setArms(ALL_EMP);
+  renderer.setSide(ME);
   buildTabs();
-  estate.reset(m);
-  renderer.showEmplacements(m === "versus" ? ALL_EMP.length : EMP.length);
-  renderer.setMarkers(m === "versus");
+  estate.reset(m, ME);
+  renderer.showEmplacements(match ? ALL_EMP.length : EMP.length);
+  renderer.setMarkers(match);
   prevGate = null;
   matchLog = [];
   malletAct.clear();
@@ -1121,11 +1194,34 @@ function startMode(m: Mode) {
   $("clock").classList.remove("sudden");
   surrenderBtn.hidden = true;
   sound.setStorm(0, 0);
-  if (m === "versus") {
-    send({ t: "input", input: { kind: "man", emplacement: current } });
-    showNote("Topple the enemy keep or storm its courtyard. Every barracks sends a wave every 25 seconds, some with ladders. B: build on your plots and buy guns for your empty emplacements; gold comes from your keep, mills, every enemy and every stone you bring down, and pays your masons. Ctrl+1, 2, 3: advance, hold, push the breach. L: your route. Alt+1 to 4: repairs.", 12000);
+  if (match) {
+    send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
+    const how = "Every barracks sends a wave every 25 seconds, some with ladders. B: build on your plots and buy guns for your empty emplacements; gold comes from your keep, mills, every enemy and every stone you bring down, and pays your masons. Ctrl+1, 2, 3: advance, hold, push the breach. L: your route. Alt+1 to 4: repairs.";
+    if (m === "online") showNote(`You hold the ${ME === 1 ? "oxblood" : "green"} castle against ${friendName}. Topple their keep or storm their courtyard. ${how}`, 12000);
+    else showNote(`Topple the enemy keep or storm its courtyard. The ${AI_LEVELS[difficulty].name} commands the enemy: it builds, aims and repairs by the same rules as you. ${how}`, 12000);
   }
+  if (m === "online") online.onGone = () => offerTakeover();
 }
+
+/** Online: the friend has gone (or gone quiet for long): keep playing against the AI, or leave. */
+function offerTakeover() {
+  if (mode !== "online" || matchInfo?.result) return;
+  $("gone-line").textContent = `${friendName} has left the match, or their connection dropped.`;
+  $("gone").hidden = false;
+  document.exitPointerLock?.();
+}
+$("gone-ai").addEventListener("click", () => {
+  $("gone").hidden = true;
+  send({ t: "takeover", difficulty: "knight" });
+  void online.leave();
+  showNote(`The Knight takes ${friendName}'s castle from here.`, 5000);
+  $("netline").hidden = true;
+});
+$("gone-menu").addEventListener("click", () => {
+  $("gone").hidden = true;
+  void online.leave();
+  $("menu").hidden = false;
+});
 
 /**
  * M3: what each emplacement holds, as the worker reported it: a gun bought
@@ -1146,12 +1242,13 @@ function syncArms(arms: Int8Array) {
     e.upgrade = upgrade;
     e.barrel = BARREL[kind];
     changed = true;
-    if (i < SLOTS && bought) {
+    const slot = i - BASE;
+    if (slot >= 0 && slot < SLOTS && bought) {
       const wd = weaponOf(e);
-      aims[i] = restAim(e, wd);
-      wanted[i] = { ...aims[i] };
-      fov[i] = wd.fov[1] * 0.8;
-      shotCam[i] = kind === "mortar";
+      aims[slot] = restAim(e, wd);
+      wanted[slot] = { ...aims[slot] };
+      fov[slot] = wd.fov[1] * 0.8;
+      shotCam[slot] = kind === "mortar";
       reload[i] = 0;
     }
   }
@@ -1187,14 +1284,81 @@ document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
     startMode(b.dataset.mode === "versus" ? "versus" : "practice");
   }),
 );
+// M5: Versus AI's three difficulties (the card starts a match at the one picked).
+const levelBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-level]")];
+function showLevels() {
+  levelBtns.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.level === difficulty)));
+  $("level-blurb").textContent = AI_LEVELS[difficulty].blurb;
+}
+levelBtns.forEach((b) =>
+  b.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    b.blur();
+    difficulty = b.dataset.level as Difficulty;
+    try {
+      localStorage.setItem("keepfall.difficulty", difficulty);
+    } catch {}
+    sound.ui("click");
+    showLevels();
+  }),
+);
+showLevels();
+$("versus-go").addEventListener("click", () => {
+  sound.ui("click");
+  startMode("versus");
+});
+// M5: Play a friend: the lobby.
+const online = new Online(
+  {
+    panel: $("online"),
+    status: $("online-status"),
+    list: $("online-list"),
+    hostBtn: $<HTMLButtonElement>("online-host"),
+    wait: $("online-wait"),
+    code: $("online-code"),
+    cancel: $<HTMLButtonElement>("online-cancel"),
+    line: $("netline"),
+  },
+  send,
+  (st) => {
+    sound.ui("click");
+    startMode("online", st);
+  },
+  (text, ms) => showNote(text, ms),
+);
+$("online-go").addEventListener("click", () => {
+  $<HTMLButtonElement>("online-go").blur();
+  sound.ui("click");
+  $("choices").hidden = true;
+  void online.open();
+});
+$("online-back").addEventListener("click", () => {
+  $<HTMLButtonElement>("online-back").blur();
+  void online.leave();
+  $("online").hidden = true;
+  $("choices").hidden = false;
+});
 $("menu-btn").addEventListener("click", () => {
   $("menu").hidden = false;
-  surrenderBtn.hidden = mode !== "versus" || !!matchInfo?.result;
+  $("choices").hidden = false;
+  $("online").hidden = true;
+  surrenderBtn.hidden = !isMatch() || !!matchInfo?.result;
   $<HTMLButtonElement>("menu-btn").blur();
   document.exitPointerLock?.();
 });
 $("menu-back").addEventListener("click", () => ($("menu").hidden = true));
-$("end-again").addEventListener("click", () => startMode("versus"));
+$("end-again").addEventListener("click", () => {
+  if (mode !== "online") {
+    startMode("versus");
+    return;
+  }
+  // Online, another match goes through the lobby (both pages start it together).
+  void online.leave();
+  $("end").hidden = true;
+  $("menu").hidden = false;
+  $("choices").hidden = true;
+  void online.open();
+});
 $("end-practice").addEventListener("click", () => startMode("practice"));
 $("end-look").addEventListener("click", () => {
   $("end").hidden = true;
@@ -1219,7 +1383,7 @@ repairChips.forEach((b) =>
 
 /** Switch your masons on or off for one kind of section (Alt+1 to 4). */
 function toggleRepair(kind: RepairKind, on?: boolean) {
-  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  if (!isMatch() || !matchInfo || matchInfo.result) return;
   const now = on ?? !matchInfo.repairs[kind];
   send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
   matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
@@ -1232,7 +1396,7 @@ function toggleRepair(kind: RepairKind, on?: boolean) {
 let surrenderArmed = 0;
 const surrenderBtn = $<HTMLButtonElement>("menu-surrender");
 surrenderBtn.addEventListener("click", () => {
-  if (mode !== "versus" || !matchInfo || matchInfo.result) return;
+  if (!isMatch() || !matchInfo || matchInfo.result) return;
   const now = performance.now();
   if (now - surrenderArmed > 3500) {
     surrenderArmed = now;
@@ -1264,10 +1428,10 @@ function updateWaves() {
   const info = matchInfo;
   if (!info) return;
   const s = Math.ceil(info.nextWave / 60);
-  $("next-wave").textContent = info.result ? "" : info.waves[1] === 0 ? `First waves in ${s} s` : `Next waves in ${s} s`;
+  $("next-wave").textContent = info.result ? "" : info.waves[ME] === 0 ? `First waves in ${s} s` : `Next waves in ${s} s`;
   routeChips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.route === info.route)));
   orderChips.forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.order) === info.order)));
-  $("army-count").textContent = `Pikemen ${info.standing[1]} (${info.fallen[1]} down), enemy ${info.standing[0]} (${info.fallen[0]} down)`;
+  $("army-count").textContent = `Pikemen ${info.standing[ME]} (${info.fallen[ME]} down), enemy ${info.standing[FOE]} (${info.fallen[FOE]} down)`;
 }
 
 function clockText(ticks: number): string {
@@ -1310,8 +1474,8 @@ function updateRepairs() {
     b.classList.toggle("off", !on);
   });
   const el = $("masons");
-  el.textContent = masonText(info.masons[1], true);
-  el.classList.toggle("wait", info.masons[1].hold === 1 || info.masons[1].hold === 3);
+  el.textContent = masonText(info.masons[ME], true);
+  el.classList.toggle("wait", info.masons[ME].hold === 1 || info.masons[ME].hold === 3);
 }
 
 /** The storm meter: whoever is storming a courtyard now, how many against how many, how long they have held it. */
@@ -1324,7 +1488,8 @@ function updateStorm() {
     if (!info) for (const c of [0, 1]) renderer.setStorm(c, 0, false);
     return;
   }
-  const ours = info.storm[0] / info.stormHold, theirs = info.storm[1] / info.stormHold;
+  // storm[c] is how long the enemy of castle c has held its courtyard: ours is the storm of the enemy castle.
+  const ours = info.storm[FOE] / info.stormHold, theirs = info.storm[ME] / info.stormHold;
   sound.setStorm(ours, theirs);
   for (const c of [0, 1]) renderer.setStorm(c, info.storm[c] / info.stormHold, info.attackers[c] > info.defenders[c] && info.attackers[c] >= 2);
   if (!info.storm[0] && !info.storm[1]) {
@@ -1332,8 +1497,8 @@ function updateStorm() {
     return;
   }
   // The one nearer to winning shows.
-  const mine = info.storm[0] >= info.storm[1];
-  const c = mine ? 0 : 1;
+  const mine = info.storm[FOE] >= info.storm[ME];
+  const c = mine ? FOE : ME;
   const held = Math.floor(info.storm[c] / 60), of = Math.round(info.stormHold / 60);
   const a = info.attackers[c], d = info.defenders[c];
   const holding = a > d && a >= 2;
@@ -1354,17 +1519,17 @@ function onMatch(info: MatchInfo) {
   if (!info.result) {
     const was = prevGate;
     if (was) {
-      if (!was.open[1] && info.gateOpen[1]) {
+      if (!was.open[ME] && info.gateOpen[ME]) {
         showNote("Your gate is down: enemy pikemen can get into your courtyard.", 5000);
         logMoment("Your gate was broken down", true);
-      } else if (!was.open[0] && info.gateOpen[0]) {
+      } else if (!was.open[FOE] && info.gateOpen[FOE]) {
         showNote("The enemy gate is down.", 4000);
         logMoment("The enemy gate was broken down");
-      } else if (was.hits[1] === 0 && info.gateHits[1] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
-      else if (was.open[1] && !info.gateOpen[1]) {
+      } else if (was.hits[ME] === 0 && info.gateHits[ME] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
+      else if (was.open[ME] && !info.gateOpen[ME]) {
         showNote("Your masons have the gate back on its hinges.", 4000);
         logMoment("Your masons rehung your gate");
-      } else if (was.open[0] && !info.gateOpen[0]) {
+      } else if (was.open[FOE] && !info.gateOpen[FOE]) {
         showNote("Enemy masons have rehung their gate.", 4000);
         logMoment("The enemy rehung its gate", true);
       }
@@ -1375,9 +1540,9 @@ function onMatch(info: MatchInfo) {
   $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
   $("clock").classList.toggle("sudden", info.suddenDeath);
   $("sudden").hidden = !info.suddenDeath || !!info.result;
-  $("gold").textContent = `${info.gold[1]} gold`;
+  $("gold").textContent = `${info.gold[ME]} gold`;
   // M3: the rate it comes in, what was earned since, the guns as built and bought.
-  $("gold-rate").textContent = `+${info.income[1].toFixed(1)}/s`;
+  $("gold-rate").textContent = `+${info.income[ME].toFixed(1)}/s`;
   syncArms(info.arms);
   estate.onMatch(info, EMP[current] ?? null, current);
   const r = info.result;
@@ -1386,7 +1551,7 @@ function onMatch(info: MatchInfo) {
   if (r && endShownFor !== r.tick) {
     endShownFor = r.tick;
     clearTimeout(endTimer);
-    if (r.reason === "keep" || r.reason === "storm") sound.matchEnd(r.winner === 1);
+    if (r.reason === "keep" || r.reason === "storm") sound.matchEnd(r.winner === ME);
     endTimer = setTimeout(showEnd, FIXED ? 0 : r.reason === "surrender" ? 300 : 2600);
   }
 }
@@ -1394,45 +1559,45 @@ function onMatch(info: MatchInfo) {
 /** Notes, the log and sounds for what changed since the last report. */
 function momentsOf(prev: MatchInfo, info: MatchInfo) {
   // Ladders up against a wall.
-  if (info.ladders[1] > prev.ladders[1]) {
+  if (info.ladders[ME] > prev.ladders[ME]) {
     showNote("A ladder is up against your wall: the enemy is climbing in. Your guns cannot reach the foot of your own wall; the garrison fights them inside.", 6500);
     logMoment("The enemy raised a ladder against your wall", true);
   }
-  if (info.ladders[0] > prev.ladders[0]) {
+  if (info.ladders[FOE] > prev.ladders[FOE]) {
     showNote("Your ladder is up against the enemy wall: your men are climbing.", 4500);
     logMoment("Your crew raised a ladder against the enemy wall");
   }
   // Storms begun and beaten off.
-  if (!prev.storm[0] && info.storm[0]) {
+  if (!prev.storm[FOE] && info.storm[FOE]) {
     showNote("Your men are storming the enemy courtyard: hold it for 20 seconds with more men inside than its defenders.", 6000);
     logMoment("Your men began to storm the enemy courtyard");
     sound.horn(true);
-  } else if (prev.storm[0] && !info.storm[0]) {
+  } else if (prev.storm[FOE] && !info.storm[FOE]) {
     showNote("Your storm was beaten off.", 3500);
     logMoment("The enemy beat your storm off", true);
   }
-  if (!prev.storm[1] && info.storm[1]) {
+  if (!prev.storm[ME] && info.storm[ME]) {
     showNote("The enemy is storming your courtyard! Your next wave musters inside to defend it.", 6000);
     logMoment("The enemy began to storm your courtyard", true);
     sound.horn(false);
-  } else if (prev.storm[1] && !info.storm[1]) {
+  } else if (prev.storm[ME] && !info.storm[ME]) {
     showNote("Your courtyard is clear: the storm is beaten off.", 4000);
     logMoment("You beat the enemy's storm off");
   }
   // The garrisons.
-  if (prev.garrison[1] > 0 && info.garrison[1] === 0) logMoment("Your garrison fell", true);
-  if (prev.garrison[0] > 0 && info.garrison[0] === 0) logMoment("The enemy garrison fell");
+  if (prev.garrison[ME] > 0 && info.garrison[ME] === 0) logMoment("Your garrison fell", true);
+  if (prev.garrison[FOE] > 0 && info.garrison[FOE] === 0) logMoment("The enemy garrison fell");
   // Masons starting on damage.
-  const mine = info.masons[1], theirs = info.masons[0];
-  if (mine.job && !prev.masons[1].job) logMoment(`Your masons began rebuilding ${mine.job}`);
-  if (theirs.job && !prev.masons[0].job) {
+  const mine = info.masons[ME], theirs = info.masons[FOE];
+  if (mine.job && !prev.masons[ME].job) logMoment(`Your masons began rebuilding ${mine.job}`);
+  if (theirs.job && !prev.masons[FOE].job) {
     if (info.tick - lastEnemyMasonNote > 40 * 60) {
       lastEnemyMasonNote = info.tick;
       showNote(`Enemy masons are rebuilding ${theirs.job}: shoot them to keep it open.`, 5000);
     }
     logMoment(`Enemy masons began rebuilding ${theirs.job}`, true);
   }
-  if (mine.up && mine.hold === 1 && prev.masons[1].hold !== 1 && info.tick - lastGoldNote > 30 * 60) {
+  if (mine.up && mine.hold === 1 && prev.masons[ME].hold !== 1 && info.tick - lastGoldNote > 30 * 60) {
     lastGoldNote = info.tick;
     showNote("Your masons are waiting for gold.", 3500);
   }
@@ -1455,32 +1620,35 @@ function trickText(t: number[]): string {
 /** How a match ended, in a few words and in a sentence. */
 function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: string } {
   if (r.winner === -1) return { short: "A draw", long: r.reason === "storm" ? "Both courtyards fell together." : "Both banners came down together." };
-  const won = r.winner === 1;
-  if (r.reason === "surrender") return won ? { short: "The enemy surrendered", long: "The enemy surrendered." } : { short: "You surrendered", long: "You gave up the match." };
+  const won = r.winner === ME;
+  if (r.reason === "surrender") return won ? { short: "The enemy surrendered", long: mode === "online" ? `${friendName} surrendered.` : "The enemy surrendered." } : { short: "You surrendered", long: "You gave up the match." };
   if (r.reason === "storm") return won ? { short: "The enemy courtyard is yours", long: "Your men held the enemy courtyard." } : { short: "Your courtyard has fallen", long: "The enemy held your courtyard." };
   return won ? { short: "The enemy keep has fallen", long: "The enemy keep's banner is on the ground." } : { short: "Your keep has fallen", long: "Your keep's banner is on the ground." };
 }
 
 function showEnd() {
   const info = matchInfo;
-  if (!info || !info.result || mode !== "versus") return;
+  if (!info || !info.result || !isMatch()) return;
   const r = info.result;
-  $("end-title").textContent = r.winner === 1 ? "Victory" : r.winner === 0 ? "Defeat" : "Draw";
+  $("end-title").textContent = r.winner === ME ? "Victory" : r.winner === FOE ? "Defeat" : "Draw";
+  $("end-them").textContent = mode === "online" ? friendName : "Enemy";
+  $("end-again").textContent = mode === "online" ? "Back to the lobby" : "Play again";
   $("end-line").textContent = `${endLine(r).long} ${clockText(r.tick)} on the clock.`;
   const mas = info.masonry ?? info.down;
   const st = info.stats;
+  const [a, b] = [ME, FOE];
   const rows: Array<[string, string | number, string | number]> = [
-    ["Masonry lost", mas ? mas[1] : "", mas ? mas[0] : ""],
-    ["Stones rebuilt", st ? st[1].stonesRebuilt : "", st ? st[0].stonesRebuilt : ""],
-    ["Gold earned", st ? st[1].goldEarned : "", st ? st[0].goldEarned : ""],
-    ["Gold spent", st ? st[1].goldSpent : "", st ? st[0].goldSpent : ""],
+    ["Masonry lost", mas ? mas[a] : "", mas ? mas[b] : ""],
+    ["Stones rebuilt", st ? st[a].stonesRebuilt : "", st ? st[b].stonesRebuilt : ""],
+    ["Gold earned", st ? st[a].goldEarned : "", st ? st[b].goldEarned : ""],
+    ["Gold spent", st ? st[a].goldSpent : "", st ? st[b].goldSpent : ""],
     // M3: trick shots by kind.
-    ["Trick shots", trickText(info.tricks[1]), trickText(info.tricks[0])],
-    ["Men lost", info.fallen[1], info.fallen[0]],
-    ["Waves sent", info.waves[1], info.waves[0]],
-    ["Ladders raised", st ? st[1].laddersRaised : "", st ? st[0].laddersRaised : ""],
-    ["Storms begun", st ? st[1].stormsBegun : "", st ? st[0].stormsBegun : ""],
-    ["Shots fired", info.shots[1], info.shots[0]],
+    ["Trick shots", trickText(info.tricks[a]), trickText(info.tricks[b])],
+    ["Men lost", info.fallen[a], info.fallen[b]],
+    ["Waves sent", info.waves[a], info.waves[b]],
+    ["Ladders raised", st ? st[a].laddersRaised : "", st ? st[b].laddersRaised : ""],
+    ["Storms begun", st ? st[a].stormsBegun : "", st ? st[b].stormsBegun : ""],
+    ["Shots fired", info.shots[a], info.shots[b]],
   ];
   const table = $("end-table");
   table.textContent = "";
@@ -1557,7 +1725,7 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointerup", (e) => {
   const d = downAtPx;
   downAtPx = null;
-  if (!d || view !== "overview" || mode !== "versus" || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+  if (!d || view !== "overview" || !isMatch() || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
   const p = renderer.pick(e.clientX, e.clientY);
   const plot = p ? estate.plotAt(p.x, p.z) : -1;
   if (plot >= 0) estate.openPlot(plot);
@@ -1633,7 +1801,7 @@ function toggleOverview() {
   endRide();
   view = view === "sight" ? "overview" : "sight";
   if (view === "overview") document.exitPointerLock?.();
-  if (mode === "versus") man(view === "sight" ? current : -1, view === "sight" ? -1 : current);
+  if (isMatch()) man(view === "sight" ? current : -1, view === "sight" ? -1 : current);
 }
 
 function showError(msg: string) {
@@ -1683,7 +1851,7 @@ function frame(wall: number) {
   const now = clock();
   const p = input.read();
   // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
-  const wheelKeys = estate.keys(p, mode === "versus");
+  const wheelKeys = estate.keys(p, isMatch());
   if (!wheelKeys && p.weapon >= 0) select(p.weapon);
   if (p.next) step(1);
   if (p.prev) step(-1);
@@ -1732,6 +1900,7 @@ function frame(wall: number) {
     aimTick();
     aimAcc -= 1 / 60;
   }
+  sendAim(now);
   soundscape.gun(EMP[current].weapon, aims[current].yaw, aims[current].pitch, WEAPONS[EMP[current].weapon].yawRate, dt, view === "sight" && !ride && mode !== null);
   if (slowUntil && now > slowUntil) {
     slowUntil = 0;
@@ -1774,6 +1943,8 @@ document.addEventListener("visibilitychange", () => {
   paused = document.hidden;
   send({ t: "pause", paused });
   sound.setPaused(paused);
+  // Online, the friend's match waits for this page while it is hidden: say so.
+  if (mode === "online") online.setPaused(paused);
 });
 // Browsers start sound only after a click or a key press on the page.
 const unlock = () => sound.unlock();
@@ -1809,8 +1980,8 @@ async function start() {
   if (location.hash.includes("low")) tier = "low";
   quality.value = tier;
   renderer.setLayout(layout, ALL_EMP);
-  renderer.showEmplacements(mode === "versus" ? ALL_EMP.length : EMP.length);
-  renderer.setMarkers(mode === "versus");
+  renderer.showEmplacements(isMatch() ? ALL_EMP.length : EMP.length);
+  renderer.setMarkers(isMatch());
   renderer.setQuality(tier);
   renderer.setGore(gore.checked);
   renderer.resize();

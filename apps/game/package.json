@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-deterministic-compat": "0.21.0",
+    "@keepfall/ai": "0.0.0",
     "@keepfall/content": "0.0.0",
     "@keepfall/core": "0.0.0",
     "@keepfall/rules": "0.0.0",

@@ -109,11 +109,11 @@ test("chain shot balls stay within the chain and craters dig the ground", () => 
   sim.free();
 });
 
-test("a mortar burst on the keep caves it in and throws masonry up and out", () => {
+test("a mortar burst on a wall top caves it in and throws masonry up and out", () => {
   const sim = new SandboxSim(R, buildLayout(1, GAME_LAYOUT), { seed: 3, minions: 0 });
   const layout = sim.castle.layout;
   const burst = WEAPONS.mortar.burst!;
-  sim.explode(0, 19.3, -0.6); // just inside the top of the keep's south face
+  sim.explode(6, 7.6, -15.2); // just inside the top of the enemy's front wall
   let shattered = 0;
   for (let i = 0; i < layout.stones.length; i++) if (sim.castle.shattered[i]) shattered++;
   const loose = sim.castle.dynList.length - shattered;
@@ -135,7 +135,21 @@ test("a mortar burst on the keep caves it in and throws masonry up and out", () 
   sim.free();
 });
 
-test("a keep with timber floors comes down a storey per shell, and the banner with it", () => {
+test("M5: the match keep's dressed stone takes a shell far better than the old keep", () => {
+  const down = (keep: typeof GAME_LAYOUT.keep) => {
+    const sim = new SandboxSim(R, buildLayout(1, { ...GAME_LAYOUT, keep }), { seed: 3, minions: 0 });
+    const before = sim.castle.dynList.length; // (unbuilt buildings' pieces wait out of the world among the loose)
+    sim.explode(0, 19.3, -0.6); // just inside the top of the keep's south face
+    const n = sim.castle.dynList.length - before;
+    sim.free();
+    return n;
+  };
+  const old = down(undefined), sturdy = down(GAME_LAYOUT.keep);
+  assert.ok(old >= 60, `the old keep lost ${old} pieces`);
+  assert.ok(sturdy * 3 <= old, `the match keep lost ${sturdy} pieces to the same shell (the old one ${old})`);
+});
+
+test("a keep with timber floors comes down a storey per two shells, and the banner with it", () => {
   const sim = new SandboxSim(R, buildLayout(1, GAME_LAYOUT), { seed: 3, minions: 0 });
   const layout = sim.castle.layout;
   const banner = sim.castle.bodies[layout.bannerIds[0]];
@@ -144,25 +158,36 @@ test("a keep with timber floors comes down a storey per shell, and the banner wi
     for (const s of layout.stones) if (s.castle === 0 && s.part === "storey" && s.course === course - 1 && !sim.castle.dynamic[s.id]) n++;
     return n;
   };
+  const cracked = (course: number) => layout.stones.filter((s) => s.castle === 0 && s.part === "storey" && s.course === course - 1 && sim.castle.hits[s.id] > 0).length;
   const [low, mid, top] = KEEP_STOREYS;
   const settle = () => {
     for (let i = 0; i < 360; i++) sim.step();
   };
   settle();
+  const boards = storeyLeft(top);
   // A shell striking each floor bursts 0.9 m inside it, as a shell that hits masonry does.
   sim.explode(0.4, (top / 2) - 0.9, 4.3);
   settle();
-  assert.equal(storeyLeft(top), 0, "the roof caved in");
-  assert.equal(storeyLeft(mid), 6, "the storey below held");
+  assert.equal(storeyLeft(top), boards, "the first shell only cracks the roof");
+  assert.ok(cracked(top) >= 3, `${cracked(top)} roof boards cracked`);
+  assert.ok(banner.translation().y > top / 2, "the banner is still on the roof");
+  sim.explode(0.4, (top / 2) - 0.9, 4.3);
+  settle();
+  assert.ok(storeyLeft(top) <= boards - 3, `the second caves it in: ${storeyLeft(top)} of ${boards} boards left`);
+  assert.equal(storeyLeft(mid), boards, "the storey below held");
   assert.ok(Math.abs(banner.translation().y - (mid / 2 + 0.6)) < 1.5 && !sim.castle.toppled[0], `the banner dropped one floor: ${banner.translation().y}`);
-  sim.explode(0.4, (mid / 2) - 0.9, 4.3);
-  settle();
-  assert.equal(storeyLeft(mid), 0);
-  assert.equal(storeyLeft(low), 6);
+  for (let k = 0; k < 2; k++) {
+    sim.explode(0.4, (mid / 2) - 0.9, 4.3);
+    settle();
+  }
+  assert.ok(storeyLeft(mid) <= boards - 3);
+  assert.equal(storeyLeft(low), boards);
   assert.ok(!sim.castle.toppled[0], "still standing on the lowest floor");
-  sim.explode(0.4, (low / 2) - 0.9, 4.3);
-  settle();
-  assert.ok(sim.castle.toppled[0], `the third shell brings the banner down: ${banner.translation().y}`);
+  for (let k = 0; k < 2; k++) {
+    sim.explode(0.4, (low / 2) - 0.9, 4.3);
+    settle();
+  }
+  assert.ok(sim.castle.toppled[0], `two more shells bring the banner down: ${banner.translation().y}`);
   sim.free();
 });
 

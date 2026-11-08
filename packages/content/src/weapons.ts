@@ -125,7 +125,8 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   mortar: {
     kind: "mortar",
     name: "Mortar",
-    speed: 82,
+    // M5: 84 m/s (was 82) puts the whole roof of the sturdier enemy keep in reach in still air; a headwind still takes its back half away.
+    speed: 84,
     minSpeed: 36,
     minPitch: 0.68,
     maxPitch: 1.35,

@@ -24,6 +24,8 @@ export interface AimSolution {
 const TWO_PI = 2 * DPI;
 /** Elevations a weapon with a charge lobs at: the first that can reach. */
 const LOB_PITCHES = [1.05, 1.3];
+/** The lowest elevation of the long lob: about the longest reach at full charge with the shell's drag (the mortar's is near 0.83). */
+const LONG_LOB = 0.83;
 const ITERATIONS = 22;
 /** Longest flight considered (s). */
 const MAX_FLIGHT = 9;
@@ -67,11 +69,15 @@ export function solveAim(e: Emplacement, x: number, y: number, z: number): AimSo
     return { yaw, pitch, charge: 1, time: out.t };
   }
   // A charge: lob at a fixed elevation and find the charge.
+  const speedOf = (c: number) => w.minSpeed + (w.speed - w.minSpeed) * c;
+  let beyond = false;
   for (const pitch of LOB_PITCHES) {
     if (pitch < w.minPitch || pitch > w.maxPitch) continue;
-    const speedOf = (c: number) => w.minSpeed + (w.speed - w.minSpeed) * c;
     if (flyTo(e, w, yaw, pitch, speedOf(0), dist, out) && out.y > y) continue; // too close for this elevation
-    if (!flyTo(e, w, yaw, pitch, speedOf(1), dist, out) || out.y < y) return null; // out of reach
+    if (!flyTo(e, w, yaw, pitch, speedOf(1), dist, out) || out.y < y) {
+      beyond = pitch === LOB_PITCHES[0]; // out of reach even at the lower lob: try the long lob
+      break;
+    }
     let lo = 0, hi = 1;
     for (let k = 0; k < ITERATIONS; k++) {
       const mid = (lo + hi) / 2;
@@ -82,7 +88,20 @@ export function solveAim(e: Emplacement, x: number, y: number, z: number): AimSo
     flyTo(e, w, yaw, pitch, speedOf(charge), dist, out);
     return { yaw, pitch, charge, time: out.t };
   }
-  return null;
+  // M5: the long lob, for targets beyond the fixed elevations' reach (the enemy keep from your mortar pit):
+  // full charge, and the elevation between the longest reach and the first lob, still coming down steeply.
+  if (!beyond) return null;
+  const pLo = LONG_LOB < w.minPitch ? w.minPitch : LONG_LOB, pHi = LOB_PITCHES[0];
+  if (!flyTo(e, w, yaw, pLo, w.speed, dist, out) || out.y < y) return null; // out of reach even at the longest
+  let lo = pLo, hi = pHi;
+  for (let k = 0; k < ITERATIONS; k++) {
+    const mid = (lo + hi) / 2;
+    if (flyTo(e, w, yaw, mid, w.speed, dist, out) && out.y >= y) lo = mid;
+    else hi = mid;
+  }
+  const pitch = (lo + hi) / 2;
+  if (!flyTo(e, w, yaw, pitch, w.speed, dist, out)) return null;
+  return { yaw, pitch, charge: 1, time: out.t };
 }
 
 /**
