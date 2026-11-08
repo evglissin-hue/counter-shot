@@ -56,6 +56,7 @@ export class EstateView {
     const iron = this.mat(0x2e2d2b, 0.55, 0.5);
     const stoneMat = this.mat(0x6f6a62, 0.85);
     const kegMat = this.mat(0x231c15, 0.75);
+    const doorMat = this.mat(0x2e251d, 0.85);
     for (const castle of [0, 1]) {
       for (const p of PLOTS) {
         const c = plotCentre(castle, p.index);
@@ -74,24 +75,29 @@ export class EstateView {
           for (const sz of [-1, 1]) this.add(scaffold, this.box(w + 1.0, 0.07, 0.3), wood, at(0, h, sz * (d / 2 + 0.45)));
           for (const sx of [-1, 1]) this.add(scaffold, this.box(0.3, 0.07, d + 1.0), wood, at(sx * (w / 2 + 0.45), h, 0));
         }
-        // A barracks: its banner on a pole by the door, a rack of pikes along the front.
+        // A barracks: its door, its banner on a pole clear of the eaves, a free-standing rack of pikes along the front.
         const barracks = new THREE.Group();
         const out = p.x > 0 ? 1 : -1; // the plot's outer side
-        this.add(barracks, this.box(0.08, 4.0, 0.08), wood, at(-out * (w / 2 - 0.4), 2.0, -d / 2 - 0.35));
+        const front = castle === 0 ? -1 : 1; // world z towards the plot's front (its gate side)
+        this.add(barracks, this.box(0.95, 1.9, 0.06), doorMat, at(-out * 0.6, 0.95, -d / 2 - 0.04));
+        this.add(barracks, this.box(0.08, 4.6, 0.08), wood, at(-out * (w / 2 - 0.4), 2.3, -d / 2 - 0.65));
         const cloth = new THREE.MeshStandardNodeMaterial();
         cloth.color = new THREE.Color(TEAM_COLORS[castle]);
         cloth.roughness = 0.9;
         cloth.side = THREE.DoubleSide;
         this.mats.push(cloth);
-        const banner = this.add(barracks, this.box(0.03, 1.5, 0.75), cloth, at(-out * (w / 2 - 0.4), 3.1, -d / 2 - 0.35 - 0.4 * (castle === 0 ? 1 : -1)));
+        // The cloth hangs from the pole's top towards the middle of the front, in the plane of the front wall.
+        const banner = this.add(barracks, this.box(0.03, 1.3, 0.8), cloth, at(-out * (w / 2 - 0.4) + out * 0.44, 3.6, -d / 2 - 0.65));
         banner.rotation.y = Math.PI / 2;
         for (let k = 0; k < 4; k++) {
-          const pk = this.add(barracks, this.box(0.035, 3.6, 0.035), wood, at(out * (0.4 + k * 0.32), 1.75, -d / 2 - 0.28));
-          pk.rotation.x = (castle === 0 ? 1 : -1) * 0.12;
+          const pk = this.add(barracks, this.box(0.035, 3.6, 0.035), wood, at(out * (0.45 + k * 0.32), 1.75, -d / 2 - 0.8));
+          pk.rotation.x = front * -0.07; // tops leaning back onto the rail behind them, clear of the eaves
         }
-        this.add(barracks, this.box(1.6, 0.08, 0.1), wood, at(out * 0.88, 1.25, -d / 2 - 0.3));
-        // A Powder Mill: a tall drive wheel turning against its outer wall, kegs stacked by the door.
+        this.add(barracks, this.box(1.6, 0.08, 0.1), wood, at(out * 0.93, 1.25, -d / 2 - 0.72));
+        for (const sx of [0.2, 1.66]) this.add(barracks, this.box(0.08, 1.25, 0.08), wood, at(out * sx, 0.62, -d / 2 - 0.72));
+        // A Powder Mill: a tall drive wheel turning against its outer wall, its door, kegs stacked beside it.
         const mill = new THREE.Group();
+        this.add(mill, this.box(0.9, 1.75, 0.06), doorMat, at(out * 0.55, 0.88, -d / 2 - 0.04));
         const hub = new THREE.Group();
         hub.position.copy(at(out * (w / 2 + 0.18), 1.35, 0));
         const rim = new THREE.TorusGeometry(1.15, 0.07, 5, 20);
@@ -170,7 +176,7 @@ export class EstateView {
     this.sparks.count = 0;
     this.sparks.frustumCulled = false;
     this.root.add(this.kegs, this.sparks);
-    this.mats.push(wood, rope, iron, stoneMat, kegMat);
+    this.mats.push(wood, rope, iron, stoneMat, kegMat, doorMat);
   }
 
   private mat(hex: number, roughness: number, metalness = 0): THREE.MeshStandardNodeMaterial {

@@ -40,7 +40,9 @@ const VIEWS = {
   muskets: [-14.5, 2.2, -43, -8, 1.2, -35],
   keg: [9.5, 2.0, -21.5, 6, 0.8, -16.6],
   courtyard: [0, 30, 26, 0, 0, -4],
-  "courtyard-front": [-1, 9, -3.5, -5, 1.5, -10],
+  // Between the target's front wall and its front plots, looking at their gate sides: the barracks' door, banner and pikes; the Foundry's furnace and anvil.
+  "courtyard-barracks": [-3.2, 3.0, -13.4, -6.8, 1.5, -10.4],
+  "courtyard-foundry": [3.2, 3.0, -13.4, 6.8, 1.0, -10.4],
 };
 
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port, host: "127.0.0.1" }, logLevel: "error" });
