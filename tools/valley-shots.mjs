@@ -19,7 +19,8 @@ const opt = (k, d) => (args.find((a) => a.startsWith(`--${k}=`)) ?? `--${k}=${d}
 const quality = opt("quality", "low");
 const tag = opt("tag", quality);
 const only = args.filter((a) => !a.startsWith("--"));
-const port = 5298;
+/** The dev server's port (PORT in the environment overrides it). */
+const port = Number(process.env.PORT) || 5298;
 
 /** name: [eye x, y, z, target x, y, z] (metres; the player's castle is at z = -150, the enemy's at 0). */
 const VIEWS = {

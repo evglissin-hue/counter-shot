@@ -8,13 +8,15 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { mkdirSync } from "node:fs";
 
+/** The dev server's port (PORT in the environment overrides it, so several runs can share a machine). */
+const PORT = Number(process.env.PORT) || 5198;
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const root = fileURLToPath(new URL("../apps/game", import.meta.url));
 const out = fileURLToPath(new URL("./.shots/", import.meta.url));
 mkdirSync(out, { recursive: true });
 const only = process.argv.slice(2);
-const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: 5198, host: "127.0.0.1" }, logLevel: "error" });
+const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: PORT, host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -56,7 +58,7 @@ async function waitFor(fn, limit = 600) {
 async function tour() {
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto("http://127.0.0.1:5198/index.html#webgl-low-fixed", { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${PORT}/index.html#webgl-low-fixed`, { waitUntil: "load" });
       await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 120000 });
       break;
     } catch (e) {

@@ -348,6 +348,7 @@ export class Sound {
       if (big) this.tone(c.input, c.t0, 120 + 60 * Math.random(), 70, 0.08, 0.001, 0.1, 0.25);
     }
     if (this.clatterDebt > 4) this.clatterDebt = 4;
+    this.updateBeds();
   }
 
   // --- building blocks ---------------------------------------------------------------
@@ -661,5 +662,269 @@ export class Sound {
       }
     }
     return buf;
+  }
+
+  // --- polish: what things strike, water, the battle, the valley's mood --------------
+  // Impacts by material (stone stays with impact()), splashes, footsteps,
+  // pike clashes, distant shouting, the stream and the crows, and a few quiet
+  // interface sounds. soundscape.ts drives them from what the sim reports.
+
+  /** Water thrown up by something falling into the stream (size 0..1.5: a grapeshot ball to a shell or a stone). */
+  splash(x: number, y: number, z: number, size: number) {
+    if (!this.ctx) return;
+    const s = Math.max(0.08, Math.min(1.5, size));
+    const c = this.out(this.place(x, y, z, 28), 0.4, 2.5);
+    // The slap on the surface, the water thrown up, and a plunge for big ones.
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 1500, 0.9, 0.001, 0.05, 0.45 * s);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 900, 0.7, 0.003, 0.22 + 0.25 * s, 0.55 * s);
+    if (s > 0.45) this.tone(c.input, c.t0, 95, 42, 0.22, 0.004, 0.3, 0.45 * s, 1.5);
+    // The column falling back: a hiss that swells and dies.
+    this.burstNoise(c.input, c.t0 + 0.04, this.white, "highpass", 2600, 0.6, 0.02 + 0.12 * s, 0.1 + 0.5 * s, 0.16 * s);
+    // Bubbles: short rising chirps.
+    const bubbles = 2 + Math.round(6 * s);
+    for (let i = 0; i < bubbles; i++) {
+      const at = c.t0 + 0.03 + Math.random() * (0.15 + 0.45 * s);
+      const f = 380 + Math.random() * 760;
+      this.tone(c.input, at, f, f * 1.7, 0.035, 0.001, 0.05, (0.04 + 0.05 * Math.random()) * s);
+    }
+    // Drops pattering back on the water.
+    const drops = 4 + Math.round(14 * s);
+    for (let i = 0; i < drops; i++) {
+      const u = Math.random();
+      const at = c.t0 + 0.12 + (0.3 + 0.9 * s) * u * u;
+      this.burstNoise(c.input, at, this.white, "bandpass", 2400 + 2600 * Math.random(), 1.4, 0.001, 0.012, (0.03 + 0.05 * Math.random()) * s);
+    }
+  }
+
+  /** A blow on timber (a bridge, a gate leaf, a ladder): a hollow knock, splinters when it is hard. */
+  woodHit(x: number, y: number, z: number, strength: number) {
+    if (!this.ctx) return;
+    const s = Math.max(0.12, Math.min(1, strength));
+    const c = this.out(this.place(x, y, z, 24), 0.3, 1.6);
+    const f = 190 + Math.random() * 50;
+    this.tone(c.input, c.t0, f, f * 0.78, 0.06, 0.001, 0.14, 0.42 * s);
+    this.tone(c.input, c.t0, f * 2.6, f * 2.3, 0.04, 0.001, 0.06, 0.2 * s);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 760 + Math.random() * 200, 2.2, 0.001, 0.08, 0.45 * s);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 420, 0.8, 0.002, 0.1, 0.35 * s);
+    if (s > 0.45) {
+      const n = 2 + Math.round(4 * s);
+      for (let i = 0; i < n; i++) {
+        const at = c.t0 + 0.015 + Math.random() * 0.18;
+        this.burstNoise(c.input, at, this.white, "highpass", 2200 + Math.random() * 2000, 0.8, 0.001, 0.012 + Math.random() * 0.02, (0.06 + 0.08 * Math.random()) * s);
+      }
+    }
+  }
+
+  /** A shot into the ground: a dull thump and earth raining back. */
+  earthHit(x: number, y: number, z: number, strength: number) {
+    if (!this.ctx) return;
+    const s = Math.max(0.12, Math.min(1, strength));
+    const c = this.out(this.place(x, y, z, 30), 0.3, 2.2);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 260, 0.7, 0.004, 0.28, 0.75 * s);
+    this.tone(c.input, c.t0, 72, 38, 0.16, 0.003, 0.22, 0.42 * s, 1.5);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 1100, 0.9, 0.001, 0.04, 0.18 * s);
+    const n = 5 + Math.round(10 * s);
+    for (let i = 0; i < n; i++) {
+      const u = Math.random();
+      const at = c.t0 + 0.12 + 0.9 * u * u;
+      this.burstNoise(c.input, at, this.white, "bandpass", 700 + 1600 * Math.random(), 1.2, 0.001, 0.018 + 0.02 * Math.random(), (0.03 + 0.05 * Math.random()) * s);
+    }
+  }
+
+  /** Pikes meeting in a fight: shafts clacking, now and then iron on iron. */
+  clash(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 16), 0.25, 1.2);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 1050 + Math.random() * 450, 3, 0.001, 0.035, 0.28);
+    const f = 360 + Math.random() * 140;
+    this.tone(c.input, c.t0, f, f * 0.8, 0.03, 0.001, 0.05, 0.16);
+    if (Math.random() < 0.4) {
+      // A pike head on a helmet: a few inharmonic partials ringing briefly.
+      const k = 1 + (Math.random() - 0.5) * 0.06;
+      for (const p of [2150, 3420, 5170]) this.tone(c.input, c.t0 + 0.004, p * k, p * k * 0.995, 0.3, 0.001, 0.22, 0.035);
+    }
+  }
+
+  /** One footfall on earth and gravel (marching ranks are many of these). */
+  footstep(x: number, y: number, z: number, gain: number) {
+    if (!this.ctx) return;
+    const g = Math.max(0.05, Math.min(1, gain));
+    const c = this.out(this.place(x, y, z, 12), 0.12, 0.5);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 340 + Math.random() * 120, 0.7, 0.003, 0.06, 0.32 * g);
+    this.burstNoise(c.input, c.t0 + 0.004, this.white, "bandpass", 2300 + Math.random() * 1200, 1.4, 0.001, 0.022, 0.06 * g);
+  }
+
+  /** A man shouting somewhere in the fighting: a rough vowel, heard far off. */
+  shout(x: number, y: number, z: number, gain: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const c = this.out(this.place(x, y, z, 22), 0.6, 2);
+    const vowels: Array<[number, number]> = [[730, 1090], [570, 840], [530, 1840], [640, 1190]];
+    const [f1, f2] = vowels[Math.floor(Math.random() * vowels.length)];
+    const f0 = 140 + Math.random() * 100;
+    const len = 0.22 + Math.random() * 0.3;
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(f0 * 1.08, c.t0);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 0.82, c.t0 + len);
+    const g = ctx.createGain();
+    this.envelope(g, c.t0, 0.035, len, 0.07 * Math.max(0, Math.min(1, gain)));
+    for (const [f, q, w] of [[f1, 6, 1], [f2, 9, 0.6]] as const) {
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = f;
+      bp.Q.value = q;
+      const fg = ctx.createGain();
+      fg.gain.value = w;
+      osc.connect(bp);
+      bp.connect(fg);
+      fg.connect(g);
+    }
+    g.connect(c.input);
+    osc.start(c.t0);
+    osc.stop(c.t0 + len + 0.4);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 1600, 1.5, 0.02, len * 0.6, 0.025 * gain);
+  }
+
+  /** A crow somewhere over the woods: two or three harsh caws. */
+  crow(x: number, y: number, z: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const c = this.out(this.place(x, y, z, 45), 0.7, 3);
+    const caws = 2 + Math.floor(Math.random() * 2);
+    const base = 480 + Math.random() * 110;
+    for (let k = 0; k < caws; k++) {
+      const at = c.t0 + k * (0.32 + Math.random() * 0.14);
+      const len = 0.14 + Math.random() * 0.06;
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(base * 1.12, at);
+      osc.frequency.exponentialRampToValueAtTime(base * 0.86, at + len);
+      const g = ctx.createGain();
+      this.envelope(g, at, 0.012, len, 0.1);
+      for (const [f, q] of [[1250, 3], [2500, 4]] as const) {
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.frequency.value = f;
+        bp.Q.value = q;
+        osc.connect(bp);
+        bp.connect(g);
+      }
+      g.connect(c.input);
+      osc.start(at);
+      osc.stop(at + len + 0.3);
+      this.burstNoise(c.input, at, this.white, "bandpass", 1800, 2, 0.01, len, 0.05);
+    }
+  }
+
+  /** Quiet interface sounds, not placed: taking another gun, a button, an order to the waves. */
+  ui(kind: "switch" | "click" | "order") {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.005;
+    const g = ctx.createGain();
+    g.gain.value = 0.14;
+    g.connect(this.dry);
+    if (kind === "click") {
+      this.burstNoise(g, t0, this.white, "bandpass", 2300, 4, 0.001, 0.02, 0.35);
+      this.tone(g, t0, 880, 760, 0.02, 0.001, 0.03, 0.12);
+    } else if (kind === "switch") {
+      // Iron and timber: the gun's carriage taking the gunner's weight, a ratchet.
+      this.tone(g, t0, 150, 92, 0.08, 0.002, 0.12, 0.5, 1.2);
+      this.burstNoise(g, t0, this.white, "bandpass", 900, 2, 0.001, 0.06, 0.45);
+      for (let k = 0; k < 3; k++) this.burstNoise(g, t0 + 0.07 + k * 0.03, this.white, "bandpass", 2600, 4, 0.001, 0.012, 0.3);
+    } else {
+      // Two beats of a field drum: the order goes out.
+      for (let k = 0; k < 2; k++) {
+        const at = t0 + k * 0.17;
+        this.tone(g, at, 96, 62, 0.12, 0.002, 0.2, 0.7, 1.6);
+        this.burstNoise(g, at, this.brown, "lowpass", 320, 0.7, 0.002, 0.12, 0.5);
+        this.burstNoise(g, at, this.white, "bandpass", 1900, 1.2, 0.001, 0.03, 0.12);
+      }
+    }
+    this.later(g, t0 + 1);
+  }
+
+  private beds: { stream: GainNode; streamBand: BiquadFilterNode; battle: GainNode; battlePan: StereoPannerNode; battleAir: BiquadFilterNode } | null = null;
+  private bedTarget = { stream: 0, battle: 0, bx: 0, by: 2, bz: -75 };
+
+  /**
+   * Levels for the valley's continuous beds, from soundscape.ts: how close
+   * the camera is to the stream (0..1), and how much fighting there is
+   * (0..1) and where its middle is.
+   */
+  setBeds(stream: number, battle: number, bx: number, by: number, bz: number) {
+    const b = this.bedTarget;
+    b.stream = Math.max(0, Math.min(1, stream));
+    b.battle = Math.max(0, Math.min(1, battle));
+    b.bx = bx;
+    b.by = by;
+    b.bz = bz;
+  }
+
+  /** The stream's murmur and the low roar of a fight, eased towards their levels (from update()). */
+  private updateBeds() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.beds) {
+      // The stream: bright noise in a moving band, with a slow gurgle.
+      const w = ctx.createBufferSource();
+      w.buffer = this.white;
+      w.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = 1900;
+      band.Q.value = 0.55;
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 5200;
+      const sg = ctx.createGain();
+      sg.gain.value = 0;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.37;
+      const depth = ctx.createGain();
+      depth.gain.value = 420;
+      lfo.connect(depth);
+      depth.connect(band.frequency);
+      w.connect(band);
+      band.connect(lp);
+      lp.connect(sg);
+      sg.connect(this.dry);
+      w.start(0, 1.3);
+      lfo.start();
+      // The fight: a low murmur of many men and much timber, placed where the fighting is.
+      const b = ctx.createBufferSource();
+      b.buffer = this.brown;
+      b.loop = true;
+      b.playbackRate.value = 1.6;
+      const bb = ctx.createBiquadFilter();
+      bb.type = "bandpass";
+      bb.frequency.value = 520;
+      bb.Q.value = 0.7;
+      const air = ctx.createBiquadFilter();
+      air.type = "lowpass";
+      air.frequency.value = 3000;
+      const bg = ctx.createGain();
+      bg.gain.value = 0;
+      const pan = ctx.createStereoPanner();
+      b.connect(bb);
+      bb.connect(air);
+      air.connect(bg);
+      bg.connect(pan);
+      pan.connect(this.dry);
+      const send = ctx.createGain();
+      send.gain.value = 0.5;
+      pan.connect(send);
+      send.connect(this.reverbIn);
+      b.start(0, 0.4);
+      this.beds = { stream: sg, streamBand: band, battle: bg, battlePan: pan, battleAir: air };
+    }
+    const now = ctx.currentTime;
+    const t = this.bedTarget;
+    this.beds.stream.gain.setTargetAtTime(0.05 * t.stream * t.stream, now, 0.4);
+    const p = this.place(t.bx, t.by, t.bz, 40);
+    this.beds.battle.gain.setTargetAtTime(0.16 * t.battle * p.gain, now, 0.6);
+    this.beds.battlePan.pan.setTargetAtTime(p.pan, now, 0.3);
+    this.beds.battleAir.frequency.setTargetAtTime(Math.min(3000, p.cutoff), now, 0.3);
   }
 }

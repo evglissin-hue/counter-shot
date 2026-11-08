@@ -9,6 +9,7 @@ import * as THREE from "three/webgpu";
 import { float, uniform } from "three/tsl";
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
+import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
@@ -24,6 +25,8 @@ import { Post, TIERS } from "./post";
 import { Projectiles } from "./projectiles";
 import { Scatter } from "./scatter";
 import { Shock } from "./shock";
+import { Marks } from "./marks";
+import { Splashes } from "./splashes";
 import { fitShadowCamera, makeSoftShadowFilter } from "./shadows";
 import { Sky } from "./sky";
 import { SHADOW_LAYER, StoneSet } from "./stones";
@@ -65,6 +68,10 @@ export class GameRenderer implements GameRendererApi {
   private decals: Decals;
   private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle", Burst>;
   private shock: Shock;
+  /** Water thrown up where things fall into the stream. */
+  private splashes: Splashes;
+  /** Team marks over minions in the overview. */
+  private marks = new Marks();
   /** Slow motion for everything cosmetic (the camera keeps real time). */
   private timeScale = 1;
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (the page sets it). */
@@ -171,6 +178,8 @@ export class GameRenderer implements GameRendererApi {
     };
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
+    this.splashes = new Splashes(this.time, this.wind, this.sky.sunDir, this.noise, this.clear, glow);
+    this.scene.add(this.splashes.root, this.marks.mesh);
     this.marker = this.buildMarker();
     this.scene.add(this.marker);
     this.blastRing = this.buildBlastRing();
@@ -275,6 +284,8 @@ export class GameRenderer implements GameRendererApi {
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
     this.minions.update(frame);
+    this.marks.update(frame.minions, frame.minionCount);
+    this.splashes.bodies(this.now, frame.parts, frame.partCount, (x, z) => this.terrain.heightAt(x, z));
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
@@ -294,10 +305,19 @@ export class GameRenderer implements GameRendererApi {
 
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void {
     this.projectiles.update(proj, count, chains, chainCount);
+    this.splashes.begin();
+    this.splashes.projectiles(this.now, proj, count, (x, z) => this.terrain.heightAt(x, z));
   }
 
   setStones(data: Float32Array, count: number): void {
     this.stones?.updateBodies(data, count);
+    const L = this.layout;
+    if (L) this.splashes.stones(this.now, data, count, (id) => L.stones[id]?.hy ?? 0.3, (x, z) => this.terrain.heightAt(x, z));
+  }
+
+  /** The page's sound for a splash (something fell into the stream): where, and how big (0..1.5). */
+  set onSplash(fn: ((x: number, y: number, z: number, size: number) => void) | null) {
+    this.splashes.onSplash = fn;
   }
 
   applyTerrain(patches: TerrainPatch[]): void {
@@ -311,6 +331,8 @@ export class GameRenderer implements GameRendererApi {
     this.terrain.resetHeights();
     this.decals.clear();
     this.minions.clear();
+    this.splashes.clear();
+    this.marks.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
   }
@@ -347,6 +369,11 @@ export class GameRenderer implements GameRendererApi {
   }
 
   private spawnImpact(x: number, y: number, z: number, strength: number, dust = 1) {
+    // Into the stream: water, not dust and chips.
+    if (y < STREAM.level + 0.9 && Splashes.overWater(x, z, this.terrain.heightAt(x, z))) {
+      this.splashes.spawn(this.now, x, z, Math.min(1.4, 0.3 + strength * 0.6), false);
+      return;
+    }
     // Debris is thrown back towards the shooter (the player's castle).
     const cz = this.layout ? this.layout.castleZ[1] : -150;
     this.effects.bias.set(0 - x, 0, cz - z);
@@ -358,6 +385,9 @@ export class GameRenderer implements GameRendererApi {
     const r = Math.max(0.5, radius || 3);
     const g = this.terrain.heightAt(x, z);
     const nearGround = y - g < 4;
+    // A shell bursting in the stream throws up a column of water.
+    const wet = y < STREAM.level + 2.5 && Splashes.overWater(x, z, g);
+    if (wet) this.splashes.spawn(this.now, x, z, 2.6, false);
     // Two rings of chips: one thrown hard, one heavier and lower. The smoke and the ground dust
     // below carry most of the cloud, so the impact dust is thinner than a single hit's.
     this.spawnImpact(x, y, z, 2.2, 0.55);
@@ -367,7 +397,7 @@ export class GameRenderer implements GameRendererApi {
     this.bursts.fire.spawn(this.now, x, y + 0.2, z, r * 0.5, 0, 0.6, 0);
     this.bursts.smoke.spawn(this.now, x, y + 0.3, z, r * 0.5, 0, 0.5, 0);
     this.bursts.column.spawn(this.now, x, y + 1, z, r * 0.35, 0, 1, 0);
-    if (nearGround) this.bursts.skirt.spawn(this.now, x, g + 0.3, z, r * 0.3, 0, -0.5, 0);
+    if (nearGround && !wet) this.bursts.skirt.spawn(this.now, x, g + 0.3, z, r * 0.3, 0, -0.5, 0);
     this.shock.spawn(this.now, x, y, z, r, nearGround ? g : null);
     this.pulseLight(x, y + 2, z, Math.min(6, r * 1.2), 0xffa050, 5);
   }
@@ -452,6 +482,7 @@ export class GameRenderer implements GameRendererApi {
   setCamera(pose: CameraPose): void {
     this.views.setPose(pose);
     this.clear.crosshair.value = pose.mode === "sight" ? 1 : 0;
+    this.marks.mesh.visible = pose.mode === "overview";
   }
 
   setAimArc(points: Float32Array | null): void {
@@ -791,6 +822,8 @@ export class GameRenderer implements GameRendererApi {
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();
+    this.splashes.dispose();
+    this.marks.dispose();
     for (const group of [this.marker, this.blastRing])
       group.traverse((o) => {
         const m = o as THREE.Mesh;
