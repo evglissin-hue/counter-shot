@@ -1,10 +1,15 @@
 // Minions: a low-detail human figure built from the ragdoll's own capsules
-// (MINION_PARTS) plus a kettle helmet and, while upright, a pike. Upright
-// minions get a procedural pose from what they are doing (walking, standing,
-// pike levelled in a fight or against a gate, with a thrust at each blow);
-// ragdolls take each part's transform from the sim. The fallen arrive once,
-// when they freeze, and are kept until they move again or sink away, so a
-// field of bodies costs nothing per frame. One instanced mesh per part shape,
+// (MINION_PARTS) plus a kettle helmet and each unit's kit (a pike, a mason's
+// mallet and cap and apron, a crewman's axe, a sapper's keg, a musketeer's
+// musket and ramrod). Upright minions are posed by the rig (minionRig.ts)
+// every rendered frame from what they are doing: a walk whose stride follows
+// their real speed, idle life, fights with a wind-up, a thrust and a parry,
+// masons' strokes, ladders carried, raised and climbed, kegs set, muskets
+// fired and reloaded. Ragdolls take each part's transform from the sim,
+// carried on a little between frames; a man knocked down starts his fall
+// from the pose he had and drops what he held. The fallen arrive once, when
+// they freeze, and are kept until they move again or sink away, so a field
+// of bodies costs nothing per frame. One instanced mesh per part shape,
 // colours per instance (team tabard, cloth, skin).
 //
 // Gore (cosmetic only, the sim never knows): a heavy hit can take off an arm
@@ -13,44 +18,71 @@
 // with simple kinematics.
 
 import * as THREE from "three/webgpu";
-import { MINION_PARTS, MINION_STRIDE, PART_STRIDE, type FrameData } from "@keepfall/sim";
+import { EVENT_STRIDE, EventKind, MINION_PARTS, MINION_STRIDE, PART_STRIDE, type FrameData } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
+import {
+  HEAD,
+  LARM_L,
+  MASON,
+  MUSKETEER,
+  NPARTS,
+  PELVIS,
+  PIKEMAN,
+  Rig,
+  SAPPER,
+  SHOW_KEG,
+  SHOW_KIT,
+  SHOW_ROD,
+  THIGH_L,
+  THIGH_R,
+  TORSO,
+  UARM_L,
+  XF_HEAD_GEAR,
+  XF_KEG,
+  XF_KIT,
+  XF_N,
+  XF_ROD,
+  XF_STRIDE,
+  hash01,
+  type FigureSink,
+} from "./minionRig";
 
 /** Figures drawn at once: upright, falling and the fallen (the sim keeps at most 240 bodies). */
 const MAX_FIGURES = 640;
-const MAX_PIKES = 360;
+const MAX_PIKES = 400;
 const MAX_LIMBS = 32;
 const CAPACITY = MAX_FIGURES + MAX_LIMBS;
-/** Upright actions (army.ts Action). */
-const STAND = 1, FIGHT = 2, BATTER = 3;
-/** M4 actions: a mason at work, carrying a ladder, climbing (a ladder or the rope inside), raising a ladder. */
-const WORK = 4, CARRY = 5, CLIMB = 6, RAISE = 7;
-/** M3 actions: a sapper setting his keg, a musketeer aiming. */
-const PLANT = 8, AIM = 9;
-/** Unit kinds (content's Unit): masons and ladder crews look different; M3's sapper and musketeer carry a keg or a musket instead of a pike. */
-const MASON = 1, CREW = 2, SAPPER = 3, MUSKETEER = 4;
-/** Where in a mason's stroke the mallet strikes (ticks; the page plays the knock then). */
-const MALLET_HIT = 14;
-const MALLET_STROKE = 45;
+const MAX_TOOLS = 160;
+const MAX_KIT = 200;
+/** Kit dropped by the fallen (pikes, muskets, axes, mallets, unlit kegs). */
+const MAX_DROPS = 128;
+/** Seconds a falling man takes to go from his last pose to the ragdoll's. */
+const HANDOFF = 0.3;
+/** Seconds dropped kit lies on the field before it sinks away (sooner if its owner's body goes). */
+const DROP_LIFE = 150;
 const APRON = 0x5b3f29;
-const MAX_TOOLS = 96;
-const MAX_KIT = 160;
-/** Ticks a musket's kick lasts after a shot. */
-const RECOIL = 14;
-/** A thrust's length in ticks. */
-const THRUST = 22;
 const STUMP = 0x2b0d0a;
-const NPARTS = MINION_PARTS.length;
-const PELVIS = 0, TORSO = 1, HEAD = 2, UARM_L = 3, LARM_L = 4, UARM_R = 5, LARM_R = 6, THIGH_L = 7, SHIN_L = 8, THIGH_R = 9, SHIN_R = 10;
+const DROP_PIKE = 0, DROP_MUSKET = 1, DROP_AXE = 2, DROP_MALLET = 3, DROP_KEG = 4;
 
 /** Tabard colours: team 0 sickly yellow-green (the attackers' accent), team 1 Ashwright oxblood. */
 export const TEAM_COLORS = [0x93a524, 0x7a1519];
 const TEAM = TEAM_COLORS;
 const CLOTH = 0x4a443b;
 const LEGS = 0x2c2925;
-const SKIN = 0x8c6d58;
+const SKINS = [0x8c6d58, 0x7d604c, 0x957563];
 const IRON = 0x3b3b39;
 const POLE = 0x4f4840;
+
+/** Linear RGB of an sRGB hex colour (what setColorAt would store). */
+function lin(hex: number): [number, number, number] {
+  const c = new THREE.Color(hex);
+  return [c.r, c.g, c.b];
+}
+const C_TEAM = TEAM.map(lin);
+const C_CLOTH = lin(CLOTH);
+const C_LEGS = lin(LEGS);
+const C_SKIN = SKINS.map(lin);
+const C_APRON = lin(APRON);
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -59,41 +91,90 @@ const _p = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _d = new THREE.Vector3();
-const _one = new THREE.Vector3(1, 1, 1);
 const _s = new THREE.Vector3();
-const _y = new THREE.Vector3(0, 1, 0);
-const _x = new THREE.Vector3(1, 0, 0);
-const _z = new THREE.Vector3(0, 0, 1);
 const _c = new THREE.Color();
 
-export class Minions {
+/** Write a matrix from position, rotation (unit quaternion) and scale at instance k. */
+function writeMat(a: Float32Array, k: number, px: number, py: number, pz: number, x: number, y: number, z: number, w: number, sx: number, sy: number, sz: number) {
+  const x2 = x + x, y2 = y + y, z2 = z + z;
+  const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2, wx = w * x2, wy = w * y2, wz = w * z2;
+  const e = k * 16;
+  a[e] = (1 - (yy + zz)) * sx;
+  a[e + 1] = (xy + wz) * sx;
+  a[e + 2] = (xz - wy) * sx;
+  a[e + 3] = 0;
+  a[e + 4] = (xy - wz) * sy;
+  a[e + 5] = (1 - (xx + zz)) * sy;
+  a[e + 6] = (yz + wx) * sy;
+  a[e + 7] = 0;
+  a[e + 8] = (xz + wy) * sz;
+  a[e + 9] = (yz - wx) * sz;
+  a[e + 10] = (1 - (xx + yy)) * sz;
+  a[e + 11] = 0;
+  a[e + 12] = px;
+  a[e + 13] = py;
+  a[e + 14] = pz;
+  a[e + 15] = 1;
+}
+/** writeMat from a rig transform (x, y, z, qx, qy, qz, qw, sx, sy, sz) at X[o]. */
+function writeXf(a: Float32Array, k: number, X: Float32Array, o: number) {
+  writeMat(a, k, X[o], X[o + 1], X[o + 2], X[o + 3], X[o + 4], X[o + 5], X[o + 6], X[o + 7], X[o + 8], X[o + 9]);
+}
+
+/** A falling body's parts as the sim sent them, for drawing between frames and for its first moments (starting from the upright pose). */
+interface Body {
+  id: number;
+  /** Per part: x, y, z, qx, qy, qz, qw (this frame and the one before). */
+  cur: Float32Array;
+  prev: Float32Array;
+  hasPrev: boolean;
+  /** Seconds between prev and cur. */
+  dt: number;
+  seen: number;
+  /** Created this frame (a knock-down, or a frozen body hit again). */
+  fresh: boolean;
+  /** When it went over from upright (anim time; -1: no hand-off), and per part the offset, rotation and scale it started from. */
+  hand: number;
+  off: Float32Array;
+  dq: Float32Array;
+  sc: Float32Array;
+}
+
+/** A piece of kit lying where it fell (a two-point stick, verlet). */
+interface Drop {
+  on: boolean;
+  kind: number;
+  owner: number;
+  len: number;
+  r: number;
+  /** Its two ends: x, y, z, vx, vy, vz each. */
+  a: Float32Array;
+  b: Float32Array;
+  age: number;
+  still: number;
+  sinkAt: number;
+}
+
+export class Minions implements FigureSink {
   readonly root = new THREE.Group();
   private parts: THREE.InstancedMesh[] = [];
   private helmet: THREE.InstancedMesh;
   private pike: THREE.InstancedMesh;
-  /** Masons' mallets, ladder crews' axes and masons' caps. */
+  /** Masons' mallets, ladder crews' and sappers' axes, and masons' caps. */
   private mallet: THREE.InstancedMesh;
   private axe: THREE.InstancedMesh;
   private cap: THREE.InstancedMesh;
   private nMallet = 0;
   private nAxe = 0;
   private nCap = 0;
-  /** The figure being drawn is a mason (cap and apron) rather than a soldier (helmet and tabard). */
-  private dress = 0;
   private counts = new Int32Array(NPARTS);
   private teamOf = new Map<number, number>();
   /** The unit kind of every minion seen upright (so a fallen mason still wears his cap and apron). */
   private unitOf = new Map<number, number>();
   private nHelmet = 0;
   private nPike = 0;
-  private yawQ = new THREE.Quaternion();
-  private base = new THREE.Vector3();
-  private joints = Array.from({ length: 6 }, () => new THREE.Vector3());
   private stumps: THREE.InstancedMesh;
   private nStump = 0;
-  /** Counts after the frame's figures, before loose limbs are appended. */
-  private baseCounts = new Int32Array(NPARTS);
-  private baseStumps = 0;
   /** Severed limb per minion id: which limb (0..3) and the stump end along the upper part's axis. */
   private severed = new Map<number, { limb: number; sign: number }>();
   private limbs: Limb[] = [];
@@ -107,13 +188,26 @@ export class Minions {
   private frozenCounts = new Int32Array(NPARTS);
   private frozenStumps = 0;
   private frozenHelmets = 0;
-  // M3: a sapper's keg on his shoulder, a musketeer's musket; who has set his keg; where each upright minion stands (for musket flashes).
+  private frozenCaps = 0;
+  // M3: a sapper's keg on his shoulder, a musketeer's musket and ramrod.
   private keg: THREE.InstancedMesh;
   private musket: THREE.InstancedMesh;
+  private rod: THREE.InstancedMesh;
   private nKeg = 0;
   private nMusket = 0;
-  private kegless = new Set<number>();
-  private standAt = new Map<number, [number, number, number, number]>();
+  private nRod = 0;
+  /** The pose of every upright figure. */
+  readonly rig = new Rig();
+  /** Falling bodies by minion id, and spare ones. */
+  private bodies = new Map<number, Body>();
+  /** The same, as a list (drawn every frame without iterating the map). */
+  private bodyList: Body[] = [];
+  private spare: Body[] = [];
+  private frameNo = 0;
+  private drops: Drop[] = [];
+  private nextDrop = 0;
+  /** Time spent posing and drawing (ms, smoothed), for tests and the HUD. */
+  cost = 0;
 
   constructor() {
     this.root.name = "minions";
@@ -256,22 +350,34 @@ export class Minions {
     this.musket.count = 0;
     this.musket.frustumCulled = false;
     this.musket.castShadow = true;
-    this.root.add(this.keg, this.musket);
+    // The ramrod: a thin iron rod a metre long (local +Y from its lower end), out only while he loads.
+    const rodGeo = new THREE.CylinderGeometry(0.006, 0.006, 1.0, 4, 1);
+    rodGeo.deleteAttribute("uv");
+    rodGeo.translate(0, 0.5, 0);
+    this.rod = new THREE.InstancedMesh(rodGeo, iron, MAX_KIT);
+    this.rod.name = "minion-ramrod";
+    this.rod.count = 0;
+    this.rod.frustumCulled = false;
+    this.root.add(this.keg, this.musket, this.rod);
+    for (let i = 0; i < MAX_DROPS; i++) this.drops.push({ on: false, kind: 0, owner: -1, len: 1, r: 0.03, a: new Float32Array(6), b: new Float32Array(6), age: 0, still: 0, sinkAt: -1 });
   }
 
   /** M3: a sapper set his keg against the wall: draw him without it from now on. */
   kegSet(id: number) {
-    this.kegless.add(id);
+    this.rig.kegless.add(id);
   }
 
   /** M3: where an upright minion stood in the last frame, and its yaw (for a musket's flash), or null. */
   positionOf(id: number): [number, number, number, number] | null {
-    return this.standAt.get(id) ?? null;
+    const s = this.rig.slot(id);
+    if (s < 0) return null;
+    const r = this.rig;
+    return [r.px[s], r.py[s], r.pz[s], r.yaw[s]];
   }
 
-  /** Draw the stump caps and helmets once out of sight, so their shaders compile while loading, not at the first severed limb. */
+  /** Draw the stump caps, helmets and kit once out of sight, so their shaders compile while loading, not at the first severed limb. */
   prime(on: boolean) {
-    for (const mesh of [this.stumps, this.helmet, this.mallet, this.axe, this.cap, this.keg, this.musket]) {
+    for (const mesh of [this.stumps, this.helmet, this.mallet, this.axe, this.cap, this.keg, this.musket, this.rod]) {
       if (on && mesh.count === 0) {
         _m.makeTranslation(0, -500, 0);
         mesh.setMatrixAt(0, _m);
@@ -369,9 +475,494 @@ export class Minions {
     return true;
   }
 
-  /** Advance the loose limbs and draw them (every rendered frame). */
-  step(dt: number, height: (x: number, z: number) => number) {
-    const [pu, pl] = this.joints;
+  // --- per sim frame -------------------------------------------------------------------
+
+  /** One sim frame: upright figures, moving bodies, and the fallen that froze or left since the last one. */
+  update(f: Pick<FrameData, "tick" | "minions" | "minionCount" | "parts" | "partCount" | "settled" | "settledCount" | "gone"> & Partial<Pick<FrameData, "events" | "eventCount">>) {
+    const { minions, minionCount, parts, partCount, settled, settledCount, gone } = f;
+    const rig = this.rig;
+    this.frameNo++;
+    // The fallen: who left, who moves again, who froze.
+    for (let i = 0; i < gone.length; i++) {
+      const id = gone[i];
+      if (this.frozen.delete(id)) this.frozenDirty = true;
+      this.teamOf.delete(id);
+      this.unitOf.delete(id);
+      this.severed.delete(id);
+      for (const d of this.drops) if (d.on && d.owner === id && d.sinkAt < 0) d.sinkAt = rig.time;
+    }
+    const np = Math.max(0, partCount | 0);
+    for (let i = 0; i < np; i++) {
+      const id = parts[i * PART_STRIDE] | 0;
+      if (this.frozen.delete(id)) this.frozenDirty = true;
+    }
+    for (let i = 0; i < (settledCount | 0); i++) {
+      const o = i * PART_STRIDE;
+      const id = settled[o] | 0, part = settled[o + 1] | 0;
+      if (part < 0 || part >= NPARTS) continue;
+      let body = this.frozen.get(id);
+      if (!body) {
+        body = new Float32Array(NPARTS * PART_STRIDE).fill(NaN);
+        this.frozen.set(id, body);
+      }
+      body.set(settled.subarray(o, o + PART_STRIDE), part * PART_STRIDE);
+      this.frozenDirty = true;
+    }
+    // Upright figures into the rig.
+    rig.begin(f.tick ?? 0);
+    const n = Math.min(minionCount | 0, MAX_FIGURES);
+    for (let i = 0; i < n; i++) {
+      const o = i * MINION_STRIDE;
+      const id = minions[o] | 0;
+      const team = minions[o + 6] | 0;
+      const unit = minions[o + 9] | 0;
+      this.teamOf.set(id, team);
+      if (unit) this.unitOf.set(id, unit);
+      rig.take(id, minions[o + 1], minions[o + 2], minions[o + 3], minions[o + 4], minions[o + 5], team, minions[o + 7] | 0, minions[o + 8], unit);
+    }
+    rig.end();
+    // Moving bodies: this frame's parts, the last frame's kept for drawing between them.
+    for (let i = 0; i < np; i++) {
+      const o = i * PART_STRIDE;
+      const id = parts[o] | 0, part = parts[o + 1] | 0;
+      if (part < 0 || part >= NPARTS || parts[o + 2] !== parts[o + 2]) continue;
+      let b = this.bodies.get(id);
+      if (!b) {
+        b = this.spare.pop() ?? newBody();
+        b.id = id;
+        b.seen = -1;
+        b.hasPrev = false;
+        b.hand = -1;
+        b.fresh = true;
+        b.cur.fill(NaN);
+        this.bodies.set(id, b);
+      }
+      if (b.seen !== this.frameNo) {
+        if (b.seen === this.frameNo - 1) {
+          b.prev.set(b.cur);
+          b.hasPrev = true;
+          b.dt = rig.frameSeconds;
+        } else b.hasPrev = false;
+        b.seen = this.frameNo;
+      }
+      const c = part * 7;
+      for (let k = 0; k < 7; k++) b.cur[c + k] = parts[o + 2 + k];
+    }
+    this.bodyList.length = 0;
+    for (const b of this.bodies.values()) {
+      if (b.seen !== this.frameNo) {
+        this.bodies.delete(b.id);
+        this.spare.push(b);
+        continue;
+      }
+      this.bodyList.push(b);
+      if (b.fresh) {
+        b.fresh = false;
+        this.handOff(b, f);
+      }
+    }
+    rig.sweep();
+    if (this.lastParts.length < np * PART_STRIDE) this.lastParts = new Float32Array(np * PART_STRIDE * 2);
+    this.lastParts.set(parts.subarray(0, np * PART_STRIDE));
+    this.lastPartCount = np;
+    if (this.frozenDirty) this.drawFrozen();
+  }
+
+  /** A man just knocked down: his fall starts from the pose he had, and what he held falls from his hands. */
+  private handOff(b: Body, f: Partial<Pick<FrameData, "events" | "eventCount">>) {
+    const rig = this.rig;
+    const s = rig.slot(b.id);
+    if (s < 0 || !rig.drawn[s]) return;
+    const X = rig.xf, xo = s * XF_N;
+    for (let p = 0; p < NPARTS; p++) {
+      const c = p * 7, x = xo + p * XF_STRIDE;
+      if (b.cur[c] !== b.cur[c]) {
+        b.off.fill(0, p * 3, p * 3 + 3);
+        b.dq.fill(0, p * 4, p * 4 + 3);
+        b.dq[p * 4 + 3] = 1;
+        b.sc.fill(1, p * 3, p * 3 + 3);
+        continue;
+      }
+      b.off[p * 3] = X[x] - b.cur[c];
+      b.off[p * 3 + 1] = X[x + 1] - b.cur[c + 1];
+      b.off[p * 3 + 2] = X[x + 2] - b.cur[c + 2];
+      // dq = q_upright * conj(q_ragdoll).
+      const ax = X[x + 3], ay = X[x + 4], az = X[x + 5], aw = X[x + 6];
+      const bx = -b.cur[c + 3], by = -b.cur[c + 4], bz = -b.cur[c + 5], bw = b.cur[c + 6];
+      let qx = aw * bx + ax * bw + ay * bz - az * by;
+      let qy = aw * by - ax * bz + ay * bw + az * bx;
+      let qz = aw * bz + ax * by - ay * bx + az * bw;
+      let qw = aw * bw - ax * bx - ay * by - az * bz;
+      if (qw < 0) {
+        qx = -qx;
+        qy = -qy;
+        qz = -qz;
+        qw = -qw;
+      }
+      b.dq[p * 4] = qx;
+      b.dq[p * 4 + 1] = qy;
+      b.dq[p * 4 + 2] = qz;
+      b.dq[p * 4 + 3] = qw;
+      b.sc[p * 3] = X[x + 7];
+      b.sc[p * 3 + 1] = X[x + 8];
+      b.sc[p * 3 + 2] = X[x + 9];
+    }
+    b.hand = rig.time;
+    // His kit falls: the pike, musket, axe or mallet; a sapper's keg unless it went off with him.
+    const shows = rig.shows[s];
+    const unit = rig.unit[s];
+    const vx = rig.svx[s], vz = rig.svz[s];
+    if (shows & SHOW_KIT) {
+      const kind = unit === PIKEMAN ? DROP_PIKE : unit === MUSKETEER ? DROP_MUSKET : unit === MASON ? DROP_MALLET : DROP_AXE;
+      this.drop(kind, b.id, X, xo + XF_KIT, vx, vz);
+    }
+    if (shows & SHOW_KEG && unit === SAPPER) {
+      let burst = false;
+      const ev = f.events, ne = f.eventCount ?? 0;
+      if (ev) {
+        for (let i = 0; i < ne; i++) {
+          const o = i * EVENT_STRIDE;
+          if (ev[o] !== EventKind.Explosion) continue;
+          const dx = ev[o + 1] - rig.px[s], dz = ev[o + 3] - rig.pz[s];
+          if (dx * dx + dz * dz < 9) burst = true;
+        }
+      }
+      if (!burst) this.drop(DROP_KEG, b.id, X, xo + XF_KEG, vx, vz);
+    }
+  }
+
+  /** Let a piece of kit fall from its transform at X[o], with the man's speed and a toss of its own. */
+  private drop(kind: number, owner: number, X: Float32Array, o: number, vx: number, vz: number) {
+    const d = this.drops[this.nextDrop];
+    this.nextDrop = (this.nextDrop + 1) % MAX_DROPS;
+    d.on = true;
+    d.kind = kind;
+    d.owner = owner;
+    d.age = 0;
+    d.still = 0;
+    d.sinkAt = -1;
+    d.len = kind === DROP_PIKE ? 4.52 : kind === DROP_MUSKET ? 1.43 : kind === DROP_AXE ? 0.74 : kind === DROP_MALLET ? 0.42 : 0.46;
+    d.r = kind === DROP_KEG ? 0.22 : kind === DROP_MUSKET ? 0.04 : kind === DROP_MALLET ? 0.05 : 0.028;
+    _q.set(X[o + 3], X[o + 4], X[o + 5], X[o + 6]);
+    if (kind === DROP_MUSKET) _d.set(0, 0, 1);
+    else if (kind === DROP_KEG) _d.set(1, 0, 0);
+    else _d.set(0, 1, 0);
+    _d.applyQuaternion(_q);
+    // The keg's anchor is its middle; the rest hang from one end.
+    const k = kind === DROP_KEG ? -0.5 : 0;
+    const ax = X[o] + _d.x * d.len * k, ay = X[o + 1] + _d.y * d.len * k, az = X[o + 2] + _d.z * d.len * k;
+    const h = hash01(owner, 31) - 0.5, h2 = hash01(owner, 32) - 0.5;
+    // The man's speed, a little up, and the far end pushed sideways so it topples.
+    const tx = vx + h * 1.2, tz = vz + h2 * 1.2;
+    const A = d.a, B = d.b;
+    A[0] = ax;
+    A[1] = ay;
+    A[2] = az;
+    A[3] = tx;
+    A[4] = 0.6;
+    A[5] = tz;
+    B[0] = ax + _d.x * d.len;
+    B[1] = ay + _d.y * d.len;
+    B[2] = az + _d.z * d.len;
+    B[3] = tx + h2 * 1.5;
+    B[4] = 0;
+    B[5] = tz - h * 1.5;
+  }
+
+  // --- per rendered frame ---------------------------------------------------------------
+
+  /** Advance the figures, the falling bodies, dropped kit and loose limbs, and draw them (every rendered frame). */
+  step(dt: number, height: (x: number, z: number) => number, camera?: THREE.PerspectiveCamera) {
+    const t0 = performance.now();
+    this.counts.set(this.frozenCounts);
+    this.nStump = this.frozenStumps;
+    this.nHelmet = this.frozenHelmets;
+    this.nCap = this.frozenCaps;
+    this.nPike = this.nKeg = this.nMusket = this.nRod = this.nMallet = this.nAxe = 0;
+    // Upright figures.
+    const cam = camera?.position;
+    const zoom = camera ? Math.tan((camera.fov * Math.PI) / 360) / Math.max(0.2, camera.zoom || 1) : 0.577;
+    this.rig.animate(dt, height, cam ? cam.x : 0, cam ? cam.y : 1e4, cam ? cam.z : 0, zoom, this);
+    // Bodies falling, between sim frames.
+    this.drawBodies();
+    // Dropped kit.
+    this.stepDrops(dt, height);
+    // Loose limbs.
+    this.stepLimbs(dt, height);
+    this.flush();
+    this.cost = this.cost * 0.9 + (performance.now() - t0) * 0.1;
+  }
+
+  /** The rig's output for one upright figure: its parts, headgear and kit. */
+  figure(s: number, _id: number, team: number, unit: number, shows: number, X: Float32Array, o: number) {
+    const dress = unit === MASON ? 1 : 0;
+    const tint = this.rig.tint(s), skin = this.rig.skin(s);
+    for (let p = 0; p < NPARTS; p++) {
+      const k = this.counts[p];
+      if (k >= CAPACITY) continue;
+      this.counts[p] = k + 1;
+      const mesh = this.parts[p];
+      writeXf(mesh.instanceMatrix.array as Float32Array, k, X, o + p * XF_STRIDE);
+      this.paint(mesh, k, p, team, dress, tint, skin);
+    }
+    const g = o + XF_HEAD_GEAR;
+    if (dress) {
+      if (this.nCap < MAX_TOOLS) {
+        writeXf(this.cap.instanceMatrix.array as Float32Array, this.nCap, X, g);
+        this.cap.setColorAt(this.nCap, _c.setHex(TEAM[team & 1]).multiplyScalar(0.75));
+        this.nCap++;
+      }
+    } else if (this.nHelmet < MAX_FIGURES) writeXf(this.helmet.instanceMatrix.array as Float32Array, this.nHelmet++, X, g);
+    if (shows & SHOW_KIT) {
+      if (unit === PIKEMAN) {
+        if (this.nPike < MAX_PIKES) writeXf(this.pike.instanceMatrix.array as Float32Array, this.nPike++, X, o + XF_KIT);
+      } else if (unit === MUSKETEER) {
+        if (this.nMusket < MAX_KIT) writeXf(this.musket.instanceMatrix.array as Float32Array, this.nMusket++, X, o + XF_KIT);
+      } else if (unit === MASON) {
+        if (this.nMallet < MAX_TOOLS) writeXf(this.mallet.instanceMatrix.array as Float32Array, this.nMallet++, X, o + XF_KIT);
+      } else if (this.nAxe < MAX_TOOLS) writeXf(this.axe.instanceMatrix.array as Float32Array, this.nAxe++, X, o + XF_KIT);
+    }
+    if (shows & SHOW_KEG && this.nKeg < MAX_KIT) writeXf(this.keg.instanceMatrix.array as Float32Array, this.nKeg++, X, o + XF_KEG);
+    if (shows & SHOW_ROD && this.nRod < MAX_KIT) writeXf(this.rod.instanceMatrix.array as Float32Array, this.nRod++, X, o + XF_ROD);
+  }
+
+  /** Colour of a part at instance k: the team's tabard, cloth sleeves, dark legs, skin; a mason's apron over hips and thighs. */
+  private paint(mesh: THREE.InstancedMesh, k: number, part: number, team: number, dress: number, tint: number, skin: number) {
+    let c = C_CLOTH;
+    let f = tint;
+    if (part === TORSO || part === PELVIS) {
+      c = C_TEAM[team & 1];
+      f = 1 + (tint - 1) * 0.4;
+    } else if (part === HEAD) {
+      c = C_SKIN[skin] ?? C_SKIN[0];
+      f = 1;
+    } else if (part >= THIGH_L) c = C_LEGS;
+    if (dress === 1 && (part === PELVIS || part === THIGH_L || part === THIGH_R)) c = C_APRON;
+    if (part === PELVIS) f *= 0.8;
+    const a = mesh.instanceColor!.array as Float32Array;
+    a[k * 3] = c[0] * f;
+    a[k * 3 + 1] = c[1] * f;
+    a[k * 3 + 2] = c[2] * f;
+  }
+
+  /** Falling bodies, carried on along their motion between sim frames; for a man just knocked down, eased out of his last pose. */
+  private drawBodies() {
+    const rig = this.rig;
+    const since = Math.min(rig.since, 0.05);
+    for (let i = 0; i < this.bodyList.length; i++) {
+      const b = this.bodyList[i];
+      const team = this.teamOf.get(b.id) ?? 0;
+      const dress = this.unitOf.get(b.id) === MASON ? 1 : 0;
+      const s = b.hasPrev && b.dt > 0 && b.dt < 0.1 ? Math.min(1.5, since / b.dt) : 0;
+      let w = 0;
+      if (b.hand >= 0) {
+        const k = (rig.time - b.hand) / HANDOFF;
+        if (k >= 1) b.hand = -1;
+        else w = 1 - (k <= 0 ? 0 : k * k * (3 - 2 * k));
+      }
+      for (let p = 0; p < NPARTS; p++) {
+        const c = p * 7, C = b.cur;
+        if (C[c] !== C[c]) continue;
+        let px = C[c], py = C[c + 1], pz = C[c + 2];
+        let qx = C[c + 3], qy = C[c + 4], qz = C[c + 5], qw = C[c + 6];
+        if (s > 0) {
+          const Pv = b.prev;
+          if (Pv[c] === Pv[c]) {
+            px += (px - Pv[c]) * s;
+            py += (py - Pv[c + 1]) * s;
+            pz += (pz - Pv[c + 2]) * s;
+            // d = cur * conj(prev), scaled by s (nlerp from identity), then times cur.
+            const bx = -Pv[c + 3], by = -Pv[c + 4], bz = -Pv[c + 5], bw = Pv[c + 6];
+            let dx = qw * bx + qx * bw + qy * bz - qz * by;
+            let dy = qw * by - qx * bz + qy * bw + qz * bx;
+            let dz = qw * bz + qx * by - qy * bx + qz * bw;
+            let dw = qw * bw - qx * bx - qy * by - qz * bz;
+            if (dw < 0) {
+              dx = -dx;
+              dy = -dy;
+              dz = -dz;
+              dw = -dw;
+            }
+            dx *= s;
+            dy *= s;
+            dz *= s;
+            dw = 1 + (dw - 1) * s;
+            const l = Math.sqrt(dx * dx + dy * dy + dz * dz + dw * dw) || 1;
+            dx /= l;
+            dy /= l;
+            dz /= l;
+            dw /= l;
+            const nx = dw * qx + dx * qw + dy * qz - dz * qy;
+            const ny = dw * qy - dx * qz + dy * qw + dz * qx;
+            const nz = dw * qz + dx * qy - dy * qx + dz * qw;
+            const nw = dw * qw - dx * qx - dy * qy - dz * qz;
+            qx = nx;
+            qy = ny;
+            qz = nz;
+            qw = nw;
+          }
+        }
+        let sx = 1, sy = 1, sz = 1;
+        if (w > 0) {
+          px += b.off[p * 3] * w;
+          py += b.off[p * 3 + 1] * w;
+          pz += b.off[p * 3 + 2] * w;
+          let dx = b.dq[p * 4] * w, dy = b.dq[p * 4 + 1] * w, dz = b.dq[p * 4 + 2] * w, dw = 1 + (b.dq[p * 4 + 3] - 1) * w;
+          const l = Math.sqrt(dx * dx + dy * dy + dz * dz + dw * dw) || 1;
+          dx /= l;
+          dy /= l;
+          dz /= l;
+          dw /= l;
+          const nx = dw * qx + dx * qw + dy * qz - dz * qy;
+          const ny = dw * qy - dx * qz + dy * qw + dz * qx;
+          const nz = dw * qz + dx * qy - dy * qx + dz * qw;
+          const nw = dw * qw - dx * qx - dy * qy - dz * qz;
+          qx = nx;
+          qy = ny;
+          qz = nz;
+          qw = nw;
+          sx = 1 + (b.sc[p * 3] - 1) * w;
+          sy = 1 + (b.sc[p * 3 + 1] - 1) * w;
+          sz = 1 + (b.sc[p * 3 + 2] - 1) * w;
+        }
+        this.drawPart(b.id, p, px, py, pz, qx, qy, qz, qw, sx, sy, sz, team, dress);
+      }
+    }
+  }
+
+  /** One part of a fallen or falling body (with gore, a severed limb is left out and its stump capped). */
+  private drawPart(id: number, part: number, px: number, py: number, pz: number, qx: number, qy: number, qz: number, qw: number, sx: number, sy: number, sz: number, team: number, dress: number) {
+    const cut = this.gore ? this.severed.get(id) : undefined;
+    if (cut && (part === UARM_L + cut.limb * 2 || part === UARM_L + cut.limb * 2 + 1)) {
+      if (part === UARM_L + cut.limb * 2) {
+        // Stump cap where the limb joined the body.
+        _p.set(px, py, pz);
+        _q.set(qx, qy, qz, qw);
+        _a.set(0, cut.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
+        this.putStump(_a, _q, MINION_PARTS[part].radius);
+      }
+      return;
+    }
+    const k = this.counts[part];
+    if (k >= CAPACITY) return;
+    this.counts[part] = k + 1;
+    const mesh = this.parts[part];
+    writeMat(mesh.instanceMatrix.array as Float32Array, k, px, py, pz, qx, qy, qz, qw, sx, sy, sz);
+    this.paint(mesh, k, part, team, dress, 1, 0);
+    if (part !== HEAD) return;
+    // Headgear rides on the head, along the head's own up.
+    _q.set(qx, qy, qz, qw);
+    _a.set(0, 0.05 * sy, 0).applyQuaternion(_q);
+    if (dress === 1) {
+      if (this.nCap < MAX_TOOLS) {
+        writeMat(this.cap.instanceMatrix.array as Float32Array, this.nCap, px + _a.x, py + _a.y, pz + _a.z, qx, qy, qz, qw, sx, sy, sz);
+        this.cap.setColorAt(this.nCap, _c.setHex(TEAM[team & 1]).multiplyScalar(0.75));
+        this.nCap++;
+      }
+    } else if (this.nHelmet < MAX_FIGURES) writeMat(this.helmet.instanceMatrix.array as Float32Array, this.nHelmet++, px + _a.x, py + _a.y, pz + _a.z, qx, qy, qz, qw, sx, sy, sz);
+  }
+
+  /** Rewrite the fallen, which come first in every mesh. */
+  private drawFrozen() {
+    this.counts.fill(0);
+    this.nStump = 0;
+    this.nHelmet = 0;
+    this.nCap = 0;
+    for (const [id, body] of this.frozen) {
+      const team = this.teamOf.get(id) ?? 0;
+      const dress = this.unitOf.get(id) === MASON ? 1 : 0;
+      for (let k = 0; k < NPARTS; k++) {
+        const o = k * PART_STRIDE;
+        if (body[o + 2] !== body[o + 2]) continue;
+        this.drawPart(id, k, body[o + 2], body[o + 3], body[o + 4], body[o + 5], body[o + 6], body[o + 7], body[o + 8], 1, 1, 1, team, dress);
+      }
+    }
+    this.frozenCounts.set(this.counts);
+    this.frozenStumps = this.nStump;
+    this.frozenHelmets = this.nHelmet;
+    this.frozenCaps = this.nCap;
+    this.frozenDirty = false;
+  }
+
+  /** Kit on the ground: falling as a stick with two ends, toppling, settling; sinking away once old or its owner's body goes. */
+  private stepDrops(dt: number, height: (x: number, z: number) => number) {
+    const steps = dt <= 0 ? 0 : Math.min(4, Math.ceil(dt * 60 - 1e-6));
+    const h = steps ? dt / steps : 0;
+    const time = this.rig.time;
+    for (const d of this.drops) {
+      if (!d.on) continue;
+      d.age += dt;
+      if (d.sinkAt < 0 && d.age > DROP_LIFE) d.sinkAt = time;
+      if (d.sinkAt >= 0 && time - d.sinkAt > 1.5) {
+        d.on = false;
+        continue;
+      }
+      if (d.still < 0.4) {
+        const A = d.a, B = d.b;
+        for (let n = 0; n < steps; n++) {
+          fall(A, h);
+          fall(B, h);
+          // Keep its length: positions, and no stretching speed along it.
+          let dx = B[0] - A[0], dy = B[1] - A[1], dz = B[2] - A[2];
+          const l = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+          const diff = ((l - d.len) / l) * 0.5;
+          A[0] += dx * diff;
+          A[1] += dy * diff;
+          A[2] += dz * diff;
+          B[0] -= dx * diff;
+          B[1] -= dy * diff;
+          B[2] -= dz * diff;
+          dx /= l;
+          dy /= l;
+          dz /= l;
+          const vr = ((B[3] - A[3]) * dx + (B[4] - A[4]) * dy + (B[5] - A[5]) * dz) * 0.5;
+          A[3] += dx * vr;
+          A[4] += dy * vr;
+          A[5] += dz * vr;
+          B[3] -= dx * vr;
+          B[4] -= dy * vr;
+          B[5] -= dz * vr;
+          // The ground: no sinking in, a dull bounce and friction while touching.
+          const touching = ground(A, d.r, h, height) + ground(B, d.r, h, height);
+          const v2 = A[3] * A[3] + A[4] * A[4] + A[5] * A[5] + B[3] * B[3] + B[4] * B[4] + B[5] * B[5];
+          if (touching === 2 && v2 < 0.02) d.still += h;
+          else d.still = 0;
+        }
+      }
+      // Draw it from its ends.
+      const A = d.a, B = d.b;
+      let dx = B[0] - A[0], dy = B[1] - A[1], dz = B[2] - A[2];
+      const l = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      dx /= l;
+      dy /= l;
+      dz /= l;
+      const sink = d.sinkAt >= 0 ? Math.min(1, (time - d.sinkAt) / 1.5) * (d.r * 2 + 0.05) : 0;
+      _d.set(dx, dy, dz);
+      if (d.kind === DROP_MUSKET) _q.setFromUnitVectors(_zAxis, _d);
+      else if (d.kind === DROP_KEG) _q.setFromUnitVectors(_xAxis, _d);
+      else _q.setFromUnitVectors(_yAxis, _d);
+      let ox = A[0], oy = A[1] - sink, oz = A[2];
+      if (d.kind === DROP_KEG) {
+        ox = (A[0] + B[0]) / 2;
+        oy = (A[1] + B[1]) / 2 - sink;
+        oz = (A[2] + B[2]) / 2;
+      }
+      const mesh = d.kind === DROP_PIKE ? this.pike : d.kind === DROP_MUSKET ? this.musket : d.kind === DROP_AXE ? this.axe : d.kind === DROP_MALLET ? this.mallet : this.keg;
+      const n = d.kind === DROP_PIKE ? this.nPike++ : d.kind === DROP_MUSKET ? this.nMusket++ : d.kind === DROP_AXE ? this.nAxe++ : d.kind === DROP_MALLET ? this.nMallet++ : this.nKeg++;
+      const cap = d.kind === DROP_PIKE ? MAX_PIKES : d.kind === DROP_AXE || d.kind === DROP_MALLET ? MAX_TOOLS : MAX_KIT;
+      if (n >= cap) continue;
+      writeMat(mesh.instanceMatrix.array as Float32Array, n, ox, oy, oz, _q.x, _q.y, _q.z, _q.w, 1, 1, 1);
+    }
+    this.nPike = Math.min(this.nPike, MAX_PIKES);
+    this.nMusket = Math.min(this.nMusket, MAX_KIT);
+    this.nKeg = Math.min(this.nKeg, MAX_KIT);
+    this.nAxe = Math.min(this.nAxe, MAX_TOOLS);
+    this.nMallet = Math.min(this.nMallet, MAX_TOOLS);
+  }
+
+  /** Advance the loose limbs and draw them. */
+  private stepLimbs(dt: number, height: (x: number, z: number) => number) {
+    const pu = _limbU, pl = _limbL;
     for (const L of this.limbs) {
       if (!L || L.settled) continue;
       L.age += dt;
@@ -404,28 +995,29 @@ export class Minions {
         if ((L.vel.lengthSq() < 0.2 && Math.abs(_d.y) < 0.15) || L.age > 5) L.settled = true;
       }
     }
-    this.drawLimbs();
-  }
-
-  private drawLimbs() {
-    for (let i = 0; i < NPARTS; i++) this.counts[i] = this.baseCounts[i];
-    this.nStump = this.baseStumps;
-    if (this.gore) {
-      for (const L of this.limbs) {
-        if (!L) continue;
-        for (let k = 0; k < 2; k++) {
-          const part = L.upper + k;
-          _p.copy(k === 0 ? L.offU : L.offL).applyQuaternion(L.q).add(L.pos);
-          _q.copy(L.q).multiply(k === 0 ? L.qU : L.qL);
-          this.put(part, _p, _q, L.team);
-          if (k === 0) {
-            // Cap on the cut end of the loose limb.
-            _a.set(0, L.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
-            this.putStump(_a, _q, MINION_PARTS[part].radius);
-          }
+    if (!this.gore) return;
+    for (const L of this.limbs) {
+      if (!L) continue;
+      for (let k = 0; k < 2; k++) {
+        const part = L.upper + k;
+        _p.copy(k === 0 ? L.offU : L.offL).applyQuaternion(L.q).add(L.pos);
+        _q.copy(L.q).multiply(k === 0 ? L.qU : L.qL);
+        const n = this.counts[part];
+        if (n >= CAPACITY) continue;
+        this.counts[part] = n + 1;
+        writeMat(this.parts[part].instanceMatrix.array as Float32Array, n, _p.x, _p.y, _p.z, _q.x, _q.y, _q.z, _q.w, 1, 1, 1);
+        this.paint(this.parts[part], n, part, L.team, 0, 1, 0);
+        if (k === 0) {
+          // Cap on the cut end of the loose limb.
+          _a.set(0, L.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
+          this.putStump(_a, _q, MINION_PARTS[part].radius);
         }
       }
     }
+  }
+
+  /** Counts and uploads for every mesh. */
+  private flush() {
     for (let i = 0; i < NPARTS; i++) {
       const mesh = this.parts[i];
       mesh.count = this.counts[i];
@@ -436,548 +1028,14 @@ export class Minions {
     }
     this.stumps.count = this.nStump;
     if (this.nStump > 0) this.stumps.instanceMatrix.needsUpdate = true;
-  }
-
-  private put(part: number, pos: THREE.Vector3, q: THREE.Quaternion, team: number) {
-    const k = this.counts[part];
-    if (k >= CAPACITY) return;
-    this.counts[part] = k + 1;
-    const mesh = this.parts[part];
-    _m.compose(pos, q, _one);
-    mesh.setMatrixAt(k, _m);
-    let hex = CLOTH;
-    if (part === TORSO || part === PELVIS) hex = TEAM[team & 1];
-    else if (part === HEAD) hex = SKIN;
-    else if (part >= THIGH_L) hex = LEGS;
-    // A mason's leather apron covers his hips and thighs.
-    if (this.dress === 1 && (part === PELVIS || part === THIGH_L || part === THIGH_R)) hex = APRON;
-    _c.setHex(hex);
-    if (part === PELVIS) _c.multiplyScalar(0.8);
-    mesh.setColorAt(k, _c);
-    if (part === HEAD && this.dress === 1) {
-      // A mason wears a cloth cap in his side's colour, not a helmet.
-      if (this.nCap < MAX_TOOLS) {
-        _a.set(0, 0.05, 0).applyQuaternion(q).add(pos);
-        _m.compose(_a, q, _one);
-        this.cap.setMatrixAt(this.nCap, _m);
-        this.cap.setColorAt(this.nCap, _c.setHex(TEAM[team & 1]).multiplyScalar(0.75));
-        this.nCap++;
-      }
-    } else if (part === HEAD && this.nHelmet < MAX_FIGURES) {
-      // Helmet rides on the head, along the head's own up.
-      _a.set(0, 0.05, 0).applyQuaternion(q).add(pos);
-      _m.compose(_a, q, _one);
-      this.helmet.setMatrixAt(this.nHelmet++, _m);
-    }
-  }
-
-  /** A segment from a to b as a capsule centred between them, axis along a->b. */
-  private segment(part: number, a: THREE.Vector3, b: THREE.Vector3, yawQ: THREE.Quaternion, base: THREE.Vector3, team: number) {
-    _p.copy(a).add(b).multiplyScalar(0.5).applyQuaternion(yawQ).add(base);
-    _d.copy(b).sub(a).normalize();
-    _q2.setFromUnitVectors(_y, _d);
-    _q.copy(yawQ).multiply(_q2);
-    this.put(part, _p, _q, team);
-  }
-
-  /** One sim frame: upright figures, moving bodies, and the fallen that froze or left since the last one. */
-  update(f: Pick<FrameData, "minions" | "minionCount" | "parts" | "partCount" | "settled" | "settledCount" | "gone">) {
-    const { minions, minionCount, parts, partCount, settled, settledCount, gone } = f;
-    // The fallen: who left, who moves again, who froze.
-    for (let i = 0; i < gone.length; i++) {
-      const id = gone[i];
-      if (this.frozen.delete(id)) this.frozenDirty = true;
-      this.teamOf.delete(id);
-      this.unitOf.delete(id);
-      this.severed.delete(id);
-    }
-    const np = Math.max(0, partCount | 0);
-    for (let i = 0; i < np; i++) {
-      const id = parts[i * PART_STRIDE] | 0;
-      if (this.frozen.delete(id)) this.frozenDirty = true;
-    }
-    for (let i = 0; i < (settledCount | 0); i++) {
-      const o = i * PART_STRIDE;
-      const id = settled[o] | 0, part = settled[o + 1] | 0;
-      if (part < 0 || part >= NPARTS) continue;
-      let body = this.frozen.get(id);
-      if (!body) {
-        body = new Float32Array(NPARTS * PART_STRIDE).fill(NaN);
-        this.frozen.set(id, body);
-      }
-      body.set(settled.subarray(o, o + PART_STRIDE), part * PART_STRIDE);
-      this.frozenDirty = true;
-    }
-    if (this.frozenDirty) this.drawFrozen();
-    this.counts.set(this.frozenCounts);
-    this.nStump = this.frozenStumps;
-    this.nHelmet = this.frozenHelmets;
-    this.nPike = 0;
-    this.nKeg = 0;
-    this.nMusket = 0;
-    this.standAt.clear();
-    this.nMallet = this.nAxe = this.nCap = 0;
-    const yawQ = this.yawQ;
-    const base = this.base;
-    const n = Math.min(minionCount | 0, MAX_FIGURES);
-    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
-    for (let i = 0; i < n; i++) {
-      const o = i * MINION_STRIDE;
-      const id = minions[o] | 0;
-      const team = minions[o + 6] | 0;
-      const action = minions[o + 7] | 0;
-      const act = minions[o + 8];
-      const unit = minions[o + 9] | 0;
-      this.teamOf.set(id, team);
-      if (unit) this.unitOf.set(id, unit);
-      base.set(minions[o + 1], minions[o + 2], minions[o + 3]);
-      yawQ.setFromAxisAngle(_y, minions[o + 4]);
-      if (unit === MUSKETEER || unit === SAPPER) this.standAt.set(id, [base.x, base.y, base.z, minions[o + 4]]);
-      // M4: masons, ladder crews and climbers have their own figures.
-      if (unit === MASON) {
-        this.drawMason(team, action, act, minions[o + 5] * Math.PI * 2);
-        continue;
-      }
-      if (action === CLIMB) {
-        this.drawClimber(team, unit, minions[o + 5] * Math.PI * 2);
-        continue;
-      }
-      if (action === CARRY || action === RAISE) {
-        this.drawCarrier(team, action, minions[o + 5] * Math.PI * 2);
-        continue;
-      }
-      if (unit === CREW && action === FIGHT) {
-        this.drawAxeman(team, act);
-        continue;
-      }
-      // M3: a musketeer aiming.
-      if (unit === MUSKETEER && action === AIM) {
-        this.drawAim(team, act);
-        continue;
-      }
-      if (unit === SAPPER && action === PLANT) base.y -= 0.32; // crouched at the wall, setting the keg
-      if (action === FIGHT || action === BATTER) {
-        this.drawLevelled(team, act, action === BATTER, unit === 0 || unit === 2, unit === MUSKETEER);
-        if (unit === SAPPER) this.drawKeg(id, 0.2, 1.5, -0.06);
-        continue;
-      }
-      const standing = action === STAND || action === PLANT;
-      // M3: a sapper setting his keg squats (the body is lowered above; the knees bend so the feet stay on the ground).
-      const crouch = action === PLANT;
-      const ph = minions[o + 5] * Math.PI * 2;
-      const bob = standing ? 0 : Math.abs(Math.cos(ph)) * 0.035;
-      // Legs: swing forward and back, knee bends on the forward swing (straight when standing).
-      for (let side = 1; side >= -1; side -= 2) {
-        const s = standing ? 0 : Math.sin(ph + (side > 0 ? 0 : Math.PI));
-        const a = crouch ? (side > 0 ? 1.15 : 0.95) : s * 0.42;
-        const bend = crouch ? (side > 0 ? 1.75 : 1.55) : standing ? 0.04 : Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65;
-        hip.set(side * 0.1, 0.9 + bob, 0);
-        knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
-        ankle.set(0, -Math.cos(a - bend), Math.sin(a - bend)).multiplyScalar(0.4).add(knee);
-        this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
-        this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
-        // Arms swing against the leg on the same side; the right hand holds the pike.
-        sh.set(side * 0.25, 1.46 + bob, 0);
-        let c = standing ? 0.06 : -a * 0.75;
-        let e = 0.35;
-        if (crouch) {
-          // Both hands down at the keg in front of him.
-          c = 0.6;
-          e = 0.25;
-        } else if (side < 0) {
-          c = 0.35;
-          e = 1.35;
-        }
-        elbow.set(side * 0.03, -Math.cos(c), Math.sin(c)).multiplyScalar(0.27).add(sh);
-        hand.set(0, -Math.cos(c + e), Math.sin(c + e)).multiplyScalar(0.25).add(elbow);
-        this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
-        this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
-        if (side < 0 && unit === CREW) this.tool(this.axe, hand, elbow, 0.2);
-        else if (side < 0 && this.nPike < MAX_PIKES && unit !== SAPPER && unit !== MUSKETEER) {
-          // Pike held upright at the hand, leaning slightly forward.
-          _q2.setFromAxisAngle(_x, standing ? 0.05 : 0.12);
-          _q.copy(yawQ).multiply(_q2);
-          _a.set(hand.x - 0.02, 0.15 + bob, hand.z).applyQuaternion(yawQ).add(base);
-          _m.compose(_a, _q, _one);
-          this.pike.setMatrixAt(this.nPike++, _m);
-        } else if (side < 0 && unit === MUSKETEER && this.nMusket < MAX_KIT) {
-          // Musket at the slope on the right shoulder, butt in the right hand, muzzle up and back.
-          _q2.setFromAxisAngle(_x, -2.35 + bob);
-          _q.copy(yawQ).multiply(_q2);
-          _a.set(hand.x + 0.04, hand.y + 0.02, hand.z).applyQuaternion(yawQ).add(base);
-          _m.compose(_a, _q, _one);
-          this.musket.setMatrixAt(this.nMusket++, _m);
-        }
-      }
-      // The keg across his left shoulder (in his hands, on the ground, while he sets it).
-      if (unit === SAPPER) {
-        if (action === PLANT) this.drawKeg(id, 0.05, 0.62, 0.42);
-        else this.drawKeg(id, 0.2, 1.58 + bob, -0.06);
-      }
-      // Pelvis lies sideways (wide hips), torso leans a touch into the walk.
-      _q2.setFromAxisAngle(_z, Math.PI / 2);
-      _q.copy(yawQ).multiply(_q2);
-      _p.set(0, 0.97 + bob, 0).applyQuaternion(yawQ).add(base);
-      this.put(PELVIS, _p, _q, team);
-      _q2.setFromAxisAngle(_x, standing ? 0.02 : 0.07);
-      _q.copy(yawQ).multiply(_q2);
-      _p.set(0, 1.27 + bob, 0.01).applyQuaternion(yawQ).add(base);
-      this.put(TORSO, _p, _q, team);
-      _p.set(0, 1.62 + bob, 0.04).applyQuaternion(yawQ).add(base);
-      this.put(HEAD, _p, yawQ, team);
-    }
-    // Ragdolls: one capsule per part straight from the sim.
-    if (this.lastParts.length < np * PART_STRIDE) this.lastParts = new Float32Array(np * PART_STRIDE * 2);
-    this.lastParts.set(parts.subarray(0, np * PART_STRIDE));
-    this.lastPartCount = np;
-    for (let i = 0; i < np; i++) this.putPart(parts, i * PART_STRIDE);
-    this.baseCounts.set(this.counts);
-    this.baseStumps = this.nStump;
-    this.drawLimbs();
-    this.helmet.count = this.nHelmet;
-    if (this.nHelmet > 0) this.helmet.instanceMatrix.needsUpdate = true;
-    this.pike.count = this.nPike;
-    if (this.nPike > 0) this.pike.instanceMatrix.needsUpdate = true;
-    this.keg.count = this.nKeg;
-    if (this.nKeg > 0) this.keg.instanceMatrix.needsUpdate = true;
-    this.musket.count = this.nMusket;
-    if (this.nMusket > 0) this.musket.instanceMatrix.needsUpdate = true;
-    this.mallet.count = this.nMallet;
-    this.axe.count = this.nAxe;
-    this.cap.count = this.nCap;
-    for (const t of [this.mallet, this.axe, this.cap]) {
-      if (t.count > 0) {
-        t.instanceMatrix.needsUpdate = true;
-        if (t.instanceColor) t.instanceColor.needsUpdate = true;
-      }
-    }
-  }
-
-  /** A tool in a hand (minion space), along the forearm from the elbow, turned down by `tilt` (rad) at the wrist. */
-  private tool(mesh: THREE.InstancedMesh, hand: THREE.Vector3, elbow: THREE.Vector3, tilt: number) {
-    const n = mesh === this.mallet ? this.nMallet : this.nAxe;
-    if (n >= MAX_TOOLS) return;
-    _d.copy(hand).sub(elbow).normalize();
-    _q2.setFromUnitVectors(_y, _d);
-    _q.copy(this.yawQ).multiply(_q2);
-    if (tilt) {
-      _q2.setFromAxisAngle(_x, tilt);
-      _q.multiply(_q2);
-    }
-    _a.copy(hand).applyQuaternion(this.yawQ).add(this.base);
-    _m.compose(_a, _q, _one);
-    mesh.setMatrixAt(n, _m);
-    if (mesh === this.mallet) this.nMallet++;
-    else this.nAxe++;
-  }
-
-  /** Legs for a figure: walking on `ph` (radians), or braced (feet apart, knees a little bent). */
-  private legs(team: number, ph: number, walking: boolean, drop: number, brace = 0.16) {
-    const yawQ = this.yawQ, base = this.base;
-    const [hip, knee, ankle] = this.joints;
-    const bob = walking ? Math.abs(Math.cos(ph)) * 0.035 : 0;
-    for (let side = 1; side >= -1; side -= 2) {
-      const sw = walking ? Math.sin(ph + (side > 0 ? 0 : Math.PI)) : 0;
-      const a = walking ? sw * 0.42 : side > 0 ? brace : -brace * 0.7;
-      const bend = walking ? Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65 : 0.12 + drop * 2;
-      hip.set(side * 0.1, 0.9 + bob - drop, 0);
-      knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
-      ankle.set(0, -Math.cos(a - bend), Math.sin(a - bend)).multiplyScalar(0.4).add(knee);
-      this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
-      this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
-    }
-    return bob;
-  }
-
-  /** Pelvis, torso and head, the torso leaning forward by `lean`. */
-  private trunk(team: number, y: number, lean: number) {
-    const yawQ = this.yawQ, base = this.base;
-    _q2.setFromAxisAngle(_z, Math.PI / 2);
-    _q.copy(yawQ).multiply(_q2);
-    _p.set(0, 0.97 + y, 0).applyQuaternion(yawQ).add(base);
-    this.put(PELVIS, _p, _q, team);
-    _q2.setFromAxisAngle(_x, lean);
-    _q.copy(yawQ).multiply(_q2);
-    _p.set(0, 1.27 + y, 0.01 + lean * 0.12).applyQuaternion(yawQ).add(base);
-    this.put(TORSO, _p, _q, team);
-    _p.set(0, 1.62 + y - lean * 0.05, 0.04 + lean * 0.33).applyQuaternion(yawQ).add(base);
-    this.put(HEAD, _p, yawQ, team);
-  }
-
-  /** One arm from the shoulder to a hand (minion space), bending down and out. */
-  private arm(team: number, side: number, shoulder: THREE.Vector3, hand: THREE.Vector3, elbow: THREE.Vector3) {
-    this.elbowFor(shoulder, hand, side, elbow);
-    this.segment(side > 0 ? UARM_L : UARM_R, shoulder, elbow, this.yawQ, this.base, team);
-    this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, this.yawQ, this.base, team);
-  }
-
-  /**
-   * A mason: a cloth cap and a leather apron over his tabard, a mallet in his
-   * right hand. At work he holds a chisel to the stone with his left and
-   * swings the mallet up and down onto it once a stroke.
-   */
-  private drawMason(team: number, action: number, act: number, ph: number) {
-    this.dress = 1;
-    const [, , , sh, elbow, hand] = this.joints;
-    const working = action === WORK;
-    const walking = action === 0;
-    const drop = working ? 0.05 : 0;
-    const bob = this.legs(team, ph, walking, drop, 0.22);
-    const lean = working ? 0.2 : walking ? 0.07 : 0.03;
-    // Left arm: the chisel to the stone at work, a swing on the walk.
-    sh.set(0.25, 1.44 + bob - drop, lean * 0.3);
-    if (working) hand.set(0.06, 1.18 - drop, 0.46);
-    else {
-      const sw = walking ? -Math.sin(ph) * 0.3 : 0.05;
-      hand.set(0.27, 0.95 + bob, Math.sin(sw) * 0.35);
-    }
-    this.arm(team, 1, sh, hand, elbow);
-    // Right arm: the mallet, raised and brought down on the chisel.
-    sh.set(-0.25, 1.44 + bob - drop, lean * 0.3);
-    let a: number;
-    if (!working) a = walking ? 0.25 + Math.sin(ph) * 0.25 : 0.3;
-    else {
-      const t = act % MALLET_STROKE;
-      if (t < 9) a = 1.15 + (t / 9) * 1.35;
-      else if (t < MALLET_HIT) a = 2.5 - ((t - 9) / (MALLET_HIT - 9)) * 1.65;
-      else a = 0.85 + Math.min(1, (t - MALLET_HIT) / (MALLET_STROKE - MALLET_HIT)) * 0.3;
-    }
-    hand.set(-0.2, sh.y - Math.cos(a) * 0.47, sh.z + Math.sin(a) * 0.47);
-    this.arm(team, -1, sh, hand, elbow);
-    this.tool(this.mallet, hand, elbow, working ? -0.5 : 0.25);
-    this.trunk(team, bob - drop, lean);
-    this.dress = 0;
-  }
-
-  /** A crewman with the ladder on his right shoulder (walking), or both hands up pushing it as it rises. */
-  private drawCarrier(team: number, action: number, ph: number) {
-    const [, , , sh, elbow, hand] = this.joints;
-    const raising = action === RAISE;
-    const bob = this.legs(team, ph, !raising, raising ? 0.06 : 0, 0.28);
-    const lean = raising ? 0.12 : 0.08;
-    for (let side = 1; side >= -1; side -= 2) {
-      sh.set(side * 0.25, 1.44 + bob, lean * 0.3);
-      if (raising) hand.set(side * 0.18, 2.02, 0.32);
-      else hand.set(side > 0 ? -0.06 : -0.3, side > 0 ? 1.62 + bob : 1.7 + bob, side > 0 ? 0.08 : 0.02);
-      this.arm(team, side, sh, hand, elbow);
-    }
-    this.trunk(team, bob, lean);
-  }
-
-  /** On a ladder or the rope inside: facing the wall, hands up on the rails, a knee raised in turn; a pikeman's pike slung across his back. */
-  private drawClimber(team: number, unit: number, ph: number) {
-    const yawQ = this.yawQ, base = this.base;
-    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
-    const s = Math.sin(ph);
-    for (let side = 1; side >= -1; side -= 2) {
-      const up = Math.max(0, s * side);
-      hip.set(side * 0.1, 0.9, -0.04);
-      knee.set(side * 0.02, -0.42 + up * 0.32, 0.12 + up * 0.22).add(hip);
-      ankle.set(side * 0.01, -0.4 + up * 0.08, -0.06 + up * 0.04).add(knee);
-      this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
-      this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
-      sh.set(side * 0.24, 1.44, 0.06);
-      hand.set(side * 0.2, 1.78 + 0.16 * Math.max(0, -s * side), 0.3);
-      this.arm(team, side, sh, hand, elbow);
-    }
-    this.trunk(team, 0, 0.22);
-    if (unit !== CREW && this.nPike < MAX_PIKES) {
-      // The pike across his back, butt low on the right, point up past his left shoulder.
-      _d.set(0.32, 0.94, -0.08).normalize();
-      _q2.setFromUnitVectors(_y, _d);
-      _q.copy(yawQ).multiply(_q2);
-      _a.set(-0.42, 0.25, -0.2).applyQuaternion(yawQ).add(base);
-      _m.compose(_a, _q, _one);
-      this.pike.setMatrixAt(this.nPike++, _m);
-    }
-  }
-
-  /** A crewman fighting with his axe: feet braced, a chop at each blow (act counts ticks since it began). */
-  private drawAxeman(team: number, act: number) {
-    const [, , , sh, elbow, hand] = this.joints;
-    const bob = this.legs(team, 0, false, 0.06, 0.3);
-    const t = act / THRUST;
-    const a = t >= 1 ? 1.2 : t < 0.3 ? 1.2 + (t / 0.3) * 1.5 : 2.7 - ((t - 0.3) / 0.7) * 2.1;
-    sh.set(0.25, 1.4 + bob, 0.05);
-    hand.set(0.22, 1.12, 0.3);
-    this.arm(team, 1, sh, hand, elbow);
-    sh.set(-0.25, 1.4 + bob, 0.05);
-    hand.set(-0.16, sh.y - Math.cos(a) * 0.5, sh.z + Math.sin(a) * 0.5);
-    this.arm(team, -1, sh, hand, elbow);
-    this.tool(this.axe, hand, elbow, -0.35);
-    this.trunk(team, bob - 0.06, 0.18);
-  }
-
-  /** M3: a sapper's keg at a point in his own space (none once he has set it). */
-  private drawKeg(id: number, x: number, y: number, z: number) {
-    if (this.kegless.has(id) || this.nKeg >= MAX_KIT) return;
-    _a.set(x, y, z).applyQuaternion(this.yawQ).add(this.base);
-    _m.compose(_a, this.yawQ, _one);
-    this.keg.setMatrixAt(this.nKeg++, _m);
-  }
-
-  /**
-   * M3: a musketeer aiming: feet apart, left foot forward, the butt in his
-   * right shoulder and the barrel along his left hand at his target; at each
-   * shot (act counts from it) the musket kicks up and back.
-   */
-  private drawAim(team: number, act: number) {
-    const yawQ = this.yawQ, base = this.base;
-    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
-    const kick = act < RECOIL ? Math.sin((act / RECOIL) * Math.PI) * (1 - act / RECOIL) : 0;
-    for (let side = 1; side >= -1; side -= 2) {
-      const a = side > 0 ? 0.22 : -0.18;
-      hip.set(side * 0.11, 0.9, 0);
-      knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
-      ankle.set(0, -Math.cos(a - 0.08), Math.sin(a - 0.08)).multiplyScalar(0.4).add(knee);
-      this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
-      this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
-    }
-    // The stock at the right shoulder, the barrel forward and a little left of the eye.
-    const buttY = 1.42 + kick * 0.05, buttZ = 0.06 - kick * 0.1;
-    for (let side = 1; side >= -1; side -= 2) {
-      sh.set(side * 0.24, 1.45, 0.02);
-      if (side > 0) hand.set(-0.02, 1.4 + kick * 0.08, 0.52 - kick * 0.08);
-      else hand.set(-0.1, buttY - 0.02, buttZ + 0.14);
-      this.elbowFor(sh, hand, side, elbow);
-      this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
-      this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
-    }
-    if (this.nMusket < MAX_KIT) {
-      _q2.setFromAxisAngle(_x, -0.03 - kick * 0.35);
-      _q.copy(yawQ).multiply(_q2);
-      _a.set(-0.1, buttY, buttZ - 0.1).applyQuaternion(yawQ).add(base);
-      _m.compose(_a, _q, _one);
-      this.musket.setMatrixAt(this.nMusket++, _m);
-    }
-    _q2.setFromAxisAngle(_z, Math.PI / 2);
-    _q.copy(yawQ).multiply(_q2);
-    _p.set(0, 0.97, 0).applyQuaternion(yawQ).add(base);
-    this.put(PELVIS, _p, _q, team);
-    _q2.setFromAxisAngle(_x, 0.06 - kick * 0.12);
-    _q.copy(yawQ).multiply(_q2);
-    _p.set(0, 1.27, 0.02).applyQuaternion(yawQ).add(base);
-    this.put(TORSO, _p, _q, team);
-    _p.set(-0.04, 1.6, 0.06 - kick * 0.05).applyQuaternion(yawQ).add(base);
-    this.put(HEAD, _p, yawQ, team);
-  }
-
-  /** One ragdoll part from a parts array at offset o (with gore, a severed limb is left out and its stump capped). */
-  private putPart(parts: Float32Array, o: number) {
-    const id = parts[o] | 0;
-    const part = parts[o + 1] | 0;
-    if (part < 0 || part >= NPARTS || parts[o + 2] !== parts[o + 2]) return;
-    const team = this.teamOf.get(id) ?? 0;
-    this.dress = this.unitOf.get(id) === MASON ? 1 : 0;
-    _p.set(parts[o + 2], parts[o + 3], parts[o + 4]);
-    _q.set(parts[o + 5], parts[o + 6], parts[o + 7], parts[o + 8]);
-    const cut = this.gore ? this.severed.get(id) : undefined;
-    if (cut && (part === UARM_L + cut.limb * 2 || part === UARM_L + cut.limb * 2 + 1)) {
-      if (part === UARM_L + cut.limb * 2) {
-        // Stump cap where the limb joined the body.
-        _a.set(0, cut.sign * MINION_PARTS[part].half, 0).applyQuaternion(_q).add(_p);
-        this.putStump(_a, _q, MINION_PARTS[part].radius);
-      }
-      this.dress = 0;
-      return;
-    }
-    this.put(part, _p, _q, team);
-    this.dress = 0;
-  }
-
-  /** Rewrite the fallen, which come first in every mesh. */
-  private drawFrozen() {
-    this.counts.fill(0);
-    this.nStump = 0;
-    this.nHelmet = 0;
-    for (const body of this.frozen.values()) for (let k = 0; k < NPARTS; k++) this.putPart(body, k * PART_STRIDE);
-    this.frozenCounts.set(this.counts);
-    this.frozenStumps = this.nStump;
-    this.frozenHelmets = this.nHelmet;
-    this.frozenDirty = false;
-  }
-
-  /**
-   * A pikeman with his pike levelled at an enemy or a gate: feet apart, left
-   * foot forward, both hands on the shaft, and a thrust that drives the pike
-   * out and back at each blow (`act` counts ticks since the blow began).
-   */
-  private drawLevelled(team: number, act: number, gate: boolean, withPike = true, withMusket = false) {
-    const yawQ = this.yawQ, base = this.base;
-    const [hip, knee, ankle, sh, elbow, hand] = this.joints;
-    const t = act / THRUST;
-    const thrust = t >= 1 ? 0 : (t < 0.23 ? t / 0.23 : 1 - (t - 0.23) / 0.77) * (gate ? 0.6 : 0.5);
-    const lean = 0.16 + thrust * 0.25;
-    const drop = 0.05 + thrust * 0.05;
-    for (let side = 1; side >= -1; side -= 2) {
-      const a = side > 0 ? 0.32 : -0.24;
-      const bend = side > 0 ? 0.32 : 0.12;
-      hip.set(side * 0.11, 0.9 - drop, 0);
-      knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
-      ankle.set(0, -Math.cos(a - bend), Math.sin(a - bend)).multiplyScalar(0.4).add(knee);
-      this.segment(side > 0 ? THIGH_L : THIGH_R, hip, knee, yawQ, base, team);
-      this.segment(side > 0 ? SHIN_L : SHIN_R, knee, ankle, yawQ, base, team);
-    }
-    // The shaft runs along the right side, rising a little towards the head: rear hand at the hip, front hand ahead.
-    const shaftX = -0.16;
-    const rearZ = -0.05 + thrust * 0.75, frontZ = 0.42 + thrust * 0.75;
-    const rearY = (gate ? 1.0 : 1.05) - drop, frontY = (gate ? 1.08 : 1.16) - drop;
-    for (let side = 1; side >= -1; side -= 2) {
-      sh.set(side * 0.25, 1.44 - drop, lean * 0.35);
-      hand.set(shaftX + (side > 0 ? 0.04 : 0), side > 0 ? frontY : rearY, side > 0 ? frontZ : rearZ);
-      this.elbowFor(sh, hand, side, elbow);
-      this.segment(side > 0 ? UARM_L : UARM_R, sh, elbow, yawQ, base, team);
-      this.segment(side > 0 ? LARM_L : LARM_R, elbow, hand, yawQ, base, team);
-    }
-    if (withPike && this.nPike < MAX_PIKES) {
-      // The butt sits a metre behind the rear hand, the shaft through both hands.
-      _d.set(0, frontY - rearY, frontZ - rearZ).normalize();
-      _a.set(shaftX, rearY, rearZ).addScaledVector(_d, -1.0);
-      _q2.setFromUnitVectors(_y, _d);
-      _q.copy(yawQ).multiply(_q2);
-      _a.applyQuaternion(yawQ).add(base);
-      _m.compose(_a, _q, _one);
-      this.pike.setMatrixAt(this.nPike++, _m);
-    } else if (withMusket && this.nMusket < MAX_KIT) {
-      // M3: a musketeer close in jabs with his musket held in both hands, the butt just behind the rear hand.
-      _d.set(0, frontY - rearY, frontZ - rearZ).normalize();
-      _a.set(shaftX, rearY, rearZ).addScaledVector(_d, -0.28);
-      _q2.setFromUnitVectors(_z, _d);
-      _q.copy(yawQ).multiply(_q2);
-      _a.applyQuaternion(yawQ).add(base);
-      _m.compose(_a, _q, _one);
-      this.musket.setMatrixAt(this.nMusket++, _m);
-    }
-    _q2.setFromAxisAngle(_z, Math.PI / 2);
-    _q.copy(yawQ).multiply(_q2);
-    _p.set(0, 0.97 - drop, 0).applyQuaternion(yawQ).add(base);
-    this.put(PELVIS, _p, _q, team);
-    _q2.setFromAxisAngle(_x, lean);
-    _q.copy(yawQ).multiply(_q2);
-    _p.set(0, 1.27 - drop, 0.04 + lean * 0.12).applyQuaternion(yawQ).add(base);
-    this.put(TORSO, _p, _q, team);
-    _p.set(0, 1.6 - drop, 0.08 + lean * 0.3).applyQuaternion(yawQ).add(base);
-    this.put(HEAD, _p, yawQ, team);
-  }
-
-  /** Two-bone arm: where the elbow goes for a hand at `hand` (minion space), bending down and out. */
-  private elbowFor(shoulder: THREE.Vector3, hand: THREE.Vector3, side: number, out: THREE.Vector3) {
-    const L1 = 0.27, L2 = 0.25;
-    _b.copy(hand).sub(shoulder);
-    let d = _b.length();
-    if (d > L1 + L2 - 0.005) {
-      // Out of reach: straight arm towards the hand (the hand is drawn where the arm ends).
-      _b.multiplyScalar((L1 + L2 - 0.005) / d);
-      hand.copy(shoulder).add(_b);
-      d = L1 + L2 - 0.005;
-    }
-    const along = (L1 * L1 - L2 * L2 + d * d) / (2 * d);
-    const h = Math.sqrt(Math.max(0, L1 * L1 - along * along));
-    _b.normalize();
-    // Bend direction: down and outward, square to the arm.
-    _d.set(side * 0.6, -1, -0.15);
-    _d.addScaledVector(_b, -_d.dot(_b)).normalize();
-    out.copy(shoulder).addScaledVector(_b, along).addScaledVector(_d, h);
+    show(this.helmet, this.nHelmet);
+    show(this.pike, this.nPike);
+    show(this.keg, this.nKeg);
+    show(this.musket, this.nMusket);
+    show(this.rod, this.nRod);
+    show(this.mallet, this.nMallet);
+    show(this.axe, this.nAxe);
+    show(this.cap, this.nCap);
   }
 
   /** Forget the team of every minion (after a reset). */
@@ -989,12 +1047,11 @@ export class Minions {
     this.frozenCounts.fill(0);
     this.frozenStumps = 0;
     this.frozenHelmets = 0;
+    this.frozenCaps = 0;
     this.frozenDirty = false;
     this.limbs = [];
     this.nextLimb = 0;
     this.lastPartCount = 0;
-    this.baseCounts.fill(0);
-    this.baseStumps = 0;
     this.stumps.count = 0;
     for (const m of this.parts) m.count = 0;
     this.helmet.count = 0;
@@ -1002,12 +1059,16 @@ export class Minions {
     this.mallet.count = this.axe.count = this.cap.count = 0;
     this.keg.count = 0;
     this.musket.count = 0;
-    this.kegless.clear();
-    this.standAt.clear();
+    this.rod.count = 0;
+    this.rig.forget();
+    for (const b of this.bodies.values()) this.spare.push(b);
+    this.bodies.clear();
+    this.bodyList.length = 0;
+    for (const d of this.drops) d.on = false;
   }
 
   dispose() {
-    for (const m of [...this.parts, this.helmet, this.pike, this.stumps, this.mallet, this.axe, this.cap, this.keg, this.musket]) m.geometry.dispose();
+    for (const m of [...this.parts, this.helmet, this.pike, this.stumps, this.mallet, this.axe, this.cap, this.keg, this.musket, this.rod]) m.geometry.dispose();
     (this.stumps.material as THREE.Material).dispose();
     (this.parts[0].material as THREE.Material).dispose();
     (this.helmet.material as THREE.Material).dispose();
@@ -1015,6 +1076,58 @@ export class Minions {
     (this.keg.material as THREE.Material).dispose();
     (this.musket.material as THREE.Material).dispose();
   }
+}
+
+/** Draw the first n instances of a mesh (unless it is primed for loading). */
+function show(mesh: THREE.InstancedMesh, n: number) {
+  if (mesh.userData.primed) return;
+  mesh.count = n;
+  if (n > 0) {
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }
+}
+
+/** One end of a dropped piece of kit: gravity for h seconds. */
+function fall(e: Float32Array, h: number) {
+  e[4] -= 9.81 * h;
+  e[0] += e[3] * h;
+  e[1] += e[4] * h;
+  e[2] += e[5] * h;
+}
+
+/** Keep an end of dropped kit (radius r) on the ground: 1 if it touches. */
+function ground(e: Float32Array, r: number, h: number, height: (x: number, z: number) => number): number {
+  const g = height(e[0], e[2]) + r;
+  if (e[1] >= g) return 0;
+  e[1] = g;
+  if (e[4] < 0) e[4] *= -0.15;
+  const f = Math.exp(-h * 14);
+  e[3] *= f;
+  e[5] *= f;
+  return 1;
+}
+
+const _xAxis = new THREE.Vector3(1, 0, 0);
+const _yAxis = new THREE.Vector3(0, 1, 0);
+const _zAxis = new THREE.Vector3(0, 0, 1);
+const _limbU = new THREE.Vector3();
+const _limbL = new THREE.Vector3();
+
+function newBody(): Body {
+  return {
+    id: -1,
+    cur: new Float32Array(NPARTS * 7),
+    prev: new Float32Array(NPARTS * 7),
+    hasPrev: false,
+    dt: 1 / 60,
+    seen: -1,
+    fresh: false,
+    hand: -1,
+    off: new Float32Array(NPARTS * 3),
+    dq: new Float32Array(NPARTS * 4),
+    sc: new Float32Array(NPARTS * 3),
+  };
 }
 
 interface Limb {

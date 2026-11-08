@@ -7,6 +7,11 @@
 // q cycles quality, g toggles gore, r resets the world.
 // URL: ?cam=overview|sight|follow|mortar &quality=low|medium|high|ultra
 //      &shot=1 (hide text) &dt=0.05 (fixed step) ; #webgl forces WebGL2.
+//      &scene=anim stages the animation scenes of render-anim.ts instead
+//      (&crowd=N adds N marching men for timing). __test.advance() steps
+//      the page by hand and __test.sheet() tiles screenshots into a contact
+//      sheet; __test.bench() times the minions' update and step without
+//      drawing.
 
 import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, LADDER, MID_Z, PLOTS, WEAPONS, buildLayout, ladderSpots, streamOffset } from "@keepfall/content";
 import {
@@ -27,6 +32,7 @@ import {
   type TerrainPatch,
 } from "@keepfall/sim";
 import { GameRenderer } from "./render/GameRenderer";
+import { AnimScene } from "./render-anim";
 import type { CameraPose, QualityTier } from "./render/api";
 
 const params = new URLSearchParams(location.search);
@@ -49,6 +55,7 @@ let quality = (params.get("quality") as QualityTier) || "low";
 let camMode = params.get("cam") || "overview";
 let gore = true;
 const fixedDt = params.has("dt") ? Number(params.get("dt")) : 0;
+const anim = params.get("scene") === "anim" ? new AnimScene(Number(params.get("crowd") ?? 0)) : null;
 const G = 9.81;
 
 // --- fake sim data -----------------------------------------------------------
@@ -143,8 +150,9 @@ const loose = layout.stones.filter((s) => s.castle === 0 && s.part === "merlon" 
 
 // M3: buildings on the target castle's plots (plot, kind, share up): a barracks
 // and a Foundry at the front, a Powder Mill half risen beside the keep, a mill
-// standing at the back; the other two plots are empty.
-const built: Array<[number, number, number]> = [
+// standing at the back; the other two plots are empty. The animation scenes
+// leave every plot empty (the rope inside the wall comes down by a front plot).
+const built: Array<[number, number, number]> = anim ? [] : [
   [0, 0, 1],
   [1, 2, 1],
   [2, 1, 0.5],
@@ -212,6 +220,7 @@ function buildFrame(dt: number): FrameData {
     put(ProjectileKind.Grape, 10 + k, arc(15, 14.5, -133.5, -4 + Math.cos(a) * s * 70, Math.sin(a) * s * 70, 69, tg), WEAPONS.swivel.projectile.radius);
   }
 
+  if (anim) return animFrame(dt);
   // Eight pikemen (team 0) marching from the target castle, two Ashwright men (team 1).
   let nm = 0;
   for (let k = 0; k < 10; k++) {
@@ -365,9 +374,53 @@ function buildFrame(dt: number): FrameData {
   };
 }
 
+/** The animation scenes' frame (render-anim.ts): figures, a falling body, ladders, a keg; no shots flying. */
+function animFrame(dt: number): FrameData {
+  const A = anim!;
+  A.build(t, dt);
+  return {
+    tick: Math.round(t * 60),
+    stones: wobble(),
+    stoneCount: loose.length + shown.length,
+    projectiles,
+    projectileCount: 0,
+    chains,
+    chainCount: 0,
+    minions: A.minions,
+    minionCount: A.minionCount,
+    parts: A.parts,
+    partCount: A.partCount,
+    settled: new Float32Array(0),
+    settledCount: 0,
+    gone: A.gone,
+    ladders: A.ladders.slice(0, A.ladderCount * LADDER_STRIDE),
+    ladderCount: A.ladderCount,
+    works: works.slice(),
+    worksCount: 1,
+    events: A.events,
+    eventCount: A.eventCount,
+    terrain: [],
+    windX: 2,
+    windZ: 1,
+    plots: plotBuf,
+    plotCount: PLOTS.length,
+    kegs: A.kegs,
+    kegCount: A.kegCount,
+  };
+}
+
 // --- camera ---------------------------------------------------------------------
 
+/** A fixed camera set by a test tool (__test.look): eye, target, field of view; with a minion id, both are offsets from where he stands. */
+let fixedCam: [number, number, number, number, number, number, number] | null = null;
+let trackId = -1;
+
 function pose(): CameraPose {
+  if (fixedCam) {
+    const at = trackId >= 0 ? r.minionAt(trackId) : null;
+    const ox = at ? at[0] : 0, oy = at ? at[1] : 0, oz = at ? at[2] : 0;
+    return { mode: "free", x: ox + fixedCam[0], y: oy + fixedCam[1], z: oz + fixedCam[2], tx: ox + fixedCam[3], ty: oy + fixedCam[4], tz: oz + fixedCam[5], fov: fixedCam[6] };
+  }
   if (camMode === "sight" || camMode === "mortar") {
     const em = camMode === "sight" ? longGun : mortar;
     const yaw = camMode === "sight" ? lgDir.yaw : 0;
@@ -431,25 +484,104 @@ async function main() {
     (views.controls as unknown as { minDistance: number }).minDistance = 1;
     views.controls.update();
   }
+  if (anim) works.set([0, laidStone.x, laidStone.y, laidStone.z, -6, -12.6, laidStone.id, 2], 0);
   let last = performance.now();
-  const loop = () => {
-    const now = performance.now();
-    const dt = fixedDt > 0 ? fixedDt : Math.min(0.1, (now - last) / 1000);
-    last = now;
+  /** One frame: a sim frame every `every` rendered frames (2 draws a 120 Hz screen). */
+  const tickOnce = (dt: number, sim = true) => {
     r.setWeaponPose(0, lgDir.yaw, lgDir.pitch, camMode === "sight");
     r.setWeaponPose(1, 0, 0.9 + Math.sin(t * 0.4) * 0.2, camMode === "mortar");
     r.setWeaponPose(2, 0.08 + Math.sin(t * 0.5) * 0.3, 0.05, false);
     r.setWeaponPose(3, -0.08 + Math.sin(t * 0.7) * 0.5, -0.1, false);
-    r.applyFrame(buildFrame(dt));
+    if (sim) r.applyFrame(buildFrame(dt));
+    else t += dt;
     r.setCamera(pose());
     r.render(dt);
     state.frames++;
     state.ready = true;
+  };
+  const loop = () => {
+    const now = performance.now();
+    const dt = fixedDt > 0 ? fixedDt : Math.min(0.1, (now - last) / 1000);
+    last = now;
+    if (!test.manual) tickOnce(dt);
     if (state.frames % 10 === 0) {
       const s = r.getStats();
       info.textContent = `${s.backend} ${quality} ${camMode}\n${s.drawCalls} draws ${s.triangles} tris\n${s.width}x${s.height}${state.lost ? `\nlost: ${state.lost}` : ""}`;
     }
     requestAnimationFrame(loop);
+  };
+  const test = (window as unknown as { __test: Record<string, unknown> }).__test as { manual: boolean } & Record<string, unknown>;
+  test.manual = false;
+  /** Hold the camera at an eye point looking at a target (null: back to the keys' cameras). */
+  test.look = (eye: [number, number, number] | null, at?: [number, number, number], fov = 40, track = -1) => {
+    fixedCam = eye && at ? [eye[0], eye[1], eye[2], at[0], at[1], at[2], fov] : null;
+    trackId = track;
+  };
+  /** Jump the scene clock (figures teleport; a few frames settle them). */
+  test.setTime = (to: number) => {
+    t = to;
+  };
+  test.time = () => t;
+  /** Step the page by hand: `n` sim frames of `dt`, each drawn `sub` times (2: a 120 Hz screen, 4: quarter-speed slow motion). */
+  test.advance = (n: number, dt: number, sub = 1) => {
+    test.manual = true;
+    const k = Math.max(1, sub);
+    for (let i = 0; i < n; i++) for (let j = 0; j < k; j++) tickOnce(dt / k, j === 0);
+    return t;
+  };
+  /** Tile screenshots (PNG data URLs, with their labels) into one contact sheet `cols` wide, `tile` pixels per tile. */
+  test.sheet = async (shots: string[], labels: string[], cols: number, tile: number, title: string) => {
+    const imgs = await Promise.all(
+      shots.map(
+        (src) =>
+          new Promise<HTMLImageElement>((res) => {
+            const im = new Image();
+            im.onload = () => res(im);
+            im.src = src;
+          }),
+      ),
+    );
+    const tw = tile, th = Math.round((tile * imgs[0].height) / imgs[0].width);
+    const rows = Math.ceil(imgs.length / cols);
+    const sheet = document.createElement("canvas");
+    sheet.width = tw * cols;
+    sheet.height = th * rows + 18;
+    const g = sheet.getContext("2d")!;
+    g.fillStyle = "#101215";
+    g.fillRect(0, 0, sheet.width, sheet.height);
+    g.font = "12px monospace";
+    imgs.forEach((im, i) => {
+      const x = (i % cols) * tw, y = 18 + Math.floor(i / cols) * th;
+      g.drawImage(im, x, y, tw, th);
+      g.fillStyle = "#eef0f2";
+      g.fillText(labels[i] ?? "", x + 4, y + 13);
+    });
+    g.fillStyle = "#eef0f2";
+    g.fillText(title, 4, 13);
+    return sheet.toDataURL("image/png");
+  };
+  /** Time the minions' update (per sim frame) and step (per rendered frame, `sub` of them per sim frame) without drawing: ms per sim frame. */
+  test.bench = (frames: number, sub = 1) => {
+    test.manual = true;
+    const M = (r as unknown as { minions: { update(f: FrameData): void; step(dt: number, h: (x: number, z: number) => number, cam?: unknown): void } }).minions;
+    const cam = (r as unknown as { views: { camera: unknown } }).views.camera;
+    const h = (x: number, z: number) => x * 0 + z * 0;
+    let up = 0, st = 0;
+    const dt = 1 / 60;
+    for (let i = 0; i < frames + 30; i++) {
+      const f = buildFrame(dt);
+      const a = performance.now();
+      M.update(f);
+      const b = performance.now();
+      for (let j = 0; j < sub; j++) M.step(dt / sub, h, cam);
+      const c = performance.now();
+      if (i >= 30) {
+        up += b - a;
+        st += c - b;
+      }
+    }
+    test.manual = false;
+    return { update: up / frames, step: st / frames, figures: (buildFrame(0), anim ? anim.minionCount : 0) };
   };
   requestAnimationFrame(loop);
 }
