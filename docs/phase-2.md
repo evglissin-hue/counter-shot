@@ -79,6 +79,18 @@ Kat's laptop (Apple M3) is the floor: about 550 moving stones in 6 ms. Upright m
 - **Surrender** from the menu (with a confirm).
 - **The end screen** says how it ended (the keep, a storm or a surrender) and when, with gold earned and spent on repairs, masonry brought down, lost and rebuilt, pikemen lost and knocked down, shots, waves and ladders, and a short log of the match's moments (gates broken, breaches, storms begun and beaten off, ladders planted, sudden death).
 
+### Polish (alongside M3 and M4: how it looks, sounds and reads)
+
+The owner asked for a third agent on quality (November 8), working on the game page only (no gameplay, sim or hash changes), on its own branch until the merge. Plan, judged from screenshots of every view and the sound check:
+
+- **Water**: splashes where shots, timber, stones and bodies fall into the stream, and a column of water for a shell bursting in it; the stream no longer turns white where it is seen at a low angle.
+- **Sound**: impacts by what they strike (stone, timber, earth, water), the tramp of marching ranks near the camera, pikes meeting in fights, men shouting and the low roar wherever the fighting is, the stream's murmur near the water, crows over the woods in quiet moments, and a few quiet interface sounds (taking a gun, buttons, two drum beats for an order).
+- **Readability**: team-coloured marks over the minions in the overview, so the waves can be followed from high up.
+- **Look**: the low sun through haze the spec asks for (a little warmth in the sun and a warm band at the horizon towards it), keeping the Gritty palette.
+- **Interface**: a title screen with a slow camera over the valley behind the start menu, and a cleaner HUD (weapon panel, reload bar, wind gauge, notes, the Controls panel, the menu and end cards), keeping every id so M3 and M4 merge cleanly.
+
+Status: in progress.
+
 ### M5. The AI castle (open: a full match)
 
 - The AI plays by the same rules: it builds from a plan in data, fires every weapon through the same turn limits and reloads (aiming by the same flight prediction as the aim help, plus error), sends waves and gives orders, and repairs. Three difficulties: Squire, Knight and Warlord (aim error, reaction time, how well it spends).

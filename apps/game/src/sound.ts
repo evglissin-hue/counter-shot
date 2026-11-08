@@ -768,7 +768,7 @@ export class Sound {
     osc.frequency.setValueAtTime(f0 * 1.08, c.t0);
     osc.frequency.exponentialRampToValueAtTime(f0 * 0.82, c.t0 + len);
     const g = ctx.createGain();
-    this.envelope(g, c.t0, 0.035, len, 0.07 * Math.max(0, Math.min(1, gain)));
+    this.envelope(g, c.t0, 0.035, len, 0.15 * Math.max(0, Math.min(1, gain)));
     for (const [f, q, w] of [[f1, 6, 1], [f2, 9, 0.6]] as const) {
       const bp = ctx.createBiquadFilter();
       bp.type = "bandpass";
@@ -821,13 +821,14 @@ export class Sound {
   ui(kind: "switch" | "click" | "order") {
     const ctx = this.ctx;
     if (!ctx) return;
-    const t0 = ctx.currentTime + 0.005;
+    // A little ahead of the audio clock: very short envelopes scheduled too close to it can be lost.
+    const t0 = ctx.currentTime + 0.02;
     const g = ctx.createGain();
-    g.gain.value = 0.14;
+    g.gain.value = kind === "switch" ? 0.6 : kind === "click" ? 0.4 : 0.14;
     g.connect(this.dry);
     if (kind === "click") {
-      this.burstNoise(g, t0, this.white, "bandpass", 2300, 4, 0.001, 0.02, 0.35);
-      this.tone(g, t0, 880, 760, 0.02, 0.001, 0.03, 0.12);
+      this.burstNoise(g, t0, this.white, "bandpass", 2300, 3, 0.001, 0.022, 0.7);
+      this.tone(g, t0, 880, 760, 0.02, 0.001, 0.035, 0.3);
     } else if (kind === "switch") {
       // Iron and timber: the gun's carriage taking the gunner's weight, a ratchet.
       this.tone(g, t0, 150, 92, 0.08, 0.002, 0.12, 0.5, 1.2);
@@ -926,5 +927,86 @@ export class Sound {
     this.beds.battle.gain.setTargetAtTime(0.16 * t.battle * p.gain, now, 0.6);
     this.beds.battlePan.pan.setTargetAtTime(p.pan, now, 0.3);
     this.beds.battleAir.frequency.setTargetAtTime(Math.min(3000, p.cutoff), now, 0.3);
+  }
+
+  private grind: { gain: GainNode; band: BiquadFilterNode } | null = null;
+  private creakDebt = 0;
+
+  /**
+   * The gun you ride turning on its carriage (not placed: it is under you):
+   * a low grind that follows how fast it turns (`speed` 0..1 of its top
+   * rate), heavier for heavier guns, with a timber creak now and then.
+   */
+  traverse(speed: number, heavy: number, dt: number) {
+    const ctx = this.ctx;
+    if (!ctx || this.paused) return;
+    if (!this.grind) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.brown;
+      src.loop = true;
+      src.playbackRate.value = 0.8;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = 160;
+      band.Q.value = 1.1;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      src.connect(band);
+      band.connect(gain);
+      gain.connect(this.dry);
+      src.start(0, 2.1);
+      this.grind = { gain, band };
+    }
+    const k = Math.max(0, Math.min(1, speed));
+    const now = ctx.currentTime;
+    this.grind.gain.gain.setTargetAtTime(0.11 * k * (0.5 + 0.5 * heavy), now, k > 0.02 ? 0.05 : 0.12);
+    this.grind.band.frequency.setTargetAtTime(110 + 170 * k + 60 * (1 - heavy), now, 0.08);
+    this.creakDebt += k * dt * (0.8 + 1.6 * heavy);
+    if (this.creakDebt >= 1) {
+      this.creakDebt -= 1 + Math.random() * 0.8;
+      const t0 = now + 0.01;
+      const g = ctx.createGain();
+      g.gain.value = 0.1 * (0.4 + 0.6 * k);
+      g.connect(this.dry);
+      const f = 380 + Math.random() * 260;
+      this.burstNoise(g, t0, this.white, "bandpass", f * 1.8, 7, 0.02, 0.16, 0.5);
+      this.tone(g, t0, f, f * 0.9, 0.18, 0.02, 0.16, 0.25);
+      this.later(g, t0 + 0.6);
+    }
+  }
+
+  /** The crew at work partway through a reload, at the gun you ride: swab and rammer, a shell let down, the chain laid in. */
+  reloadWork(kind: WeaponKind) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.01;
+    const g = ctx.createGain();
+    g.gain.value = 0.16;
+    g.connect(this.dry);
+    if (kind === "mortar") {
+      // A heavy shell lowered into the barrel: iron on iron, then a dull seat.
+      for (const p of [1180, 1730, 2650]) this.tone(g, t0, p, p * 0.99, 0.4, 0.002, 0.35, 0.12);
+      this.burstNoise(g, t0, this.white, "bandpass", 1500, 2, 0.002, 0.08, 0.35);
+      this.tone(g, t0 + 0.42, 110, 70, 0.1, 0.004, 0.18, 0.6, 1.4);
+      this.burstNoise(g, t0 + 0.42, this.brown, "lowpass", 380, 0.7, 0.004, 0.14, 0.5);
+    } else if (kind === "chainShot") {
+      // The chain laid in: a rattle of links.
+      for (let i = 0; i < 9; i++) {
+        const at = t0 + i * 0.045 + Math.random() * 0.02;
+        this.burstNoise(g, at, this.white, "bandpass", 2600 + Math.random() * 1600, 5, 0.001, 0.02, 0.22);
+      }
+      this.tone(g, t0 + 0.5, 130, 90, 0.08, 0.003, 0.14, 0.45, 1.2);
+    } else {
+      // The swab and the rammer: a bristly scrape, then two firm pushes home.
+      const scrape = kind === "swivel" ? 0.22 : 0.42;
+      this.burstNoise(g, t0, this.white, "bandpass", 2100, 1.2, 0.08, scrape, 0.22);
+      this.burstNoise(g, t0, this.brown, "lowpass", 700, 0.8, 0.06, scrape, 0.2);
+      for (let i = 0; i < 2; i++) {
+        const at = t0 + scrape + 0.12 + i * 0.28;
+        this.tone(g, at, 150, 100, 0.06, 0.003, 0.1, 0.5, 1.2);
+        this.burstNoise(g, at, this.white, "bandpass", 900, 2, 0.002, 0.05, 0.25);
+      }
+    }
+    this.later(g, t0 + 1.5);
   }
 }

@@ -125,6 +125,38 @@ export class Soundscape {
     this.fight = n > 0 ? { n, x: fx / n, y: fy / n, z: fz / n } : { n: 0, x: 0, y: 0, z: 0 };
   }
 
+  private aimPrev: { yaw: number; pitch: number; weapon: WeaponKind | null } = { yaw: 0, pitch: 0, weapon: null };
+  private reloadFor: WeaponKind | null = null;
+  private reloadHeard = true;
+
+  /** The gun you ride (every rendered frame): its carriage grinds as it turns. `riding` is false away from the sight. */
+  gun(weapon: WeaponKind, yaw: number, pitch: number, yawRate: number, dt: number, riding: boolean) {
+    const p = this.aimPrev;
+    let speed = 0;
+    if (riding && p.weapon === weapon && dt > 0) speed = Math.hypot(yaw - p.yaw, pitch - p.pitch) / dt / yawRate;
+    this.aimPrev = { yaw, pitch, weapon };
+    const heavy = weapon === "longGun" ? 1 : weapon === "mortar" ? 0.85 : weapon === "chainShot" ? 0.7 : 0.25;
+    this.sound.traverse(riding ? speed : 0, heavy, dt);
+  }
+
+  /** The reload of the gun you ride (each sim frame): the crew is heard at work a little past halfway. */
+  reload(weapon: WeaponKind, left: number, total: number, riding: boolean) {
+    if (weapon !== this.reloadFor) {
+      this.reloadFor = weapon;
+      this.reloadHeard = true;
+      return;
+    }
+    if (left <= 0) {
+      this.reloadHeard = true;
+      return;
+    }
+    if (left > total * 0.9) this.reloadHeard = false;
+    if (!this.reloadHeard && left < total * 0.45) {
+      this.reloadHeard = true;
+      if (riding) this.sound.reloadWork(weapon);
+    }
+  }
+
   /** Per rendered frame: footfalls, shouts, the beds (stream, fighting) and the crows. */
   update(dt: number, ear: Listener) {
     const s = this.sound;

@@ -8,7 +8,7 @@
 // URL: ?cam=overview|sight|follow|mortar &quality=low|medium|high|ultra
 //      &shot=1 (hide text) &dt=0.05 (fixed step) ; #webgl forces WebGL2.
 
-import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, WEAPONS, buildLayout } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, GAME_LAYOUT, MID_Z, WEAPONS, buildLayout, streamOffset } from "@keepfall/content";
 import {
   CHAIN_STRIDE,
   EVENT_STRIDE,
@@ -225,6 +225,9 @@ function buildFrame(dt: number): FrameData {
     muzzleIdx++;
   }
   if (tb < dt) ev(EventKind.Impact, 0, 6, -15.2, 0.8);
+  // A shot into the stream by the centre bridge every 1.4 s, and a stone every 2.6 s (splashes).
+  if (t % 1.4 < dt) ev(EventKind.Impact, 12, -0.8, MID_Z + streamOffset(12), 0.8);
+  if (t % 2.6 < dt) ev(EventKind.Impact, 16.5, -0.8, MID_Z + streamOffset(16.5) - 1, 1.2);
   if (t - lastBlood > 2.2) {
     lastBlood = t;
     ev(EventKind.Blood, -4, 0.9, -26, 0.9);

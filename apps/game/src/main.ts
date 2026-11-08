@@ -28,6 +28,7 @@ import type { FromWorker, MatchInfo, Mode, ToWorker } from "./protocol";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { Sound } from "./sound";
+import { Soundscape } from "./soundscape";
 import { Pacer, SCALES } from "./pacing";
 import { Timeline } from "./timeline";
 
@@ -39,6 +40,8 @@ const send = (m: ToWorker) => worker.postMessage(m);
 const input = new Input(canvas);
 const sound = new Sound();
 const layout = buildLayout(1, GAME_LAYOUT);
+/** What the battle sounds like: impacts by material, footfalls, clashes, shouting, the stream, crows. */
+const soundscape = new Soundscape(sound, layout);
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
 /** The guns you ride (your castle's); a match also has the enemy's, which fire on their own. */
@@ -186,7 +189,11 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   if (m.t === "frame") {
     const was = reload[current];
     reload = m.reload;
-    if (was > 0 && reload[current] === 0) sound.ready(EMP[current].weapon);
+    soundscape.reload(EMP[current].weapon, reload[current], WEAPONS[EMP[current].weapon].reload, view === "sight" && mode !== null);
+    if (was > 0 && reload[current] === 0) {
+      sound.ready(EMP[current].weapon);
+      flashLoaded();
+    }
     stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
     downAt.set(m.frame.tick, m.down);
     timeline.push(m.frame);
@@ -235,8 +242,9 @@ function onFrame(f: FrameData) {
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
       if (a >= 0 && a < EMP.length) landing[a] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+      soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
-      if (impacts++ < 3) sound.impact(a, b, c, d);
+      if (impacts++ < 3) soundscape.impact(a, b, c, d);
     } else if (kind === EventKind.Blood) {
       sound.thud(a, b, c, d);
     }
@@ -330,6 +338,7 @@ function onFrame(f: FrameData) {
   }
   lastDown = downAt.get(f.tick) ?? stats.down;
   downAt.delete(f.tick);
+  soundscape.frame(f, ear);
   renderer.applyFrame(f);
 }
 
@@ -575,6 +584,7 @@ function select(i: number) {
   const prev = current;
   const wasSight = view === "sight";
   current = ((i % EMP.length) + EMP.length) % EMP.length;
+  if (current !== prev) sound.ui("switch");
   view = "sight";
   obs.primed = false;
   keyVel.yaw = keyVel.pitch = 0;
@@ -598,6 +608,7 @@ function man(e: number, left: number) {
 function giveOrder(order: number) {
   if (mode !== "versus" || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "order", order: order as Order } });
+  sound.ui("order");
   const text = [
     "Your waves advance on the enemy gate.",
     "Your waves hold at the midfield markers, short of the bridges.",
@@ -610,6 +621,7 @@ function giveOrder(order: number) {
 function setRoute(route: RouteName) {
   if (mode !== "versus" || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "route", route } });
+  sound.ui("click");
   showNote(`Your next waves march down the ${route === "centre" ? "centre road" : `${route} flank`}.`, 2600);
   matchInfo.route = route;
   updateWaves();
@@ -621,6 +633,7 @@ let testCamera: { x: number; y: number; z: number; tx: number; ty: number; tz: n
 
 function cameraPose(now: number, dt: number): CameraPose {
   if (testCamera) return { mode: "free", ...testCamera };
+  if (mode === null) return titlePose(now);
   if (ride) {
     const p = ridePose(now, dt);
     if (p) return p;
@@ -796,6 +809,30 @@ function describeHit(h: PathHit | null): string {
   return `${what}, ${Math.round(dist)} m`;
 }
 
+/**
+ * The title screen's camera (before a mode is chosen): a slow circuit of the
+ * valley at the height of the hills, always looking over the field between
+ * the castles, so the menu sits over a living view.
+ */
+function titlePose(now: number): CameraPose {
+  const t = now / 1000;
+  const a = 0.35 + t * 0.022;
+  const x = Math.sin(a) * 70, z = -75 - Math.cos(a) * 105;
+  const y = 30 + 7 * Math.sin(t * 0.05);
+  return { mode: "free", x, y, z, tx: Math.sin(a + 0.9) * 22, ty: 3, tz: -75 - Math.cos(a + 0.9) * 30, fov: 46 };
+}
+
+/** The weapon panel's reload bar lights up for a moment when the gun is loaded. */
+const weaponPanel = document.querySelector<HTMLElement>(".weapon")!;
+let freshTimer: ReturnType<typeof setTimeout> | undefined;
+function flashLoaded() {
+  weaponPanel.classList.remove("fresh");
+  void weaponPanel.offsetWidth; // restart the animation
+  weaponPanel.classList.add("fresh");
+  clearTimeout(freshTimer);
+  freshTimer = setTimeout(() => weaponPanel.classList.remove("fresh"), 800);
+}
+
 // ---- HUD -------------------------------------------------------------------------
 const hud = {
   name: $("w-name"),
@@ -832,6 +869,7 @@ function updateHud(force = false) {
   const r = reload[current];
   hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
   hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
+  weaponPanel.classList.toggle("loaded", r === 0);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).
   const elevation = `Elevation ${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
@@ -927,6 +965,7 @@ function startMode(m: Mode) {
   const first = mode === null;
   mode = m;
   $("menu").hidden = true;
+  document.body.classList.remove("title-screen");
   $("end").hidden = true;
   $("mode-name").textContent = m === "versus" ? "Versus AI" : "Practice range";
   $("matchbar").hidden = m !== "versus";
@@ -977,6 +1016,7 @@ $("reset").addEventListener("click", () => {
 document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
   b.addEventListener("click", () => {
     b.blur();
+    sound.ui("click");
     startMode(b.dataset.mode === "versus" ? "versus" : "practice");
   }),
 );
@@ -1278,6 +1318,7 @@ function frame(wall: number) {
     aimTick();
     aimAcc -= 1 / 60;
   }
+  soundscape.gun(EMP[current].weapon, aims[current].yaw, aims[current].pitch, WEAPONS[EMP[current].weapon].yawRate, dt, view === "sight" && !ride && mode !== null);
   if (slowUntil && now > slowUntil) {
     slowUntil = 0;
     if (!ride) setSlow(1);
@@ -1308,6 +1349,7 @@ function frame(wall: number) {
   placeWanted();
   if (!paused) renderer.render(dt);
   sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: timeScale });
+  soundscape.update(dt, renderer.listener());
   calibrate(dt);
   pace(dt, now);
   requestAnimationFrame(frame);
@@ -1328,6 +1370,7 @@ async function start() {
   try {
     const info = await renderer.init({ forceWebGL: location.hash.includes("webgl") });
     $("backend").textContent = info.backend;
+    renderer.onSplash = (x, y, z, size) => sound.splash(x, y, z, size);
     renderer.onDeviceLost = (message) => showError(`The graphics device was lost (${message}). Reload the page, or add #webgl to the address.`);
   } catch (err) {
     showError(`Could not start the renderer: ${err instanceof Error ? err.message : String(err)}`);
@@ -1365,7 +1408,10 @@ async function start() {
 }
 void start();
 if (hashMode) startMode(hashMode);
-else view = "overview";
+else {
+  view = "overview";
+  document.body.classList.add("title-screen");
+}
 
 // Test hook for the headless screenshot script: read-only views of the page state.
 (window as unknown as { __sandbox: unknown }).__sandbox = {

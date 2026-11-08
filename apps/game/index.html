@@ -111,6 +111,58 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .actions button.primary { background: var(--brass); color: var(--brass-ink); border-color: transparent; }
 @media (max-width: 640px) { .weapon { min-width: 0; right: 140px; } .brand .sub { display: none; } .card h1 { font-size: 36px; } }
 </style>
+<style>
+/* Polish: depth and finish for the instruments (overrides the rules above; ids and markup unchanged). */
+.glass { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 246, 225, 0.06); }
+button { transition: background-color 120ms ease, color 120ms ease, box-shadow 120ms ease; }
+button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(201, 154, 70, 0.35); }
+.brand .mark { letter-spacing: 0.02em; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5); }
+/* Keys read as keys. */
+.chips .key, #w-slot { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; font: 500 11px/1 var(--mono); color: var(--ink-dim); background: rgba(0, 0, 0, 0.25); }
+.chips .key { margin: 0 4px 0 2px; }
+.keys dt { padding: 3px 0; }
+.keys dd { padding: 3px 0; border-bottom: 1px solid rgba(236, 228, 210, 0.07); }
+/* The weapon panel: a heavier name, the slot as a key, a reload bar that lights when loaded. */
+.weapon { gap: 7px; }
+.weapon .title b { font-size: 26px; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45); }
+.weapon .bar { height: 5px; background: rgba(0, 0, 0, 0.35); box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.08); }
+.weapon .bar > i { background: linear-gradient(90deg, #8a6528, var(--brass) 70%, #e2bb6c); transition: transform 90ms linear; }
+.weapon.loaded .bar > i { box-shadow: 0 0 10px rgba(226, 187, 108, 0.55); }
+.weapon.loaded #w-reload { color: var(--brass); }
+.weapon.loaded.fresh .bar { animation: loaded 700ms ease-out; }
+@keyframes loaded { 0% { box-shadow: 0 0 0 0 rgba(226, 187, 108, 0.7); } 100% { box-shadow: 0 0 0 7px rgba(226, 187, 108, 0); } }
+/* The wind gauge: a compass ring with ticks every 30 degrees. */
+.dial { background: radial-gradient(circle, rgba(0, 0, 0, 0.28) 0 58%, transparent 59%); }
+.dial::before { content: ""; position: absolute; inset: -1px; border-radius: 50%; background: repeating-conic-gradient(from -1deg, rgba(236, 228, 210, 0.42) 0deg 2deg, transparent 2deg 30deg); -webkit-mask: radial-gradient(circle, transparent 0 66%, #000 67%); mask: radial-gradient(circle, transparent 0 66%, #000 67%); }
+#wind-arrow::before { background: linear-gradient(var(--aim), rgba(244, 246, 248, 0.15)); }
+#wind-arrow { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
+/* Notes: a brass edge, and a short rise into place. */
+#note { border-left: 3px solid var(--brass); padding: 10px 14px; max-width: min(620px, calc(100% - 32px)); text-align: left; animation: note-in 260ms ease-out; }
+@keyframes note-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.hint.tally { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); border-color: rgba(201, 154, 70, 0.35); }
+/* The match bar. */
+.matchbar .clock { font-size: 22px; letter-spacing: 0.02em; }
+.matchbar .gold { font-weight: 600; }
+/* Overlays: a vignette rather than a flat veil, cards with a brass rule under the title. */
+.overlay { background: radial-gradient(ellipse at 50% 45%, rgba(10, 9, 7, 0.18), rgba(10, 9, 7, 0.72)); }
+.card { box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 246, 225, 0.06); }
+.card h1, .card h2 { text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45); }
+.card h1::after, .card h2::after { content: ""; display: block; width: 64px; height: 2px; margin-top: 12px; background: linear-gradient(90deg, var(--brass), rgba(201, 154, 70, 0)); }
+.choice { transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease; }
+.choice:hover, .choice:focus-visible { border-color: rgba(201, 154, 70, 0.55); transform: translateY(-1px); }
+.choice b::after { content: " \203A"; color: var(--brass); opacity: 0; transition: opacity 140ms ease; }
+.choice:hover b::after, .choice:focus-visible b::after { opacity: 1; }
+/* The title screen (before a mode is chosen): the valley behind the menu, without the gun's instruments. */
+body.title-screen .weapon, body.title-screen .wind, body.title-screen .reticle, body.title-screen #want, body.title-screen #lock-hint, body.title-screen .top .group[aria-label="Weapons"], body.title-screen #overview-btn, body.title-screen label.check:has(#shotcam) { display: none !important; }
+body.title-screen .overlay { background: radial-gradient(ellipse at 50% 40%, rgba(10, 9, 7, 0) 30%, rgba(10, 9, 7, 0.55)); }
+body.title-screen #menu .card { background: rgba(14, 12, 10, 0.78); }
+body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
+/* Loading: a slow shimmer while the walls go up. */
+#loading > div { position: relative; overflow: hidden; }
+#loading > div::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--brass), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: raise 1.6s ease-in-out infinite; }
+@keyframes raise { from { background-position: -50% 0; } to { background-position: 150% 0; } }
+@media (prefers-reduced-motion: reduce) { #note, .weapon.loaded.fresh .bar, #loading > div::after { animation: none; } .choice:hover, .choice:focus-visible { transform: none; } }
+</style>
 <!-- artifact-head-end -->
 </head>
 <body>

@@ -50,6 +50,7 @@ A browser game where two castles face each other across a field. You fire siege 
 | Key aiming | The owner found key aiming too sharp. Keys now have weight per gun: the gun gathers speed while a key is held (up to about half its top turning speed, a third for the swivel) and coasts to a stop; a tap is a fine correction. The mouse and sticks are unchanged. |
 | Mortar reload | The owner found the mortar a bit strong: it reloads in 12 s (was 6). Reloads: long gun 4 s, mortar 12 s, chain shot 5 s, swivel 2 s. |
 | M2 shipped | The owner's go on November 8: `main` holds phase 2 up to M2. M3 starts in a new session. |
+| Polish alongside M3 and M4 | The owner asked for a third agent on quality (November 8): presentation only (no gameplay, sim or hash changes). Water splashes, sound by material with footfalls, clashes, shouting, the stream and crows, interface sounds, overview marks over minions, a title screen over the valley, a warmer low sun through the haze, and a finished HUD. See the Polish section in `docs/phase-2.md`. |
 
 ## Race proposals (for review)
 
