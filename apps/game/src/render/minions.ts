@@ -477,13 +477,15 @@ export class Minions {
         continue;
       }
       const standing = action === STAND || action === PLANT;
+      // M3: a sapper setting his keg squats (the body is lowered above; the knees bend so the feet stay on the ground).
+      const crouch = action === PLANT;
       const ph = minions[o + 5] * Math.PI * 2;
       const bob = standing ? 0 : Math.abs(Math.cos(ph)) * 0.035;
       // Legs: swing forward and back, knee bends on the forward swing (straight when standing).
       for (let side = 1; side >= -1; side -= 2) {
         const s = standing ? 0 : Math.sin(ph + (side > 0 ? 0 : Math.PI));
-        const a = s * 0.42;
-        const bend = standing ? 0.04 : Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65;
+        const a = crouch ? (side > 0 ? 1.15 : 0.95) : s * 0.42;
+        const bend = crouch ? (side > 0 ? 1.75 : 1.55) : standing ? 0.04 : Math.max(0, Math.cos(ph + (side > 0 ? 0 : Math.PI))) * 0.65;
         hip.set(side * 0.1, 0.9 + bob, 0);
         knee.set(0, -Math.cos(a), Math.sin(a)).multiplyScalar(0.42).add(hip);
         ankle.set(0, -Math.cos(a - bend), Math.sin(a - bend)).multiplyScalar(0.4).add(knee);
@@ -493,7 +495,11 @@ export class Minions {
         sh.set(side * 0.25, 1.46 + bob, 0);
         let c = standing ? 0.06 : -a * 0.75;
         let e = 0.35;
-        if (side < 0) {
+        if (crouch) {
+          // Both hands down at the keg in front of him.
+          c = 0.6;
+          e = 0.25;
+        } else if (side < 0) {
           c = 0.35;
           e = 1.35;
         }

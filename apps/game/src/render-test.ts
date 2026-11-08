@@ -248,7 +248,7 @@ function buildFrame(dt: number): FrameData {
     minions.set([40 + j, x, 0, z, yaw, (t * 0.9 + j * 0.31) % 1, team, action, act, unit], nm * MINION_STRIDE);
     nm++;
   });
-  kegBuf.set([5.6, 0, -16.45, 240 - ((t * 60) % 240)], 0);
+  kegBuf.set([5.6, 0.35, -16.45, 240 - ((t * 60) % 240)], 0); // the sim reports a keg 0.35 m over the ground
 
   // Events.
   let ne = 0;

@@ -269,17 +269,18 @@ export class EstateView {
     }
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+    const q = new THREE.Quaternion(); // upright
     const one = new THREE.Vector3(1, 1, 1);
     for (let i = 0; i < this.kegCount; i++) {
       const o = i * KEG_STRIDE;
-      p.set(this.kegData[o], this.kegData[o + 1], this.kegData[o + 2]);
+      // Standing upright at the foot of the wall: the frame's height is 0.35 m over the ground, a keg's middle 0.23 m.
+      p.set(this.kegData[o], this.kegData[o + 1] - 0.12, this.kegData[o + 2]);
       m.compose(p, q, one);
       this.kegs.setMatrixAt(i, m);
       // The fuse's spark on top, sputtering; faster as it burns down.
       const left = this.kegData[o + 3] / 60;
       const flick = 0.7 + 0.5 * Math.abs(Math.sin(now * (14 + 10 / Math.max(0.3, left)) + i));
-      p.y += 0.3;
+      p.y += 0.29;
       m.compose(p, q, new THREE.Vector3(flick, flick, flick));
       this.sparks.setMatrixAt(i, m);
       if (now >= this.nextSpark) puff("spark", p.x, p.y, p.z, 0.18);

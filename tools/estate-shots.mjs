@@ -96,11 +96,14 @@ async function match() {
   await until(10);
   await shot("10-mixed-wave-forming", { x: 9, y: 5, z: -120, tx: 0, ty: 0.8, tz: -129, fov: 45 });
   await shot("11-mill-rising", { x: 2, y: 7, z: -146, tx: 7.5, ty: 1.5, tz: -141.5, fov: 55 });
-  await sb(() => window.__sandbox.wheel(true));
+  // The wheel as a player opens it (B), then a click on plot 1 (the barracks: its mix and route); Esc closes it.
+  await page.keyboard.press("KeyB");
   await shot("12-build-wheel", null);
-  await sb(() => window.__sandbox.wheel(true, 0));
+  await page.click('#build [data-pick="0"]');
   await shot("13-build-wheel-barracks", null);
-  await sb(() => window.__sandbox.wheel(false));
+  const opened = await page.evaluate(() => !document.getElementById("build").hidden);
+  await page.keyboard.press("Escape");
+  console.log(`wheel: opened with B and clicked through: ${opened}`);
   await until(24);
   await shot("14-marching", { x: -10, y: 6, z: -96, tx: 0, ty: 0.8, tz: -104, fov: 45 });
   await until(45);

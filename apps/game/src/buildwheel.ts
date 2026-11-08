@@ -68,21 +68,34 @@ export class BuildWheel {
   private plots: PlotInfo[] = PLOTS.map(() => ({ kind: -1, state: EMPTY, share: 0, health: 0 }));
   private state: WheelState = { gold: 0, team: 1, barracks: null, foundry: false, gun: null, gunSlot: 0 };
   private choices: Choice[] = [];
+  /** What the wheel last drew (it is drawn again only when that changes). */
+  private html = "";
 
   constructor(
     private el: HTMLElement,
     private send: (input: MatchInput) => void,
     private note: (text: string) => void,
   ) {
-    el.addEventListener("click", (e) => {
+    // A press acts at once: the wheel is redrawn as gold comes in, and a click
+    // whose press and release fell on two different drawings would be lost. A
+    // click from the keyboard (Enter or Space on a focused button) acts too.
+    const act = (e: Event) => {
       const t = (e.target as HTMLElement).closest<HTMLElement>("[data-pick],[data-choice],[data-act]");
       if (!t) return;
       e.stopPropagation();
+      e.preventDefault();
       if (t.dataset.pick !== undefined) this.pick(Number(t.dataset.pick));
       else if (t.dataset.choice !== undefined) this.choose(Number(t.dataset.choice));
       else if (t.dataset.act === "close") this.close();
       else if (t.dataset.act === "back") this.back();
       (t as HTMLButtonElement).blur?.();
+    };
+    el.addEventListener("pointerdown", (e) => {
+      if (e.button === 0) act(e);
+    });
+    el.addEventListener("click", (e) => {
+      if (e.detail === 0) act(e);
+      else e.stopPropagation();
     });
   }
 
@@ -180,11 +193,15 @@ export class BuildWheel {
     const list = this.choices
       .map((c, i) => `<button class="choice2${c.ok ? "" : " no"}${c.pressed ? " on" : ""}" data-choice="${i}"><span class="k">${i + 1}</span><b>${c.label}</b><span class="d">${c.detail}</span>${c.cost ? `<span class="c">${c.cost}</span>` : ""}</button>`)
       .join("");
-    this.el.innerHTML =
+    const html =
       `<div class="wheel-head"><h2>Build</h2><span class="small">B or Esc closes${this.target >= 0 ? ", Backspace goes back" : ""}</span><button data-act="close">Close</button></div>` +
       head +
       `<div class="yard" aria-label="Your courtyard, the gate at the top"><div class="keep" style="left:35.5%;top:47.1%;width:29%;height:29%">Keep</div><div class="gatemark">Gate</div>${PLOTS.map((_, i) => plotBox(i)).join("")}<button class="gunpick${this.target === 6 ? " sel" : ""}" data-pick="6"><b>7</b><span>Gun ${s.gunSlot + 1}</span></button></div>` +
       (this.target >= 0 ? `<div class="choices2">${list || `<p class="small">Nothing to do here now.</p>`}</div>` : "");
+    // The match reports every frame: redraw only what changed, so the buttons under the pointer stay put.
+    if (html === this.html) return;
+    this.html = html;
+    this.el.innerHTML = html;
   }
 
   private plotChoices(i: number): Choice[] {
