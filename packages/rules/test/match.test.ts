@@ -38,7 +38,7 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.ok(a.result, "the match ended");
   assert.equal(a.result.winner, Team.Player);
   assert.equal(a.result.reason, "keep");
-  assert.ok(a.result.tick > 450 && a.result.tick < 870, `won at tick ${a.result.tick}, after the second shell`);
+  assert.ok(a.result.tick > 760 && a.result.tick < 1400, `won at tick ${a.result.tick}, after the second shell`);
   assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
   assert.deepEqual(a.gold, [MATCH.startGold + incomeTicks * MATCH.keepIncome, MATCH.startGold + incomeTicks * MATCH.keepIncome], "gold stops at the end");

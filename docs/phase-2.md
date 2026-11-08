@@ -145,4 +145,13 @@ Findings for the owner (M2):
 - Right at your own gate no gun can reach the pikemen battering it (none depresses that far): only a mortar shell you fire yourself breaks them up there.
 - Bodies piling up in the stream can rise above the waterline and make a crossing of the dead; the bridge status then reads open again.
 
-Next: the owner's verdict on M2 (the waves, the orders, how strong unmanned guns should be), and both laptops on Versus AI with a full field (Kat's M3 at High especially: the HUD's step and frame numbers); then M3 (gold and building).
+### After M2 (rules version 7): shipped
+
+The owner's verdict on M2 (November 8): everything feels pretty good; aiming with the keys was too sharp, and the mortar a bit strong. Then: ship M2, and start M3 in a new session.
+
+- **Keys have weight** (page only, `WEAPONS.*.keys`): while a key is held the gun gathers speed (over 0.7 s for the long gun, 0.3 s for the swivel) up to a share of its top turning speed (the long gun 9 degrees a second instead of 20, the swivel 28 instead of 92), and it coasts to a stop when let go. A tap is a small correction: a tenth of a second turns the long gun less than a tenth of a degree. The mouse and the gamepad sticks are unchanged, and so are the sim's turn limits.
+- **The mortar reloads in 12 s** (was 6): a big event, few shells. The long gun stays at 4 s, the chain shot at 5 s, the swivel at 2 s.
+- The Practice range's scripted session and the keep match fire their second shell after the new reload and are re-pinned; the wave match never fires the mortar and is unchanged. Node and headless Chromium agree on all three.
+- **Shipped**: `main` holds phase 2 up to M2 (with the lab, phase 1 and M1 before it), and the game link has this build.
+
+Next: M3 (gold and building), in a new session. Still to hear: the laptops on Versus AI with a full field (Kat's M3 at High especially: the HUD's step and frame numbers), and whether guns nobody rides should hold the walls better or worse.

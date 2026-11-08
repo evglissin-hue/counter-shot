@@ -47,6 +47,9 @@ A browser game where two castles face each other across a field. You fire siege 
 | Mortar reach | The enemy keep at the edge of the mortar's reach (a headwind can put it out of range for a while) is fine. |
 | Waves (M2) | One pre-built barracks per castle sends 8 pikemen every 25 s. Your route with L, orders for all your waves with Ctrl+1, 2, 3 (Advance, Hold at the midfield markers, Push the breach). Until the AI (M5), the enemy's barracks takes the routes in turn. A wave whose bridge is down takes the nearest one standing, together. |
 | Rubble and the fallen | Pikemen scramble over rubble heaps and bodies (steps up to 1 m), not up standing masonry (0.6 m). Fallen bodies stay as frozen floor; past 240 the oldest sink away. |
+| Key aiming | The owner found key aiming too sharp. Keys now have weight per gun: the gun gathers speed while a key is held (up to about half its top turning speed, a third for the swivel) and coasts to a stop; a tap is a fine correction. The mouse and sticks are unchanged. |
+| Mortar reload | The owner found the mortar a bit strong: it reloads in 12 s (was 6). Reloads: long gun 4 s, mortar 12 s, chain shot 5 s, swivel 2 s. |
+| M2 shipped | The owner's go on November 8: `main` holds phase 2 up to M2. M3 starts in a new session. |
 
 ## Race proposals (for review)
 

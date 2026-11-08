@@ -17,20 +17,20 @@ import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput, type MatchResult } from "./match";
 
-export const MATCH_TICKS = 1200;
+export const MATCH_TICKS = 1700;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "eb7d8098", world: "57a61b7e" } as const;
+export const MATCH_HASH = { state: "b0bb15f1", world: "270ad532" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 
 export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [30, Team.Player, fire(1, 0, 0.8165)],
   [60, Team.Player, fire(0, 0, 0.035)],
-  [450, Team.Player, fire(1, -0.005, 0.8155)],
+  [760, Team.Player, fire(1, -0.005, 0.8155)],
   // The keep has fallen by now: these are refused.
-  [870, Team.Player, fire(1, -0.005, 0.8155)],
-  [1000, Team.Player, fire(0, 0.02, 0.03)],
+  [1400, Team.Player, fire(1, -0.005, 0.8155)],
+  [1500, Team.Player, fire(0, 0.02, 0.03)],
   // Not the enemy's emplacement: refused.
   [100, Team.Enemy, fire(0, 0, 0.03)],
 ];

@@ -54,6 +54,14 @@ export interface WeaponDef {
   yawRate: number;
   pitchRate: number;
   fine: number;
+  /**
+   * Aiming with the keys has weight (page only): while a key is held the gun
+   * gathers speed over `spinUp` seconds up to `rate` of its top turning
+   * speed, and when it is let go the gun coasts to a stop over `coast`
+   * seconds. Heavier guns are slower to start and to stop. The mouse sets
+   * where the gun should point, and it turns there at its top speed.
+   */
+  keys: { rate: number; spinUp: number; coast: number };
   /** Ticks between shots (60 per second). */
   reload: number;
   projectile: ProjectileDef;
@@ -97,6 +105,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     yawRate: 0.35,
     pitchRate: 0.25,
     fine: 0.2,
+    keys: { rate: 0.45, spinUp: 0.7, coast: 0.3 },
     reload: 4 * 60,
     projectile: { radius: 0.22, density: IRON, gravity: 1, cd: 0.47, blast: 1, restitution: 0.1 },
     pellets: 1,
@@ -122,7 +131,9 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     yawRate: 0.5,
     pitchRate: 0.3,
     fine: 0.2,
-    reload: 6 * 60,
+    keys: { rate: 0.4, spinUp: 0.6, coast: 0.25 },
+    // A big event: few shells, each caving in a roof or a wall section, or a wave.
+    reload: 12 * 60,
     projectile: { radius: 0.28, density: 3200, gravity: 3.2, cd: 0.47, blast: 0, restitution: 0.35 },
     pellets: 1,
     spread: 0,
@@ -147,6 +158,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     yawRate: 0.6,
     pitchRate: 0.4,
     fine: 0.25,
+    keys: { rate: 0.45, spinUp: 0.55, coast: 0.25 },
     reload: 5 * 60,
     projectile: { radius: 0.16, density: IRON, gravity: 1, cd: 0.9, blast: 0.35, restitution: 0.1 },
     pellets: 2,
@@ -172,6 +184,7 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
     yawRate: 1.6,
     pitchRate: 1.2,
     fine: 0.25,
+    keys: { rate: 0.3, spinUp: 0.3, coast: 0.15 },
     reload: 2 * 60,
     projectile: { radius: 0.05, density: 7000, gravity: 1, cd: 0.47, blast: 0, restitution: 0.25 },
     pellets: 12,

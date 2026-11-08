@@ -486,37 +486,60 @@ function ridePose(now: number, dt: number): CameraPose | null {
 
 // ---- aiming at a fixed 60 Hz ------------------------------------------------------
 let aimAcc = 0;
+/** Key aiming has weight: each axis's speed, as a share of the gun's top turning speed (signed). */
+const keyVel = { yaw: 0, pitch: 0 };
+
+/** Ease a key-driven speed towards its target: `up` a tick while gathering speed, `down` a tick while slowing or turning back. */
+function easeSpeed(v: number, target: number, up: number, down: number): number {
+  if (v === target) return v;
+  const gathering = target !== 0 && (v === 0 || Math.sign(v) === Math.sign(target)) && Math.abs(target) > Math.abs(v);
+  const step = gathering ? up : down;
+  return target > v ? Math.min(target, v + step) : Math.max(target, v - step);
+}
+
 function aimTick() {
-  if (ride) return; // no blind aiming while the camera rides a shell
+  if (ride) {
+    // No blind aiming while the camera rides a shell.
+    keyVel.yaw = keyVel.pitch = 0;
+    return;
+  }
   const e = EMP[current];
   const w = WEAPONS[e.weapon];
   const fine = input.down("ShiftLeft") || input.down("ShiftRight");
   const pad = input.gamepad();
+  const one = (v: number) => Math.max(-1, Math.min(1, v));
+  // Keys: the gun gathers speed while a key is held and coasts to a stop (heavier guns are slower to start and stop).
   // Positive yaw turns left on screen (towards +X while facing +Z), so "right" is negative.
-  let rateYaw = input.axis("KeyD", "KeyA") + input.axis("ArrowRight", "ArrowLeft");
-  let ratePitch = input.axis("KeyS", "KeyW") + input.axis("ArrowDown", "ArrowUp");
+  const keyYaw = one(input.axis("KeyD", "KeyA") + input.axis("ArrowRight", "ArrowLeft"));
+  let keyPitch = one(input.axis("KeyS", "KeyW") + input.axis("ArrowDown", "ArrowUp"));
+  if (e.weapon === "mortar") keyPitch = -keyPitch; // forward means farther
+  const K = w.keys;
+  const top = K.rate * (fine ? w.fine : 1);
+  const up = K.rate / (K.spinUp * 60), down = K.rate / (K.coast * 60);
+  keyVel.yaw = easeSpeed(keyVel.yaw, keyYaw * top, up, down);
+  keyVel.pitch = easeSpeed(keyVel.pitch, keyPitch * top, up, down);
+  // A stick turns it directly: how far it is pushed sets the speed.
+  let stickYaw = 0, stickPitch = 0;
   let padFine = false;
   if (pad) {
     const dz = (v: number) => (Math.abs(v) < 0.15 ? 0 : v);
     const lx = dz(pad.axes[0] ?? 0), ly = dz(pad.axes[1] ?? 0), rx = dz(pad.axes[2] ?? 0), ry = dz(pad.axes[3] ?? 0);
     if (lx || ly) {
-      rateYaw -= lx;
-      ratePitch -= ly;
+      stickYaw = -lx;
+      stickPitch = -ly;
     } else if (rx || ry) {
-      rateYaw -= rx;
-      ratePitch -= ry;
+      stickYaw = -rx;
+      stickPitch = -ry;
       padFine = true;
     }
+    if (e.weapon === "mortar") stickPitch = -stickPitch;
   }
-  const k = fine || padFine ? w.fine : 1;
-  if (e.weapon === "mortar") ratePitch = -ratePitch; // forward means farther
-  if (rateYaw || ratePitch) {
-    // Keys and sticks drive the weapon directly at its rate; the wanted aim follows.
-    wanted[current] = clampAim(
-      { yaw: aims[current].yaw + (Math.max(-1, Math.min(1, rateYaw)) * w.yawRate * k) / 60, pitch: aims[current].pitch + (Math.max(-1, Math.min(1, ratePitch)) * w.pitchRate * k) / 60 },
-      e,
-      w,
-    );
+  const ks = fine || padFine ? w.fine : 1;
+  const dYaw = ((keyVel.yaw + one(stickYaw) * ks) * w.yawRate) / 60;
+  const dPitch = ((keyVel.pitch + one(stickPitch) * ks) * w.pitchRate) / 60;
+  if (dYaw || dPitch) {
+    // Keys and sticks drive the weapon directly; the wanted aim follows.
+    wanted[current] = clampAim({ yaw: aims[current].yaw + dYaw, pitch: aims[current].pitch + dPitch }, e, w);
   }
   const a = aims[current], t = wanted[current];
   aims[current] = stepAim(a, { dYaw: t.yaw - a.yaw, dPitch: t.pitch - a.pitch, fine: fine || padFine }, e, w);
@@ -554,6 +577,7 @@ function select(i: number) {
   current = ((i % EMP.length) + EMP.length) % EMP.length;
   view = "sight";
   obs.primed = false;
+  keyVel.yaw = keyVel.pitch = 0;
   if (mode === "versus" && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
   updateHud(true);
 }
