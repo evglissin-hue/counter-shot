@@ -18,7 +18,7 @@ try {
   for (let i = 0; i < 3; i++) {
     try {
       await page.goto(`http://127.0.0.1:${port}/hash.html`, { waitUntil: "load" });
-      await page.waitForSelector("#out[data-result]", { timeout: 180000 });
+      await page.waitForSelector("#out[data-result]", { timeout: 900000 }); // four replays, the estate match the longest
       break;
     } catch (e) {
       if (i === 2) throw e;
