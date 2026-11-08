@@ -165,7 +165,7 @@ export class SandboxSim {
 
   constructor(R: Rapier, layout: CastleLayout, opts: SandboxOptions) {
     this.R = R;
-    this.castle = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: false });
+    this.castle = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: false, settle: true });
     this.terrain = new Terrain(R, this.castle.world);
     this.minions = new Minions(R, this.castle.world, this.terrain);
     this.rng = new Rng(opts.seed);

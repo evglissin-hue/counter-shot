@@ -99,7 +99,7 @@ export class Online {
       this.opening ??= openLobby();
       this.lobby = await this.opening;
       if (!this.lobby) {
-        this.ui.status.textContent = "Playing a friend needs the game's link opened on claude.ai while signed in. Share the link with your friend from the artifact's Share menu (they need to be able to use it, not only view it).";
+        this.ui.status.textContent = "Playing a friend needs this game opened from its claude.ai link while signed in (both of you). Share the link with your friend from the artifact's Share menu.";
         this.ui.hostBtn.disabled = true;
         return;
       }

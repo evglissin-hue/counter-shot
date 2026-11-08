@@ -30,7 +30,7 @@ test("a team fires only its own emplacements, and only after they reload", () =>
   m.free();
 });
 
-test("the scripted match: shells down the sturdy enemy keep, two or more a floor, win it, and nothing counts after the end", () => {
+test("the scripted match: long gun hits and shells down the sturdy enemy keep win it, and nothing counts after the end", () => {
   const a = runMatchSession(R);
   const b = runMatchSession(R);
   assert.deepEqual(a.hash, b.hash);
@@ -38,8 +38,8 @@ test("the scripted match: shells down the sturdy enemy keep, two or more a floor
   assert.ok(a.result, "the match ended");
   assert.equal(a.result.winner, Team.Player);
   assert.equal(a.result.reason, "keep");
-  assert.ok(a.result.tick > 6510 && a.result.tick < 7230, `won at tick ${a.result.tick}, after the tenth shell`);
-  assert.deepEqual(a.shots, [0, 11], "the shell and the shot after the end and the enemy's borrowed gun were refused");
+  assert.ok(a.result.tick > 4605 && a.result.tick < 4800, `won at tick ${a.result.tick}, after the last shot`);
+  assert.deepEqual(a.shots, [0, 27], "the shell and the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
   const income = incomeTicks * MATCH.keepIncome;
   assert.equal(a.earned[0], income, "the enemy earned its keep's income and nothing more, and income stops at the end");

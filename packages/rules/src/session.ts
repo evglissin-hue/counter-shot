@@ -22,10 +22,10 @@ import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } from "./match";
 
-export const MATCH_TICKS = 7320;
+export const MATCH_TICKS = 4900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "5941925e", world: "e73dcdb4" } as const;
+export const MATCH_HASH = { state: "a6b8eb25", world: "7f743abe" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
@@ -33,20 +33,36 @@ const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): Matc
 export const MATCH_OPTIONS: Partial<MatchOptions> = { masons: false, barracks: false, plan: false };
 
 export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
-  [60, Team.Player, fire(0, 0, 0.035)],
   [30, Team.Player, fire(1, 0, 0.9078)],
+  [45, Team.Player, fire(0, -0.0196, 0.1198)],
+  [285, Team.Player, fire(0, 0, 0.1198)],
+  [525, Team.Player, fire(0, 0.0196, 0.1198)],
   [750, Team.Player, fire(1, 0, 0.9078)],
+  [765, Team.Player, fire(0, -0.0196, 0.1198)],
+  [1005, Team.Player, fire(0, 0, 0.1198)],
+  [1245, Team.Player, fire(0, 0.0196, 0.1198)],
   [1470, Team.Player, fire(1, 0, 0.9078)],
-  [2190, Team.Player, fire(1, 0, 0.9079)],
-  [2910, Team.Player, fire(1, 0, 0.9079)],
-  [3630, Team.Player, fire(1, 0.01, 0.9596)],
-  [4350, Team.Player, fire(1, 0.01, 0.9596)],
-  [5070, Team.Player, fire(1, 0.01, 0.9596)],
-  [5790, Team.Player, fire(1, 0.01, 0.9596)],
-  [6510, Team.Player, fire(1, 0.01, 0.9596)],
+  [1485, Team.Player, fire(0, -0.0196, 0.1198)],
+  [1725, Team.Player, fire(0, 0, 0.1198)],
+  [1965, Team.Player, fire(0, 0.0196, 0.1198)],
+  [2190, Team.Player, fire(1, 0, 0.9077)],
+  [2205, Team.Player, fire(0, -0.0196, 0.1198)],
+  [2445, Team.Player, fire(0, 0, 0.0707)],
+  [2685, Team.Player, fire(0, 0.0196, 0.0594)],
+  [2910, Team.Player, fire(1, 0.0094, 1.0042)],
+  [2925, Team.Player, fire(0, -0.0196, 0.0594)],
+  [3165, Team.Player, fire(0, 0, 0.0594)],
+  [3405, Team.Player, fire(0, 0.0196, 0.0594)],
+  [3630, Team.Player, fire(1, 0.0097, 1.0045)],
+  [3645, Team.Player, fire(0, -0.0196, 0.0594)],
+  [3885, Team.Player, fire(0, 0, 0.0594)],
+  [4125, Team.Player, fire(0, 0.0196, 0.0594)],
+  [4350, Team.Player, fire(1, 0.0097, 1.0045)],
+  [4365, Team.Player, fire(0, -0.0196, 0.0594)],
+  [4605, Team.Player, fire(0, 0, 0.0594)],
   // The keep has fallen by now: these are refused.
-  [7230, Team.Player, fire(1, 0.01, 0.9596)],
-  [7260, Team.Player, fire(0, 0.02, 0.03)],
+  [4800, Team.Player, fire(1, 0.0097, 1.0045)],
+  [4830, Team.Player, fire(0, 0.02, 0.03)],
   // Not the enemy's emplacement: refused.
   [100, Team.Enemy, fire(0, 0, 0.03)],
 ];
@@ -79,7 +95,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "670ba020", world: "29daaab9" } as const;
+export const WAVE_MATCH_HASH = { state: "91935cd1", world: "7f068fe4" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -114,7 +130,7 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 export const ESTATE_MATCH_TICKS = 6900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "aee7cc2e", world: "f322b704" } as const;
+export const ESTATE_MATCH_HASH = { state: "2bbc4cc0", world: "f93ead42" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],

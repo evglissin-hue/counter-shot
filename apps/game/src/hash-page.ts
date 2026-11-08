@@ -1,8 +1,9 @@
-// Replays the scripted sandbox session and the scripted matches (the keep, the waves and the estate) in this browser
+// Replays the scripted sandbox session and the scripted matches (the keep, the waves, the estate and, M5, the AI against the AI) in this browser
 // and compares their hashes with the ones pinned from Node. Used by the
 // headless check and on devices.
 
 import { ESTATE_MATCH_HASH, MATCH_HASH, runEstateMatch, runMatchSession, runWaveMatch, WAVE_MATCH_HASH } from "@keepfall/rules";
+import { AI_MATCH_HASH, runAiMatch } from "@keepfall/ai";
 import { runSession, SESSION_HASH, type Rapier } from "@keepfall/sim";
 
 const out = document.getElementById("out")!;
@@ -20,13 +21,16 @@ const out = document.getElementById("out")!;
     const t3 = performance.now();
     const e = runEstateMatch(R);
     const t4 = performance.now();
+    const a = runAiMatch(R);
+    const t5 = performance.now();
     const same = (a: { state: string; world: string }, b: { state: string; world: string }) => a.state === b.state && a.world === b.world;
-    const ok = same(r.hash, SESSION_HASH) && same(g.hash, MATCH_HASH) && same(w.hash, WAVE_MATCH_HASH) && same(e.hash, ESTATE_MATCH_HASH);
+    const ok = same(r.hash, SESSION_HASH) && same(g.hash, MATCH_HASH) && same(w.hash, WAVE_MATCH_HASH) && same(e.hash, ESTATE_MATCH_HASH) && same(a.hash, AI_MATCH_HASH);
     out.textContent =
       `${ok ? "MATCH" : "MISMATCH"} session state ${r.hash.state} world ${r.hash.world} (Node: ${SESSION_HASH.state} ${SESSION_HASH.world}), ${r.down} down, ${Math.round(t1 - t0)} ms; ` +
       `match state ${g.hash.state} world ${g.hash.world} (Node: ${MATCH_HASH.state} ${MATCH_HASH.world}), won at tick ${g.result?.tick ?? "none"}, ${Math.round(t2 - t1)} ms; ` +
       `wave match state ${w.hash.state} world ${w.hash.world} (Node: ${WAVE_MATCH_HASH.state} ${WAVE_MATCH_HASH.world}), ${w.fallen[0] + w.fallen[1]} fallen, ${Math.round(t3 - t2)} ms; ` +
-      `estate match state ${e.hash.state} world ${e.hash.world} (Node: ${ESTATE_MATCH_HASH.state} ${ESTATE_MATCH_HASH.world}), ${e.earned[1]} gold earned, ${Math.round(t4 - t3)} ms`;
+      `estate match state ${e.hash.state} world ${e.hash.world} (Node: ${ESTATE_MATCH_HASH.state} ${ESTATE_MATCH_HASH.world}), ${e.earned[1]} gold earned, ${Math.round(t4 - t3)} ms; ` +
+      `AI match state ${a.hash.state} world ${a.hash.world} (Node: ${AI_MATCH_HASH.state} ${AI_MATCH_HASH.world}), shots ${a.shots[0]} and ${a.shots[1]}, ${Math.round(t5 - t4)} ms`;
     out.dataset.result = ok ? "match" : "mismatch";
   } catch (err) {
     out.textContent = `ERROR ${err instanceof Error ? err.message : String(err)}`;

@@ -49,7 +49,21 @@ export interface SimOptions {
   push: number;
   /** Build the flat ground slab (the sandbox brings its own terrain instead). */
   ground?: boolean;
+  /**
+   * M5: freeze loose pieces that are merely slow, not only those the engine
+   * has put to sleep. A big heap never sleeps while any stone in it jostles,
+   * so a collapsed wall front kept over a thousand stones moving for most of
+   * a minute. Off in the lab, whose reference hash predates it.
+   */
+  settle?: boolean;
 }
+
+/** settle: a piece slower than this (m/s, rad/s) for SETTLE_TICKS in a row is frozen where it lies (a heap under it would be as slow). */
+const SETTLE_V2 = 0.2 * 0.2;
+const SETTLE_W2 = 0.5 * 0.5;
+const SETTLE_TICKS = 60;
+/** settle acts only while more than this many pieces moved in the last step (a big collapse); smaller falls settle as they always have. */
+const SETTLE_BUSY = 300;
 
 export const DEFAULT_SIM: SimOptions = { span: 2, breakForce: 450_000, iterations: 4, blastBase: 0.8, blastPerSpeed: 0.034, push: 0.25, shatter: 0.65 };
 
@@ -180,6 +194,8 @@ export class CastleSim {
   /** M5: sideways bonds each piece may hang by before it falls (the span; hard masonry bridges more), and the most any piece may. */
   private spanOf: Uint8Array;
   private maxSpan: number;
+  /** settle: loose pieces awake as of the last step (it acts only during a big collapse). */
+  private moving = 0;
   /** M5: tough pieces a blast cracked this step without breaking them loose (for the page: splinters and a crack). */
   cracked: number[] = [];
 
@@ -488,8 +504,10 @@ export class CastleSim {
       // M5: only masonry, timber and shot break a piece. A man, a ladder or a keg pressing on one never does:
       // a ragdoll set down a little inside a deck plank was pushed out with half a meganewton, and every fight on a bridge broke it.
       if (a === undefined || b === undefined) return;
-      if (a >= 0 && (!this.dynamic[a] || this.frozen[a])) breaks.push(a);
-      if (b >= 0 && (!this.dynamic[b] || this.frozen[b])) breaks.push(b);
+      // M5 (settle): settled rubble wakes only when something strikes it, not under the weight of the heap on it
+      // (frozen inside a deep heap, a stone felt it and woke its neighbours, over and over).
+      if (a >= 0 && (!this.dynamic[a] || (this.frozen[a] && !this.resting(e.collider2())))) breaks.push(a);
+      if (b >= 0 && (!this.dynamic[b] || (this.frozen[b] && !this.resting(e.collider1())))) breaks.push(b);
     });
     hits.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
     breaks.sort((p, q) => p - q);
@@ -819,14 +837,24 @@ export class CastleSim {
     return true;
   }
 
-  /** Loose pieces asleep for 1.5 s become fixed again. The banner never freezes. */
+  /** Loose pieces asleep for 1.5 s (with settle: or slow for 0.75 s) become fixed again. The banner never freezes. */
   private freezeResting() {
     const fixed = this.R.RigidBodyType.Fixed;
     const banners = this.layout.bannerIds;
+    const settle = this.opts.settle === true && this.moving > SETTLE_BUSY;
+    let moving = 0;
     for (const id of this.dynList) {
       if (this.frozen[id] || this.shattered[id] || id === banners[0] || id === banners[1]) continue;
-      if (this.bodies[id].isSleeping()) {
-        if (++this.restSteps[id] >= 90) {
+      const body = this.bodies[id];
+      const asleep = body.isSleeping();
+      if (!asleep) moving++;
+      let slow = false;
+      if (!asleep && settle) {
+        const v = body.linvel(), w = body.angvel();
+        slow = v.x * v.x + v.y * v.y + v.z * v.z < SETTLE_V2 && w.x * w.x + w.y * w.y + w.z * w.z < SETTLE_W2;
+      }
+      if (asleep || slow) {
+        if (++this.restSteps[id] >= (settle ? SETTLE_TICKS : 90)) {
           this.bodies[id].setBodyType(fixed, false);
           this.frozen[id] = 1;
           this.frozenList.push(id);
@@ -836,6 +864,7 @@ export class CastleSim {
         this.restSteps[id] = 0;
       }
     }
+    this.moving = moving;
   }
 
   /** Unfreeze rubble near a point so it can be knocked about again. */
@@ -857,6 +886,13 @@ export class CastleSim {
       }
     }
     this.frozenList = keep;
+  }
+
+  /** settle: is the body of this collider barely moving (under 2 m/s), so its push on frozen rubble is weight, not a blow? Always false without settle. */
+  private resting(handle: number): boolean {
+    if (this.opts.settle !== true) return false;
+    const v = this.world.getCollider(handle)?.parent()?.linvel();
+    return !!v && v.x * v.x + v.y * v.y + v.z * v.z < 4;
   }
 
   /**

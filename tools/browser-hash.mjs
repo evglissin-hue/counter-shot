@@ -1,5 +1,5 @@
 // Replays the scripted sandbox session and the scripted matches (the keep and the waves) in headless Chromium and checks that they
-// match the hashes pinned from Node. Usage: node tools/browser-hash.mjs
+// match the hashes pinned from Node (the AI match too, M5). Usage: node tools/browser-hash.mjs
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,7 @@ try {
   for (let i = 0; i < 3; i++) {
     try {
       await page.goto(`http://127.0.0.1:${PORT}/hash.html`, { waitUntil: "load" });
-      await page.waitForSelector("#out[data-result]", { timeout: 600000 });
+      await page.waitForSelector("#out[data-result]", { timeout: 1500000 });
       break;
     } catch (e) {
       if (i === 2) throw e;

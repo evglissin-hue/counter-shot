@@ -1,11 +1,13 @@
 // Writes the keep match's script (session.ts MATCH_SCRIPT): in the match the
-// test plays (seed 7, MATCH_OPTIONS: no waves, no plan, no masons), the player's mortar lays each
-// shell on the floor under the enemy banner as soon as it is loaded (the
-// nearest point it can reach), with one long gun shot at the keep early on,
-// until the banner is down. Prints the inputs to paste.
+// test plays (seed 7, MATCH_OPTIONS: no waves, no plan, no masons), the
+// player's mortar lays each shell on the floor under the enemy banner as soon
+// as it is loaded (the nearest point it can reach), and its long gun works
+// the keep's face just under that floor (left, middle, right in turn), until
+// the banner is down. Prints the inputs to paste.
 // npx rolldown packages/rules/scripts/keep-script.ts --format esm --platform node -o node_modules/.scratch/keep-script.mjs && node node_modules/.scratch/keep-script.mjs
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { buildLayout, CASTLE_SHAPE, GAME_LAYOUT, KEEP_STOREYS } from "@keepfall/content";
+const FACE = CASTLE_SHAPE.keepZ - CASTLE_SHAPE.keepHalf;
 import { solveAim, Spin, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_OPTIONS, Team, type MatchInput } from "@keepfall/rules";
 
@@ -20,8 +22,19 @@ const add = (t: number, input: MatchInput) => {
   out.push([t, input]);
   m.queue(t, Team.Player, input);
 };
-add(60, { kind: "fire", emplacement: 0, yaw: 0, pitch: 0.035, charge: 1, fuse: 0, spin: Spin.None });
+const lg = m.emplacements[0];
+let lgShots = 0;
 for (let t = 0; t < 60 * 400 && !m.result; t++) {
+  if (t >= 45 && m.world.reload[0] === 0 && t % 10 === 5) {
+    const b = m.world.castle.bodies[m.world.castle.layout.bannerIds[0]].translation();
+    let floor = floors[0];
+    for (const y of floors) if (y <= b.y - 0.5) floor = y;
+    const s = solveAim(lg, [-2.6, 0, 2.6][lgShots % 3], Math.max(10.5, floor - 1.5), FACE);
+    if (s) {
+      add(t, { kind: "fire", emplacement: 0, yaw: +s.yaw.toFixed(4), pitch: +s.pitch.toFixed(4), charge: 1, fuse: 0, spin: Spin.None });
+      lgShots++;
+    }
+  }
   if (t >= 30 && m.world.reload[1] === 0 && t % 10 === 0) {
     const b = m.world.castle.bodies[m.world.castle.layout.bannerIds[0]].translation();
     let floor = floors[0];
