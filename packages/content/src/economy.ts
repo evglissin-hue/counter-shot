@@ -1,6 +1,13 @@
 // The match's economy and clock, as data. Phase 2 M1 has only the keep's own
 // income; mills, bounties, masonry and trick shots join in M3.
 
+import { KEEP_STOREYS, type Stone } from "./castle";
+
+/** Is this piece part of a keep (its walls, its floors, its battlements)? */
+export function isKeepPiece(s: Stone): boolean {
+  return s.castle !== 2 && (s.part === "keep" || s.part === "storey" || s.part === "floor" || (s.part === "merlon" && s.course === KEEP_STOREYS[KEEP_STOREYS.length - 1]));
+}
+
 export const MATCH = {
   /** Gold each castle starts with. */
   startGold: 150,
@@ -10,3 +17,38 @@ export const MATCH = {
   /** Sudden death (M4) starts here; the clock shows it from the first match. */
   suddenDeathTick: 15 * 60 * 60,
 } as const;
+
+/**
+ * Gold a team earns besides its income (phase 2 M3). Every enemy minion
+ * knocked down pays a bounty, whatever knocked him down; enemy masonry
+ * brought down pays a gold for every `masonryPer` pieces (the keep's count
+ * `keepWeight` times). Trick shots pay only for shots a gunner fires himself.
+ */
+export const GOLD = {
+  bounty: 4,
+  masonryPer: 4,
+  keepWeight: 2,
+  trick: {
+    /** A ball that glanced off stone, then knocked a minion down. */
+    ricochet: 15,
+    /** An enemy knocked down by his own castle's masonry falling. */
+    collapse: 10,
+    /** One shot, at least `multiMin` enemies down: `multiPer` a man. A shot's tally closes `multiWait` ticks after its last knockdown. */
+    multiMin: 3,
+    multiPer: 5,
+    multiWait: 45,
+    /** A shot whose first touch is the enemy keep. */
+    keep: 10,
+  },
+} as const;
+
+/** Kinds of earnings, for the page's feed (MatchInfo.earned). */
+export const enum Earn {
+  Income = 0,
+  Bounty = 1,
+  Masonry = 2,
+  Ricochet = 3,
+  Collapse = 4,
+  MultiKill = 5,
+  KeepHit = 6,
+}

@@ -8,6 +8,7 @@
 // wall and fires along +Z.
 
 import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
+import { BUILDING_KINDS, buildingPieces, PLOTS } from "./buildings";
 import { DIST } from "./field";
 import { BRIDGES, bridgePieces, valleyHeight, type BridgeSite } from "./map";
 
@@ -45,6 +46,9 @@ export interface Stone {
   span?: boolean;
   /** A bridge deck plank: the nav grid walks on it whatever lies below. */
   deck?: boolean;
+  /** A piece of a plot's building (M3, layout option plots): the plot (0 to 5) and the building kind (index into BUILDING_KINDS). */
+  plot?: number;
+  building?: number;
 }
 
 export interface WedgeSpec {
@@ -85,6 +89,12 @@ export interface CastleLayout {
    * shots, so loose rubble never carries it off: it drops a floor at a time.
    */
   keepFloors: boolean;
+  /**
+   * Plot buildings (layout option plots, M3): for each castle, plot and kind,
+   * the id range of that building's pieces, lowest first. Every kind stands
+   * ready on every plot; the sim takes out of the world all but what is built.
+   */
+  plots: Array<{ castle: 0 | 1; plot: number; kind: number; first: number; count: number }>;
 }
 
 export { DIST } from "./field";
@@ -369,7 +379,9 @@ export function stoneBounds(s: Stone, wedge: WedgeSpec): [number, number, number
   return [x0, y0, z0, x1, y1, z1];
 }
 
-function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean): { stones: Stone[]; bannerId: number; platformTop: number } {
+type PlotRange = { plot: number; kind: number; first: number; count: number };
+
+function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boolean): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[] } {
   const b = new Builder(seed);
   const e = TOWER_R_OUT - 0.13; // wall ends just inside the tower's skin
   // Front wall (z = -T) with the gate, back wall, and the two side walls.
@@ -401,10 +413,22 @@ function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean): { stones: S
   }
   for (const [tx, tz] of [[-T, -T], [T, -T], [-T, T], [T, T]] as const) b.tower(tx, tz, wedge);
   const { platformTop } = b.keep(floors);
-  b.house(-7.5, -8.5, 6, 4, 3); // barracks
-  b.house(7.5, -8.5, 6, 4, 3); // workshop
-  b.house(-9.2, 6, 3, 5, 2.6);
-  b.house(9.2, 6, 3, 5, 2.6);
+  const ranges: PlotRange[] = [];
+  if (plots) {
+    // M3: every kind of building stands ready on every plot (the sim keeps only what is built).
+    for (const plot of PLOTS) {
+      BUILDING_KINDS.forEach((kind, k) => {
+        const first = b.stones.length;
+        for (const p of buildingPieces(kind, plot)) b.add({ ...p, shape: "box", plot: plot.index, building: k });
+        ranges.push({ plot: plot.index, kind: k, first, count: b.stones.length - first });
+      });
+    }
+  } else {
+    b.house(-7.5, -8.5, 6, 4, 3); // barracks
+    b.house(7.5, -8.5, 6, 4, 3); // workshop
+    b.house(-9.2, 6, 3, 5, 2.6);
+    b.house(9.2, 6, 3, 5, 2.6);
+  }
   // Banner pole on the keep platform: the enemy wins when this falls.
   const poleH = 4;
   const banner = b.add({
@@ -420,7 +444,7 @@ function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean): { stones: S
     q: IDENTITY,
     course: KEEP_COURSES,
   });
-  return { stones: b.stones, bannerId: banner.id, platformTop };
+  return { stones: b.stones, bannerId: banner.id, platformTop, plots: ranges };
 }
 
 /** Builds both castles and the neighbour graph. Same input, same output, on every machine. */
@@ -439,16 +463,19 @@ export interface LayoutOptions {
   keepFloors?: boolean;
   /** Timber bridges to build across the stream (the valley's BRIDGES), after both castles. */
   bridges?: BridgeSite[];
+  /** Plots with their buildings in each courtyard instead of the old houses (M3). Off in the lab. */
+  plots?: boolean;
 }
 
-/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges. */
-export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES };
+/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots. */
+export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
   const floors = opts.keepFloors === true;
-  const enemy = oneCastle(seed, wedge, floors);
-  const player = oneCastle(seed + 1, wedge, floors);
+  const withPlots = opts.plots === true;
+  const enemy = oneCastle(seed, wedge, floors, withPlots);
+  const player = oneCastle(seed + 1, wedge, floors, withPlots);
   const stones: Stone[] = [];
   for (const s of enemy.stones) stones.push({ ...s, id: stones.length, castle: 0 });
   const offset = stones.length;
@@ -508,6 +535,9 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
         const pair = i * n + j;
         if (seen.has(pair)) continue;
         seen.add(pair);
+        // A plot's building bonds only with itself: not with the other kinds standing ready on its plot, nor with the castle.
+        const si = stones[i], sj = stones[j];
+        if ((si.plot ?? -1) !== (sj.plot ?? -1) || (si.building ?? -1) !== (sj.building ?? -1)) continue;
         const A = bounds[i];
         const B = bounds[j];
         const ox = Math.min(A[3], B[3]) - Math.max(A[0], B[0]);
@@ -550,6 +580,10 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
     bannerFallY: floors ? 3.5 : KEEP_COURSES * COURSE * 0.6,
     keepFloors: floors,
     bridges,
+    plots: [
+      ...enemy.plots.map((r) => ({ castle: 0 as const, ...r })),
+      ...player.plots.map((r) => ({ castle: 1 as const, ...r, first: r.first + offset })),
+    ],
   };
 }
 

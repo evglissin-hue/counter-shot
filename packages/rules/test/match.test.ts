@@ -41,7 +41,12 @@ test("the scripted match: a long gun hit and two shells down the enemy keep win 
   assert.ok(a.result.tick > 760 && a.result.tick < 1400, `won at tick ${a.result.tick}, after the second shell`);
   assert.deepEqual(a.shots, [0, 3], "the third shell, the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
-  assert.deepEqual(a.gold, [MATCH.startGold + incomeTicks * MATCH.keepIncome, MATCH.startGold + incomeTicks * MATCH.keepIncome], "gold stops at the end");
+  const income = MATCH.startGold + incomeTicks * MATCH.keepIncome;
+  // M3: rubble off the keep wrecks the enemy's barracks beside it, and it pays to rebuild it at once.
+  assert.equal(a.earned[0], income - MATCH.startGold, "the enemy earned its keep's income and nothing more, and gold stops at the end");
+  assert.equal(a.gold[0], income - a.spent[0]);
+  // M3: the player's shots brought enemy keep masonry down and struck the keep itself: both pay.
+  assert.ok(a.gold[1] > income + 30, `the player earned ${a.gold[1] - income} gold besides income`);
   assert.deepEqual(a.hash, MATCH_HASH);
 });
 
@@ -97,7 +102,9 @@ test("the wave match: both barracks, orders, a breach and unmanned guns replay t
   const a = runWaveMatch(R);
   console.log("wave match hash", a.hash, "waves", a.waves, "standing", a.standing, "fallen", a.fallen, "shots", a.shots, "auto", a.autoShots);
   assert.equal(a.result, null);
-  assert.deepEqual(a.waves, [3, 3]);
+  // M3: the breach west of the enemy gate sprays the enemy's barracks behind it; it misses a wave while it is rebuilt.
+  assert.deepEqual(a.waves, [2, 3]);
+  assert.ok(a.spent[0] > 0, "the enemy paid to rebuild its barracks");
   assert.deepEqual(a.shots, [0, 3], "three shots by hand: down the road and two at the wall");
   assert.ok(a.fallen[0] > 0 && a.fallen[1] > 0, "both sides lost pikemen");
   assert.deepEqual(a.hash, WAVE_MATCH_HASH);

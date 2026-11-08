@@ -11,5 +11,7 @@ export * from "./nav";
 export * from "./flow";
 export * from "./army";
 export * from "./gunnery";
+export * from "./structures";
+export * from "./specialists";
 export * from "./sandbox";
 export * from "./session";

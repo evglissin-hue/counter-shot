@@ -5,7 +5,7 @@
 // bisection. It ignores the wind: part of why an unmanned gun is less
 // accurate than a gunner. Deterministic arithmetic only.
 
-import { WEAPONS, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { weaponOf, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { DPI, dsqrt } from "@keepfall/core";
 import { aimDir, muzzle } from "./aim";
 import { G } from "./ballistics";
@@ -45,7 +45,8 @@ export function yawTowards(e: Emplacement, x: number, z: number): number | null 
 
 /** Aim that lands a shot from `e` on (x, y, z) in still air, or null if it cannot (out of reach, too close below, outside its arc). */
 export function solveAim(e: Emplacement, x: number, y: number, z: number): AimSolution | null {
-  const w = WEAPONS[e.weapon];
+  // The gun as it is armed: an upgrade that changes its speed changes its aim.
+  const w = weaponOf(e);
   const yaw = yawTowards(e, x, z);
   if (yaw === null) return null;
   const dx = x - e.x, dz = z - e.z;

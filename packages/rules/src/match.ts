@@ -18,16 +18,24 @@ import {
   MID_Z,
   MUSTER,
   ROUTE_NAMES,
+  START_BUILDINGS,
   UNMANNED,
   WAVES,
+  weaponOf,
   WEAPONS,
+  type BuildingKind,
   type CastleLayout,
   type Emplacement,
+  type MixName,
   type RouteName,
   type UnmannedDef,
+  type UpgradeKind,
+  type WeaponKind,
 } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { MinionState, Order, SandboxSim, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
+import { Economy } from "./economy";
+import { Estate } from "./estate";
 
 export const enum Team {
   Enemy = 0,
@@ -35,7 +43,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 2;
+export const MATCH_RULES_VERSION = 3;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -43,14 +51,23 @@ export type MatchInput =
   | FireInput
   /** All of the team's waves, now and later (SPEC section 8). */
   | { kind: "order"; order: Order }
-  /** The route the team's barracks sends its next waves down. */
+  /** The route every barracks of the team sends its next waves down. */
   | { kind: "route"; route: RouteName }
   /**
    * The emplacement the team is riding now (-1: none, in the overview); every
    * other one of its emplacements fires at minions on its own. `left` is the
    * aim of the one being left, so its barrel stays where the gunner put it.
    */
-  | { kind: "man"; emplacement: number; left?: { emplacement: number; yaw: number; pitch: number } };
+  | { kind: "man"; emplacement: number; left?: { emplacement: number; yaw: number; pitch: number } }
+  // M3: building, buying, upgrading and each barracks' waves.
+  /** Build on one of the team's plots (0 to 5), or rebuild the ruin of the same kind there. */
+  | { kind: "build"; plot: number; building: BuildingKind }
+  /** A gun for one of the team's empty emplacements. */
+  | { kind: "buy"; emplacement: number; weapon: WeaponKind }
+  /** A Foundry upgrade for one of the team's guns (one each; needs a working Foundry). */
+  | { kind: "upgrade"; emplacement: number; upgrade: UpgradeKind }
+  /** How a barracks plot sends its waves: its mix, its route, or both. */
+  | { kind: "barracks"; plot: number; mix?: MixName; route?: RouteName };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both keeps fell on the same tick). */
@@ -65,6 +82,8 @@ export interface MatchOptions {
   emplacements?: Emplacement[];
   /** The barracks send waves (default); tests and tools may turn them off. */
   barracks?: boolean;
+  /** M3: the enemy castle follows its build order (default); tests may turn it off. */
+  plan?: boolean;
 }
 
 /** An emplacement's barrel and, when nobody mans it, what it is laying on. */
@@ -133,11 +152,20 @@ export class Match {
   /** The unmanned weapons' aim errors, drawn in the order they lay on targets. */
   private rng: Rng;
   private barracks: boolean;
+  /** M3: gold coming in, and what is built and bought. */
+  readonly economy: Economy;
+  readonly estate: Estate;
+  private plan: boolean;
 
   constructor(R: Rapier, layout: CastleLayout, opts: MatchOptions) {
-    this.emplacements = opts.emplacements ?? MATCH_EMPLACEMENTS;
-    this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true });
+    // The match's own copies: empty slots fill in as guns are bought, upgrades are worked in.
+    this.emplacements = (opts.emplacements ?? MATCH_EMPLACEMENTS).map((e) => ({ ...e }));
+    const buildings = [0, 1].flatMap((castle) => START_BUILDINGS.map((b) => ({ castle, ...b })));
+    this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true, buildings });
     this.owner = this.emplacements.map(teamOf);
+    this.economy = new Economy(this.world, this.gold, (emp) => this.owner[emp] ?? -1);
+    this.estate = new Estate(this.world, this.economy, this.emplacements, (emp) => this.owner[emp] ?? -1);
+    this.plan = opts.plan !== false;
     this.guns = this.emplacements.map((e) => {
       const w = WEAPONS[e.weapon];
       const pitch = w.restPitch < w.minPitch ? w.minPitch : w.restPitch > w.maxPitch ? w.maxPitch : w.restPitch;
@@ -185,6 +213,8 @@ export class Match {
       if (!this.result) for (const { team, input } of list) this.apply(team, input, tick);
     }
     if (!this.result) {
+      // M3: the enemy castle follows its build order (until the AI).
+      if (this.plan && tick % 30 === 0) this.estate.followPlan(Team.Enemy, tick);
       if (this.barracks && tick >= WAVES.first && (tick - WAVES.first) % WAVES.every === 0) {
         this.sendWave(Team.Player);
         this.sendWave(Team.Enemy);
@@ -193,9 +223,10 @@ export class Match {
     }
     this.world.step();
     if (this.result) return;
+    // M3: bounties, masonry and trick shots from this step; income through the one income function.
+    this.economy.step(tick);
     if (tick % MATCH.incomeEvery === MATCH.incomeEvery - 1) {
-      this.gold[0] += MATCH.keepIncome;
-      this.gold[1] += MATCH.keepIncome;
+      for (const team of [0, 1]) this.economy.payIncome(team, this.economy.incomeRate(this.estate.mills(team)));
     }
     // A keep is toppled when its banner comes down: the other team wins.
     const [down0, down1] = this.world.castle.toppled;
@@ -208,9 +239,9 @@ export class Match {
   private apply(team: Team, input: MatchInput, tick: number) {
     switch (input.kind) {
       case "fire": {
-        // Only from the team's own emplacements, and only when loaded.
+        // Only from the team's own emplacements, armed, and only when loaded.
         const e = this.emplacements[input.emplacement];
-        if (!e || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
+        if (!e || e.empty || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
         this.shots[team]++;
         this.world.queue(tick, { ...input, auto: false, reload: 1 });
         this.setGun(e.id, input.yaw, input.pitch);
@@ -220,7 +251,22 @@ export class Match {
         if (input.order === Order.Advance || input.order === Order.Hold || input.order === Order.Push) this.army.setOrder(team, input.order);
         return;
       case "route":
-        if (ROUTE_NAMES.includes(input.route)) this.route[team] = input.route;
+        if (!ROUTE_NAMES.includes(input.route)) return;
+        this.route[team] = input.route;
+        this.estate.setRoutes(team, input.route);
+        return;
+      // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
+      case "build":
+        this.estate.build(team, input.plot, input.building, tick);
+        return;
+      case "buy":
+        this.estate.buy(team, input.emplacement, input.weapon);
+        return;
+      case "upgrade":
+        this.estate.upgrade(team, input.emplacement, input.upgrade);
+        return;
+      case "barracks":
+        this.estate.setBarracks(team, input.plot, input.mix, input.route);
         return;
       case "man": {
         const e = input.emplacement;
@@ -236,21 +282,36 @@ export class Match {
 
   /** A gunner put this barrel here (clamped to its limits). */
   private setGun(id: number, yaw: number, pitch: number) {
-    const e = this.emplacements[id], w = WEAPONS[e.weapon];
+    const e = this.emplacements[id], w = weaponOf(e);
     const g = this.guns[id];
     g.yaw = yaw < e.baseYaw - e.yawLimit ? e.baseYaw - e.yawLimit : yaw > e.baseYaw + e.yawLimit ? e.baseYaw + e.yawLimit : yaw;
     g.pitch = pitch < w.minPitch ? w.minPitch : pitch > w.maxPitch ? w.maxPitch : pitch;
     g.target = -1;
   }
 
-  /** A team's barracks sends a wave down its route (the enemy's in turn, until the AI arrives), as many as its cap allows. */
+  /**
+   * M3: every working barracks of a team sends its wave, its own mix down its
+   * own route, formed up side by side outside the gate, as many as the
+   * team's cap allows. The enemy's first barracks takes the routes in turn
+   * until the AI arrives.
+   */
   private sendWave(team: Team) {
-    const route = team === Team.Player ? this.route[team] : ENEMY_ROUTES[this.waves[team] % ENEMY_ROUTES.length];
-    const room = WAVES.maxStanding - this.army.standing(team);
-    const count = room < WAVES.size ? room : WAVES.size;
-    this.waves[team]++;
-    if (count > 0) this.army.spawnWave(team, ROUTE_NAMES.indexOf(route), count);
+    const plots = this.estate.workingBarracks(team);
+    let k = 0;
+    for (const plot of plots) {
+      const route = team === Team.Enemy && plot === 0 ? ENEMY_ROUTES[this.enemyWaves++ % ENEMY_ROUTES.length] : this.estate.barracks[team][plot].route;
+      const room = WAVES.maxStanding - this.army.standing(team);
+      const units = this.estate.waveUnits(team, plot);
+      const count = room < units.length ? room : units.length;
+      this.waves[team]++;
+      // Side by side: the first in front of the gate, the next to its left and right, then further out.
+      const offset = k === 0 ? 0 : (k & 1 ? -1 : 1) * 5.5 * ((k + 1) >> 1);
+      if (count > 0) this.army.spawnMix(team, ROUTE_NAMES.indexOf(route), units.slice(0, count), offset);
+      k++;
+    }
   }
+  /** Waves the enemy's first barracks has sent (its route turns with them). */
+  private enemyWaves = 0;
 
   /**
    * Weapons nobody mans lay on the enemy minion nearest their own gate within
@@ -262,9 +323,9 @@ export class Match {
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
       const U = UNMANNED[e.weapon];
-      if (!U || this.manned[team] === e.id) continue;
+      if (!U || e.empty || this.manned[team] === e.id) continue;
       const g = this.guns[e.id];
-      const w = WEAPONS[e.weapon];
+      const w = weaponOf(e);
       if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);
       if (g.target < 0) continue;
       const a = stepAim({ yaw: g.yaw, pitch: g.pitch }, { dYaw: g.aimYaw - g.yaw, dPitch: g.aimPitch - g.pitch, fine: false }, e, w);
@@ -342,11 +403,16 @@ export class Match {
     return false;
   }
 
-  /** Pieces of a castle that have come loose or turned to dust. */
+  /** Pieces of a castle that have come loose or turned to dust (of its buildings, only what was built). */
   masonryDown(castle: 0 | 1): number {
     const c = this.world.castle;
+    const st = this.world.structures;
     let n = 0;
-    for (const s of c.layout.stones) if (s.castle === castle && c.dynamic[s.id]) n++;
+    for (const s of c.layout.stones) {
+      if (s.castle !== castle || !c.dynamic[s.id]) continue;
+      if (s.plot !== undefined && (!st || st.slot(castle, s.plot).kind !== s.building)) continue;
+      n++;
+    }
     return n;
   }
 
@@ -368,6 +434,10 @@ export class Match {
     const nums = [this.tick, this.gold[0], this.gold[1], this.shots[0], this.shots[1], this.autoShots[0], this.autoShots[1], r ? r.winner : -2, r ? r.tick : -1, parseInt(w.state, 16)];
     nums.push(ROUTE_NAMES.indexOf(this.route[0]), ROUTE_NAMES.indexOf(this.route[1]), this.waves[0], this.waves[1], this.manned[0], this.manned[1]);
     for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ);
+    // M3: gold earned and spent, open trick-shot tallies, what is built and bought, the enemy's build order.
+    this.economy.hashInto(nums);
+    this.estate.hashInto(nums);
+    nums.push(this.enemyWaves);
     const f = new Float64Array(nums);
     return { state: hex8(hashBytes(new Uint8Array(f.buffer))), world: w.world };
   }

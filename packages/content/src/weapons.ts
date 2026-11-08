@@ -17,6 +17,8 @@ export interface ProjectileDef {
   /** How hard a hit on masonry blasts it: 1 is a full cannon blast, 0 none. */
   blast: number;
   restitution: number;
+  /** A full blast's radius as a multiple of a cannonball's at the same speed (heavy shot: more). Default 1. */
+  power?: number;
 }
 
 /** A powder burst (mortar shells): what it does to masonry, minions and the ground. */
@@ -201,9 +203,21 @@ export const WEAPONS: Record<WeaponKind, WeaponDef> = {
   },
 };
 
+/** Foundry upgrades (M3, arsenal.ts): one per gun, each a trade-off. */
+export type UpgradeKind = "heavyShot" | "rifled" | "heavyShell" | "quickLoader" | "longChain" | "heavyBalls" | "canister" | "longBarrel";
+
 export interface Emplacement {
   id: number;
+  /** The gun it holds (for an empty slot, the first it could take: see `empty`). */
   weapon: WeaponKind;
+  /** An empty slot (M3): no gun until one is bought; it never fires. */
+  empty?: boolean;
+  /** The guns this slot can take (M3). */
+  allowed?: WeaponKind[];
+  /** Its Foundry upgrade, if it has one (M3). */
+  upgrade?: UpgradeKind;
+  /** Where it is, as its owner would say it (M3). */
+  place?: string;
   /** Pivot point of the weapon in world space. */
   x: number;
   y: number;

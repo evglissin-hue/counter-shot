@@ -20,11 +20,25 @@ export const PROJECTILE_STRIDE = 9;
 export const CHAIN_STRIDE = 6;
 
 /**
- * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act].
+ * Upright minions: [id, x, y, z, yaw, walkPhase (0..1), team, action, act, unit].
  * Feet at y. Action (army.ts): 0 walking, 1 standing, 2 fighting, 3
- * battering a gate; act counts ticks since its last blow began.
+ * battering a gate (4 to 7 are M4's), 8 a sapper setting his keg, 9 a
+ * musketeer with his musket up; act counts ticks since its last blow (or
+ * shot) began. Unit is content's Unit (0 pikeman, 3 sapper, 4 musketeer;
+ * 1 and 2 are M4's mason and ladder crew).
  */
-export const MINION_STRIDE = 9;
+export const MINION_STRIDE = 10;
+
+/**
+ * Plot buildings (M3): [castle, plot, kind, state, share raised, health].
+ * Kind is an index into BUILDING_KINDS (-1: none); state is structures.ts
+ * PlotState (0 empty, 1 rising, 2 standing, 3 ruined); share raised and
+ * health are 0..1 (health: the share of its pieces standing).
+ */
+export const PLOT_STRIDE = 6;
+
+/** Kegs set against a wall (M3): [x, y, z, ticks left]. */
+export const KEG_STRIDE = 4;
 
 /** Ragdoll parts: [minionId, part, x, y, z, qx, qy, qz, qw]. Part shapes are in MINION_PARTS. */
 export const PART_STRIDE = 9;
@@ -35,6 +49,15 @@ export const enum EventKind {
   Muzzle = 2, // [kind, emplacement, shot id, unmanned (1) or not (0), 0]
   Blood = 3, // [kind, x, y, z, strength]: cosmetic, the renderer may ignore it
   Landed = 4, // [kind, emplacement, x, y, z]: first touch of a shot, for the landing marker; emplacement is -(id + 1) for an unmanned shot
+  // 5 to 7 are M4's (masons and ladders).
+  /** [kind, stone id, x, y, z]: a piece of a plot's building rose into its place (M3); x, y, z is the place. */
+  Raised = 8,
+  /** [kind, shooter (minion id), x, y, z]: a musketeer fired at the point x, y, z (M3). */
+  Musket = 9,
+  /** [kind, minion id, x, y, z]: a sapper set and lit his keg at x, y, z (M3). */
+  Keg = 10,
+  /** [kind, castle, plot, building kind, 0]: a plot's building is finished (M3). */
+  Built = 11,
 }
 export const EVENT_STRIDE = 5;
 
@@ -76,6 +99,12 @@ export interface FrameData {
   /** Wind in m/s along x and z. */
   windX: number;
   windZ: number;
+  /** Every plot's building (M3, PLOT_STRIDE each; empty without plots). */
+  plots: Float32Array;
+  plotCount: number;
+  /** Kegs burning at the foot of a wall (M3, KEG_STRIDE each). */
+  kegs: Float32Array;
+  kegCount: number;
 }
 
 /** Ragdoll body parts: capsule half-length (between sphere centres) and radius, in metres. */

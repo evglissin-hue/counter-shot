@@ -252,6 +252,10 @@ function buildFrame(dt: number): FrameData {
     terrain,
     windX: 4,
     windZ: 1.5,
+    plots: new Float32Array(0),
+    plotCount: 0,
+    kegs: new Float32Array(0),
+    kegCount: 0,
   };
 }
 

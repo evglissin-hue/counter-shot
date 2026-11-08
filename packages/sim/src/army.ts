@@ -11,12 +11,13 @@
 // positions in that order, every decision uses + - * / and comparisons, and
 // every random draw comes from the army's own stream, in that order.
 
-import { BRIDGES, COURTYARD, GATE_BLOWS, MID_Z, MUSTER, ROUTE_HALF, ROUTE_NAMES, UNITS, WAVES, holdMarker, routeDistance, type BridgeSite, type UnitDef } from "@keepfall/content";
+import { BRIDGES, COURTYARD, GATE_BLOWS, MID_Z, MUSTER, ROUTE_HALF, ROUTE_NAMES, UNIT_DEFS, UNITS, WAVES, holdMarker, routeDistance, type BridgeSite, type UnitDef } from "@keepfall/content";
 import { DPI, dsqrt, Rng } from "@keepfall/core";
 import type { CastleSim } from "./castleSim";
 import { EventKind } from "./frame";
 import { FLOW_INF, FLOW_REGION, FlowFields, type FieldSpec } from "./flow";
-import { MinionState, yawOf, type Minion, type Minions } from "./minions";
+import { Cause, MinionState, yawOf, type Minion, type Minions } from "./minions";
+import type { Specialists, Steer } from "./specialists";
 import { NAV_GRID, NavKind, navCell, navWalkable, type NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
 
@@ -136,6 +137,9 @@ export class Army {
   private waveRoute = new Int8Array(64);
   private waveX = new Float64Array(64);
   private waveZ = new Float64Array(64);
+  /** M3: sappers and musketeers are steered here first (the sandbox sets it in a match). */
+  specialists: Specialists | null = null;
+  private steerOut: Steer = { mx: 0, mz: 0, speed: 0, face: NaN, action: 0 };
 
   constructor(
     private minions: Minions,
@@ -207,6 +211,29 @@ export class Army {
     return count;
   }
 
+  /**
+   * M3: a wave of mixed units (content's Unit numbers, rank by rank from the
+   * front, WAVES.file abreast) forms up at its muster point, offset along the
+   * wall by `offset` metres (barracks side by side), and marches down a route.
+   * Returns the number spawned.
+   */
+  spawnMix(team: 0 | 1, route: number, units: number[], offset = 0, at?: { x: number; z: number }): number {
+    const base = at ? { x: at.x, z: at.z, dir: MUSTER[team].dir } : MUSTER[team];
+    const M = { x: base.x + offset, z: base.z, dir: base.dir };
+    const first = this.minions.list.length;
+    const n = this.spawnWave(team, route, units.length, { x: M.x, z: M.z });
+    for (let k = 0; k < n; k++) {
+      const m = this.minions.list[first + k];
+      const kind = units[k] ?? 0;
+      if (kind === 0) continue;
+      const unit = UNIT_DEFS[kind] ?? UNITS.pikeman;
+      m.unit = kind;
+      // Re-draw the speed for its kind from its own pikeman draw, so the army's stream is not touched.
+      m.speed = (m.speed / UNITS.pikeman.speed) * unit.speed;
+    }
+    return n;
+  }
+
   /** Upright minions of a team. */
   standing(team: number): number {
     let n = 0;
@@ -242,7 +269,7 @@ export class Army {
   }
 
   private think(m: Minion, tick: number) {
-    const unit = UNITS.pikeman;
+    const unit = UNIT_DEFS[m.unit] ?? UNITS.pikeman;
     const nav = this.nav;
     const c = navCell(m.x, m.z);
     // The floor went from under it (a deck blown away, a crater): it falls.
@@ -253,8 +280,17 @@ export class Army {
     let mx = 0, mz = 0, speed = 0;
     let face = NaN; // the yaw to turn to (NaN: wherever it walks)
     let action = Action.Walk;
-    const t = this.target(m, unit, tick);
-    if (t) {
+    // M3: a sapper or a musketeer may have his own business this tick (specialists.ts).
+    const sp = this.specialists !== null && this.specialists.steer(m, tick, this.steerOut);
+    const t = sp ? null : this.target(m, unit, tick);
+    if (sp) {
+      const s = this.steerOut;
+      mx = s.mx;
+      mz = s.mz;
+      speed = s.speed;
+      face = s.face;
+      action = s.action;
+    } else if (t) {
       const dx = t.x - m.x, dz = t.z - m.z;
       const d = dsqrt(dx * dx + dz * dz) + 1e-9;
       if (d <= unit.reach) {
@@ -483,7 +519,7 @@ export class Army {
     m.act = 0;
     m.cool = unit.blowMin + Math.floor(this.rng.next() * (unit.blowMax - unit.blowMin + 1));
     if (this.rng.next() >= unit.hit) return;
-    this.minions.knock({ minion: t.id, vx: ux * unit.knock, vy: 1.4, vz: uz * unit.knock, px: t.x - ux * 0.25, py: t.y + 1.25, pz: t.z - uz * 0.25, extra: 0.8 }, tick);
+    this.minions.knock({ minion: t.id, vx: ux * unit.knock, vy: 1.4, vz: uz * unit.knock, px: t.x - ux * 0.25, py: t.y + 1.25, pz: t.z - uz * 0.25, extra: 0.8, cause: Cause.Blow }, tick);
     this.emit(EventKind.Blood, t.x, t.y + 1.25, t.z, 0.45);
     m.target = -1;
   }
@@ -500,7 +536,7 @@ export class Army {
 
   /** Its floor is gone: it falls, keeping its own speed. */
   private fall(m: Minion, tick: number) {
-    this.minions.knock({ minion: m.id, vx: m.vx, vy: 0, vz: m.vz, px: m.x, py: m.y + 1, pz: m.z, extra: 0 }, tick);
+    this.minions.knock({ minion: m.id, vx: m.vx, vy: 0, vz: m.vz, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: Cause.Fall }, tick);
   }
 
   /** Height of the floor at a point: the ground's own shape on open ground, the cell's floor on a deck, a heap or a body. */

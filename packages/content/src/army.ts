@@ -7,12 +7,24 @@
 // origin (the enemy in a match against the AI), team 1 the one at z = -DIST
 // (the player's). A team's waves march on the other team's castle.
 
-import { DPI } from "@keepfall/core";
 import { DIST } from "./field";
 import { BRIDGES, type RouteName } from "./map";
-import { ASHWRIGHT_EMPLACEMENTS, type Emplacement, type WeaponKind } from "./weapons";
+import type { BurstDef, WeaponKind } from "./weapons";
 
-export type UnitKind = "pikeman";
+export type UnitKind = "pikeman" | "mason" | "ladder" | "sapper" | "musketeer";
+
+/** Unit kinds as the sim numbers them (Minion.unit). */
+export const enum Unit {
+  Pikeman = 0,
+  /** Rebuilds its castle (M4): never fights. */
+  Mason = 1,
+  /** One of the two men who carry a wave's ladder (M4). */
+  Ladder = 2,
+  /** Carries a powder keg to the enemy wall and blows a breach (M3). */
+  Sapper = 3,
+  /** Shoots enemy minions from range (M3). */
+  Musketeer = 4,
+}
 
 export interface UnitDef {
   kind: UnitKind;
@@ -54,6 +66,138 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     hit: 0.3,
     knock: 3.2,
   },
+  mason: {
+    kind: "mason",
+    name: "Mason",
+    speed: 1.8,
+    speedJitter: 0.05,
+    charge: 1,
+    sight: 0,
+    reach: 0,
+    blowMin: 0,
+    blowMax: 0,
+    readyMin: 0,
+    readyMax: 0,
+    hit: 0,
+    knock: 0,
+  },
+  ladder: {
+    kind: "ladder",
+    name: "Ladder crew",
+    speed: 1.6,
+    speedJitter: 0.04,
+    charge: 1.25,
+    sight: 7,
+    reach: 1.7,
+    blowMin: 60,
+    blowMax: 95,
+    readyMin: 12,
+    readyMax: 36,
+    hit: 0.24,
+    knock: 2.8,
+  },
+  // A sapper never goes looking for a fight: with his keg he makes for the wall; after it, he only defends himself.
+  sapper: {
+    kind: "sapper",
+    name: "Sapper",
+    speed: 1.5,
+    speedJitter: 0.05,
+    charge: 1.1,
+    sight: 2.5,
+    reach: 1.3,
+    blowMin: 70,
+    blowMax: 110,
+    readyMin: 20,
+    readyMax: 50,
+    hit: 0.12,
+    knock: 2.4,
+  },
+  // A musketeer fires from range (MUSKET); close in he swings the butt, and rarely knocks anyone down.
+  musketeer: {
+    kind: "musketeer",
+    name: "Musketeer",
+    speed: 1.55,
+    speedJitter: 0.05,
+    charge: 1.1,
+    sight: 2.5,
+    reach: 1.4,
+    blowMin: 70,
+    blowMax: 110,
+    readyMin: 20,
+    readyMax: 50,
+    hit: 0.12,
+    knock: 2.4,
+  },
+};
+
+/** UNITS by the sim's unit number. */
+export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer];
+
+/** Unit numbers by kind. */
+export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer };
+
+/**
+ * A sapper's powder keg (M3): he sets it at the foot of the enemy front wall,
+ * away from the gate, lights it and runs; it bursts after `fuse` ticks. Any
+ * ball, burst or falling masonry that knocks him down on the way sets it off
+ * where he stands, among his own wave; a burst near a set keg sets it off.
+ */
+export const KEG = {
+  fuse: 4 * 60,
+  /** He makes for the wall once he is this close to the enemy castle's front (m). */
+  near: 32,
+  /** He keeps this far (m) from the gate's middle and from the towers' middles along the wall. */
+  gateClear: 3.6,
+  towerClear: 4.6,
+  /** Ticks to set it and light it, and how far (m) he runs before he waits for the burst. */
+  plant: 75,
+  run: 10,
+  /**
+   * The charge is packed into the foot of the wall: it bursts `into` metres
+   * in from the face, `up` metres up, and turns most of what it reaches to
+   * dust (a burst outside the face only lifts the lower courses into the ones
+   * above, and they settle back), leaving a gap to walk through under the
+   * courses that still bridge it.
+   */
+  into: 0.7,
+  up: 0.7,
+  burst: { radius: 3.0, shatter: 0.78, power: 10, lift: 0.2, bite: 0, knock: 7, knockSpeed: 12, crater: 1.8, depth: 0.6 } as BurstDef,
+} as const;
+
+/**
+ * Musketeers (M3): they stop and fire at enemy minions within `range` that
+ * they can see, a shot every reloadMin..reloadMax ticks after aiming for `aim`
+ * ticks; a hit (more likely close in: from `hitNear` at `near` metres down to
+ * `hitFar` at `range`) knocks the target down at `knock` m/s. Closer than
+ * `close` they fight like anyone else. Their rolls come from their own stream.
+ */
+export const MUSKET = {
+  range: 26,
+  near: 6,
+  close: 3,
+  aim: 30,
+  reloadMin: 240,
+  reloadMax: 320,
+  hitNear: 0.6,
+  hitFar: 0.14,
+  knock: 3.4,
+  /** Eye height (m) the line of sight runs at. */
+  eye: 1.5,
+} as const;
+
+export type MixName = "pikemen" | "breach" | "volley" | "mixed";
+export const MIX_NAMES: MixName[] = ["pikemen", "breach", "volley", "mixed"];
+
+/**
+ * A barracks' wave mixes (M3), rank by rank from the front, four abreast:
+ * sappers and musketeers walk in the rear rank. A mix is data, so other kinds
+ * (M4's ladder crew) can join one.
+ */
+export const WAVE_MIXES: Record<MixName, { name: string; units: UnitKind[] }> = {
+  pikemen: { name: "Pikemen", units: ["pikeman", "pikeman", "pikeman", "pikeman", "pikeman", "pikeman", "pikeman", "pikeman"] },
+  breach: { name: "Breach", units: ["pikeman", "pikeman", "pikeman", "pikeman", "sapper", "pikeman", "pikeman", "sapper"] },
+  volley: { name: "Volley", units: ["pikeman", "pikeman", "pikeman", "pikeman", "musketeer", "pikeman", "musketeer", "musketeer"] },
+  mixed: { name: "Mixed", units: ["pikeman", "pikeman", "pikeman", "pikeman", "sapper", "musketeer", "musketeer", "sapper"] },
 };
 
 /** The order of routes wherever routes are numbered (fields, the HUD): the player's left, the centre road, the player's right. */
@@ -156,23 +300,6 @@ export const UNMANNED: Record<WeaponKind, UnmannedDef | null> = {
   chainShot: { minRange: 45, maxRange: 140, clearOwn: 4, clearBridge: 4, overshoot: 60, reload: 3, errBase: 3, errPerM: 0.1 },
   swivel: { minRange: 15, maxRange: 60, clearOwn: 3, clearBridge: 3, overshoot: 30, reload: 2.5, errBase: 2, errPerM: 0.08 },
 };
-
-/**
- * The enemy castle's emplacements: the player's, turned through the middle of
- * the field (both castles are symmetric across x = 0, so each lands on the
- * same wall or tower). Ids follow the player's. Yaws stay near the base yaw
- * (pi plus the player's), so turn limits work unchanged.
- */
-export const ENEMY_EMPLACEMENTS: Emplacement[] = ASHWRIGHT_EMPLACEMENTS.map((e, i) => ({
-  ...e,
-  id: ASHWRIGHT_EMPLACEMENTS.length + i,
-  x: -e.x,
-  z: -DIST - e.z,
-  baseYaw: e.baseYaw + DPI,
-}));
-
-/** Every emplacement in a match: the player's castle first, then the enemy's. */
-export const MATCH_EMPLACEMENTS: Emplacement[] = [...ASHWRIGHT_EMPLACEMENTS, ...ENEMY_EMPLACEMENTS];
 
 /** Until the AI player arrives (M5), the enemy's barracks sends its waves down the routes in turn. */
 export const ENEMY_ROUTES: RouteName[] = ["centre", "left", "right"];

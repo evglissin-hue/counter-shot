@@ -74,9 +74,13 @@ export interface Ball {
   struck: number;
   /** Lifetime in steps before it is removed. */
   life: number;
+  /** A full blast's radius as a multiple of a cannonball's (heavy shot, M3). */
+  power: number;
 }
 
 export interface FireOptions {
+  /** A full blast's radius as a multiple of a cannonball's (heavy shot, M3). Default 1. */
+  power?: number;
   radius?: number;
   density?: number;
   restitution?: number;
@@ -163,6 +167,13 @@ export class CastleSim {
   private castleRange: Array<[number, number]>;
   /** Groups whose fixed pieces changed since their last support check (bit per group). All at first. */
   private supportDirty = 7;
+  /** Pieces put back at their places since the last collectMoving (reported once, at their layout poses). */
+  private restoredSince: number[] = [];
+  /** Shapes for testing whether a piece's place is clear: a box per size, and the wedge, a little smaller than the pieces. */
+  private slotShapes = new Map<string, InstanceType<Rapier["Cuboid"]> | InstanceType<Rapier["ConvexPolyhedron"]>>();
+  /** M3: when set, every piece that goes from standing to loose (or dust) is listed in `fell`, for the match to pay for. */
+  recordFalls = false;
+  fell: number[] = [];
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -290,7 +301,7 @@ export class CastleSim {
     this.owner.set(col.handle, -(slot + 1));
     this.balls[slot] = {
       body, handle: col.handle, radius, vx, vy, vz, age: 0, alive: true,
-      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12,
+      blast: o.blast ?? 1, ricochet: o.ricochet ?? false, touched: false, touchedNow: false, struck: -1, life: o.life ?? 60 * 12, power: o.power ?? 1,
     };
     return slot;
   }
@@ -488,7 +499,7 @@ export class CastleSim {
         changed = true;
         continue;
       }
-      const radius = this.opts.blastBase + speed * this.opts.blastPerSpeed;
+      const radius = (this.opts.blastBase + speed * this.opts.blastPerSpeed) * ball.power;
       const dx = ball.vx / speed, dy = ball.vy / speed, dz = ball.vz / speed;
       // The ball touches the face; the damage centres inside the masonry, a metre along the shot.
       this.blast(p.x + dx, p.y + dy, p.z + dz, radius, dx, dy, dz, speed);
@@ -657,6 +668,118 @@ export class CastleSim {
     this.thaw(x, y, z, radius);
   }
 
+  /**
+   * What lies in a piece's place (its layout pose), apart from the piece
+   * itself and the standing masonry around it: loose pieces (ids, in order)
+   * and anything else (minions, bodies, shots, ladders: collider handles, in
+   * order). The ground does not count. Uses the world as of the last step.
+   */
+  inPlace(id: number, terrain: ReadonlySet<number>): { pieces: number[]; other: number[] } {
+    const s = this.layout.stones[id];
+    const R = this.R;
+    const key = s.shape === "wedge" ? "wedge" : `${s.hx.toFixed(3)},${s.hy.toFixed(3)},${s.hz.toFixed(3)}`;
+    let shape = this.slotShapes.get(key);
+    if (!shape) {
+      if (s.shape === "wedge") {
+        // The wedge, shrunk towards its middle by 8%.
+        const p = this.layout.wedge.points, q = new Float32Array(p.length);
+        let cx = 0, cy = 0, cz = 0;
+        for (let i = 0; i < 8; i++) {
+          cx += p[i * 3] / 8;
+          cy += p[i * 3 + 1] / 8;
+          cz += p[i * 3 + 2] / 8;
+        }
+        for (let i = 0; i < 8; i++) {
+          q[i * 3] = cx + (p[i * 3] - cx) * 0.92;
+          q[i * 3 + 1] = cy + (p[i * 3 + 1] - cy) * 0.92;
+          q[i * 3 + 2] = cz + (p[i * 3 + 2] - cz) * 0.92;
+        }
+        shape = new R.ConvexPolyhedron(q, null);
+      } else {
+        shape = new R.Cuboid(s.hx * 0.92, s.hy * 0.85, s.hz * 0.92);
+      }
+      this.slotShapes.set(key, shape);
+    }
+    const pieces: number[] = [];
+    const other: number[] = [];
+    const own = this.bodies[id].collider(0);
+    this.world.intersectionsWithShape({ x: s.x, y: s.y, z: s.z }, { x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] }, shape, (col) => {
+      const h = col.handle;
+      const o = this.owner.get(h);
+      if (o !== undefined && o >= 0) {
+        // Standing masonry around the place is fine; loose pieces are in the way.
+        if (o !== id && this.dynamic[o] && !this.shattered[o]) pieces.push(o);
+      } else if (!terrain.has(h)) other.push(h);
+      return true;
+    }, undefined, undefined, own);
+    pieces.sort((a, b) => a - b);
+    other.sort((a, b) => a - b);
+    return { pieces, other };
+  }
+
+  /**
+   * Masons put a piece back where it was built (wherever its body lies, or
+   * from dust): fixed again, standing masonry. The caller checks that its
+   * place is clear and that what it rests on stands. Returns false if it was
+   * standing already.
+   */
+  restore(id: number): boolean {
+    if (!this.dynamic[id]) return false;
+    const s = this.layout.stones[id];
+    const body = this.bodies[id];
+    if (this.shattered[id]) {
+      this.shattered[id] = 0;
+      this.shatterReported[id] = 0;
+      body.setEnabled(true);
+    }
+    if (this.frozen[id]) {
+      this.frozen[id] = 0;
+      const k = this.frozenList.indexOf(id);
+      if (k >= 0) this.frozenList.splice(k, 1);
+    } else {
+      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+    }
+    body.setBodyType(this.R.RigidBodyType.Fixed, false);
+    body.setTranslation({ x: s.x, y: s.y, z: s.z }, false);
+    body.setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] }, false);
+    if (this.layout.keepFloors && (s.part === "keep" || s.part === "storey")) body.collider(0).setCollisionGroups(STRUCTURE_GROUPS);
+    this.dynamic[id] = 0;
+    this.awakeLast[id] = 0;
+    this.restSteps[id] = 0;
+    const k = this.dynList.indexOf(id);
+    if (k >= 0) this.dynList.splice(k, 1);
+    this.restoredSince.push(id);
+    return true;
+  }
+
+  /** Masons carry a loose piece out of the way: it leaves the world, like dust, and can be put back later. */
+  carryOff(id: number): boolean {
+    if (!this.dynamic[id] || this.shattered[id]) return false;
+    if (this.frozen[id]) {
+      this.frozen[id] = 0;
+      const k = this.frozenList.indexOf(id);
+      if (k >= 0) this.frozenList.splice(k, 1);
+    }
+    this.shattered[id] = 1;
+    this.bodies[id].setEnabled(false);
+    return true;
+  }
+
+  /**
+   * M3: take a standing piece out of the world without a sound (a building
+   * that is not built yet): it counts as gone, like dust, until restore()
+   * puts it up. No support check, no impact, nothing recorded as fallen.
+   */
+  withdraw(id: number): boolean {
+    if (this.dynamic[id]) return false;
+    this.dynamic[id] = 1;
+    this.dynList.push(id);
+    this.shattered[id] = 1;
+    this.bodies[id].setEnabled(false);
+    return true;
+  }
+
   /** Loose pieces asleep for 1.5 s become fixed again. The banner never freezes. */
   private freezeResting() {
     const fixed = this.R.RigidBodyType.Fixed;
@@ -704,6 +827,7 @@ export class CastleSim {
       this.dynamic[id] = 1;
       this.dynList.push(id);
       this.supportDirty |= 1 << this.castleOf[id];
+      if (this.recordFalls) this.fell.push(id);
     }
     this.shattered[id] = 1;
     this.frozen[id] = 0;
@@ -716,6 +840,7 @@ export class CastleSim {
     this.dynamic[id] = 1;
     this.dynList.push(id);
     this.supportDirty |= 1 << this.castleOf[id];
+    if (this.recordFalls) this.fell.push(id);
     const body = this.bodies[id];
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();
@@ -852,6 +977,24 @@ export class CastleSim {
   collectMoving(out: Float32Array): number {
     let n = 0;
     const max = Math.floor(out.length / 8);
+    // Pieces put back: their layout poses, once.
+    let r = 0;
+    for (; r < this.restoredSince.length && n < max; r++) {
+      const id = this.restoredSince[r];
+      if (this.dynamic[id]) continue; // loose again already: reported below
+      const s = this.layout.stones[id];
+      const o = n * 8;
+      out[o] = id;
+      out[o + 1] = s.x;
+      out[o + 2] = s.y;
+      out[o + 3] = s.z;
+      out[o + 4] = s.q[0];
+      out[o + 5] = s.q[1];
+      out[o + 6] = s.q[2];
+      out[o + 7] = s.q[3];
+      n++;
+    }
+    this.restoredSince.splice(0, r);
     for (const id of this.dynList) {
       if (this.shattered[id]) {
         if (this.shatterReported[id] || n >= max) continue;

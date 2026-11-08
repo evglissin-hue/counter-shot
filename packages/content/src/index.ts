@@ -3,3 +3,5 @@ export * from "./map";
 export * from "./economy";
 export * from "./weapons";
 export * from "./army";
+export * from "./buildings";
+export * from "./arsenal";
