@@ -90,7 +90,7 @@ export class Estate {
 
   /** In a match (against the AI or a friend)? */
   private get inMatch(): boolean {
-    return this.mode === "versus" || this.mode === "online";
+    return this.mode === "versus" || this.mode === "online" || this.mode === "guided";
   }
 
   /** A new world: nothing built yet, the wheel shut, no numbers in the air. */
