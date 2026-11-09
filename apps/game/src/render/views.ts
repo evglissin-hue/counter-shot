@@ -1,7 +1,7 @@
 // Camera control for the poses the page asks for: the weapon sight (position
 // and aim follow at once, only the field of view eases), a free orbit
 // overview of both castles, a chase camera behind a projectile, and a free
-// camera the page places itself (the mortar's observer and its ride).
+// camera the page places itself (the mortar's spotter and its ride).
 
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";

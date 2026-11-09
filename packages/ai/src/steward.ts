@@ -9,6 +9,7 @@ import {
   BUILDING_KINDS,
   BUILDING_REBUILD,
   BUILDINGS,
+  GUN_HITS,
   MIX_NAMES,
   MUSTER,
   PLOTS,
@@ -51,7 +52,7 @@ export class Steward {
     private rng: Rng,
     private send: (tick: number, input: MatchInput) => void,
   ) {
-    this.plan = AI_PLANS[difficulty];
+    this.plan = [...AI_PLANS[difficulty]]; // its own copy: a step that must wait can be put behind the next one
     // Its castle as it finds it (M5 audit: taking over a friend's castle mid-match, it assumed Advance and every repair on).
     this.order = m.army.order[team] as Order;
     this.repairs = { ...m.repairs[team] };
@@ -96,9 +97,17 @@ export class Steward {
       else this.asked = -1;
     }
     for (; this.step < this.plan.length; this.step++) {
-      const s = this.plan[this.step];
+      let s = this.plan[this.step];
       if (this.done(s)) continue;
       if (!this.possible(s)) continue; // the plot is taken, the slot armed: passed over
+      if (this.blocked(s)) {
+        // After M5: the masonry under the slot is down, and no gun goes there until masons put it back. It asked
+        // again every few seconds and built nothing else meanwhile; now the next step it can take goes first.
+        const k = this.plan.findIndex((q, i) => i > this.step && !this.done(q) && this.possible(q) && !this.blocked(q));
+        if (k < 0) return;
+        s = this.plan.splice(k, 1)[0];
+        this.plan.splice(this.step, 0, s);
+      }
       // A step waits for its time, unless the gold is piling up (then it hurries on).
       if (tick < (s.after ?? 0) * 60 && this.gold < this.L.reserve + 350) return;
       const cost = this.cost(s);
@@ -133,6 +142,11 @@ export class Steward {
     if (s.kind === "buy") return !!e.empty && (e.allowed ?? []).includes(s.weapon);
     const u = UPGRADES[s.upgrade];
     return !e.empty && !e.upgrade && !!u && u.weapon === e.weapon;
+  }
+
+  /** A gun for a slot whose masonry is down (after M5): the match refuses it until that masonry stands again. */
+  private blocked(s: AiStep): boolean {
+    return s.kind === "buy" && this.m.world.mounts.standing(firstSlot(this.team) + s.slot) < GUN_HITS.mountBack;
   }
 
   /** Gold a step costs now, or -1 while it cannot be done yet. */

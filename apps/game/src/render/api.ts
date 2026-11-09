@@ -16,7 +16,7 @@ export type CameraPose =
   | { mode: "overview" }
   /** Chase a projectile: its position and velocity. */
   | { mode: "follow"; x: number; y: number; z: number; vx: number; vy: number; vz: number }
-  /** Placed by the page (the mortar's observer and its ride): eye position, the point it looks at, field of view. */
+  /** Placed by the page (the mortar's spotter and its ride): eye position, the point it looks at, field of view. */
   | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number };
 
 /** The first thing a predicted flight hits. */

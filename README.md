@@ -22,4 +22,5 @@ node tools/anim-shots.mjs  # contact sheets of the minions' animation on the ren
 node tools/hud-check.mjs  # every HUD control in a Versus AI match: the command card's buttons and keys, Build and the build menu, gun tabs, sound, Controls, shot camera, overview, pause
 node tools/first-match-shots.mjs  # the first seconds of a match at the artifact panel's size (1100 x 810), its short-lived messages slowed so they can be seen together
 node tools/guns-shots.mjs  # the mortar's spotter and charge ring, a chain shot silencing a gun, a tower gun falling with its masonry
+npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs enemy=knight player=knight seed=21  # the dead-end hunt: an AI match that flags guns stuck out, slots that cannot be bought, idle gunners, hoarded gold
 ```

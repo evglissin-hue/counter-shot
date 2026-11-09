@@ -20,15 +20,15 @@ const STEPS: Record<GuideKind, Step[]> = {
   match: [
     { id: "aim", title: "Take the gun", html: "Click the field: the mouse aims (or <span class=\"nw\"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)</span>" },
     { id: "fire", title: "Fire at the enemy keep", html: "<kbd>Space</kbd> or click. Correct from where it lands" },
-    { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> to load the charge, let go at the full mark to land a shell on the enemy keep's roof" },
+    { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> and a ring slides out along the ground; let go when it is on the enemy keep" },
     { id: "build", title: "Spend your gold", html: "<kbd>B</kbd> opens the build menu: a Powder Mill earns more, a Barracks sends more waves" },
     { id: "waves", title: "Command your waves", html: "Pick a route and an order in the panel under the map (<kbd>L</kbd>, <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>3</kbd>)" },
   ],
   practice: [
     { id: "aim", title: "Take the gun", html: "Click the field: the mouse aims (or <span class=\"nw\"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)</span>" },
     { id: "fire", title: "Fire at the target keep", html: "<kbd>Space</kbd> or click" },
-    { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> to load the charge, let go at the full mark: a full charge lands mid-view" },
-    { id: "others", title: "Try the other guns", html: "The chain shot <kbd>3</kbd> or the swivel gun <kbd>4</kbd> on the pikemen" },
+    { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> and a ring slides out along the ground; let go when it is on the target keep" },
+    { id: "others", title: "Try the other guns", html: "The chain shot <kbd>3</kbd> sweeps pikemen and gun crews; the swivel gun <kbd>4</kbd> holds the foot of your walls" },
     { id: "overview", title: "See the whole valley", html: "<kbd>Tab</kbd> shows it from above" },
   ],
 };

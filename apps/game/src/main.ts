@@ -18,6 +18,7 @@ import {
   MATCH_EMPLACEMENTS,
   REMOUNT,
   REPAIR_KINDS,
+  repairSections,
   ROUTE_NAMES,
   UPGRADE_KINDS,
   WEAPON_KINDS,
@@ -33,7 +34,9 @@ import { Guide } from "./guide";
 import { Minimap } from "./minimap";
 import {
   aimDir,
+  castleHeightAt,
   clampAim,
+  clearOfCastle,
   EVENT_STRIDE,
   EventKind,
   flightCoef,
@@ -43,6 +46,7 @@ import {
   predictPath,
   PROJECTILE_STRIDE,
   ProjectileKind,
+  mountPieces,
   restAim,
   solveAim,
   Spin,
@@ -752,7 +756,7 @@ function aimTick() {
     // After M5: up and down look farther or nearer along the bearing; the charge sets the elevation.
     lookD[current] = Math.min(LOOK_FAR, Math.max(LOOK_NEAR, lookD[current] * (1 - dPitch * 12)));
     dPitch = 0;
-    if (charging && charging.slot === current && needle >= 0) wanted[current] = { yaw: wanted[current].yaw, pitch: mortarLay(e, needle).pitch };
+    if (charging && charging.slot === current && needle >= 0) wanted[current] = { yaw: wanted[current].yaw, pitch: mortarLay(e, needle, aims[current].yaw).pitch };
   }
   if (dYaw || dPitch) {
     guide.mark("aim");
@@ -835,7 +839,7 @@ function releaseCharge(now: number) {
   cancelCharge();
   const e = EMP[current];
   if (n < 0 || !canFire() || e.weapon !== "mortar") return;
-  const lay = mortarLay(e, n);
+  const lay = mortarLay(e, n, aims[current].yaw);
   lastNeedle[current] = n;
   firedAt = { needle: n, range: lay.range, until: now + 1400 };
   wanted[current] = { yaw: wanted[current].yaw, pitch: lay.pitch };
@@ -878,10 +882,45 @@ function rangeTable(e: Emplacement): RangeTable {
   return t;
 }
 
-/** The elevation and charge that put a shell `m` (0..1) of the way from the nearest range to the farthest (still air, level ground). */
-function mortarLay(e: Emplacement, m: number): { pitch: number; charge: number; range: number } {
+/**
+ * The nearest still-air range on this bearing (m) whose shell clears your own
+ * castle on the way and comes down clear of it (outside its courtyard, and its
+ * burst's reach from its masonry): where the meter starts. From the bottom of
+ * the table a shell fired off to the side came down on your own front towers,
+ * so a tap of fire shelled your own castle. The same flight and height model
+ * the guns nobody mans use (sim gunnery.ts); cached per bearing.
+ */
+const nearCache = new Map<string, number>();
+function nearestClear(e: Emplacement, yaw: number): number {
   const t = rangeTable(e), N = t.range.length - 1;
-  const R = t.range[0] + (t.range[N] - t.range[0]) * Math.min(1, Math.max(0, m));
+  const w = weaponOf(e);
+  const key = `${e.x}/${e.z}/${w.speed}/${w.minSpeed}/${Math.round(yaw * 200)}`;
+  const hit = nearCache.get(key);
+  if (hit !== undefined) return hit;
+  const castle = e.z < -DIST / 2 ? 1 : 0;
+  const S = CASTLE_SHAPE, cz = castle === 0 ? 0 : -DIST;
+  const [fx, , fz] = aimDir(yaw, 0);
+  const reach = (w.burst ? w.burst.radius : 0) + 0.5, diag = reach * 0.7071;
+  const ring = [reach, 0, -reach, 0, 0, reach, 0, -reach, diag, diag, diag, -diag, -diag, diag, -diag, -diag];
+  let near = t.range[0];
+  for (let i = 0; i < N; i++) {
+    const R = t.range[i], x = e.x + fx * R, z = e.z + fz * R;
+    if (Math.abs(x) < S.half && Math.abs(z - cz) < S.half) continue; // in its own courtyard
+    let clear = castleHeightAt(castle, x, z) === 0;
+    for (let k = 0; clear && k < ring.length; k += 2) clear = castleHeightAt(castle, x + ring[k], z + ring[k + 1]) === 0;
+    if (!clear || !clearOfCastle(e, yaw, t.pitch[i], t.charge[i], castle, x, z)) continue;
+    near = R;
+    break;
+  }
+  nearCache.set(key, near);
+  return near;
+}
+
+/** The elevation and charge that put a shell `m` (0..1) of the way from the nearest clear range on this bearing to the farthest (still air, level ground). */
+function mortarLay(e: Emplacement, m: number, yaw: number): { pitch: number; charge: number; range: number } {
+  const t = rangeTable(e), N = t.range.length - 1;
+  const near = nearestClear(e, yaw);
+  const R = near + (t.range[N] - near) * Math.min(1, Math.max(0, m));
   let i = 0;
   while (i < N - 1 && t.range[i + 1] < R) i++;
   const span = t.range[i + 1] - t.range[i];
@@ -904,7 +943,7 @@ function updateCharge(now: number) {
   chargeLast.hidden = last < 0;
   if (last >= 0) chargeLast.style.left = `${(last * 100).toFixed(2)}%`;
   const t = rangeTable(e), N = t.range.length - 1;
-  const text = isOut(current) ? "Knocked out" : needle >= 0 ? `${Math.round(chargeRange)} m` : fired ? `Fired at ${Math.round(firedAt.range)} m` : rl(current) > 0 ? "Reloading" : `Hold Space to charge: ${Math.round(t.range[0])} to ${Math.round(t.range[N])} m`;
+  const text = isOut(current) ? "Knocked out" : needle >= 0 ? `${Math.round(chargeRange)} m` : fired ? `Fired at ${Math.round(firedAt.range)} m` : rl(current) > 0 ? "Reloading" : `Hold Space to charge: ${Math.round(nearestClear(e, aims[current].yaw))} to ${Math.round(t.range[N])} m`;
   if (text !== chargeShown) {
     chargeShown = text;
     chargeText.textContent = text;
@@ -1165,7 +1204,7 @@ function updateAimHelp() {
 function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState) {
   const [fx, , fz] = aimDir(a.yaw, 0);
   const table = rangeTable(e);
-  const bearing = { x: e.x, z: e.z, dx: fx, dz: fz, near: Math.max(6, table.range[0]), far: table.range[table.range.length - 1] };
+  const bearing = { x: e.x, z: e.z, dx: fx, dz: fz, near: Math.max(6, nearestClear(e, a.yaw)), far: table.range[table.range.length - 1] };
   if (!charging || charging.slot !== current || needle < 0) {
     renderer.setMortarAim(bearing, null, 0, true);
     renderer.setAimArc(null);
@@ -1173,7 +1212,7 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
     flightSeconds = 0;
     return;
   }
-  const lay = mortarLay(e, needle);
+  const lay = mortarLay(e, needle, a.yaw);
   chargeRange = lay.range;
   const speed = w.minSpeed + (w.speed - w.minSpeed) * lay.charge;
   const d = aimDir(a.yaw, lay.pitch);
@@ -1257,10 +1296,26 @@ function flashLoaded() {
 /** What knocked a gun out (sim OutCause), in a word or two. */
 const CAUSE_SHORT = ["", "its masonry fell", "a direct hit", "chain shot", "a shell"];
 
+/** The repairs that put back the masonry under each emplacement (its sections' kinds), worked out once. */
+const mountKinds = new Map<number, RepairKind[]>();
+function mountRepairs(id: number): RepairKind[] {
+  let k = mountKinds.get(id);
+  if (k) return k;
+  const e = ALL_EMP[id], sections = repairSections(layout), kinds = new Set<RepairKind>();
+  if (e) for (const sec of sections) if (sec.castle === (e.z < -DIST / 2 ? 1 : 0)) for (const p of mountPieces(layout, e)) if (sec.stones.includes(p)) kinds.add(sec.kind);
+  k = REPAIR_KINDS.filter((r) => kinds.has(r));
+  mountKinds.set(id, k);
+  return k;
+}
+
 /** "Out: back in 24 s" (or what it waits for), for a slot of yours. */
 function outShort(i: number): string {
   const id = gid(i), st = gunOut[id * 2] ?? 0, left = gunOut[id * 2 + 1] ?? 0;
-  if (st === 2) return "Out: masonry down";
+  if (st === 2) {
+    // Masons put its masonry back, unless you turned those repairs off: then say which, and the key.
+    const off = matchInfo ? mountRepairs(id).filter((r) => matchInfo!.repairs[r] === false) : [];
+    return off.length ? `Out: ${off[0] === "towers" ? "tower" : off[0] === "walls" ? "wall" : off[0]} repairs off (Alt+${REPAIR_KINDS.indexOf(off[0]) + 1})` : "Out: masonry down";
+  }
   if (st === 3) return "Out: needs gold";
   return `Out: back in ${Math.max(1, Math.ceil(left / 60))} s`;
 }
@@ -1340,6 +1395,7 @@ let tabs: HTMLButtonElement[] = [];
 function buildTabs() {
   const group = $("weapons");
   group.innerHTML = "";
+  outSeen = ""; // the next report marks the new tabs of guns that are out
   tabs = EMP.map((e, i) => {
     const b = document.createElement("button");
     b.dataset.weapon = String(i);
