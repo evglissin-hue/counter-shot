@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, MATCH, ROUTE_NAMES, WAVES } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT, GARRISON, MATCH, ROUTE_NAMES, WAVES } from "@keepfall/content";
 import { MinionState, Order, Role, Spin, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_HASH, runMatchSession, runWaveMatch, Team, WAVE_MATCH_HASH } from "@keepfall/rules";
 
@@ -92,6 +92,28 @@ test("M6: a team's guns nobody mans can be kept off (the guided match's tutor, w
   for (let i = 0; i < 12 * 60; i++) m.step();
   assert.ok(m.autoShots[Team.Player] > 0, `the player's unmanned guns fired ${m.autoShots[Team.Player]} times`);
   assert.equal(m.autoShots[Team.Enemy], 0, "the enemy's crews are not at its guns");
+  m.free();
+});
+
+test("M6 (match rules version 8): at the cap on men standing a castle still tops up its garrison, and a wave musters inside when the enemy is in", () => {
+  const m = new Match(R, layout, { seed: 5, plan: false, gunnery: false, masons: false, orders: [Order.Hold, Order.Hold] });
+  // The player's men wait out in the field up to the cap, and two of its garrison are knocked down.
+  while (m.army.standing(Team.Player) < WAVES.maxStanding) m.army.spawnWave(Team.Player, 0, 8, { x: 45, z: -95 });
+  const field = () => m.world.minions.list.filter((x) => x.team === Team.Player && x.state === MinionState.Upright && x.role === Role.March).length;
+  const out = field();
+  for (const g of m.world.minions.list.filter((x) => x.team === Team.Player && x.role === Role.Garrison).slice(0, 2)) {
+    m.world.minions.knock({ minion: g.id, vx: 0, vy: 0, vz: 0, px: g.x, py: g.y + 1, pz: g.z }, m.tick);
+  }
+  assert.equal(m.army.garrisonCount(Team.Player), GARRISON.size - 2);
+  for (let i = 0; i <= WAVES.first; i++) m.step();
+  assert.equal(m.army.garrisonCount(Team.Player), GARRISON.size, "the garrison is whole again at the cap");
+  assert.equal(field(), out, "no marching wave at the cap");
+  // Enemy men in its courtyard as the next wave is due: it musters inside to defend, cap or not.
+  while (m.tick < WAVES.first + WAVES.every - 3) m.step();
+  const before = m.army.standing(Team.Player);
+  m.army.spawnWave(Team.Enemy, 1, 6, { x: 0, z: -141 });
+  for (let i = 0; i < 6; i++) m.step();
+  assert.ok(m.army.standing(Team.Player) >= before + 6, `a wave mustered inside at the cap (${m.army.standing(Team.Player) - before} more men)`);
   m.free();
 });
 

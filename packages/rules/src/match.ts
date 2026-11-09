@@ -56,7 +56,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 7;
+export const MATCH_RULES_VERSION = 8;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -540,7 +540,11 @@ export class Match {
    * barracks takes the routes in turn until the AI arrives), as many as the
    * team's cap allows. The first tops the garrison up (M4); with the enemy in
    * its courtyard a wave musters inside and defends; and every other wave a
-   * barracks sends from its second carries a ladder.
+   * barracks sends from its second carries a ladder. M6 (match rules version
+   * 8): the garrison's top-up and a wave mustering inside to defend are sent
+   * whatever the cap on men standing: a castle whose men all waited out in the
+   * field kept an empty courtyard (the cap is unseen, so nothing told the
+   * player), and two waves stormed it.
    */
   private sendWaves(team: Team) {
     const plots = this.estate.workingBarracks(team);
@@ -550,16 +554,15 @@ export class Match {
       const route = this.rotate && team === Team.Enemy && plot === 0 ? ENEMY_ROUTES[this.enemyWaves++ % ENEMY_ROUTES.length] : this.estate.barracks[team][plot].route;
       const units = this.estate.waveUnits(team, plot);
       const room = WAVES.maxStanding - this.army.standing(team);
-      let count = room < units.length ? room : units.length;
+      let count = inside ? units.length : room < units.length ? room : units.length;
       this.waves[team]++;
       const n = ++this.plotWaves[team][plot];
       // Side by side: the first in front of the gate, the next to its left and right, then further out.
       const offset = k === 0 ? 0 : (k & 1 ? -1 : 1) * 5.5 * ((k + 1) >> 1);
       k++;
-      if (count <= 0) continue;
       if (this.garrison && k === 1) {
         const short = GARRISON.size - this.army.garrisonCount(team);
-        if (short > 0) count -= this.army.spawnGarrison(team, short < count ? short : count, false);
+        if (short > 0) count -= this.army.spawnGarrison(team, count <= 0 ? short : short < count ? short : count, false);
       }
       if (count <= 0) continue;
       const ladder = !inside && n >= WAVES.ladderFrom && (n - WAVES.ladderFrom) % WAVES.ladderEvery === 0;
