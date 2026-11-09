@@ -10,6 +10,7 @@ import { AiPlayer } from "@keepfall/ai";
 import { GUIDED_OPTIONS, Match, Team, TUTOR_TEAM, type MatchInput } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
+import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { EARN_STRIDE, type FromWorker, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type ToWorker } from "./protocol";
 
@@ -125,6 +126,9 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
 
+/** The lane summary's buffer (the page gets a copy each time: the message is cloned). */
+const lanesBuf = new Int16Array(LANE_COUNT);
+
 function matchInfo(): MatchInfo | null {
   if (!match) return null;
   const ended = !!match.result;
@@ -170,6 +174,7 @@ function matchInfo(): MatchInfo | null {
     stats: ended && !endSent ? [match.stats(Team.Enemy), match.stats(Team.Player)] : null,
     keeps: [keepFloors(match, 0), keepFloors(match, 1)],
     keepFloor: [floorSound(match, 0), floorSound(match, 1)],
+    lanes: laneSummary(match.world.minions.list, L.list, lanesBuf),
     tutor: ai && ai.difficulty === "tutor" ? ai.stage : -1,
     ...estateInfo(match),
   };
