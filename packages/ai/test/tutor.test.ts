@@ -64,7 +64,7 @@ test("an idle player: the tutor sleeps to 4:00, then stirs and raises its barrac
   assert.deepEqual(sent.filter((s) => s.input.kind === "fire"), [], "no fire yet at stage 1");
   assert.ok(!sent.some((s) => s.input.kind === "repair" && s.input.repair === "keep" && s.input.on), "it never switches its keep repair on");
   assert.equal(m.repairs[TUTOR_TEAM].keep, false);
-  assert.equal(m.repairs[TUTOR_TEAM].gate, true, "stirring: the gate is repaired");
+  assert.equal(m.repairs[TUTOR_TEAM].gate, false, "stirring: its gate is never mended (waves must be able to break in)");
   assert.equal(m.repairs[TUTOR_TEAM].walls, false);
   m.free();
 });
@@ -108,7 +108,9 @@ test("a player who builds, then orders Advance, wakes the tutor early; the stage
   assert.ok(!sent.some((s) => s.input.kind === "repair" && s.input.repair === "keep" && s.input.on), "its keep repair is never on");
   assert.ok(!sent.some((s) => s.input.kind === "order" && s.input.order !== Order.Advance), "it only ever orders Advance");
   assert.ok(!sent.some((s) => s.input.kind === "upgrade"), "it never upgrades");
-  assert.equal(m.repairs[TUTOR_TEAM].towers, true, "stage 3: gate, walls and towers");
+  assert.equal(m.repairs[TUTOR_TEAM].towers, true, "stage 3: walls and towers");
+  assert.equal(m.repairs[TUTOR_TEAM].walls, true);
+  assert.equal(m.repairs[TUTOR_TEAM].gate, false, "never its gate");
   assert.equal(m.repairs[TUTOR_TEAM].keep, false);
   m.free();
 });

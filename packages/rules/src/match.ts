@@ -136,6 +136,8 @@ export interface MatchOptions {
   startBuildings?: [Array<{ plot: number; kind: BuildingKind }>, Array<{ plot: number; kind: BuildingKind }>];
   /** M6: each team's standing order at the start, by team (default Advance for both): in the guided match your waves hold until you send them in. */
   orders?: [Order, Order];
+  /** M6: each team's route at the start, by team (default the centre road): in the guided match your waves wait on a flank, off the mortar's line to the enemy keep. */
+  routes?: [RouteName, RouteName];
 }
 
 /** What a team did in a match, for the end screen. */
@@ -311,6 +313,12 @@ export class Match {
     this.timeAt = opts.timeLimitTick ?? MATCH.timeLimitTick;
     if (this.garrison) for (const team of [Team.Enemy, Team.Player]) this.army.spawnGarrison(team, GARRISON.size, true);
     if (opts.orders) for (const team of [Team.Enemy, Team.Player]) this.army.setOrder(team, opts.orders[team]);
+    if (opts.routes) {
+      for (const team of [Team.Enemy, Team.Player]) {
+        this.route[team] = opts.routes[team];
+        this.estate.setRoutes(team, opts.routes[team]);
+      }
+    }
     const works = this.world.works!;
     works.policy = {
       allowed: (team, kind) => this.repairs[team][kind],

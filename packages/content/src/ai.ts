@@ -256,6 +256,12 @@ export const TUTOR = {
   sneak: 2,
   /** Its barracks' mix at each stage (sappers carry kegs from stage 3: something to shoot). */
   mixes: ["pikemen", "pikemen", "pikemen", "breach"] as MixName[],
-  /** What it repairs at each stage (never the keep). */
-  repairs: [[], ["gate"], ["gate", "walls"], ["gate", "walls", "towers"]] as RepairKind[][],
+  /**
+   * What it repairs at each stage: never its keep, and never its gate (the
+   * player's chair: its masons hung gate leaves back as fast as the player's
+   * pikemen battered them off, so waves alone could never break in; ten
+   * minutes of waves at its gate and no storm began). Walls and towers mended
+   * show the masons at work and close the breaches a long gun opens.
+   */
+  repairs: [[], [], ["walls"], ["walls", "towers"]] as RepairKind[][],
 };

@@ -4,6 +4,7 @@
 //   player=idle      no inputs at all
 //   player=newcomer  an AiPlayer at "squire" as team 1 whose order inputs are dropped until advance= seconds (default 300), then let through
 //   player=squire    an unrestricted Squire
+//   player=waves     builds a second barracks at 1:40 and sends its waves in (Advance) at advance= seconds, nothing else (no shot)
 // npx rolldown packages/ai/scripts/guided.ts --format esm --platform node -o node_modules/.scratch/guided.mjs && node node_modules/.scratch/guided.mjs [player=newcomer] [seed=31] [secs=1500] [advance=300]
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
@@ -26,7 +27,11 @@ if (who === "newcomer") {
   };
 }
 const tutor = new AiPlayer(m, TUTOR_TEAM, "tutor", seed);
-const player = who === "idle" ? null : new AiPlayer(m, Team.Player, "squire", seed);
+const player = who === "idle" || who === "waves" ? null : new AiPlayer(m, Team.Player, "squire", seed);
+if (who === "waves") {
+  m.queue(100 * 60, Team.Player, { kind: "build", plot: 2, building: "barracks" });
+  m.queue(advance * 60, Team.Player, { kind: "order", order: 0 });
+}
 const clock = (tick: number) => `${Math.floor(tick / 3600)}:${String(Math.floor(tick / 60) % 60).padStart(2, "0")}`;
 const say = (tick: number, text: string) => console.log(`${clock(tick)} ${text}`);
 const floors = () => `floors ${banner(m, 0).floor.toFixed(1)}/${banner(m, 1).floor.toFixed(1)}`;

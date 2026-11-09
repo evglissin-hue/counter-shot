@@ -374,7 +374,8 @@ body.title-screen .side > * { display: none !important; }
 .tc-kit { display: flex; gap: 5px; min-height: 12px; font: 500 10.5px/12px var(--mono); color: var(--ink); }
 .tc-kit span { display: inline-flex; align-items: center; gap: 1px; }
 .tc-kit svg { width: 10px; height: 10px; color: var(--ink-dim); }
-.tc-mine { position: absolute; right: 4px; top: 2px; font: 600 10.5px/1 var(--mono); font-style: normal; color: var(--mine); }
+.tc-mine { position: absolute; right: 4px; top: 2px; font: 600 10.5px/1 var(--mono); font-style: normal; color: var(--ink-dim); }
+.tc-mine:not(:empty)::before { content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 3px 1px 0; border-radius: 50%; background: var(--mine); vertical-align: middle; }
 .tc-bar { position: absolute; left: 6px; right: 6px; bottom: 3px; height: 3px; border-radius: 2px; background: rgba(236, 228, 210, 0.1); overflow: hidden; }
 .tc-bar u { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(0); background: #cfc7b3; transition: transform 0.5s linear; text-decoration: none; }
 .tc.quiet { opacity: 0.6; }

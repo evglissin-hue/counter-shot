@@ -150,7 +150,7 @@ export class ThreatStrip {
     for (const name of ["Left", "Centre", "Right"]) {
       const root = document.createElement("div");
       root.className = "tc quiet";
-      root.innerHTML = `<span class="tc-name">${name}</span><b class="tc-men"></b><span class="tc-kit"></span><i class="tc-mine"></i><span class="tc-bar"><u></u></span>`;
+      root.innerHTML = `<span class="tc-name">${name}</span><b class="tc-men"></b><span class="tc-kit"></span><i class="tc-mine" title="Your own men on this road"></i><span class="tc-bar"><u></u></span>`;
       el.appendChild(root);
       this.cells.push({ root, men: root.querySelector(".tc-men")!, kit: root.querySelector(".tc-kit")!, mine: root.querySelector(".tc-mine")!, fill: root.querySelector("u")! });
     }
