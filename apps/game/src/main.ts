@@ -2803,6 +2803,11 @@ else {
     send({ t: "spawn", team, count, x, z, ladder });
   },
   toggleOverview,
+  /** Test clock: stop following wall time and step the match this many game seconds (the worker takes 0.2 s a message). */
+  advance(seconds: number) {
+    send({ t: "manual" });
+    for (let t = 0; t < seconds - 1e-9; t += 0.2) send({ t: "advance", seconds: Math.min(0.2, seconds - t) });
+  },
   /** M6: the group marks showing now. */
   get groupMarks() {
     return groupMarks.visible;
