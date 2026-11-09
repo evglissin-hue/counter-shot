@@ -339,7 +339,8 @@ export class Coach {
       if ((info.earned[o] | 0) === this.me && (info.earned[o + 2] | 0) === Earn.KeepHit) this.keepHits++;
     }
     const now = performance.now();
-    this.tips_(info);
+    // Tips only while the match is on (one came six seconds after a win: the frames still in flight).
+    if (!info.result) this.tips_(info);
     if (info.result) {
       // The match is over: the end screen takes over.
       if (this.idx < STEPS.length && info.result.winner === this.me) this.idx = STEPS.length;

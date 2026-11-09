@@ -251,9 +251,11 @@ export const TUTOR = {
    * Its first `sneak` waves come down a road the player's waves are not
    * holding (something to stop with the guns: the guided match's lesson);
    * later ones take the road the player's waves hold or are sent down, so a
-   * castle that never sends its waves is not ground down by the tutor.
+   * castle that never sends its waves is not ground down by the tutor. One:
+   * with two, a castle that never moved was stormed at about 8:00 on two
+   * seeds of five (sixteen men at its gate before its defence mustered).
    */
-  sneak: 2,
+  sneak: 1,
   /** Its barracks' mix at each stage (sappers carry kegs from stage 3: something to shoot). */
   mixes: ["pikemen", "pikemen", "pikemen", "breach"] as MixName[],
   /**
