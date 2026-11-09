@@ -358,7 +358,9 @@ export class Gunner {
     const m = this.m, foe = this.foe;
     const gate = MUSTER[foe];
     const leaves = (this._leaves ??= V.gateLeaves(m));
-    if (V.marchers(m, this.team, gate.x, gate.z, 45) >= 3 && !V.wayIn(m, this.team) && V.gateStands(m, foe, leaves)) {
+    // M6: the tutor never opens a way in for its waves (a castle that never sent its waves had its wall breached
+    // beside the gate and was stormed at 8:00); it shells your keep, where you can watch the damage on the tracker.
+    if (!this.stage && V.marchers(m, this.team, gate.x, gate.z, 45) >= 3 && !V.wayIn(m, this.team) && V.gateStands(m, foe, leaves)) {
       const x = 7 * this.breachSide;
       if (!V.ownNear(m, this.team, x, V.frontFaceZ(foe), 6)) return { key: Aim.Breach, x, y: 1.1, z: V.frontFaceZ(foe), vx: 0, vz: 0 };
       this.breachSide = -this.breachSide;
