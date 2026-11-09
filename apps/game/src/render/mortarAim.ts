@@ -35,6 +35,8 @@ export class MortarAim {
   readonly root = new THREE.Group();
   private dashGeo = new THREE.BufferGeometry();
   private dashPos = new Float32Array(MAX_DASHES * 4 * 3);
+  /** The bearing the dashes were last laid for (they are rebuilt only when it changes). */
+  private laid = { shown: false, x: 0, z: 0, dx: 0, dz: 0, near: 0, far: 0 };
   private dashes: THREE.Mesh[] = [];
   private ring = new THREE.Group();
   private soft: THREE.Mesh;
@@ -165,10 +167,15 @@ export class MortarAim {
    * `near` to `far` metres out, lying on the ground (height(x, z)). Null hides it.
    */
   setBearing(b: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, height: (x: number, z: number) => number) {
+    // Called every frame: rebuilt only when the bearing (or its range) changes.
+    const L = this.laid;
     if (!b) {
-      this.dashGeo.setDrawRange(0, 0);
+      if (L.shown) this.dashGeo.setDrawRange(0, 0);
+      L.shown = false;
       return;
     }
+    if (L.shown && L.x === b.x && L.z === b.z && Math.abs(L.dx - b.dx) < 1e-5 && Math.abs(L.dz - b.dz) < 1e-5 && Math.abs(L.near - b.near) < 0.05 && L.far === b.far) return;
+    Object.assign(L, { shown: true, x: b.x, z: b.z, dx: b.dx, dz: b.dz, near: b.near, far: b.far });
     const p = this.dashPos;
     const rx = -b.dz, rz = b.dx; // across the bearing
     let n = 0;
@@ -178,7 +185,18 @@ export class MortarAim {
       const ax = b.x + b.dx * d, az = b.z + b.dz * d, bx = b.x + b.dx * (d + DASH), bz = b.z + b.dz * (d + DASH);
       const ay = height(ax, az) + 0.12, by = height(bx, bz) + 0.12;
       const o = n * 12;
-      p.set([ax - rx * w0, ay, az - rz * w0, ax + rx * w0, ay, az + rz * w0, bx - rx * w1, by, bz - rz * w1, bx + rx * w1, by, bz + rz * w1], o);
+      p[o] = ax - rx * w0;
+      p[o + 1] = ay;
+      p[o + 2] = az - rz * w0;
+      p[o + 3] = ax + rx * w0;
+      p[o + 4] = ay;
+      p[o + 5] = az + rz * w0;
+      p[o + 6] = bx - rx * w1;
+      p[o + 7] = by;
+      p[o + 8] = bz - rz * w1;
+      p[o + 9] = bx + rx * w1;
+      p[o + 10] = by;
+      p[o + 11] = bz + rz * w1;
       n++;
     }
     (this.dashGeo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;

@@ -628,13 +628,15 @@ export class GameRenderer implements GameRendererApi {
   }
 
   setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean): void {
-    this.mortarAim.setBearing(bearing, (x, z) => this.terrain.heightAt(x, z));
+    this.mortarAim.setBearing(bearing, this.groundHeight);
     this.mortarAim.setRing(ring, radius, soft);
   }
 
   groundAt(x: number, z: number): number {
     return this.terrain.heightAt(x, z);
   }
+  /** The ground's height, as one function (the mortar's marks ask for it every frame). */
+  private readonly groundHeight = (x: number, z: number): number => this.terrain.heightAt(x, z);
 
   setGunOut(emplacement: number, out: boolean, fell = false): void {
     const e = this.emplacementList.find((x) => x.id === emplacement);

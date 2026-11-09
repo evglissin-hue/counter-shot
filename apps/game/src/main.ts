@@ -262,29 +262,46 @@ let ride: Ride | null = null;
 
 /**
  * What your last shot did (after M5, for every shot you fire by hand; a
- * burst's only before): stones near where it came down that started moving
- * (or turned to dust), enemies knocked down and enemy guns knocked out while
- * it settles, shown a moment later.
+ * burst's only before): enemies knocked down from the moment a ball, chain or
+ * grapeshot leaves the muzzle (a chain shot mows men before it first touches
+ * anything) or a shell bursts, stones near where it came down that started
+ * moving (or turned to dust), and enemy guns it knocked out; shown a moment
+ * after it comes down. One shot's tally is open at a time: firing again shows
+ * the open one, so nothing is counted twice.
  */
 const everMoved = new Uint8Array(layout.stones.length);
-let tally: { until: number; stones: number; down0: number; x: number; y: number; z: number; r: number; guns: number } | null = null;
-/** Your shells in flight (by hand): shot id -> where it was last seen (its burst starts a tally). */
-const myShells = new Map<number, { x: number; y: number; z: number }>();
-/** Enemies down now, for a tally: the other side's fallen in a match, everyone down on the Practice range. */
-const foesDown = () => (isMatch() && matchInfo ? matchInfo.fallen[FOE] : lastDown);
-/** Start (or, while one is open, carry on) the tally of a shot that came down at a point. */
-function startTally(x: number, y: number, z: number, ms: number, r: number) {
-  const now = clock();
-  if (tally) {
-    tally.until = Math.max(tally.until, now + ms);
-    return;
-  }
-  tally = { until: now + ms, stones: 0, down0: foesDown(), x, y, z, r, guns: 0 };
+interface Tally {
+  /** The shot and the gun (its match id) that fired it. */
+  shot: number;
+  emp: number;
+  until: number;
+  stones: number;
+  down0: number;
+  guns: number;
+  /** Where it came down, once it has (stones within r of it count). */
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  landed: boolean;
+}
+let tally: Tally | null = null;
+/** Your shells in flight (by hand): shot id -> the gun and where it was last seen (its burst opens its tally). */
+const myShells = new Map<number, { emp: number; x: number; y: number; z: number }>();
+/** Enemies down as of the frame before the one being applied: the other side's fallen in a match, everyone down on the Practice range. */
+const foesDown = () => (isMatch() ? lastFoes : lastDown);
+/** Open a shot's tally (the open one, if any, is shown first). */
+function openTally(shot: number, emp: number, x: number, y: number, z: number, landed: boolean, ms: number, r: number) {
+  if (tally) showTally();
+  tally = { shot, emp, until: clock() + ms, stones: 0, down0: foesDown(), guns: 0, x, y, z, r, landed };
 }
 /** Minions down as of the frame before the one being applied (a burst's own knockdowns count for it). */
 let lastDown = 0;
 /** Minions down as of each frame not yet applied, by tick. */
 const downAt = new Map<number, number>();
+/** The same for the other side's fallen in a match (the match's info runs ahead of the frame being shown). */
+let lastFoes = 0;
+const foesAt = new Map<number, number>();
 let rendererReady = false;
 /** Where in a mason's stroke the mallet strikes (ticks since the stroke began; the renderer's swing matches). */
 const MALLET_HIT = 14;
@@ -333,6 +350,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     }
     stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
     downAt.set(m.frame.tick, m.down);
+    if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
     timeline.push(m.frame);
     if (m.match) onMatch(m.match);
     if (m.bridges) onBridges(m.bridges);
@@ -363,7 +381,8 @@ function onFrame(f: FrameData) {
       if (!auto && yours && e) {
         guide.mark(e.weapon === "longGun" ? "fire" : e.weapon === "mortar" ? "mortar" : "others");
         recording.set(id, { emp: slot, pts: [] });
-        if (e.weapon === "mortar") myShells.set(id, { x: e.x, y: e.y, z: e.z });
+        if (e.weapon === "mortar") myShells.set(id, { emp, x: e.x, y: e.y, z: e.z });
+        else openTally(id, emp, e.x, e.y, e.z, false, 6000, 9);
         if (shotCam[slot] && slot === current) {
           if (e.weapon === "mortar") startRide(id, slot, now);
           else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
@@ -385,15 +404,15 @@ function onFrame(f: FrameData) {
       for (const [id, p] of myShells) {
         if (Math.hypot(a - p.x, b - p.y, c - p.z) > 14) continue;
         myShells.delete(id);
-        startTally(a, b, c, 4200, d * 2.4);
+        openTally(id, p.emp, a, b, c, true, 4200, d * 2.4);
         break;
       }
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
       if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) {
         landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
-        // Your ball, chain or grapeshot came down: what it does is tallied (a shell's burst starts its own).
-        if (ALL_EMP[a]?.weapon !== "mortar") startTally(b, c, d, 2600, 9);
+        // Your ball, chain or grapeshot came down: its tally closes a moment later, counting the stones around here.
+        if (tally && !tally.landed && tally.emp === a) Object.assign(tally, { x: b, y: c, z: d, landed: true, until: clock() + 2600 });
       }
       soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
@@ -415,7 +434,7 @@ function onFrame(f: FrameData) {
     } else if (kind === EventKind.Raised && a >= 0 && a < everMoved.length) {
       everMoved[a] = 0; // M3: a building's piece back up: its next fall counts again
     } else if (kind === EventKind.GunOut) {
-      gunKnockedOut(a, b);
+      gunKnockedOut(a, b, c);
     } else if (kind === EventKind.GunBack) {
       gunBack(a);
     } else if (kind === EventKind.Cracked) {
@@ -442,7 +461,7 @@ function onFrame(f: FrameData) {
     if (id >= 0 && id < everMoved.length && !everMoved[id]) {
       everMoved[id] = 1;
       const st = layout.stones[id];
-      if (tally && Math.hypot(st.x - tally.x, st.y - tally.y, st.z - tally.z) < tally.r) tally.stones++;
+      if (tally && tally.landed && Math.hypot(st.x - tally.x, st.y - tally.y, st.z - tally.z) < tally.r) tally.stones++;
     }
   }
   if (tally && now > tally.until) showTally();
@@ -533,6 +552,8 @@ function onFrame(f: FrameData) {
   }
   lastDown = downAt.get(f.tick) ?? stats.down;
   downAt.delete(f.tick);
+  lastFoes = foesAt.get(f.tick) ?? lastFoes;
+  foesAt.delete(f.tick);
   soundscape.frame(f, ear);
   lastApplied = f;
   renderer.applyFrame(f);
@@ -1107,7 +1128,8 @@ function mortarPose(dt: number): CameraPose {
   const along = fz * dir > 0.2 ? Math.min(40, Math.max(4, (frontZ - e.z) / fz)) : 12;
   // 0: on the wall, looking down at the ground before the gate; 1: over the keep, looking out over the field.
   const t = smooth01((D - 16) / 34);
-  const f = along - 1.2 + (-4 - (along - 1.2)) * t;
+  // Never as far out as where it looks (the mortar turned well to the side meets its front wall far along the bearing).
+  const f = Math.min(along - 1.2 + (-4 - (along - 1.2)) * t, D - 6);
   const h = 13.5 + 13.5 * t;
   const side = 3.2 * (1 - t);
   const x = e.x + fx * f - fz * side, y = e.y + h, z = e.z + fz * f + fx * side;
@@ -1205,15 +1227,12 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
   const [fx, , fz] = aimDir(a.yaw, 0);
   const table = rangeTable(e);
   const bearing = { x: e.x, z: e.z, dx: fx, dz: fz, near: Math.max(6, nearestClear(e, a.yaw)), far: table.range[table.range.length - 1] };
-  if (!charging || charging.slot !== current || needle < 0) {
-    renderer.setMortarAim(bearing, null, 0, true);
-    renderer.setAimArc(null);
-    predicted = null;
-    flightSeconds = 0;
-    return;
-  }
-  const lay = mortarLay(e, needle, a.yaw);
-  chargeRange = lay.range;
+  const live = !!charging && charging.slot === current && needle >= 0;
+  // Not charging, the flight is still worked out (and not shown) for where you let go last, or the middle of the
+  // meter before your first shell: the fuse keys start from its flight time, and the shell ride frames its landing.
+  const m = live ? needle : lastNeedle[current] >= 0 ? lastNeedle[current] : 0.5;
+  const lay = mortarLay(e, m, a.yaw);
+  if (live) chargeRange = lay.range;
   const speed = w.minSpeed + (w.speed - w.minSpeed) * lay.charge;
   const d = aimDir(a.yaw, lay.pitch);
   const easy = aimHelp === "full";
@@ -1226,8 +1245,8 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
   flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
   predicted = p;
   if (easy) aimHit = hit;
-  renderer.setMortarAim(bearing, p, easy && w.burst ? w.burst.radius : RING_SOFT, !easy);
-  renderer.setAimArc(easy ? path : null);
+  renderer.setMortarAim(bearing, live ? p : null, easy && w.burst ? w.burst.radius : RING_SOFT, !easy);
+  renderer.setAimArc(live && easy ? path : null);
 }
 
 /** The keep's top storey is its roof. */
@@ -1341,8 +1360,8 @@ function onGunsOut(out: Int16Array) {
   updateHud(true);
 }
 
-/** A gun was knocked out (sim mounts.ts): a short note, the log, a crash; the model tips over or falls with its masonry. */
-function gunKnockedOut(emp: number, cause: number) {
+/** A gun was knocked out (sim mounts.ts; `shot` is the shot that did it, -1 when its masonry fell): a short note, the log, a crash; the model tips over or falls with its masonry. */
+function gunKnockedOut(emp: number, cause: number, shot: number) {
   const e = ALL_EMP[emp];
   if (!e) return;
   sound.woodHit(e.x, e.y, e.z, 1);
@@ -1354,7 +1373,8 @@ function gunKnockedOut(emp: number, cause: number) {
     showNote(`Your ${name} is out: ${CAUSE_SHORT[cause]}`, 4000);
     if (isMatch()) logMoment(`Your ${name} was knocked out (${CAUSE_SHORT[cause]})`, true);
   } else {
-    if (tally) tally.guns++;
+    // Your open tally's shot did it, or the masonry it brought down under the gun.
+    if (tally && (shot === tally.shot || (shot < 0 && tally.landed && Math.hypot(e.x - tally.x, e.z - tally.z) < tally.r + 8))) tally.guns++;
     showNote(`Enemy ${name} silenced`, 3500);
     if (isMatch()) logMoment(`You silenced the enemy ${name}`);
   }
@@ -1367,8 +1387,8 @@ function gunBack(emp: number) {
   renderer.setGunOut(emp, false);
   const slot = emp - BASE;
   if (slot >= 0 && slot < EMP.length && !e.empty) {
-    showNote(`Your ${WEAPONS[e.weapon].name.toLowerCase()} is back`, 2600);
-    sound.ready(e.weapon);
+    // Its crew has it on its mount again and loads it from empty: the loaded clack comes when it is ready.
+    showNote(`Your ${WEAPONS[e.weapon].name.toLowerCase()} is back, reloading`, 2600);
   }
 }
 
@@ -1761,11 +1781,14 @@ function resetLocal() {
   myShells.clear();
   gunOut = new Int16Array(0);
   outSeen = "";
+  spot.primed = false; // the next spotter view starts where it is wanted, not swooping over from the old castle
   for (let i = 0; i < ALL_EMP.length; i++) renderer.setGunOut(i, false);
   tabs.forEach((b) => b.classList.remove("out"));
   renderer.resetWorld();
   timeline.reset();
   downAt.clear();
+  foesAt.clear();
+  lastFoes = 0;
   everMoved.fill(0);
   tally = null;
   trails.fill(null);
@@ -2614,7 +2637,10 @@ function frame(wall: number) {
   requestAnimationFrame(frame);
 }
 
+// Leaving the page mid-charge (another tab or window) drops the charge: the keys let go on blur, and that is no release to fire on.
+window.addEventListener("blur", () => cancelCharge());
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cancelCharge();
   paused = document.hidden;
   send({ t: "pause", paused: paused || userPause });
   sound.setPaused(paused || userPause);

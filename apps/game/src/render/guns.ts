@@ -13,6 +13,8 @@ import type { N } from "./tslUtils";
 interface Gun {
   em: Emplacement;
   root: THREE.Group;
+  /** The gun itself (its carriage, bed or yoke and barrel) over what it stands on (a tower's deck, a platform, a post): it tips over on its own. */
+  tip: THREE.Group;
   yaw: THREE.Group;
   pitch: THREE.Group;
   active: { value: number };
@@ -164,11 +166,13 @@ export class Guns {
       const root = new THREE.Group();
       root.name = `gun-${em.id}-${em.weapon}`;
       root.position.set(em.x, em.y, em.z);
+      const tip = new THREE.Group();
       const yaw = new THREE.Group();
       const pitch = new THREE.Group();
-      root.add(yaw);
+      root.add(tip);
+      tip.add(yaw);
       yaw.add(pitch);
-      const gun: Gun = { em: { ...em }, root, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0, iron, armed: "", out: false, fell: false, dropY: 0, dropV: 0, tumble: 0, groundY: 0, tipYaw: (em.id * 2.399) % (Math.PI * 2) };
+      const gun: Gun = { em: { ...em }, root, tip, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0, iron, armed: "", out: false, fell: false, dropY: 0, dropV: 0, tumble: 0, groundY: 0, tipYaw: (em.id * 2.399) % (Math.PI * 2) };
       this.guns.push(gun);
       this.root.add(root);
       this.mount(gun, em);
@@ -180,9 +184,9 @@ export class Guns {
 
   /** Build (or take down) a gun's model for what its slot holds now: nothing in an empty slot (M3). */
   private mount(g: Gun, em: Emplacement) {
-    for (const group of [g.root, g.yaw, g.pitch]) {
+    for (const group of [g.root, g.tip, g.yaw, g.pitch]) {
       for (const child of [...group.children]) {
-        if (child === g.yaw || child === g.pitch) continue;
+        if (child === g.tip || child === g.yaw || child === g.pitch) continue;
         group.remove(child);
         child.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       }
@@ -284,6 +288,8 @@ export class Guns {
     if (!out) {
       g.root.position.set(g.em.x, g.em.y, g.em.z);
       g.root.rotation.set(0, 0, 0);
+      g.tip.position.set(0, 0, 0);
+      g.tip.rotation.set(0, 0, 0);
     }
   }
 
@@ -310,9 +316,15 @@ export class Guns {
     }
   }
 
-  /** A knocked-out gun: tipping over on its bed, or falling with its masonry and coming to rest on the ground. */
+  /**
+   * A knocked-out gun: tipping over on its bed (what it stands on stays put:
+   * a tower's deck, a wall gun's platform, a swivel's post), or falling with
+   * its masonry, all of it, and coming to rest on the ground.
+   */
   private animateOut(g: Gun, dt: number) {
     const em = g.em;
+    // Tip about a horizontal axis turned by tipYaw.
+    const ax = Math.cos(g.tipYaw), az = Math.sin(g.tipYaw);
     if (g.fell) {
       const floor = g.groundY + 0.35 - em.y;
       if (g.dropY > floor) {
@@ -320,14 +332,15 @@ export class Guns {
         g.dropY = Math.max(floor, g.dropY + g.dropV * dt);
         g.tumble = Math.min(Math.PI * 0.62, g.tumble + dt * 2.2);
       }
+      g.root.position.set(em.x, em.y + g.dropY, em.z);
+      g.root.rotation.set(ax * g.tumble, 0, az * g.tumble);
     } else {
       // Over on its side, a little lower: smashed, its crew gone.
       g.dropY += (-0.3 - g.dropY) * Math.min(1, dt * 5);
       g.tumble += (Math.PI * 0.42 - g.tumble) * Math.min(1, dt * 6);
+      g.tip.position.set(0, g.dropY, 0);
+      g.tip.rotation.set(ax * g.tumble, 0, az * g.tumble);
     }
-    g.root.position.set(em.x, em.y + g.dropY, em.z);
-    // Tip about a horizontal axis turned by tipYaw.
-    g.root.rotation.set(Math.cos(g.tipYaw) * g.tumble, 0, Math.sin(g.tipYaw) * g.tumble);
   }
 
   dispose() {
