@@ -44,6 +44,8 @@ export class Guide {
   private kind: GuideKind | null = null;
   private done = new Set<GuideStep>();
   private hideTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Told of every mark, listed or not (the guided match's coach reads the player's own doings from here). */
+  onMark: ((step: GuideStep) => void) | null = null;
 
   constructor(
     private el: HTMLElement,
@@ -81,6 +83,7 @@ export class Guide {
 
   /** Something the player just did: tick it off if this guide lists it. */
   mark(step: GuideStep) {
+    this.onMark?.(step);
     const kind = this.kind;
     if (!kind || this.el.hidden || this.done.has(step) || !STEPS[kind].some((s) => s.id === step)) return;
     this.done.add(step);

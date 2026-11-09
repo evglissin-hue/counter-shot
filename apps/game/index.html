@@ -390,6 +390,34 @@ body.title-screen .side > * { display: none !important; }
 .guide-head b { font: 600 11px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
 .guide p { font: 400 13px/1.35 var(--ui); }
 .guide li { font-size: 13px; }
+/* M6 coach */
+.choice b .tag { display: inline-block; margin-left: 8px; padding: 3px 7px; vertical-align: 3px; border-radius: 4px; background: var(--brass); color: var(--brass-ink); font: 600 10.5px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; }
+.choice b .tag[hidden] { display: none; }
+.choice b:has(.tag)::after { content: none; }
+.coach { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(24px + var(--top-h, 40px) + env(safe-area-inset-top, 0px)); width: 248px; padding: 11px 13px 10px; display: grid; gap: 6px; animation: note-in 260ms ease-out; }
+.coach[hidden] { display: none; }
+.coach-step { font: 600 11px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+.coach-title { font: 600 15px/1.2 var(--ui); color: var(--brass); }
+.coach.done .coach-title { color: var(--ink); }
+.coach-how { margin: 0; font: 400 13px/1.35 var(--ui); color: var(--ink); }
+.coach-how[hidden] { display: none; }
+.coach-how kbd { height: 16px; min-width: 16px; padding: 0 4px; margin: 0 1px; font-size: 10.5px; }
+.coach .nw { white-space: nowrap; }
+.coach-btns { display: flex; gap: 6px; justify-content: flex-end; }
+.coach-btns button { padding: 3px 8px; font-size: 12px; background: transparent; color: var(--ink-dim); border: 0; }
+.coach-btns button:hover { color: var(--ink); text-decoration: underline; }
+.coach-hl { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 6px; animation: coach-pulse 1.6s ease-in-out infinite; }
+@keyframes coach-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(201, 154, 70, 0.55), 0 0 6px 1px rgba(201, 154, 70, 0.35); } 50% { box-shadow: 0 0 0 5px rgba(201, 154, 70, 0.1), 0 0 16px 4px rgba(201, 154, 70, 0.7); } }
+.coach-marks { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.cmark { position: absolute; left: 0; top: 0; will-change: transform; }
+.cmark .ring { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; box-sizing: border-box; border: 2px solid var(--brass); border-radius: 50%; box-shadow: 0 0 10px rgba(201, 154, 70, 0.8), inset 0 0 6px rgba(201, 154, 70, 0.5); animation: coach-ring 1.6s ease-in-out infinite; }
+@keyframes coach-ring { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.25); opacity: 0.7; } }
+.cmark span { position: absolute; left: 22px; top: -9px; white-space: nowrap; padding: 3px 8px; border-radius: 5px; background: rgba(14, 12, 10, 0.78); color: var(--brass); font: 600 12px/1.2 var(--ui); border: 1px solid rgba(201, 154, 70, 0.5); }
+.cmark.flip span { left: auto; right: 22px; }
+.cmark .arrow { display: none; position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; }
+.cmark .arrow::after { content: ""; position: absolute; left: 20px; top: 0; border-left: 10px solid var(--brass); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+.cmark.edge .arrow { display: block; }
+@media (prefers-reduced-motion: reduce) { .coach, .coach-hl, .cmark .ring { animation: none; } .coach-hl { box-shadow: 0 0 10px 2px rgba(201, 154, 70, 0.6); } }
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -510,6 +538,13 @@ body.title-screen .side > * { display: none !important; }
     <p class="small" id="guide-goal"></p>
     <ol id="guide-steps"></ol>
   </aside>
+  <aside id="coach" class="coach glass" hidden aria-live="polite">
+    <div class="coach-step" id="coach-step"></div>
+    <b class="coach-title" id="coach-title"></b>
+    <p class="coach-how" id="coach-how"></p>
+    <div class="coach-btns"><button id="coach-skip" title="Skip this step">Skip</button><button id="coach-hide" title="Hide the coach (Controls brings it back)">Hide</button></div>
+  </aside>
+  <div id="coach-marks" class="coach-marks" aria-hidden="true"><div id="coach-mark" class="cmark" hidden><i class="ring"></i><b id="coach-mark-arrow" class="arrow"></b><span id="coach-mark-label"></span></div></div>
   <div id="charge" class="charge glass" hidden aria-hidden="true">
     <div class="track"><i id="charge-fill"></i><b id="charge-last" hidden></b></div>
     <span id="charge-text" class="small"></span>
@@ -529,6 +564,7 @@ body.title-screen .side > * { display: none !important; }
       <h1 id="menu-title">Keepfall</h1>
       <p>Two castles across a valley. Man the siege guns and bring down the enemy keep.</p>
       <div class="choices" id="choices">
+        <button class="choice" id="guided-go"><b>Guided match <span class="tag" id="guided-tag">Start here</span></b><span>New here? A real match against a castle that wakes up slowly. Prompts show you each thing as you need it.</span></button>
         <button class="choice" data-mode="practice"><b>Practice range</b><span>Every gun against a target castle and a patrol of pikemen. No clock, no enemy.</span></button>
         <div class="choice versus">
           <button class="choice-go" id="versus-go"><b>Versus AI</b><span>A full match against a castle that builds, fires and sends waves. Bring down its keep or storm its courtyard.</span></button>
@@ -561,6 +597,7 @@ body.title-screen .side > * { display: none !important; }
       <ul class="log" id="end-log" aria-label="What happened"></ul>
       <div class="actions">
         <button class="primary" id="end-again">Play again</button>
+        <button id="end-guided" hidden>Play the guided match again</button>
         <button id="end-practice">Practice range</button>
         <button id="end-look">Look around</button>
       </div>
