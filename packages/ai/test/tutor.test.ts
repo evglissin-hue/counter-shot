@@ -92,6 +92,7 @@ test("a player who builds, then orders Advance, wakes the tutor early; the stage
   play(fightsAt + 1);
   assert.equal(ai.stage, 3);
   assert.equal(stageAt[3], fightsAt, "stage 3 comes 150 s after stage 2");
+  play(fightsAt + 8 * 60); // its next look at its castle
   assert.ok(stageAt[0] < stageAt[1] && stageAt[1] < stageAt[2] && stageAt[2] < stageAt[3], "in order, none skipped");
 
   // What it fired, and with what: by hand only from stage 2 (the long gun), the mortar only from stage 3.
@@ -133,7 +134,8 @@ test("the guided match replays to its pinned hash, and the tutor stirs, wakes an
   const a = runGuidedMatch(R);
   console.log("guided match", JSON.stringify(a));
   assert.deepEqual(a.hash, GUIDED_MATCH_HASH);
-  assert.equal(a.stages[0], 0, "asleep at 1:29");
-  assert.ok(a.stages[a.stages.length - 1] >= 2, "awake by the end");
+  assert.equal(a.stageTicks[1], TUTOR.stirsFrom * 60, "the mill at 0:20 stirs it at 1:30");
+  assert.ok(a.stageTicks[2] > a.stageTicks[1] && a.stageTicks[2] <= 7300, "the order at 2:00 wakes it");
+  assert.equal(a.stageTicks[3], a.stageTicks[2] + TUTOR.fightsAfter * 60, "it fights 150 s later");
   assert.ok(a.shots[TUTOR_TEAM] > 0 && a.shots[Team.Player] >= 3);
 });

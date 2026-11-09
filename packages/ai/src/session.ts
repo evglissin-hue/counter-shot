@@ -47,28 +47,29 @@ export function runAiMatch(R: Rapier, ticks = AI_MATCH_TICKS, levels: [Difficult
 // The guided match (phase 2 M6): the player against the tutor from the guided
 // options (the tutor's castle starts with no barracks, the player's waves wait
 // on Hold), for five minutes of match time. The player builds a mill, shoots at
-// the keep with the long gun, sends its waves in with Advance and builds a
-// second barracks; the tutor stirs at 1:30 (the mill is up), wakes when the
-// order is given and fights 150 s later. It pins the tutor's stages and every
-// choice it makes.
+// the keep with the long gun, orders Advance for a moment (and Hold again) and
+// builds a second barracks; the tutor stirs at 1:30, wakes when the order is
+// given and fights 150 s later. It pins the tutor's stages and every choice it makes.
 
 export const GUIDED_MATCH_TICKS = 5 * 60 * 60;
 
 /** Pinned: change only on purpose (and bump RULES_VERSION or MATCH_RULES_VERSION when play changes). */
-export const GUIDED_MATCH_HASH = { state: "00000000", world: "00000000" } as const;
+export const GUIDED_MATCH_HASH = { state: "5dec0c32", world: "605e3a06" } as const;
 
 const guidedFire = (yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 
 export const GUIDED_MATCH_SCRIPT: Array<[number, MatchInput]> = [
   [0, { kind: "man", emplacement: 0 }],
   [1200, { kind: "build", plot: 1, building: "mill" }],
-  [2400, guidedFire(0, 0.03)],
-  [3600, guidedFire(0, 0.03)],
-  [4800, guidedFire(0, 0.03)],
-  [9000, { kind: "order", order: Order.Advance }],
+  [2400, guidedFire(0, 0.06)],
+  [3600, guidedFire(0, 0.06)],
+  [4800, guidedFire(0, 0.06)],
+  [7200, { kind: "order", order: Order.Advance }], // 30 s after the tutor stirs: it wakes
+  [7260, { kind: "order", order: Order.Hold }], // (sent in for longer, the waves would storm a sleeping castle and end the match)
+  [16500, { kind: "order", order: Order.Advance }],
   [10000, { kind: "build", plot: 2, building: "barracks" }],
-  [12000, guidedFire(0, 0.03)],
-  [14000, guidedFire(0, 0.03)],
+  [12000, guidedFire(0, 0.06)],
+  [14000, guidedFire(0, 0.06)],
 ];
 
 export interface GuidedMatchResult {
