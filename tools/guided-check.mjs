@@ -182,12 +182,29 @@ try {
   for (let i = 0; i < 4; i++) { await press("#coach-skip"); await page.waitForTimeout(300); }
   await expect(...stepIs(6));
   await expect("step 6 reached in turn waits: the enemy castle is still asleep, no ring", () => /still asleep/.test(document.getElementById("coach-how").textContent) && document.querySelectorAll(".coach-hl").length === 0);
+  // Step 7 interrupts too once your waiting men are many and the tutor is awake (at the cap your barracks cannot top up your garrison).
+  await patch({ tutor: 1, order: 1, standing: [4, 80], garrison: [4, 4] });
+  await expect("a field full of your waiting men interrupts: Step 7 of 9, Send your waves in", () => window.__sandbox.coach.state.step === 6 && /Step 7 of 9/.test(document.getElementById("coach-step").textContent) && /Send your waves in/.test(document.getElementById("coach-title").textContent));
+  await expect("it rings the route and order buttons", () => document.querySelectorAll('#command [data-order].coach-hl').length === 3);
+  await patch({ order: 0 });
+  await expect("Advance ticks it, then step 6 comes back, waiting for their first wave", () => window.__sandbox.coach.state.step === 5 && /Step 6 of 9/.test(document.getElementById("coach-step").textContent) && /not out yet/.test(document.getElementById("coach-how").textContent), null, 60000);
+  await patch({ tutor: 1, order: 1, standing: [12, 80], garrison: [4, 4] });
+  await expect("their wave out: step 6 asks, and step 7 (done) does not interrupt it again", () => window.__sandbox.coach.state.step === 5 && /Stop their wave/.test(document.getElementById("coach-title").textContent) && /Enemy wave coming/.test(document.getElementById("coach-how").textContent));
+  await patch({ standing: [4, 80] });
+  await expect("step 6 done: step 7 is passed over, on to step 8", () => window.__sandbox.coach.state.step === 7 && /Step 8 of 9/.test(document.getElementById("coach-step").textContent), null, 60000);
+  await patch(null);
 
   // ---- a loss ----
   await page.evaluate(() => window.__sandbox.surrender());
   await expect("a loss: the enemy won this time, Try again", () => !document.getElementById("end").hidden && document.getElementById("end-title").textContent === "Defeat" && document.getElementById("end-line").textContent === "The enemy won this time." && document.getElementById("end-again").textContent === "Try again" && document.getElementById("end-guided").hidden && document.getElementById("coach").hidden, null, 60000);
   await press("#end-again");
   await expect("Try again starts the guided match anew", () => window.__sandbox.mode === "guided" && document.getElementById("end").hidden && !document.getElementById("coach").hidden && /Step 1 of 9/.test(document.getElementById("coach-step").textContent));
+  // Two minutes of match time on one step: the Skip button pulses.
+  await expect(...noRing("#coach-skip"));
+  const t0 = await page.evaluate(() => window.__sandbox.match.tick);
+  await patch({ tick: t0 + 121 * 60 });
+  await expect(...hasRing("#coach-skip"));
+  await patch(null);
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   console.log(failed ? `${failed} failed` : "all passed");

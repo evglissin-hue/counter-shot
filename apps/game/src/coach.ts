@@ -30,6 +30,8 @@ interface Ctx {
   outside: number;
   /** Enemy men fallen since this step began. */
   fallenSince: number;
+  /** Your men standing out of your courtyard (waiting at the marker while your order is Hold). */
+  held: number;
   /** The gun tab and charge state of the page (highlights only). */
   weapon: number;
   charging: boolean;
@@ -52,6 +54,17 @@ interface Step {
 
 /** Stop their wave: the step that may interrupt an earlier one (the tutor stirs by 4:00 at the latest). */
 const WAVE_STEP = 5;
+/**
+ * Send your waves in: it interrupts too, once the men waiting at your marker
+ * are many while the tutor is awake. Your waves start on Hold; at the cap on
+ * men standing (WAVES.maxStanding, 96) your barracks cannot even top up your
+ * garrison, and two of the tutor's waves could storm a courtyard nobody holds.
+ */
+const SEND_STEP = 6;
+/** Your men waiting out of your courtyard that make step 7 interrupt (eight waves; the cap is twelve). */
+const HELD_MANY = 64;
+/** A step asked this long (ticks of match time) without being done gets its Skip button pulsing; not the last two (a siege takes its time). */
+const STUCK_TICKS = 120 * 60;
 const TABS = (n: number) => `#weapons [data-weapon="${n}"]`;
 const KBD = (k: string) => `<kbd>${k}</kbd>`;
 
@@ -125,6 +138,12 @@ const STEPS: Step[] = [
 ];
 
 /** Tips, once each, as notes (not steps). */
+/** Steps that come whatever the player is doing, each interrupting an earlier step once (the first that holds wins). */
+const INTERRUPTS: Array<{ step: number; when(c: Ctx): boolean }> = [
+  { step: WAVE_STEP, when: (c) => !!STEPS[WAVE_STEP].ready?.(c) },
+  { step: SEND_STEP, when: (c) => c.stage >= 1 && c.info.order === 1 && c.held >= HELD_MANY },
+];
+
 const STAGE_TIPS: Record<number, string> = {
   1: "The enemy wakes: it is raising a barracks",
   2: "Their long gun is manned now",
@@ -165,10 +184,12 @@ export class Coach {
   private afterUntil = 0;
   private afterText = "";
   private begun = false;
-  /** Step 6 (Stop their wave) is done or skipped: it interrupts once, never again. */
-  private waveDone = false;
-  /** The step an interruption by step 6 left waiting (null: none). */
+  /** Steps done or skipped as interruptions (INTERRUPTS): each interrupts once, never again, and is passed over in turn. */
+  private doneOut = new Set<number>();
+  /** The step an interruption left waiting (null: none). */
   private resume: number | null = null;
+  /** The match tick the current step began to be asked (for the Skip nudge). */
+  private askedTick = 0;
   /** The how-line while a stage-dependent step waits for its stage. */
   private waitText = "";
   private fallenBase = 0;
@@ -227,8 +248,9 @@ export class Coach {
     this.idx = 0;
     this.phase = "ask";
     this.begun = false;
-    this.waveDone = false;
+    this.doneOut.clear();
     this.resume = null;
+    this.askedTick = 0;
     this.info = null;
     this.aimed = this.overviewed = this.barracks2 = this.foeBarracks = this.downTip = false;
     this.keepHits = 0;
@@ -361,6 +383,7 @@ export class Coach {
       keepHits: this.keepHits,
       barracks2: this.barracks2,
       outside: Math.max(0, info.standing[this.foe] - info.garrison[this.foe]),
+      held: Math.max(0, info.standing[this.me] - info.garrison[this.me]),
       fallenSince: info.fallen[this.foe] - this.fallenBase,
       weapon: this.lastWeapon,
       charging: this.lastCharging,
@@ -371,17 +394,23 @@ export class Coach {
   private advance(now: number) {
     for (let guard = 0; guard < STEPS.length + 2; guard++) {
       if (this.idx >= STEPS.length) break;
-      // The tutor's first wave comes whatever the player is doing: step 6 interrupts an earlier step, once.
-      if (this.idx < WAVE_STEP && !this.waveDone) {
+      // Some steps come whatever the player is doing (the tutor's first wave; a field full of your waiting men):
+      // each interrupts an earlier step once, and the coach goes back to the earliest step not done after it.
+      if (this.resume === null) {
         const w = this.ctx();
-        const step = STEPS[WAVE_STEP];
-        if (w && step.ready?.(w)) {
-          this.resume = this.phase === "after" ? this.idx + 1 : this.idx;
-          this.idx = WAVE_STEP;
-          this.phase = "ask";
-          this.begun = false;
-          this.afterText = "";
-          this.cardKey = "";
+        if (w) {
+          for (const it of INTERRUPTS) {
+            if (this.idx >= it.step || this.doneOut.has(it.step) || !it.when(w)) continue;
+            // A wave being fought off comes first: nothing interrupts it.
+            if (this.idx === WAVE_STEP && this.begun) break;
+            this.resume = this.phase === "after" ? this.idx + 1 : this.idx;
+            this.idx = it.step;
+            this.phase = "ask";
+            this.begun = false;
+            this.afterText = "";
+            this.cardKey = "";
+            break;
+          }
         }
       }
       if (this.phase === "after") {
@@ -399,6 +428,7 @@ export class Coach {
         }
         this.waitText = "";
         this.begun = true;
+        this.askedTick = c.info.tick;
         this.fallenBase = c.info.fallen[this.foe];
         c.fallenSince = 0;
         // Already true as it comes up: ticked at once, no follow-up.
@@ -430,16 +460,14 @@ export class Coach {
   }
 
   private next(now: number) {
-    if (this.idx === WAVE_STEP) {
-      this.waveDone = true;
-      if (this.resume !== null) {
-        // Back to the earliest step not yet done.
-        this.idx = this.resume - 1;
-        this.resume = null;
-      }
+    if (this.resume !== null) {
+      // An interruption is over: back to the earliest step not yet done.
+      this.doneOut.add(this.idx);
+      this.idx = this.resume - 1;
+      this.resume = null;
     }
     this.idx++;
-    if (this.idx === WAVE_STEP && this.waveDone) this.idx++;
+    while (this.doneOut.has(this.idx)) this.idx++;
     this.phase = "ask";
     this.begun = false;
     this.afterText = "";
@@ -486,7 +514,10 @@ export class Coach {
       return;
     }
     const waiting = this.phase === "ask" && !this.begun;
-    this.setHighlights(waiting ? [] : this.phase === "after" ? (step.followHighlights ?? []) : step.highlights(c));
+    const hl = waiting ? [] : this.phase === "after" ? (step.followHighlights ?? []) : step.highlights(c);
+    // Long on one step (stuck on the mortar, say): the Skip button pulses, so it is plain the coach can move on.
+    const stuck = this.phase === "ask" && this.begun && this.idx < STEPS.length - 2 && c.info.tick - this.askedTick > STUCK_TICKS;
+    this.setHighlights(stuck ? [...hl, "#coach-skip"] : hl);
     const m = step.mark;
     if (!m || this.phase === "after" || waiting || !r.marksOn) {
       this.mark.hidden = true;
