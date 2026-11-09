@@ -106,6 +106,8 @@ export class Gunner {
     private L: AiLevel,
     private rng: Rng,
     private send: (tick: number, input: MatchInput) => void,
+    /** M6: the tutor's stage (its hand is still before stage 2, its mortar silent before stage 3); null for every other AI. */
+    private stage: (() => number) | null = null,
   ) {
     // No shot by hand before its warm-up is over (it takes and lays its gun meanwhile).
     this.readyAt = L.warmup;
@@ -120,6 +122,7 @@ export class Gunner {
     const first = firstSlot(this.team);
     const out: Emplacement[] = [];
     const mounts = this.m.world.mounts;
+    if (this.stage && kind === "mortar" && this.stage() < 3) return out;
     for (let i = first; i < first + SLOTS_PER_CASTLE; i++) {
       const e = this.m.emplacements[i];
       if (e && !e.empty && e.weapon === kind && mounts.up(i)) out.push(e);
@@ -185,6 +188,8 @@ export class Gunner {
   }
 
   step(tick: number) {
+    // The tutor asleep or stirring takes no gun, lays none and fires none.
+    if (this.stage && this.stage() < 2) return;
     this.learn(tick);
     this.watch(tick);
     // After M5: the gun it rides was knocked out: drop what it was laying on and look again.
