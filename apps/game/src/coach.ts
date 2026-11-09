@@ -50,13 +50,15 @@ interface Step {
   mark?: { kind: MarkKind; label: string };
 }
 
+/** Stop their wave: the step that may interrupt an earlier one (the tutor stirs by 4:00 at the latest). */
+const WAVE_STEP = 5;
 const TABS = (n: number) => `#weapons [data-weapon="${n}"]`;
 const KBD = (k: string) => `<kbd>${k}</kbd>`;
 
 const STEPS: Step[] = [
   {
     title: "Take the long gun",
-    how: `Click the field: the mouse aims (or <span class="nw">${KBD("W")} ${KBD("A")} ${KBD("S")} ${KBD("D")})</span>.`,
+    how: `Click the field: the mouse aims <span class="nw">(or ${KBD("W")} ${KBD("A")} ${KBD("S")} ${KBD("D")})</span>.`,
     test: (c) => c.aimed,
     highlights: () => [],
   },
@@ -154,11 +156,6 @@ const SIGHT_CLEAR = 60;
 const EDGE = 34;
 
 export class Coach {
-  /** Test only: the tutor's stage as the coach sees it (null: the match's own). */
-  stageOverride: number | null = null;
-  /** Test only: fields of the match info the coach sees instead of the match's own. */
-  override: Partial<MatchInfo> | null = null;
-
   private active = false;
   private hidden = false;
   private me: 0 | 1 = 1;
@@ -168,6 +165,10 @@ export class Coach {
   private afterUntil = 0;
   private afterText = "";
   private begun = false;
+  /** Step 6 (Stop their wave) is done or skipped: it interrupts once, never again. */
+  private waveDone = false;
+  /** The step an interruption by step 6 left waiting (null: none). */
+  private resume: number | null = null;
   /** The how-line while a stage-dependent step waits for its stage. */
   private waitText = "";
   private fallenBase = 0;
@@ -226,13 +227,13 @@ export class Coach {
     this.idx = 0;
     this.phase = "ask";
     this.begun = false;
+    this.waveDone = false;
+    this.resume = null;
     this.info = null;
     this.aimed = this.overviewed = this.barracks2 = this.foeBarracks = this.downTip = false;
     this.keepHits = 0;
     this.tips.clear();
     this.enemy = null;
-    this.stageOverride = null;
-    this.override = null;
     this.cardKey = "";
     this.draw();
   }
@@ -309,9 +310,8 @@ export class Coach {
   }
 
   /** The match as the worker reports it, once per frame. */
-  onMatch(raw: MatchInfo) {
+  onMatch(info: MatchInfo) {
     if (!this.active) return;
-    const info = this.override ? { ...raw, ...this.override } : raw;
     this.info = info;
     for (let o = 0; o + EARN_STRIDE <= info.earned.length; o += EARN_STRIDE) {
       if ((info.earned[o] | 0) === this.me && (info.earned[o + 2] | 0) === Earn.KeepHit) this.keepHits++;
@@ -331,7 +331,7 @@ export class Coach {
 
   /** Tutor tips and the first stone down, once each, through the page's note column. */
   private tips_(info: MatchInfo) {
-    const stage = this.stageOverride ?? info.tutor;
+    const stage = info.tutor;
     let top = 0;
     for (let s = 1; s <= 3; s++) {
       if (stage >= s && !this.tips.has(s)) {
@@ -354,7 +354,7 @@ export class Coach {
       info,
       me: this.me,
       foe: this.foe,
-      stage: this.stageOverride ?? info.tutor,
+      stage: info.tutor,
       aimed: this.aimed,
       overviewed: this.overviewed,
       keepHits: this.keepHits,
@@ -368,8 +368,21 @@ export class Coach {
 
   /** Move on when the current step's test holds (and past steps already true are ticked at once). */
   private advance(now: number) {
-    for (let guard = 0; guard < STEPS.length + 1; guard++) {
+    for (let guard = 0; guard < STEPS.length + 2; guard++) {
       if (this.idx >= STEPS.length) break;
+      // The tutor's first wave comes whatever the player is doing: step 6 interrupts an earlier step, once.
+      if (this.idx < WAVE_STEP && !this.waveDone) {
+        const w = this.ctx();
+        const step = STEPS[WAVE_STEP];
+        if (w && step.ready?.(w)) {
+          this.resume = this.phase === "after" ? this.idx + 1 : this.idx;
+          this.idx = WAVE_STEP;
+          this.phase = "ask";
+          this.begun = false;
+          this.afterText = "";
+          this.cardKey = "";
+        }
+      }
       if (this.phase === "after") {
         if (now >= this.afterUntil) this.next(now);
         else break;
@@ -416,7 +429,16 @@ export class Coach {
   }
 
   private next(now: number) {
+    if (this.idx === WAVE_STEP) {
+      this.waveDone = true;
+      if (this.resume !== null) {
+        // Back to the earliest step not yet done.
+        this.idx = this.resume - 1;
+        this.resume = null;
+      }
+    }
     this.idx++;
+    if (this.idx === WAVE_STEP && this.waveDone) this.idx++;
     this.phase = "ask";
     this.begun = false;
     this.afterText = "";

@@ -155,6 +155,8 @@ const hashMode: Mode | null = location.hash.includes("guided") ? "guided" : loca
 for (const d of ["squire", "knight", "warlord"] as const) if (location.hash.includes(`versus=${d}`)) difficulty = d;
 /** The match as the worker last reported it (Versus AI only). */
 let matchInfo: MatchInfo | null = null;
+/** Test only: fields laid over every match report (a test sets the tutor's stage, a storm, a result). */
+let matchPatch: Partial<MatchInfo> | null = null;
 let endShownFor = -1;
 let endTimer: ReturnType<typeof setTimeout> | undefined;
 /** Can each bridge still be crossed (layout order), and is the walk overlay on. */
@@ -359,7 +361,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     downAt.set(m.frame.tick, m.down);
     if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
     timeline.push(m.frame);
-    if (m.match) onMatch(m.match);
+    if (m.match) onMatch(matchPatch ? { ...m.match, ...matchPatch } : m.match);
     if (m.bridges) onBridges(m.bridges);
     if (m.sections) sectionShares = m.sections;
     if (m.nav) renderer.updateNav(m.nav.kind, m.nav.floor);
@@ -2810,6 +2812,10 @@ else {
   },
   get match() {
     return matchInfo;
+  },
+  /** M6 test hook: lay fields over every match report the page gets (null: none). */
+  patchMatch(p: Partial<MatchInfo> | null) {
+    matchPatch = p;
   },
   /** M6: the coach (tests set its stage, fake keep hits and read its card). */
   get coach() {
