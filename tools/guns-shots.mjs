@@ -98,6 +98,9 @@ async function tour() {
   const out8 = await waitFor(() => window.__sandbox.gunOut[16] > 0, 240);
   await frames(30);
   console.log("chain on the long gun:", out8, JSON.stringify(await hud()));
+  // The shot's report comes a moment after it lands: it must name the gun it silenced.
+  const told = await waitFor(() => /silenced/i.test(document.getElementById("tally")?.textContent ?? ""), 600);
+  console.log("chain shot's report:", told, JSON.stringify((await hud()).tally));
   await shot("chain-tab");
   await page.evaluate(() => window.__sandbox.look({ x: 7, y: 13.5, z: -25, tx: 0, ty: 9.6, tz: -16.4, fov: 38 }));
   await frames(10);
