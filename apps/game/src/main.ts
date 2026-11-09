@@ -139,7 +139,7 @@ const FIXED = location.hash.includes("fixed");
 /** The mode being played (null while the start menu is up). #practice or #versus in the address skips the menu (tests use #fixed: the Practice range). */
 let mode: Mode | null = null;
 /** In a match (against the AI or a friend), not the Practice range. */
-const isMatch = () => mode === "versus" || mode === "online";
+const isMatch = () => mode === "versus" || mode === "online" || mode === "guided";
 /** A gun slot's match id, and its reload in ticks. */
 const gid = (i: number) => EMP[i]?.id ?? i;
 const rl = (i: number) => reload[gid(i)] ?? 0;

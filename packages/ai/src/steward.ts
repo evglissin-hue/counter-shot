@@ -18,7 +18,7 @@ import {
   WEAPON_COST,
   type AiLevel,
   type AiStep,
-  type Difficulty,
+  type AiName,
   type MixName,
   type RepairKind,
   type RouteName,
@@ -47,7 +47,7 @@ export class Steward {
   constructor(
     private m: Match,
     private team: number,
-    difficulty: Difficulty,
+    difficulty: AiName,
     private L: AiLevel,
     private rng: Rng,
     private send: (tick: number, input: MatchInput) => void,

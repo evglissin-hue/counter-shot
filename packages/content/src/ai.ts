@@ -11,6 +11,12 @@ import type { UpgradeKind, WeaponKind } from "./weapons";
 
 export type Difficulty = "squire" | "knight" | "warlord";
 export const DIFFICULTIES: Difficulty[] = ["squire", "knight", "warlord"];
+/**
+ * M6: every AI there is: Versus AI's three difficulties (the menu offers only
+ * those), and the tutor, the passive castle of the guided first match that
+ * wakes up in stages (TUTOR).
+ */
+export type AiName = Difficulty | "tutor";
 
 export interface AiLevel {
   name: string;
@@ -66,10 +72,10 @@ export interface AiLevel {
   adapts: boolean;
 }
 
-export const AI_LEVELS: Record<Difficulty, AiLevel> = {
+export const AI_LEVELS: Record<AiName, AiLevel> = {
   squire: {
     name: "Squire",
-    blurb: "Slow to aim and slow to learn; spends when it remembers. Start here",
+    blurb: "Slow to aim and slow to learn; spends when it remembers. The level to start on after the guided match",
     think: 4 * 60,
     react: 50,
     settle: 4 * 60,
@@ -136,6 +142,31 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     reserve: 80,
     adapts: true,
   },
+  // M6: the guided first match's castle. Placeholder numbers (a slower,
+  // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
+  tutor: {
+    name: "Tutor",
+    blurb: "The guided first match: asleep at first, it wakes up slowly",
+    think: 5 * 60,
+    react: 60,
+    settle: 5 * 60,
+    look: 8 * 60,
+    warmup: 25 * 60 * 60, // placeholder: no shot by hand at all until its stages are built
+    firstErr: 0.045,
+    firstErrM: 14,
+    firstErrPerM: 0.08,
+    noise: 0.016,
+    noiseM: 6,
+    learn: 0.25,
+    focus: 0.3,
+    crowd: 9,
+    raids: false,
+    counter: 0,
+    counterRest: 0,
+    plan: 6 * 60,
+    reserve: 40,
+    adapts: false,
+  },
 };
 
 /**
@@ -150,7 +181,7 @@ export type AiStep =
   | { kind: "buy"; slot: number; weapon: WeaponKind; after?: number }
   | { kind: "upgrade"; slot: number; upgrade: UpgradeKind; after?: number };
 
-export const AI_PLANS: Record<Difficulty, AiStep[]> = {
+export const AI_PLANS: Record<AiName, AiStep[]> = {
   // A slow, plain plan: a mill, then guns, a second barracks late.
   squire: [
     { kind: "build", plot: 1, building: "mill", after: 60 },
@@ -191,4 +222,6 @@ export const AI_PLANS: Record<Difficulty, AiStep[]> = {
     { kind: "buy", slot: 5, weapon: "swivel" },
     { kind: "upgrade", slot: 6, upgrade: "rifled" },
   ],
+  // M6: the tutor raises its barracks only when it stirs (its castle starts without one: GUIDED_OPTIONS in @keepfall/rules). Placeholder.
+  tutor: [{ kind: "build", plot: 0, building: "barracks", mix: "pikemen", route: "left" }],
 };

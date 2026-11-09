@@ -6,7 +6,7 @@
 // orders and works the repair switches. It draws from its own seeded stream,
 // so a match against it replays from its seed and your inputs.
 
-import { AI_LEVELS, type AiLevel, type Difficulty } from "@keepfall/content";
+import { AI_LEVELS, type AiLevel, type AiName } from "@keepfall/content";
 import { hashString, Rng } from "@keepfall/core";
 import type { Match, MatchInput } from "@keepfall/rules";
 import { Gunner } from "./gunner";
@@ -21,7 +21,7 @@ export class AiPlayer {
   constructor(
     private m: Match,
     readonly team: number,
-    readonly difficulty: Difficulty,
+    readonly difficulty: AiName,
     seed: number,
   ) {
     this.level = AI_LEVELS[difficulty];
@@ -31,6 +31,15 @@ export class AiPlayer {
     this.steward = new Steward(m, team, difficulty, this.level, rng, send);
     // Its first look comes a moment into the match, staggered by team.
     this.nextLook = 30 + team * 7;
+  }
+
+  /**
+   * M6: the tutor's stage (the guided first match), for the page: 0 asleep, then
+   * higher as it wakes (TUTOR in @keepfall/content); -1 for any other AI.
+   * Placeholder until the tutor's stages are built: always 0 for the tutor.
+   */
+  get stage(): number {
+    return this.difficulty === "tutor" ? 0 : -1;
   }
 
   /** Once a tick, before the match steps: read the field and send inputs for this tick. */

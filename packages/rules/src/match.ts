@@ -128,6 +128,14 @@ export interface MatchOptions {
    * someone commands the enemy castle (M5: the AI, or a second player).
    */
   rotate?: boolean;
+  /**
+   * M6: each castle's buildings at the start, by team (default
+   * START_BUILDINGS for both). The guided match's tutor starts with none and
+   * raises its barracks when it stirs (GUIDED_OPTIONS).
+   */
+  startBuildings?: [Array<{ plot: number; kind: BuildingKind }>, Array<{ plot: number; kind: BuildingKind }>];
+  /** M6: each team's standing order at the start, by team (default Advance for both): in the guided match your waves hold until you send them in. */
+  orders?: [Order, Order];
 }
 
 /** What a team did in a match, for the end screen. */
@@ -283,7 +291,7 @@ export class Match {
   constructor(R: Rapier, layout: CastleLayout, opts: MatchOptions) {
     // The match's own copies: empty slots fill in as guns are bought, upgrades are worked in.
     this.emplacements = (opts.emplacements ?? MATCH_EMPLACEMENTS).map((e) => ({ ...e }));
-    const buildings = [0, 1].flatMap((castle) => START_BUILDINGS.map((b) => ({ castle, ...b })));
+    const buildings = [0, 1].flatMap((castle) => (opts.startBuildings?.[castle] ?? START_BUILDINGS).map((b) => ({ castle, ...b })));
     this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true, buildings });
     this.owner = this.emplacements.map(teamOf);
     this.economy = new Economy(this.world, this.gold, (emp) => this.owner[emp] ?? -1);
@@ -302,6 +310,7 @@ export class Match {
     this.suddenAt = opts.suddenDeathTick ?? MATCH.suddenDeathTick;
     this.timeAt = opts.timeLimitTick ?? MATCH.timeLimitTick;
     if (this.garrison) for (const team of [Team.Enemy, Team.Player]) this.army.spawnGarrison(team, GARRISON.size, true);
+    if (opts.orders) for (const team of [Team.Enemy, Team.Player]) this.army.setOrder(team, opts.orders[team]);
     const works = this.world.works!;
     works.policy = {
       allowed: (team, kind) => this.repairs[team][kind],
