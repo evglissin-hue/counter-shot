@@ -56,7 +56,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 6;
+export const MATCH_RULES_VERSION = 7;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -141,6 +141,9 @@ export interface TeamStats {
   /** Times its men began storming the enemy courtyard, and times it beat a storm of its own courtyard off. */
   stormsBegun: number;
   stormsHeld: number;
+  /** After M5: enemy guns it knocked out, and its own guns knocked out. */
+  gunsSilenced: number;
+  gunsLost: number;
 }
 
 /** An emplacement's barrel and, when nobody mans it, what it is laying on. */
@@ -306,6 +309,8 @@ export class Match {
       pay: (team, cost) => !this.result && this.economy.pay(team, cost),
     };
     if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
+    // After M5: a knocked-out gun's crew puts it back for gold, through the same books as everything else.
+    this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
   }
 
   /** Gold each team earned (income included) and spent: the economy's books. */
@@ -439,6 +444,8 @@ export class Match {
         // Only from the team's own emplacements, armed, and only when loaded (and with a real aim: online it is another page's).
         const e = this.emplacements[input.emplacement];
         if (!e || e.empty || this.owner[e.id] !== team || this.world.reload[e.id] > 0) return;
+        // After M5: a knocked-out gun does not fire until its crew has it back.
+        if (!this.world.mounts.up(e.id)) return;
         if (!Number.isFinite(input.yaw) || !Number.isFinite(input.pitch) || !Number.isFinite(input.charge) || !Number.isFinite(input.fuse)) return;
         this.shots[team]++;
         this.world.queue(tick, { ...input, auto: false, reload: this.reloadScale() });
@@ -546,10 +553,12 @@ export class Match {
    * grows with the range.
    */
   private gunnery(tick: number) {
+    const mounts = this.world.mounts;
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
       const U = UNMANNED[e.weapon];
-      if (!U || e.empty || this.manned[team] === e.id) continue;
+      // After M5: a knocked-out gun's crew is busy getting it back on its mount.
+      if (!U || e.empty || this.manned[team] === e.id || !mounts.up(e.id)) continue;
       const g = this.guns[e.id];
       const w = weaponOf(e);
       if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);
@@ -674,6 +683,8 @@ export class Match {
       laddersLost: L.lost[team],
       stormsBegun: this.stormsBegun[team],
       stormsHeld: this.stormsHeld[team],
+      gunsSilenced: this.economy.silenced[team],
+      gunsLost: this.economy.silenced[1 - team],
     };
   }
 

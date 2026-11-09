@@ -21,6 +21,7 @@ import { Guns } from "./guns";
 import { Ladders } from "./ladders";
 import { Markers } from "./markers";
 import { Minions } from "./minions";
+import { MortarAim } from "./mortarAim";
 import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
 import { Post, TIERS } from "./post";
@@ -91,6 +92,10 @@ export class GameRenderer implements GameRendererApi {
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (the page sets it). */
   private renderScale = 1;
   private blastRing: THREE.Group;
+  /** After M5: the mortar's bearing and charge ring. */
+  private mortarAim = new MortarAim();
+  /** The emplacements the guns were built for (where a knocked-out one falls to). */
+  private emplacementList: Emplacement[] = [];
   /** Where minions can walk (debug overlay, N). */
   private navOverlay = new NavOverlay();
   /**
@@ -202,6 +207,7 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.marker);
     this.blastRing = this.buildBlastRing();
     this.scene.add(this.blastRing);
+    this.scene.add(this.mortarAim.root);
     this.scene.add(this.navOverlay.mesh);
     this.scene.add(this.markers.root);
     this.scene.add(this.ladders.root, this.storm.root);
@@ -308,6 +314,7 @@ export class GameRenderer implements GameRendererApi {
     this.flags.setStyle(STYLE);
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
+    this.emplacementList = emplacements;
     if (this.works) {
       this.scene.remove(this.works.root);
       this.works.dispose();
@@ -620,6 +627,20 @@ export class GameRenderer implements GameRendererApi {
     }
   }
 
+  setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean): void {
+    this.mortarAim.setBearing(bearing, (x, z) => this.terrain.heightAt(x, z));
+    this.mortarAim.setRing(ring, radius, soft);
+  }
+
+  groundAt(x: number, z: number): number {
+    return this.terrain.heightAt(x, z);
+  }
+
+  setGunOut(emplacement: number, out: boolean, fell = false): void {
+    const e = this.emplacementList.find((x) => x.id === emplacement);
+    this.guns.setOut(emplacement, out, fell, e ? this.terrain.heightAt(e.x, e.z) : 0);
+  }
+
   castPath(points: Float32Array): PathHit | null {
     const n = Math.floor(points.length / 3);
     const stones = this.stones;
@@ -841,6 +862,7 @@ export class GameRenderer implements GameRendererApi {
     const cam = this.views.camera;
     cam.updateMatrixWorld();
     this.clear.update(cam);
+    this.mortarAim.update(cam);
     this.minions.step(dt, (x, z) => this.terrain.heightAt(x, z), cam);
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);

@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.3)
+# Keepfall: Game Spec (draft 0.4)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -40,7 +40,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 
 - One fixed layout per race in the MVP: curtain walls, towers, a gatehouse, the keep, and a courtyard with build plots. A castle designer comes after the MVP.
 - **Real masonry.** Every stone is a physics piece (about 4,400 per castle in the lab). Each race builds with its own material and stone size.
-- **Weapon emplacements** sit on towers and walls (6 to 8 per castle). Each holds one weapon you buy and upgrade.
+- **Weapon emplacements** sit on towers and walls (6 to 8 per castle). Each holds one weapon you buy and upgrade. A gun stands on the masonry under it: bring that down, strike the gun square with a ball, sweep its crew off with chain shot or burst a shell beside it, and it is out of action until its crew puts it back (30 seconds, once the masonry under it stands again). Silencing an enemy gun pays gold, and it is the other reason to shoot at something besides the keep: the guns that shell your keep and shoot your waves.
 - **Courtyard plots** (6 to 8) hold buildings.
 - **Repairs**: masons rebuild destroyed sections over time, for gold, wherever the space is clear. Auto-repair can be switched on per section.
 - **The keep** is the tallest structure, with the banner on top. It has timber floors inside: a shell caves in one level and the banner drops a floor at a time, so toppling it takes a siege (or bringing its walls down). Upgrades can reinforce it (buttresses, thicker base).
@@ -50,9 +50,9 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 
 - **You ride the weapons.** Number keys 1 to 8 (or the bumpers) jump between emplacements, and the camera sits behind the weapon's sight. Tab opens the overview: both castles, routes and minions from above.
 - **Aiming.** The mouse turns and tilts the weapon, but each weapon has a top turning speed (heavy guns swing slowly, so you lead your targets). Keys turn it with weight: the gun gathers speed while a key is held and coasts to a stop when let go (heavier guns are slower to start and stop), so a tap is a fine correction. A gamepad stick turns it at the speed it is pushed. Both have a fine-aim modifier; there is no fast FPS-style aiming on a stick. Scroll or the zoom key zooms the sight.
-- **Power.** Some weapons fire at a fixed speed (cannon). Others charge: hold to draw a ballista or load a counterweight.
+- **Power.** Some weapons fire at a fixed speed (cannon). Others charge: hold to draw a ballista or load a counterweight. The mortar charges: hold fire and its meter fills from the nearest range to the farthest (and falls back if held too long); let go to fire. Its elevation follows the charge, and it is aimed from a spotter's view over the keep (on the front wall when you look close), not from above.
 - **Real ballistics**: gravity, air drag (heavier and smaller shots carry further), wind, spin for some projectiles (they curve), ricochets off stone at shallow angles, skipping across water, rolling down slopes.
-- **Aim help**: the first part of the flight path, its length set by the weapon and upgrades; a ghost trail of your last shot from this emplacement; a marker where it landed; the barrel's elevation (and the mortar's range in still air), as a gunner reads off a quadrant. Aiming is the skill: you correct from your last shot and read the wind. The whole predicted flight is an easy setting. Co-op and casual games show more of the path.
+- **Aim help**: the first part of the flight path, its length set by the weapon and upgrades; a ghost trail of your last shot from this emplacement; a marker where it landed; the barrel's elevation, as a gunner reads off a quadrant. For the mortar, while you charge, a soft ring on the ground where the shell would come down in still air (the wind is yours to read), and a mark on the meter where your last shot left. Aiming is the skill: you correct from your last shot and read the wind. The whole predicted flight is an easy setting. Co-op and casual games show more of the path.
 - **Scatter**: no two shots fly quite alike. Each weapon throws a little off the aim and its charge varies a little (seeded, so a match still replays from its inputs): about half a metre for the long gun at the enemy keep, two metres for the mortar. Rifled barrels tighten it.
 - **Reloads** are per weapon (2 to 12 seconds: the swivel quickest, the mortar slowest). Weapons nobody is manning fire on their own at enemy minions coming at your walls (the approach once the stream is crossed), slower and much less accurately; the mortar fires only when you fire it (one shell knocks down a whole wave).
 - **Shot camera**: optionally follow your shot (on by default for lobbed shells: you ride the shell down), with optional slow motion on impact. It only changes your own camera; the match runs on. Replays come free, because a match is just its inputs.
@@ -150,7 +150,7 @@ Human gunsmiths: gunpowder, brass and clockwork. Their castle is brick and timbe
 |---|---|
 | Long gun | A cannon. Fast and flat; the wall breaker. |
 | Mortar | A high arc with a fuse you set: burst over minions, or bounce a shell behind a wall and let it blow there. |
-| Chain shot | Two balls on a spinning chain. Scythes through ranks and cuts ladders and ropes; weak against thick walls. |
+| Chain shot | Two balls on a whirling chain, and the chain itself sweeps a path as wide as it is: it mows down ranks, knocks ladders off walls and sweeps gun crews away (the gun that silences guns); weak against stone. |
 | Swivel gun | Grapeshot at short range: the last line against minions at your walls. |
 
 | Minion | Role |

@@ -8,12 +8,15 @@ import {
   ASHWRIGHT_EMPLACEMENTS,
   ASHWRIGHT_SLOTS,
   BARREL,
+  CASTLE_SHAPE,
   DIFFICULTIES,
+  DIST,
   type Difficulty,
   buildLayout,
   GAME_LAYOUT,
   KEEP_STOREYS,
   MATCH_EMPLACEMENTS,
+  REMOUNT,
   REPAIR_KINDS,
   ROUTE_NAMES,
   UPGRADE_KINDS,
@@ -41,6 +44,7 @@ import {
   PROJECTILE_STRIDE,
   ProjectileKind,
   restAim,
+  solveAim,
   Spin,
   spinVector,
   stepAim,
@@ -182,6 +186,10 @@ let aimHit: PathHit | null = null;
 let spin: Spin = Spin.None;
 let view: "sight" | "overview" = "sight";
 let reload: number[] = ASHWRIGHT_SLOTS.map(() => 0);
+/** After M5: every emplacement's gun as the worker last reported it: [state (0 up), ticks left] each (protocol's frame `out`). */
+let gunOut: Int16Array = new Int16Array(0);
+/** Is a slot's gun knocked out now? */
+const isOut = (i: number) => (gunOut[gid(i) * 2] ?? 0) > 0 && !EMP[i]?.empty;
 let wind = { x: 0, z: 0 };
 let ready = false;
 let paused = false;
@@ -197,8 +205,18 @@ let shake = { at: -1e9, s: 0 };
 let lastFrameTick = 0;
 let stats = { stepMs: 0, stepPeak: 0, down: 0, standing: 0, awake: 0 };
 
-/** The mortar's observer camera: it eases towards where the shell will land, so small aim changes move the ring, not the world. */
-const obs = { x: 0, y: 0, z: 0, primed: false };
+/**
+ * The mortar's spotter (after M5; the owner found the top-down observer weird):
+ * a view from over the keep, looking along the mortar's bearing as far out as
+ * you look (look close and the spotter steps onto the front wall). The charge
+ * sets the range: a ring slides along the ground to where the shell would come
+ * down in still air while it goes in.
+ */
+const spot = { x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: 0, primed: false };
+/** How far along the ground each slot's spotter looks (m): mouse up or W looks farther. */
+const lookD: number[] = ASHWRIGHT_SLOTS.map(() => 110);
+/** The range the ring shows now (m), while the charge goes in. */
+let chargeRange = 0;
 
 /** Riding a mortar shell: chase it up and over, stop short of the target, watch the burst in slow motion. */
 interface Ride {
@@ -238,9 +256,27 @@ interface Ride {
 }
 let ride: Ride | null = null;
 
-/** What the last burst brought down: stones that started moving (or turned to dust) and minions knocked down, shown a few seconds later. */
+/**
+ * What your last shot did (after M5, for every shot you fire by hand; a
+ * burst's only before): stones near where it came down that started moving
+ * (or turned to dust), enemies knocked down and enemy guns knocked out while
+ * it settles, shown a moment later.
+ */
 const everMoved = new Uint8Array(layout.stones.length);
-let tally: { until: number; stones: number; down0: number } | null = null;
+let tally: { until: number; stones: number; down0: number; x: number; y: number; z: number; r: number; guns: number } | null = null;
+/** Your shells in flight (by hand): shot id -> where it was last seen (its burst starts a tally). */
+const myShells = new Map<number, { x: number; y: number; z: number }>();
+/** Enemies down now, for a tally: the other side's fallen in a match, everyone down on the Practice range. */
+const foesDown = () => (isMatch() && matchInfo ? matchInfo.fallen[FOE] : lastDown);
+/** Start (or, while one is open, carry on) the tally of a shot that came down at a point. */
+function startTally(x: number, y: number, z: number, ms: number, r: number) {
+  const now = clock();
+  if (tally) {
+    tally.until = Math.max(tally.until, now + ms);
+    return;
+  }
+  tally = { until: now + ms, stones: 0, down0: foesDown(), x, y, z, r, guns: 0 };
+}
 /** Minions down as of the frame before the one being applied (a burst's own knockdowns count for it). */
 let lastDown = 0;
 /** Minions down as of each frame not yet applied, by tick. */
@@ -277,6 +313,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   if (m.t === "frame") {
     const was = rl(current);
     reload = m.reload;
+    onGunsOut(m.out);
     // A shot sent but not fired in the match yet (online it waits out the input delay): the gun stays reloading, no "loaded" clack.
     if (firePending.size) {
       const now = performance.now();
@@ -322,6 +359,7 @@ function onFrame(f: FrameData) {
       if (!auto && yours && e) {
         guide.mark(e.weapon === "longGun" ? "fire" : e.weapon === "mortar" ? "mortar" : "others");
         recording.set(id, { emp: slot, pts: [] });
+        if (e.weapon === "mortar") myShells.set(id, { x: e.x, y: e.y, z: e.z });
         if (shotCam[slot] && slot === current) {
           if (e.weapon === "mortar") startRide(id, slot, now);
           else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
@@ -339,10 +377,20 @@ function onFrame(f: FrameData) {
       }
       const dist = Math.hypot(a - ear.x, b - ear.y, c - ear.z);
       shake = { at: now, s: Math.max(0.08, Math.min(1, 1.25 - dist / 110)) };
-      if (!tally) tally = { until: now + 4500, stones: 0, down0: lastDown };
+      // One of your shells bursting: what it does is tallied (others' bursts are not yours to count).
+      for (const [id, p] of myShells) {
+        if (Math.hypot(a - p.x, b - p.y, c - p.z) > 14) continue;
+        myShells.delete(id);
+        startTally(a, b, c, 4200, d * 2.4);
+        break;
+      }
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
-      if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+      if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) {
+        landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+        // Your ball, chain or grapeshot came down: what it does is tallied (a shell's burst starts its own).
+        if (ALL_EMP[a]?.weapon !== "mortar") startTally(b, c, d, 2600, 9);
+      }
       soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
       if (impacts++ < 3) soundscape.impact(a, b, c, d);
@@ -362,6 +410,10 @@ function onFrame(f: FrameData) {
       else sound.ladderDown(c, 1, d);
     } else if (kind === EventKind.Raised && a >= 0 && a < everMoved.length) {
       everMoved[a] = 0; // M3: a building's piece back up: its next fall counts again
+    } else if (kind === EventKind.GunOut) {
+      gunKnockedOut(a, b);
+    } else if (kind === EventKind.GunBack) {
+      gunBack(a);
     } else if (kind === EventKind.Cracked) {
       // M5: a shell cracked a keep floor board that held: timber splitting (the renderer throws splinters).
       if (cracks++ < 2) sound.woodHit(b, c, d, 0.8);
@@ -380,12 +432,13 @@ function onFrame(f: FrameData) {
   }
   // M3: the plots' notes and sounds, muskets and kegs heard.
   estate.onFrame(f, now);
-  // Stones moving for the first time count towards the burst's tally.
+  // Stones moving for the first time near your shot count towards its tally.
   for (let i = 0; i < f.stoneCount; i++) {
     const id = f.stones[i * 8] | 0;
     if (id >= 0 && id < everMoved.length && !everMoved[id]) {
       everMoved[id] = 1;
-      if (tally) tally.stones++;
+      const st = layout.stones[id];
+      if (tally && Math.hypot(st.x - tally.x, st.y - tally.y, st.z - tally.z) < tally.r) tally.stones++;
     }
   }
   if (tally && now > tally.until) showTally();
@@ -419,6 +472,12 @@ function onFrame(f: FrameData) {
     const vx = f.projectiles[o + 6], vy = f.projectiles[o + 7], vz = f.projectiles[o + 8];
     const rec = recording.get(id);
     if (rec && rec.pts.length < 3 * 600) rec.pts.push(x, y, z);
+    const shell = myShells.get(id);
+    if (shell) {
+      shell.x = x;
+      shell.y = y;
+      shell.z = z;
+    }
     if (follow && follow.id === id) {
       follow.lastX = x;
       follow.lastY = y;
@@ -451,6 +510,7 @@ function onFrame(f: FrameData) {
     if (rec.pts.length >= 6) trails[rec.emp] = new Float32Array(rec.pts);
     recording.delete(id);
   }
+  for (const id of myShells.keys()) if (!seen.has(id)) myShells.delete(id);
   if (ride && ride.alive && !seen.has(ride.id)) {
     ride.alive = false;
     ride.lostAt = now;
@@ -478,10 +538,14 @@ let lastApplied: FrameData | null = null;
 
 function showTally() {
   if (!tally) return;
-  const down = Math.max(0, lastDown - tally.down0);
-  const parts = [`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`];
+  const down = Math.max(0, foesDown() - tally.down0);
+  const parts: string[] = [];
+  if (tally.guns) parts.push(tally.guns === 1 ? "gun silenced" : `${tally.guns} guns silenced`);
+  if (tally.stones) parts.push(`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`);
   if (down) parts.push(`${down} ${down === 1 ? "man" : "men"} down`);
   tally = null;
+  if (!parts.length) return;
+  parts[0] = parts[0][0].toUpperCase() + parts[0].slice(1);
   const el = $("tally");
   el.textContent = parts.join(", ");
   // One result at a time under the match bar: the tally takes the place of a trick shot's banner.
@@ -683,7 +747,13 @@ function aimTick() {
   }
   const ks = fine || padFine ? w.fine : 1;
   const dYaw = ((keyVel.yaw + one(stickYaw) * ks) * w.yawRate) / 60;
-  const dPitch = ((keyVel.pitch + one(stickPitch) * ks) * w.pitchRate) / 60;
+  let dPitch = ((keyVel.pitch + one(stickPitch) * ks) * w.pitchRate) / 60;
+  if (e.weapon === "mortar" && !e.empty) {
+    // After M5: up and down look farther or nearer along the bearing; the charge sets the elevation.
+    lookD[current] = Math.min(LOOK_FAR, Math.max(LOOK_NEAR, lookD[current] * (1 - dPitch * 12)));
+    dPitch = 0;
+    if (charging && charging.slot === current && needle >= 0) wanted[current] = { yaw: wanted[current].yaw, pitch: mortarLay(e, needle).pitch };
+  }
   if (dYaw || dPitch) {
     guide.mark("aim");
     if (!input.locked) playedFree = true;
@@ -706,13 +776,15 @@ function applyMouse() {
   const k = MOUSE_RAD_PER_PX * mouseSpeed * zoomK * (fine ? 0.35 : 1);
   const t = wanted[current];
   // Mouse right turns the aim right (towards -X when facing +Z), i.e. lower yaw.
-  // The mortar ranges by elevation: pushing forward (mouse up) sends the shell farther, i.e. lowers the barrel.
-  const py = e.weapon === "mortar" ? 1 : -1;
-  wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch + py * input.mouseY * k }, e, w);
+  if (e.weapon === "mortar") {
+    // After M5: the mortar's spotter looks farther (mouse up) or nearer along the bearing; the charge sets the range.
+    lookD[current] = Math.min(LOOK_FAR, Math.max(LOOK_NEAR, lookD[current] * (1 - input.mouseY * k * 2.5)));
+    wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch }, e, w);
+  } else wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch - input.mouseY * k }, e, w);
   input.mouseX = input.mouseY = 0;
 }
 
-function fire(charge = 1) {
+function fire(charge = 1, pitch?: number) {
   if (!ready || userPause || rl(current) > 0 || matchInfo?.result) return;
   if (!input.locked) playedFree = true;
   const e = EMP[current];
@@ -720,40 +792,106 @@ function fire(charge = 1) {
     estate.openFor(current);
     return;
   }
+  if (isOut(current)) {
+    showNote(`${outShort(current)}: Q or E for another gun`, 3200);
+    return;
+  }
   const a = aims[current];
-  send({ t: "input", input: { kind: "fire", emplacement: gid(current), yaw: a.yaw, pitch: a.pitch, charge, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
+  if (pitch !== undefined) aims[current] = { yaw: a.yaw, pitch };
+  send({ t: "input", input: { kind: "fire", emplacement: gid(current), yaw: a.yaw, pitch: pitch ?? a.pitch, charge, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
   reload[gid(current)] = weaponOf(e).reload; // until the worker confirms
   if (isMatch()) firePending.set(gid(current), performance.now() + 1500);
 }
 
 /**
- * The mortar's charge (the owner's ask: aiming it should take a knack): while
- * fire is held the needle swings from empty to full and back, slow at either
- * end, and the shell flies when you let go. A full charge lands where the
- * observer's view is centred (in still air); early or late falls short.
+ * The mortar's charge. The playtest pass (the owner's ask: aiming it should
+ * take a knack) made it a needle that swings from empty to full and back while
+ * fire is held, the shell flying when you let go; after M5 (the owner: no top
+ * view, show where it lands on the ground as the meter fills, but not too
+ * easily) the charge sets the range: the needle sweeps from the nearest range
+ * to the farthest at an even pace and back, the elevation following it, and a
+ * ring slides along the ground to where the shell would come down in still
+ * air (the wind is yours to read; the shell still scatters).
  */
-const CHARGE_SWING = 1.15;
-/** The charge at an empty needle: a tap still clears your own walls. */
-const CHARGE_MIN = 0.25;
+const CHARGE_SWEEP = 1.8;
 let charging: { start: number; slot: number; ticks: number } | null = null;
 /** The needle (0 to 1) now, while charging (else -1), and where it was let go last, per slot. */
 let needle = -1;
 const lastNeedle: number[] = ASHWRIGHT_SLOTS.map(() => -1);
-let firedAt = { needle: -1, until: 0 };
+let firedAt = { needle: -1, range: 0, until: 0 };
 function needleAt(now: number): number {
   if (!charging) return -1;
-  const t = (now - charging.start) / 1000 / CHARGE_SWING;
-  return 0.5 - 0.5 * Math.cos(Math.PI * t);
+  const u = (now - charging.start) / 1000 / CHARGE_SWEEP;
+  const k = u - 2 * Math.floor(u / 2);
+  return k <= 1 ? k : 2 - k;
 }
-/** The charge a needle position fires with (0 to 1 between the weapon's lowest and highest speed). */
-const chargeOf = (n: number) => CHARGE_MIN + (1 - CHARGE_MIN) * n;
 function cancelCharge() {
   charging = null;
   needle = -1;
 }
+/** Let go of the charge: the shell flies at the elevation and charge the needle gives now. */
+function releaseCharge(now: number) {
+  const n = needleAt(now);
+  cancelCharge();
+  const e = EMP[current];
+  if (n < 0 || !canFire() || e.weapon !== "mortar") return;
+  const lay = mortarLay(e, n);
+  lastNeedle[current] = n;
+  firedAt = { needle: n, range: lay.range, until: now + 1400 };
+  wanted[current] = { yaw: wanted[current].yaw, pitch: lay.pitch };
+  fire(lay.charge, lay.pitch);
+}
+/** The mortar's barrel along the meter: steep and light at its start, the long lob (about its longest reach) at full charge. */
+const LOB_LONG = 0.84;
+/** The soft ring's radius with the standard aim help (m): about where it comes down, not a bullseye. */
+const RING_SOFT = 3.2;
+interface RangeTable {
+  pitch: Float32Array;
+  charge: Float32Array;
+  range: Float32Array;
+}
+const rangeTables = new Map<string, RangeTable>();
+
+/** A mortar as armed, along its meter: the elevation and charge, and the still-air range each gives on level ground. */
+function rangeTable(e: Emplacement): RangeTable {
+  const w = weaponOf(e);
+  const key = `${w.speed}/${w.minSpeed}/${w.minPitch}/${w.maxPitch}/${w.projectile.gravity}`;
+  const hit = rangeTables.get(key);
+  if (hit) return hit;
+  const N = 96;
+  const t: RangeTable = { pitch: new Float32Array(N + 1), charge: new Float32Array(N + 1), range: new Float32Array(N + 1) };
+  const coef = flightCoef(w.projectile);
+  const lo = Math.max(w.minPitch, LOB_LONG);
+  const at = { ...e, x: 0, z: 0 };
+  for (let i = 0; i <= N; i++) {
+    const p = i / N;
+    const pitch = w.maxPitch + (lo - w.maxPitch) * p;
+    const speed = w.minSpeed + (w.speed - w.minSpeed) * p;
+    const d = aimDir(0, pitch);
+    const path = predictPath(muzzle(at, 0, pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, 0, 0, coef, 12, 1);
+    const n = path.length;
+    t.pitch[i] = pitch;
+    t.charge[i] = p;
+    t.range[i] = Math.max(i ? t.range[i - 1] + 0.001 : 0, Math.hypot(path[n - 3], path[n - 1]));
+  }
+  rangeTables.set(key, t);
+  return t;
+}
+
+/** The elevation and charge that put a shell `m` (0..1) of the way from the nearest range to the farthest (still air, level ground). */
+function mortarLay(e: Emplacement, m: number): { pitch: number; charge: number; range: number } {
+  const t = rangeTable(e), N = t.range.length - 1;
+  const R = t.range[0] + (t.range[N] - t.range[0]) * Math.min(1, Math.max(0, m));
+  let i = 0;
+  while (i < N - 1 && t.range[i + 1] < R) i++;
+  const span = t.range[i + 1] - t.range[i];
+  const f = span > 1e-6 ? Math.min(1, Math.max(0, (R - t.range[i]) / span)) : 0;
+  return { pitch: t.pitch[i] + (t.pitch[i + 1] - t.pitch[i]) * f, charge: t.charge[i] + (t.charge[i + 1] - t.charge[i]) * f, range: R };
+}
+
 const chargeBox = $("charge"), chargeFill = $("charge-fill"), chargeLast = $("charge-last"), chargeText = $("charge-text");
 let chargeShown = "";
-/** The charge gauge under the view while the mortar is yours to fire: the needle, where you let go last time, and what to do. */
+/** The charge gauge under the view while the mortar is yours to fire: the needle, where you let go last time, and the range. */
 function updateCharge(now: number) {
   const e = EMP[current];
   const show = mode !== null && view === "sight" && !ride && !follow && !e.empty && e.weapon === "mortar";
@@ -765,7 +903,8 @@ function updateCharge(now: number) {
   const last = lastNeedle[current];
   chargeLast.hidden = last < 0;
   if (last >= 0) chargeLast.style.left = `${(last * 100).toFixed(2)}%`;
-  const text = needle >= 0 ? `Charge ${Math.round(needle * 100)}%` : fired ? `Fired at ${Math.round(firedAt.needle * 100)}%` : rl(current) > 0 ? "Reloading" : "Hold Space to load, let go to fire";
+  const t = rangeTable(e), N = t.range.length - 1;
+  const text = isOut(current) ? "Knocked out" : needle >= 0 ? `${Math.round(chargeRange)} m` : fired ? `Fired at ${Math.round(firedAt.range)} m` : rl(current) > 0 ? "Reloading" : `Hold Space to charge: ${Math.round(t.range[0])} to ${Math.round(t.range[N])} m`;
   if (text !== chargeShown) {
     chargeShown = text;
     chargeText.textContent = text;
@@ -792,7 +931,7 @@ function drawMap() {
 
 /** Can the gun you ride fire now? */
 function canFire(): boolean {
-  return ready && !userPause && rl(current) === 0 && !matchInfo?.result && !EMP[current].empty;
+  return ready && !userPause && rl(current) === 0 && !matchInfo?.result && !EMP[current].empty && !isOut(current);
 }
 
 /** Match ids of guns fired here and not yet seen reloading in the match, until when (ms) to wait for it. */
@@ -815,7 +954,7 @@ function select(i: number) {
   current = ((i % EMP.length) + EMP.length) % EMP.length;
   if (current !== prev) sound.ui("switch");
   view = "sight";
-  obs.primed = false;
+  spot.primed = false;
   keyVel.yaw = keyVel.pitch = 0;
   if (isMatch() && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
   updateHud(true);
@@ -881,6 +1020,8 @@ function sendAim(now: number) {
 // ---- camera and aim help ---------------------------------------------------------
 /** Test hook (the screenshot tools): a fixed camera, eye and target, instead of the player's view. */
 let testCamera: { x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number } | null = null;
+/** Test hook: a mortar's charge held without a key (the screenshot tools). */
+let testHold = false;
 
 function cameraPose(now: number, dt: number): CameraPose {
   if (testCamera) return { mode: "free", ...testCamera };
@@ -895,67 +1036,51 @@ function cameraPose(now: number, dt: number): CameraPose {
   if (follow && follow.until && now >= follow.until) follow = null;
   if (view === "overview") return { mode: "overview" as const };
   const e = EMP[current], a = aims[current];
-  if (e.weapon === "mortar") return observerPose(dt);
+  if (e.weapon === "mortar") return mortarPose(dt);
   const [dx, dy, dz] = aimDir(a.yaw, a.pitch);
   return { mode: "sight" as const, x: e.x - dx * 3.2, y: e.y + 1.1 - dy * 3.2, z: e.z - dz * 3.2, yaw: a.yaw, pitch: a.pitch - 0.05, fov: fov[current] };
 }
 
-/**
- * The mortar's observer: raised over the field, partway to the target, looking
- * down at where the shell will land (or, with partial aim help, at its range
- * in still air). Left and right on screen turn the mortar; up the screen is farther.
- */
-function observerPose(dt: number): CameraPose {
-  const e = EMP[current], a = aims[current];
-  let t = predicted;
-  if (!t || aimHelp === "partial") {
-    // Where it would come down in still air on level ground: a rough cue, not the answer.
-    const range = Math.min(240, Math.max(30, stillAirRange(a.pitch)));
-    const [fx, , fz] = aimDir(a.yaw, 0);
-    t = { x: e.x + fx * range, y: 0, z: e.z + fz * range };
-  }
-  if (!obs.primed) {
-    obs.x = t.x;
-    obs.y = t.y;
-    obs.z = t.z;
-    obs.primed = true;
-  }
-  // Held still while the charge goes in (with the full aim help the landing moves with the needle).
-  const k = charging ? 0 : 1 - Math.exp(-dt * 3);
-  obs.x += (t.x - obs.x) * k;
-  obs.y += (t.y - obs.y) * k;
-  obs.z += (t.z - obs.z) * k;
-  const dx = obs.x - e.x, dz = obs.z - e.z;
-  const D = Math.max(30, Math.hypot(dx, dz));
-  const ux = dx / D, uz = dz / D;
-  const rx = -uz, rz = ux; // right
-  return {
-    mode: "free",
-    x: e.x + ux * D * 0.42 + rx * D * 0.1,
-    y: e.y + 24 + D * 0.32,
-    z: e.z + uz * D * 0.42 + rz * D * 0.1,
-    tx: obs.x,
-    ty: obs.y + 1,
-    tz: obs.z,
-    fov: fov[current],
-  };
+/** Smooth 0..1 step. */
+function smooth01(u: number): number {
+  const c = u < 0 ? 0 : u > 1 ? 1 : u;
+  return c * c * (3 - 2 * c);
 }
 
-/** Horizontal distance a mortar shell flies at this elevation in still air, down to level ground (y = 0). */
-const rangeCache = new Map<number, number>();
-function stillAirRange(pitch: number): number {
-  const key = Math.round(pitch * 2000);
-  const hit = rangeCache.get(key);
-  if (hit !== undefined) return hit;
-  const e = EMP.find((m) => m.weapon === "mortar")!;
-  const m = muzzle(e, 0, pitch);
-  const d = aimDir(0, pitch);
-  const path = predictPath(m, [d[0] * MORTAR.speed, d[1] * MORTAR.speed, d[2] * MORTAR.speed], null, 0, 0, flightCoef(MORTAR.projectile), 12, 1);
-  const n = path.length;
-  const range = Math.hypot(path[n - 3] - m[0], path[n - 1] - m[2]);
-  if (rangeCache.size > 4000) rangeCache.clear();
-  rangeCache.set(key, range);
-  return range;
+/** How near and how far the mortar's spotter may look along the bearing (m). */
+const LOOK_NEAR = 12, LOOK_FAR = 180;
+
+/**
+ * The mortar's spotter (after M5): over the keep, looking along the bearing at
+ * the ground as far out as you look; look close and the spotter steps onto the
+ * front wall (a few metres to the side of the gun over the gate) to see over
+ * the battlements. The charge never moves the camera: only where you look does.
+ */
+function mortarPose(dt: number): CameraPose {
+  const e = EMP[current], a = aims[current];
+  const [fx, , fz] = aimDir(a.yaw, 0);
+  const D = lookD[current];
+  const gx = e.x + fx * D, gz = e.z + fz * D;
+  const gy = renderer.groundAt(gx, gz);
+  // Where the castle's front wall crosses the bearing (castle 1 faces +z, castle 0 -z).
+  const dir = e.z < -DIST / 2 ? 1 : -1;
+  const frontZ = (dir > 0 ? -DIST : 0) + dir * CASTLE_SHAPE.half;
+  const along = fz * dir > 0.2 ? Math.min(40, Math.max(4, (frontZ - e.z) / fz)) : 12;
+  // 0: on the wall, looking down at the ground before the gate; 1: over the keep, looking out over the field.
+  const t = smooth01((D - 16) / 34);
+  const f = along - 1.2 + (-4 - (along - 1.2)) * t;
+  const h = 13.5 + 13.5 * t;
+  const side = 3.2 * (1 - t);
+  const x = e.x + fx * f - fz * side, y = e.y + h, z = e.z + fz * f + fx * side;
+  if (!spot.primed) Object.assign(spot, { x, y, z, tx: gx, ty: gy, tz: gz, primed: true });
+  const k = 1 - Math.exp(-dt * 7);
+  spot.x += (x - spot.x) * k;
+  spot.y += (y - spot.y) * k;
+  spot.z += (z - spot.z) * k;
+  spot.tx += (gx - spot.tx) * k;
+  spot.ty += (gy - spot.ty) * k;
+  spot.tz += (gz - spot.tz) * k;
+  return { mode: "free", x: spot.x, y: spot.y, z: spot.z, tx: spot.tx, ty: spot.ty + 0.5, tz: spot.tz, fov: fov[current] };
 }
 
 /** Seconds of flight to a hit on a path sampled every 2 ticks. */
@@ -985,27 +1110,27 @@ function updateAimHelp() {
   aimHit = null;
   let marker: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null = null;
   if (!showing) {
+    renderer.setMortarAim(null, null, 0, true);
     renderer.setAimArc(null);
+  } else if (e.weapon === "mortar") {
+    // After M5: the mortar's own marks (the bearing, the charge ring); the last landing below as for any gun.
+    mortarHelp(e, w, a);
   } else {
+    renderer.setMortarAim(null, null, 0, true);
     const m = muzzle(e, a.yaw, a.pitch);
     const d = aimDir(a.yaw, a.pitch);
     const sv = e.weapon === "longGun" ? spinVector(a.yaw, spin, w.spinRate) : null;
-    // The mortar while its charge goes in: the flight at the needle's charge (otherwise a full one).
-    const speed = e.weapon === "mortar" && needle >= 0 ? w.minSpeed + (w.speed - w.minSpeed) * chargeOf(needle) : w.speed;
-    const v: [number, number, number] = [d[0] * speed, d[1] * speed, d[2] * speed];
+    const v: [number, number, number] = [d[0] * w.speed, d[1] * w.speed, d[2] * w.speed];
     const coef = flightCoef(w.projectile);
-    // The whole flight, stopped where it first hits masonry or the ground. A mortar
-    // fuse shorter than the flight bursts the shell in the air: the arc stops there.
-    const burstAt = e.weapon === "mortar" && fuseTicks > 0 ? fuseTicks / 60 : Infinity;
-    let path = predictPath(m, v, sv, wind.x, wind.z, coef, Math.min(12, burstAt), 2);
+    // The whole flight, stopped where it first hits masonry or the ground.
+    let path = predictPath(m, v, sv, wind.x, wind.z, coef, 12, 2);
     const hit = renderer.castPath(path);
     if (hit) path = cutPath(path, hit);
-    flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
-    const n = path.length;
+    flightSeconds = hit ? pathTime(path, hit) : 0;
     if (aimHelp === "full") {
       renderer.setAimArc(path);
       aimHit = hit;
-      predicted = hit ? { x: hit.x, y: hit.y, z: hit.z } : burstAt < 12 && n >= 3 ? { x: path[n - 3], y: path[n - 2], z: path[n - 1] } : null;
+      predicted = hit ? { x: hit.x, y: hit.y, z: hit.z } : null;
       marker = hit ? { x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz } : predicted;
     } else {
       // Ranked style: only the first part of the flight (still stopped by walls).
@@ -1016,8 +1141,8 @@ function updateAimHelp() {
     }
   }
   renderer.setGhostTrail(showing ? trails[current] : null);
-  // Full aim help marks where this shot will land or burst, with the reach of a burst; partial marks where the last one landed.
-  if (marker) renderer.setLandingMarker(marker, e.weapon === "mortar" && w.burst ? w.burst.radius : 0);
+  // Full aim help marks where this shot will land; partial marks where the last one landed (the mortar's charge ring is its own).
+  if (marker) renderer.setLandingMarker(marker, 0);
   else renderer.setLandingMarker(showing ? landing[current] : null);
   const guns = isMatch() ? matchInfo?.guns : undefined;
   for (let i = 0; i < ALL_EMP.length; i++) {
@@ -1028,6 +1153,42 @@ function updateAimHelp() {
     if (guns && !riding && guns.length >= (i + 1) * 2) renderer.setWeaponPose(i, guns[i * 2], guns[i * 2 + 1], false);
     else if (yours) renderer.setWeaponPose(i, aims[slot].yaw, aims[slot].pitch, slot === current);
   }
+}
+
+/**
+ * The mortar's marks (after M5): the bearing along the ground from its nearest
+ * range to its farthest, and while the charge goes in the ring where the shell
+ * would come down now. With the standard aim help the ring is a soft patch in
+ * still air (the wind is the gunner's to read); with the easy one it is the
+ * true landing, with the burst's reach and the whole flight.
+ */
+function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState) {
+  const [fx, , fz] = aimDir(a.yaw, 0);
+  const table = rangeTable(e);
+  const bearing = { x: e.x, z: e.z, dx: fx, dz: fz, near: Math.max(6, table.range[0]), far: table.range[table.range.length - 1] };
+  if (!charging || charging.slot !== current || needle < 0) {
+    renderer.setMortarAim(bearing, null, 0, true);
+    renderer.setAimArc(null);
+    predicted = null;
+    flightSeconds = 0;
+    return;
+  }
+  const lay = mortarLay(e, needle);
+  chargeRange = lay.range;
+  const speed = w.minSpeed + (w.speed - w.minSpeed) * lay.charge;
+  const d = aimDir(a.yaw, lay.pitch);
+  const easy = aimHelp === "full";
+  const burstAt = fuseTicks > 0 ? fuseTicks / 60 : Infinity;
+  let path = predictPath(muzzle(e, a.yaw, lay.pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, easy ? wind.x : 0, easy ? wind.z : 0, flightCoef(w.projectile), Math.min(12, burstAt), 2);
+  const hit = renderer.castPath(path);
+  if (hit) path = cutPath(path, hit);
+  const n = path.length;
+  const p = hit ? { x: hit.x, y: hit.y, z: hit.z } : { x: path[n - 3], y: path[n - 2], z: path[n - 1] };
+  flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
+  predicted = p;
+  if (easy) aimHit = hit;
+  renderer.setMortarAim(bearing, p, easy && w.burst ? w.burst.radius : RING_SOFT, !easy);
+  renderer.setAimArc(easy ? path : null);
 }
 
 /** The keep's top storey is its roof. */
@@ -1090,6 +1251,70 @@ function flashLoaded() {
   weaponPanel.classList.add("fresh");
   clearTimeout(freshTimer);
   freshTimer = setTimeout(() => weaponPanel.classList.remove("fresh"), 800);
+}
+
+// ---- guns knocked out (after M5) ---------------------------------------------------
+/** What knocked a gun out (sim OutCause), in a word or two. */
+const CAUSE_SHORT = ["", "its masonry fell", "a direct hit", "chain shot", "a shell"];
+
+/** "Out: back in 24 s" (or what it waits for), for a slot of yours. */
+function outShort(i: number): string {
+  const id = gid(i), st = gunOut[id * 2] ?? 0, left = gunOut[id * 2 + 1] ?? 0;
+  if (st === 2) return "Out: masonry down";
+  if (st === 3) return "Out: needs gold";
+  return `Out: back in ${Math.max(1, Math.ceil(left / 60))} s`;
+}
+
+/**
+ * The worker's report of which guns are out: the tabs and the weapon card
+ * follow when it changes. (The gun models follow the GunOut and GunBack events
+ * instead, which come with the frame they happen in: the report runs a couple
+ * of frames ahead of what is drawn, and only the event says a gun fell.)
+ */
+let outSeen = "";
+function onGunsOut(out: Int16Array) {
+  gunOut = out;
+  let key = "";
+  for (let i = 0; i < out.length; i += 2) key += out[i];
+  if (key === outSeen) return;
+  outSeen = key;
+  tabs.forEach((b, i) => {
+    const o = isOut(i);
+    b.classList.toggle("out", o);
+    if (!EMP[i].empty) b.title = o ? `Slot ${i + 1}: knocked out` : "";
+  });
+  updateHud(true);
+}
+
+/** A gun was knocked out (sim mounts.ts): a short note, the log, a crash; the model tips over or falls with its masonry. */
+function gunKnockedOut(emp: number, cause: number) {
+  const e = ALL_EMP[emp];
+  if (!e) return;
+  sound.woodHit(e.x, e.y, e.z, 1);
+  sound.impact(e.x, e.y, e.z, cause === 1 ? 0.9 : 0.6);
+  renderer.setGunOut(emp, true, cause === 1);
+  const slot = emp - BASE;
+  const name = WEAPONS[e.weapon].name.toLowerCase();
+  if (slot >= 0 && slot < EMP.length) {
+    showNote(`Your ${name} is out: ${CAUSE_SHORT[cause]}`, 4000);
+    if (isMatch()) logMoment(`Your ${name} was knocked out (${CAUSE_SHORT[cause]})`, true);
+  } else {
+    if (tally) tally.guns++;
+    showNote(`Enemy ${name} silenced`, 3500);
+    if (isMatch()) logMoment(`You silenced the enemy ${name}`);
+  }
+}
+
+/** A knocked-out gun's crew has it back. */
+function gunBack(emp: number) {
+  const e = ALL_EMP[emp];
+  if (!e) return;
+  renderer.setGunOut(emp, false);
+  const slot = emp - BASE;
+  if (slot >= 0 && slot < EMP.length && !e.empty) {
+    showNote(`Your ${WEAPONS[e.weapon].name.toLowerCase()} is back`, 2600);
+    sound.ready(e.weapon);
+  }
 }
 
 // ---- HUD -------------------------------------------------------------------------
@@ -1213,17 +1438,20 @@ function updateHud(force = false) {
     return;
   }
   const r = rl(current);
-  hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
-  hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
-  weaponPanel.classList.toggle("loaded", r === 0);
+  const out = isOut(current);
+  hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
+  hud.reloadFill.style.transform = `scaleX(${out ? 0 : 1 - r / w.reload})`;
+  weaponPanel.classList.toggle("loaded", r === 0 && !out);
+  weaponPanel.classList.toggle("out", out);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).
   const elevation = `${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
   // The settings line is fixed words and numbers only (it is set as HTML for its keycaps).
   let extra = "";
   if (e.weapon === "mortar") {
+    // After M5: the range the charge gives now (in still air with the standard aim help), or what to do.
     const flight = aimHelp === "full" && flightSeconds ? `, ${flightSeconds.toFixed(1)} s` : "";
-    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : `${elevation}  ${Math.round(stillAirRange(aims[current].pitch))} m`;
+    hud.target.textContent = needle >= 0 ? (hitText ? `Lands on ${hitText}${flight}` : `${Math.round(chargeRange)} m`) : "";
     const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? ", airburst" : "";
     extra = `Fuse <b>${fuseTicks === 0 ? "impact" : `${(fuseTicks / 60).toFixed(1)} s${air}`}</b> <kbd>[</kbd><kbd>]</kbd>`;
   } else {
@@ -1243,8 +1471,8 @@ function updateHud(force = false) {
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = isMatch() ? "" : `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}, frame ${pacer.frameMs.toFixed(1)} ms, resolution ${Math.round(SCALES[pacer.scaleIdx] * 100)}%`;
-  // For the mortar the middle of the observer's view is where a full charge comes down in still air.
-  hud.reticle.hidden = view !== "sight" || !!ride || !!follow;
+  // After M5 the mortar is aimed by the ring on the ground, not the middle of the view.
+  hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
 }
 
 /** Where the wanted aim is on screen, relative to the barrel, for the lead marker. */
@@ -1370,7 +1598,8 @@ function startMode(m: Mode, net?: OnlineStart) {
   renderer.setSide(ME);
   buildTabs();
   estate.reset(m, ME);
-  renderer.showEmplacements(match ? ALL_EMP.length : EMP.length);
+  // After M5 the Practice range shows the target castle's guns too: something to silence.
+  renderer.showEmplacements(ALL_EMP.length);
   renderer.setMarkers(match);
   prevGate = null;
   matchLog = [];
@@ -1472,6 +1701,12 @@ function syncArms(arms: Int8Array) {
 /** Forget everything drawn from the old world. */
 function resetLocal() {
   endRide();
+  cancelCharge();
+  myShells.clear();
+  gunOut = new Int16Array(0);
+  outSeen = "";
+  for (let i = 0; i < ALL_EMP.length; i++) renderer.setGunOut(i, false);
+  tabs.forEach((b) => b.classList.remove("out"));
   renderer.resetWorld();
   timeline.reset();
   downAt.clear();
@@ -1765,7 +2000,8 @@ function onMatch(info: MatchInfo) {
   // M3: the rate it comes in, what was earned since, the guns as built and bought.
   $("gold-rate").textContent = `+${info.income[ME].toFixed(1)}/s`;
   syncArms(info.arms);
-  estate.onMatch(info, EMP[current] ?? null, current, EMP);
+  // After M5: by slot, whether the masonry a gun would stand on is down (none can be bought for it until rebuilt).
+  estate.onMatch(info, EMP[current] ?? null, current, EMP, EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2));
   const r = info.result;
   $("match-note").textContent = r ? endLine(r).short : "";
   // The end screen a moment after the end, so the collapse (or the storm) can be seen.
@@ -1977,6 +2213,8 @@ function showEnd() {
     ["Gold spent", st ? st[a].goldSpent : "", st ? st[b].goldSpent : ""],
     // M3: trick shots by kind.
     ["Trick shots", trickText(info.tricks[a]), trickText(info.tricks[b])],
+    // After M5: guns knocked out.
+    ["Guns silenced", st ? st[a].gunsSilenced : "", st ? st[b].gunsSilenced : ""],
     ["Men lost", info.fallen[a], info.fallen[b]],
     ["Waves sent", info.waves[a], info.waves[b]],
     ["Ladders raised", st ? st[a].laddersRaised : "", st ? st[b].laddersRaised : ""],
@@ -2253,8 +2491,11 @@ function frame(wall: number) {
   } else if (view !== "sight" || estate.wheelOpen || blocked) {
     cancelCharge();
   } else if (EMP[current].weapon === "mortar" && !EMP[current].empty) {
-    // The mortar: the press starts the charge, letting go fires it.
-    if (p.fire && !charging && canFire()) charging = { start: now, slot: current, ticks: 0 };
+    // The mortar: the press starts the charge, letting go fires it (a knocked-out one says when it is back).
+    if (p.fire && !charging) {
+      if (canFire()) charging = { start: now, slot: current, ticks: 0 };
+      else if (isOut(current)) fire();
+    }
     if (charging) {
       needle = needleAt(now);
       const k = Math.floor(((now - charging.start) / 1000) * 9);
@@ -2262,15 +2503,7 @@ function frame(wall: number) {
         charging.ticks = k;
         sound.chargeTick(needle);
       }
-      if (!input.fireHeld() || !canFire()) {
-        const n = needle;
-        cancelCharge();
-        if (canFire()) {
-          lastNeedle[current] = n;
-          firedAt = { needle: n, until: now + 1400 };
-          fire(chargeOf(n));
-        }
-      }
+      if ((!input.fireHeld() && !testHold) || !canFire()) releaseCharge(now);
     }
   } else if (p.fire) fire();
 
@@ -2366,7 +2599,7 @@ async function start() {
   if (location.hash.includes("low")) tier = "low";
   quality.value = tier;
   renderer.setLayout(layout, ALL_EMP);
-  renderer.showEmplacements(isMatch() ? ALL_EMP.length : EMP.length);
+  renderer.showEmplacements(ALL_EMP.length);
   renderer.setMarkers(isMatch());
   renderer.setQuality(tier);
   renderer.setGore(gore.checked);
@@ -2467,5 +2700,36 @@ else {
   },
   setFov(emp: number, f: number) {
     fov[emp] = f;
+  },
+  /** After M5: lay a slot's gun on a point in still air (the aim solver the AI uses); false if it cannot reach. */
+  aimAtPoint(emp: number, x: number, y: number, z: number) {
+    const sol = solveAim(EMP[emp], x, y, z);
+    if (!sol) return false;
+    aims[emp] = clampAim({ yaw: sol.yaw, pitch: sol.pitch }, EMP[emp], weaponOf(EMP[emp]));
+    wanted[emp] = { ...aims[emp] };
+    return true;
+  },
+  /** After M5: how far the mortar's spotter looks along the bearing (m). */
+  lookAt(emp: number, d: number) {
+    lookD[emp] = d;
+  },
+  /** After M5: hold the mortar's charge at a level (0..1) without a key, or (null) let it go: the shell leaves at that level. */
+  holdCharge(level: number | null) {
+    const now = clock();
+    if (level === null) {
+      testHold = false;
+      releaseCharge(now);
+      return;
+    }
+    testHold = true;
+    charging = { start: now - level * CHARGE_SWEEP * 1000, slot: current, ticks: 0 };
+    needle = level;
+  },
+  get chargeRange() {
+    return chargeRange;
+  },
+  /** After M5: every emplacement's knocked-out state as last reported ([state, ticks left] each). */
+  get gunOut() {
+    return Array.from(gunOut);
   },
 };

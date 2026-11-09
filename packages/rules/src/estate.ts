@@ -21,6 +21,7 @@ import {
   WEAPON_COST,
   WEAPON_KINDS,
   BARREL,
+  GUN_HITS,
   type BuildingKind,
   type Emplacement,
   type MixName,
@@ -83,10 +84,11 @@ export class Estate {
     return false;
   }
 
-  /** Buy a gun for one of the team's empty slots. */
+  /** Buy a gun for one of the team's empty slots (after M5: only while the masonry it would stand on stands). */
   buy(team: number, emp: number, weapon: WeaponKind): boolean {
     const e = this.emplacements[emp];
     if (!e || this.teamOfEmp(emp) !== team || !e.empty || !(e.allowed ?? []).includes(weapon)) return false;
+    if (this.world.mounts.standing(emp) < GUN_HITS.mountBack) return false;
     if (!this.economy.pay(team, WEAPON_COST[weapon])) return false;
     e.weapon = weapon;
     e.empty = false;

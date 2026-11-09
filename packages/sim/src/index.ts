@@ -16,5 +16,7 @@ export * from "./works";
 export * from "./gunnery";
 export * from "./structures";
 export * from "./specialists";
+export * from "./mounts";
+export * from "./sweep";
 export * from "./sandbox";
 export * from "./session";

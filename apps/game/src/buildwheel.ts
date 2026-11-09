@@ -72,6 +72,8 @@ export interface WheelState {
   gunSlot: number;
   /** Your castle's eight gun slots, in slot order. */
   guns: Emplacement[];
+  /** After M5: by slot, the masonry it stands on is down (no gun can be bought for it until masons rebuild it). */
+  mountDown?: boolean[];
 }
 
 export class BuildWheel {
@@ -285,7 +287,8 @@ export class BuildWheel {
       if (!e.empty) return;
       const kinds = e.allowed ?? [];
       const cheapest = Math.min(...kinds.map((k) => WEAPON_COST[k]));
-      out.push({ label: `Gun for slot ${slot + 1}`, detail: kinds.map((k) => WEAPONS[k].name.toLowerCase()).join(", "), cost: cheapest, from: kinds.length > 1, ok: s.gold >= cheapest, input: null, sub: SLOT + slot });
+      const down = s.mountDown?.[slot] === true;
+      out.push({ label: `Gun for slot ${slot + 1}`, detail: down ? "Its masonry is down: masons first" : kinds.map((k) => WEAPONS[k].name.toLowerCase()).join(", "), cost: cheapest, from: kinds.length > 1, ok: !down && s.gold >= cheapest, input: null, sub: SLOT + slot });
     });
     if (s.guns.some((e) => !e.empty && !e.upgrade && upgradesFor(e.weapon).length)) {
       out.push({ label: "Upgrade a gun", detail: s.foundry ? "One per gun" : "Needs a working Foundry", cost: 0, ok: s.foundry, input: null, sub: UPGRADE_LIST });
@@ -310,7 +313,9 @@ export class BuildWheel {
     if (!e) return [];
     const id = e.id;
     if (e.empty) {
-      return (e.allowed ?? []).map((k: WeaponKind) => ({ label: WEAPONS[k].name, detail: gunBlurb(k), cost: WEAPON_COST[k], ok: s.gold >= WEAPON_COST[k], input: { kind: "buy" as const, emplacement: id, weapon: k } }));
+      // After M5: a gun stands on its masonry, so none can be bought for a slot whose masonry is down.
+      const down = s.mountDown?.[s.guns.findIndex((g) => g.id === id)] === true;
+      return (e.allowed ?? []).map((k: WeaponKind) => ({ label: WEAPONS[k].name, detail: down ? "Its masonry is down: masons first" : gunBlurb(k), cost: WEAPON_COST[k], ok: !down && s.gold >= WEAPON_COST[k], input: { kind: "buy" as const, emplacement: id, weapon: k } }));
     }
     return upgradesFor(e.weapon).map((u) => {
       const has = e.upgrade === u.kind;
@@ -328,7 +333,7 @@ function gunBlurb(k: WeaponKind): string {
     case "mortar":
       return "High arc: roofs, keeps and waves";
     case "chainShot":
-      return "Scythes through ranks";
+      return "Mows down ranks, sweeps gun crews";
     default:
       return "Grapeshot at close range";
   }

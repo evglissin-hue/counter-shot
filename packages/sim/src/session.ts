@@ -1,5 +1,6 @@
 // The scripted sandbox session: every weapon fires (the mortar with a fuse and
-// on impact, the long gun with spin) into the target castle and the patrol.
+// on impact, the long gun with spin, the chain shot's chain through the patrol)
+// into the target castle and the patrol.
 // Node tests pin its hash; the browser hash page replays it so devices and
 // browsers can be compared with Node bit for bit.
 
@@ -11,7 +12,7 @@ import { SandboxSim, Spin, type SandboxInput } from "./sandbox";
 export const SESSION_TICKS = 1100;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION when gameplay changes. */
-export const SESSION_HASH = { state: "f95dcaf0", world: "fbd3c878" } as const;
+export const SESSION_HASH = { state: "fcfc80cf", world: "9c6521a6" } as const;
 
 export const SESSION_SCRIPT: Array<[number, SandboxInput]> = [
   [5, { kind: "fire", emplacement: 0, yaw: 0, pitch: 0.035, charge: 1, fuse: 0, spin: Spin.None }],
@@ -22,6 +23,8 @@ export const SESSION_SCRIPT: Array<[number, SandboxInput]> = [
   [760, { kind: "fire", emplacement: 1, yaw: 0.0, pitch: 1.17, charge: 1, fuse: 0, spin: Spin.None }],
   [500, { kind: "fire", emplacement: 0, yaw: -0.04, pitch: -0.035, charge: 1, fuse: 0, spin: Spin.Top }],
   [560, { kind: "fire", emplacement: 2, yaw: 0.1, pitch: 0.01, charge: 1, fuse: 0, spin: Spin.None }],
+  // After M5: a chain shot low into the patrol, whose whirling chain sweeps a man down (the first long gun shot already knocks the target's long gun off its wall walk).
+  [900, { kind: "fire", emplacement: 2, yaw: 0.14, pitch: -0.025, charge: 1, fuse: 0, spin: Spin.None }],
 ];
 
 export interface SessionResult {

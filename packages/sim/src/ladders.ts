@@ -16,6 +16,8 @@ import { Action, Climb, type Army, type Emit } from "./army";
 import type { CastleSim, Rapier } from "./castleSim";
 import { EventKind, LADDER_STRIDE } from "./frame";
 import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import { segPoint2 } from "./mounts";
+import { chainMid, SWEEP, type ChainMove } from "./sweep";
 import type { Terrain } from "./terrain";
 
 type World = InstanceType<Rapier["World"]>;
@@ -546,6 +548,29 @@ export class Ladders {
     const v = dsqrt(vx * vx + vy * vy + vz * vz);
     if (L.state === LadderState.Planted && v > 3) this.knockDown(L, ...push(vx, vy, vz, v), tick);
     return true;
+  }
+
+  /**
+   * After M5: a chain shot's whirl (radius `half`) swept from where it was to
+   * where it is this step, at (vx, vy, vz): a planted ladder it passes comes
+   * off the wall. Returns how many it took.
+   */
+  sweptBy(mv: ChainMove, half: number, vx: number, vy: number, vz: number, tick: number): number {
+    let n = 0;
+    const r = half + 0.3, r2 = r * r;
+    for (const L of this.list) {
+      if (L.state !== LadderState.Planted) continue;
+      let hit = false;
+      for (let k = 0; k <= SWEEP.steps && !hit; k++) {
+        const c = chainMid(mv, k);
+        if (segPoint2(L.fx, L.fy, L.fz, L.tx, L.ty, L.tz, c[0], c[1], c[2]) < r2) hit = true;
+      }
+      if (!hit) continue;
+      const v = dsqrt(vx * vx + vy * vy + vz * vz);
+      this.knockDown(L, ...push(vx, vy, vz, v), tick);
+      n++;
+    }
+    return n;
   }
 
   /** A powder burst: planted ladders within its reach come down, thrown away from it. */

@@ -301,7 +301,10 @@ function tick(advanceMs = -1) {
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
-  const transfer: Transferable[] = [frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer, frame.ladders.buffer, frame.works.buffer, frame.plots.buffer, frame.kegs.buffer];
+  // After M5: which guns are knocked out, and for how long yet.
+  const out = new Int16Array(sim.emplacements.length * 2);
+  sim.mounts.report(sim.tick, out);
+  const transfer: Transferable[] = [out.buffer, frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer, frame.ladders.buffer, frame.works.buffer, frame.plots.buffer, frame.kegs.buffer];
   const info = matchInfo();
   if (info) transfer.push(info.guns.buffer, info.earned.buffer, info.barracks.buffer, info.arms.buffer);
   for (const p of frame.terrain) transfer.push(p.h.buffer);
@@ -330,6 +333,7 @@ function tick(advanceMs = -1) {
       t: "frame",
       frame,
       reload: sim.reload.slice(),
+      out,
       stepMs: Math.round(stepEma * 100) / 100,
       stepPeak: Math.round(Math.max(peakNow, peakLast) * 10) / 10,
       down: counts.down,

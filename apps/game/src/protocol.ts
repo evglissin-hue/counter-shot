@@ -137,6 +137,13 @@ export type FromWorker = { gen?: number } & (
       t: "frame";
       frame: FrameData;
       reload: number[];
+      /**
+       * After M5: every emplacement's gun, two numbers each: 0 up (or an empty
+       * slot whose masonry stands), else 1 its crew is getting it back, 2 the
+       * masonry under it is down, 3 its side has no gold; then the ticks left
+       * before its crew could have it back.
+       */
+      out: Int16Array;
       stepMs: number;
       stepPeak: number;
       down: number;

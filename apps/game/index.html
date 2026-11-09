@@ -274,7 +274,7 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
 @keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(201, 154, 70, 0); } 50% { box-shadow: 0 0 0 4px rgba(201, 154, 70, 0.35); background: rgba(201, 154, 70, 0.18); } }
 @media (prefers-reduced-motion: reduce) { .buildbtn.nudge { animation: none; background: rgba(201, 154, 70, 0.18); } }
 .choice2.more b::after { content: " \203A"; color: var(--brass); }
-/* The mortar's charge: a needle that swings from empty to full and back while fire is held. */
+/* The mortar's charge: it fills from the nearest range to the farthest while fire is held, and falls back if held on (after M5). */
 .charge { position: absolute; left: 50%; bottom: calc(102px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(340px, calc(100% - 320px)); min-width: 200px; padding: 9px 12px 8px; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
 .charge .track { position: relative; width: 100%; height: 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.16); overflow: hidden; }
 .charge .track > i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, #6b4c1d, var(--brass) 70%, #ffd27a); }
@@ -322,6 +322,9 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 #weapons button .n { font: 500 11px/1 var(--mono); color: var(--ink-dim); margin-right: 6px; }
 #weapons button[aria-pressed="true"] .n { color: var(--brass); }
 #weapons button.emptyslot { font-style: normal; color: rgba(181, 171, 149, 0.6); padding-inline: 8px; }
+/* After M5: a gun knocked out: its tab turns red until its crew has it back. */
+#weapons button.out { color: var(--bad); }
+#weapons button.out[aria-pressed="true"] { color: #f0a08c; box-shadow: inset 0 -2px 0 var(--bad); background: rgba(226, 113, 90, 0.16); }
 #sound-btn { display: inline-grid; place-items: center; padding: 6px 9px; }
 #sound-btn svg { width: 18px; height: 18px; display: block; }
 #sound-btn[aria-pressed] { background: transparent; box-shadow: none; color: var(--ink); }
@@ -460,12 +463,13 @@ body.title-screen .side > * { display: none !important; }
     <h2>Controls</h2>
     <dl class="keys">
       <dt>Click</dt><dd>Take the gun, then fire. Esc frees the mouse</dd>
-      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly; with the keys a gun gathers speed and coasts, so tap to correct</dd>
+      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly; with the keys a gun gathers speed and coasts, so tap to correct. The mortar: up and down look farther or nearer</dd>
       <dt>Shift</dt><dd>Fine aim</dd>
       <dt>Right mouse, Z</dt><dd>Zoom (scroll sets it)</dd>
-      <dt>Space</dt><dd>Fire. The mortar: hold to load the charge, let go at the full mark</dd>
+      <dt>Space</dt><dd>Fire. The mortar: hold to charge, let go to fire. The ring on the ground is where it lands in still air</dd>
       <dt>1 to 8, Q, E</dt><dd>Switch gun (Q and E skip empty slots)</dd>
       <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
+      <dt>Guns</dt><dd>Each stands on its wall or tower. Bring the masonry down, hit the gun square, sweep its crew with chain shot or shell it: it is out for 30 s (pays 20 gold)</dd>
       <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
       <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
@@ -507,7 +511,7 @@ body.title-screen .side > * { display: none !important; }
     <ol id="guide-steps"></ol>
   </aside>
   <div id="charge" class="charge glass" hidden aria-hidden="true">
-    <div class="track"><em></em><i id="charge-fill"></i><b id="charge-last" hidden></b></div>
+    <div class="track"><i id="charge-fill"></i><b id="charge-last" hidden></b></div>
     <span id="charge-text" class="small"></span>
   </div>
   <div id="paused" class="pausedbadge glass" hidden role="status">Paused <span class="small"><kbd>P</kbd> resumes</span></div>

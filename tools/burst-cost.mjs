@@ -60,10 +60,13 @@ try {
     }
   }
   await page.evaluate(() => window.__sandbox.select(1));
-  await page.evaluate(() => window.__sandbox.aimAt(1, 0, 0.99));
   await frames(40);
   const calm = await cost();
-  await page.evaluate(() => window.__sandbox.fire());
+  // After M5 the mortar charges: hold it to most of the way (about the target keep) and let go.
+  await page.evaluate(() => {
+    window.__sandbox.holdCharge(0.9);
+    window.__sandbox.holdCharge(null);
+  });
   await page.waitForFunction(() => window.__sandbox.ride && window.__sandbox.ride.boom, null, { timeout: 900000, polling: 50 });
   await frames(9);
   const burst = await cost();

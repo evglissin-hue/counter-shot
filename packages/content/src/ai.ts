@@ -50,6 +50,14 @@ export interface AiLevel {
   crowd: number;
   /** It shells the enemy's buildings and masons, not only walls, gate and keep. */
   raids: boolean;
+  /**
+   * After M5: in this share of its looks at the field it goes after the enemy
+   * gun that has hit its castle in the last 20 seconds: its chain shot sweeps
+   * the crew off a wall or tower, its mortar shells a mortar pit. 0: never.
+   * After knocking a gun out it leaves the guns alone for `counterRest` ticks.
+   */
+  counter: number;
+  counterRest: number;
   /** Ticks between looks at its build plan, its barracks, its orders and its repairs. */
   plan: number;
   /** Gold it keeps back for its masons before it builds or buys. */
@@ -76,6 +84,8 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     focus: 0.35,
     crowd: 7,
     raids: false,
+    counter: 0,
+    counterRest: 0,
     plan: 9 * 60,
     reserve: 40,
     adapts: false,
@@ -97,6 +107,8 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     focus: 0.7,
     crowd: 5,
     raids: true,
+    counter: 0.2,
+    counterRest: 75 * 60,
     plan: 4 * 60,
     reserve: 60,
     adapts: true,
@@ -118,6 +130,8 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     focus: 0.92,
     crowd: 4,
     raids: true,
+    counter: 0.3,
+    counterRest: 45 * 60,
     plan: 2 * 60,
     reserve: 80,
     adapts: true,

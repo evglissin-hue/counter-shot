@@ -12,6 +12,50 @@ import { ASHWRIGHT_EMPLACEMENTS, WEAPONS, type Emplacement, type UpgradeKind, ty
 /** Gold for a gun in an empty slot. */
 export const WEAPON_COST: Record<WeaponKind, number> = { longGun: 220, mortar: 300, chainShot: 160, swivel: 120 };
 
+/**
+ * Guns stand on real masonry and can be knocked out (the owner's request
+ * after M5: something besides the keep worth shooting at). A gun goes out of
+ * action when the masonry it stands on gives way (its tower top or wall walk:
+ * the top two courses under it), when a ball strikes the gun itself, when a
+ * chain shot sweeps the crew around it off the wall, or when a shell bursts
+ * beside it. Distances are from the gun's trunnions.
+ */
+export const GUN_HITS = {
+  /** A single ball must strike the gun itself, square: the radius of its barrel and carriage (m), by kind. */
+  body: { longGun: 0.45, mortar: 0.5, chainShot: 0.45, swivel: 0.3 } as Record<WeaponKind, number>,
+  /** A chain shot's whirling chain (or either of its balls) sweeps away the crew standing this close to a gun (m, beyond the whirl's edge). */
+  crew: { longGun: 1.2, mortar: 1.2, chainShot: 1.2, swivel: 1.0 } as Record<WeaponKind, number>,
+  /** A shell bursting within this share of its burst's radius of a gun blows it off its bed. */
+  burst: 0.65,
+  /** The slowest a shot may fly and still knock a gun out (m/s). */
+  minSpeed: 15,
+  /** A gun falls once less than this share of the masonry under it stands, and is put back only once this much stands again. */
+  mountOut: 0.5,
+  mountBack: 0.8,
+  /** Masonry under a gun: pieces whose tops lie within this far below the floor it stands on (two courses). */
+  mountDepth: 0.9,
+  /** On a wall walk, pieces within this far of the gun (m); in a tower, the whole top of the ring. */
+  mountReach: 1.7,
+} as const;
+
+/**
+ * Putting a knocked-out gun back: its crew needs this long, and the masonry
+ * under it must stand again (masons rebuild it like any other damage). Free:
+ * a share of the gun's cost starved behind the masons, who spend every coin
+ * as it comes in, and a castle that lost its guns could never get them back.
+ */
+export const REMOUNT = {
+  /** Ticks from being knocked out until it can be put back. */
+  ticks: 30 * 60,
+  /** Gold, as a share of what the gun costs (rounded). */
+  share: 0,
+} as const;
+
+/** Gold to put a gun of this kind back on its mount. */
+export function remountCost(kind: WeaponKind): number {
+  return Math.round(WEAPON_COST[kind] * REMOUNT.share);
+}
+
 /** A gun's muzzle distance from its pivot (m): what a slot takes when a gun is bought for it. */
 export const BARREL: Record<WeaponKind, number> = { longGun: 1.8, mortar: 0.9, chainShot: 1.6, swivel: 1.1 };
 

@@ -91,6 +91,17 @@ export interface GameRendererApi {
   setLandingMarker(p: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null, blastRadius?: number): void;
   /** The first stone or ground a path (xyz triples) runs into, or null. */
   castPath(points: Float32Array): PathHit | null;
+  /**
+   * After M5: the mortar's marks: its bearing (dashes along the ground from
+   * `near` to `far` metres out along the unit direction dx, dz) and the charge
+   * ring where the shell would come down (soft, or sharp with a burst's reach
+   * as its radius). Nulls hide them.
+   */
+  setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean): void;
+  /** The ground's height under a point as drawn (craters included). */
+  groundAt(x: number, z: number): number;
+  /** After M5: a gun knocked out (it tips over, or with `fell` falls with its masonry) or back on its mount. */
+  setGunOut(emplacement: number, out: boolean, fell?: boolean): void;
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (0.4..1). */
   setRenderScale(scale: number): void;
   /** GPU time per frame in ms when the browser can measure it, else null. */

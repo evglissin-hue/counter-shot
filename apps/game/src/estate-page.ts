@@ -25,7 +25,9 @@ const TRICK_NAMES: Partial<Record<Earn, string>> = {
   [Earn.Collapse]: "Collapse kill",
   [Earn.MultiKill]: "Multi-kill",
 };
-const FEED_NAMES: Partial<Record<Earn, string>> = { [Earn.Bounty]: "bounties", [Earn.Masonry]: "masonry", [Earn.KeepHit]: "keep hit" };
+const FEED_NAMES: Partial<Record<Earn, string>> = { [Earn.Bounty]: "bounties", [Earn.Masonry]: "masonry", [Earn.KeepHit]: "keep hit", [Earn.Silenced]: "gun silenced" };
+/** Earnings that float with a label and ping, as a keep hit does (after M5: an enemy gun knocked out). */
+const DEED_NAMES: Partial<Record<Earn, string>> = { [Earn.KeepHit]: "Keep hit", [Earn.Silenced]: "Gun silenced" };
 /** Gold of one kind earned this close (metres) and this soon after (ms) adds to the number already rising there. */
 const MERGE_M = 15, MERGE_MS = 1200;
 /** A number rises this far (px) over its life (ms); two never start closer than the gap (px). */
@@ -220,7 +222,7 @@ export class Estate {
   }
 
   /** The match: gold coming in, and what the wheel shows. */
-  onMatch(info: MatchInfo, gun: Emplacement | null, slot: number, guns: Emplacement[]) {
+  onMatch(info: MatchInfo, gun: Emplacement | null, slot: number, guns: Emplacement[], mountDown: boolean[] = []) {
     this.gold = info.gold[this.team];
     const e = info.earned;
     for (let k = 0; k + EARN_STRIDE - 1 < e.length; k += EARN_STRIDE) {
@@ -232,8 +234,8 @@ export class Estate {
         this.toast(trick, amount);
         continue;
       }
-      const keep = kind === Earn.KeepHit;
-      if (keep) this.sound.trick();
+      const deed = DEED_NAMES[kind];
+      if (deed) this.sound.trick();
       else {
         const now = performance.now();
         if (now - this.lastCoin > 120) {
@@ -242,9 +244,9 @@ export class Estate {
         }
       }
       // A number where it was earned when that is in view, else a line in the feed under the match bar: never both.
-      if (!this.float(e[k + 3], e[k + 4], e[k + 5], amount, keep ? "Keep hit" : "")) this.feedSum.set(kind, (this.feedSum.get(kind) ?? 0) + amount);
+      if (!this.float(e[k + 3], e[k + 4], e[k + 5], amount, deed ?? "")) this.feedSum.set(kind, (this.feedSum.get(kind) ?? 0) + amount);
     }
-    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot, guns });
+    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot, guns, mountDown });
   }
 
   private toast(name: string, amount: number) {

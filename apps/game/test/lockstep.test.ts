@@ -22,11 +22,12 @@ const fire = (emplacement: number, yaw: number, pitch: number): MatchInput => ({
 const SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
   [5, Team.Enemy, { kind: "man", emplacement: 8 }],
-  [100, Team.Player, fire(0, 0, 0.03)],
-  [140, Team.Enemy, fire(8, Math.PI, 0.03)],
+  // (Wide of the enemy's long gun, which stands straight ahead on its gate wall: after M5 a ball through it knocks it out.)
+  [100, Team.Player, fire(0, 0.05, 0.03)],
+  [140, Team.Enemy, fire(8, Math.PI - 0.05, 0.03)],
   [200, Team.Player, { kind: "build", plot: 1, building: "mill" }],
   [260, Team.Enemy, { kind: "route", route: "left" }],
-  [380, Team.Player, fire(0, 0.02, 0.028)],
+  [380, Team.Player, fire(0, 0.06, 0.028)],
   [430, Team.Enemy, { kind: "order", order: Order.Hold }],
   [500, Team.Enemy, { kind: "aim", emplacement: 8, yaw: Math.PI + 0.01, pitch: 0.05 }],
   [520, Team.Enemy, fire(8, Math.PI + 0.01, 0.05)],

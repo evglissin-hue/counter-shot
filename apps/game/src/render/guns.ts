@@ -22,6 +22,19 @@ interface Gun {
   /** M3: its iron, and what its model shows ("" for an empty slot). */
   iron: THREE.Material;
   armed: string;
+  /**
+   * After M5: knocked out. It tips over on its bed, or (its masonry gave
+   * way) falls with the stones to the ground below, turning over as it goes.
+   */
+  out: boolean;
+  fell: boolean;
+  /** Its fall: height above its pivot's, speed, how far it has turned, and the ground under it. */
+  dropY: number;
+  dropV: number;
+  tumble: number;
+  groundY: number;
+  /** The way it tips (a turn about the vertical, picked from its id). */
+  tipYaw: number;
 }
 
 function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMaterial {
@@ -155,7 +168,7 @@ export class Guns {
       const pitch = new THREE.Group();
       root.add(yaw);
       yaw.add(pitch);
-      const gun: Gun = { em: { ...em }, root, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0, iron, armed: "" };
+      const gun: Gun = { em: { ...em }, root, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0, iron, armed: "", out: false, fell: false, dropY: 0, dropV: 0, tumble: 0, groundY: 0, tipYaw: (em.id * 2.399) % (Math.PI * 2) };
       this.guns.push(gun);
       this.root.add(root);
       this.mount(gun, em);
@@ -254,6 +267,26 @@ export class Guns {
     g.activeTarget = active ? 1 : 0;
   }
 
+  /**
+   * After M5: a gun knocked out (or back). `fell`: its masonry gave way, so it
+   * falls to `groundY`; otherwise it tips over on its bed. Back: it stands as
+   * it was at once (its crew has put it back).
+   */
+  setOut(i: number, out: boolean, fell: boolean, groundY: number) {
+    const g = this.guns.find((x) => x.em.id === i);
+    if (!g || g.out === out) return;
+    g.out = out;
+    g.fell = out && fell;
+    g.dropY = 0;
+    g.dropV = 0;
+    g.tumble = 0;
+    g.groundY = groundY;
+    if (!out) {
+      g.root.position.set(g.em.x, g.em.y, g.em.z);
+      g.root.rotation.set(0, 0, 0);
+    }
+  }
+
   /** Show the first n guns (the rest belong to a castle that has none in this mode). */
   setShown(n: number) {
     this.guns.forEach((g, i) => (g.root.visible = i < n));
@@ -271,7 +304,30 @@ export class Guns {
 
   update(dt: number) {
     const k = 1 - Math.exp(-dt * 6);
-    for (const g of this.guns) g.active.value += (g.activeTarget - g.active.value) * k;
+    for (const g of this.guns) {
+      g.active.value += (g.activeTarget - g.active.value) * k;
+      if (g.out) this.animateOut(g, dt);
+    }
+  }
+
+  /** A knocked-out gun: tipping over on its bed, or falling with its masonry and coming to rest on the ground. */
+  private animateOut(g: Gun, dt: number) {
+    const em = g.em;
+    if (g.fell) {
+      const floor = g.groundY + 0.35 - em.y;
+      if (g.dropY > floor) {
+        g.dropV -= 9.81 * dt;
+        g.dropY = Math.max(floor, g.dropY + g.dropV * dt);
+        g.tumble = Math.min(Math.PI * 0.62, g.tumble + dt * 2.2);
+      }
+    } else {
+      // Over on its side, a little lower: smashed, its crew gone.
+      g.dropY += (-0.3 - g.dropY) * Math.min(1, dt * 5);
+      g.tumble += (Math.PI * 0.42 - g.tumble) * Math.min(1, dt * 6);
+    }
+    g.root.position.set(em.x, em.y + g.dropY, em.z);
+    // Tip about a horizontal axis turned by tipYaw.
+    g.root.rotation.set(Math.cos(g.tipYaw) * g.tumble, 0, Math.sin(g.tipYaw) * g.tumble);
   }
 
   dispose() {

@@ -51,6 +51,8 @@ export const GOLD = {
     /** A shot whose first touch is the enemy keep. */
     keep: 10,
   },
+  /** An enemy gun knocked out (after M5), whatever did it: its tower brought down, a ball, a chain shot, a shell. */
+  silenced: 20,
 } as const;
 
 /** Kinds of earnings, for the page's feed (MatchInfo.earned). */
@@ -62,4 +64,6 @@ export const enum Earn {
   Collapse = 4,
   MultiKill = 5,
   KeepHit = 6,
+  /** An enemy gun knocked out (after M5). Not a trick shot: the end screen counts guns silenced on their own. */
+  Silenced = 7,
 }
