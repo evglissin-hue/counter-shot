@@ -102,7 +102,7 @@ test("M6 (match rules version 8): at the cap on men standing a castle still tops
   const field = () => m.world.minions.list.filter((x) => x.team === Team.Player && x.state === MinionState.Upright && x.role === Role.March).length;
   const out = field();
   for (const g of m.world.minions.list.filter((x) => x.team === Team.Player && x.role === Role.Garrison).slice(0, 2)) {
-    m.world.minions.knock({ minion: g.id, vx: 0, vy: 0, vz: 0, px: g.x, py: g.y + 1, pz: g.z }, m.tick);
+    m.world.minions.knock({ minion: g.id, vx: 0, vy: 0, vz: 0, extra: 0, px: g.x, py: g.y + 1, pz: g.z }, m.tick);
   }
   assert.equal(m.army.garrisonCount(Team.Player), GARRISON.size - 2);
   for (let i = 0; i <= WAVES.first; i++) m.step();
