@@ -416,9 +416,9 @@ function onFrame(f: FrameData) {
       }
       soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
-      if (impacts++ < 3) soundscape.impact(a, b, c, d);
+      soundscape.impact(a, b, c, d, impacts++ < 3);
     } else if (kind === EventKind.Blood) {
-      sound.thud(a, b, c, d);
+      // The cries, falls and thuds of men struck are the soundscape's (frame).
     } else if (kind === EventKind.Laid) {
       // Masons put a piece back: it rises on the hoist and settles (the renderer), then the sound of it bedding in.
       const s = layout.stones[a | 0];
@@ -1795,7 +1795,10 @@ function syncArms(arms: Int8Array) {
       shotCam[slot] = kind === "mortar";
       reload[i] = 0;
     }
-    if (slot >= 0 && slot < SLOTS && (bought || upgraded)) noteBuilt();
+    if (slot >= 0 && slot < SLOTS && (bought || upgraded)) {
+      noteBuilt();
+      if (bought) soundscape.purchase(e.x, e.y, e.z);
+    }
   }
   if (!changed) return;
   renderer.setArms(ALL_EMP);
@@ -2075,6 +2078,7 @@ function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
   updateWaves();
+  soundscape.match(info, ME, FOE);
   updateRepairs();
   updateStorm();
   if (!info.result) {
