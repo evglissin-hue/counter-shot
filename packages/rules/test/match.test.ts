@@ -84,6 +84,17 @@ test("weapons nobody mans fire at enemy minions coming at their walls; the one y
   m.free();
 });
 
+test("M6: a team's guns nobody mans can be kept off (the guided match's tutor, whose crews are not at its guns); the other side's still fire", () => {
+  const m = new Match(R, layout, { seed: 3, gunnery: [false, true] });
+  // A wave of each side 35 m from the other's gate.
+  m.army.spawnWave(Team.Enemy, 1, 8, { x: 0, z: -97 });
+  m.army.spawnWave(Team.Player, 1, 8, { x: 0, z: -53 });
+  for (let i = 0; i < 12 * 60; i++) m.step();
+  assert.ok(m.autoShots[Team.Player] > 0, `the player's unmanned guns fired ${m.autoShots[Team.Player]} times`);
+  assert.equal(m.autoShots[Team.Enemy], 0, "the enemy's crews are not at its guns");
+  m.free();
+});
+
 test("unmanned guns thin a wave on its way in, but most of it reaches the gate (the gunner's own shots decide)", () => {
   const m = new Match(R, layout, { seed: 1, barracks: false });
   m.queue(0, Team.Player, { kind: "man", emplacement: -1 }); // in the overview: every gun fires on its own (the mortar never does)

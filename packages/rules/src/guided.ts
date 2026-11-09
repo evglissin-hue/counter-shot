@@ -19,6 +19,9 @@ export const GUIDED_OPTIONS: Omit<MatchOptions, "seed"> = {
   startBuildings: [[], START_BUILDINGS],
   orders: [Order.Advance, Order.Hold],
   routes: ["centre", "left"],
+  // The tutor's guns never fire on their own (the player's chair: its chain shot and swivel cut down every wave
+  // before its gate, so waves could never break in); it fires by hand as it wakes. Yours fire on their own as ever.
+  gunnery: [false, true],
 };
 
 /** The team the tutor commands in the guided match. */

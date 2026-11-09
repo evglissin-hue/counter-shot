@@ -115,8 +115,12 @@ export interface MatchOptions {
   garrison?: boolean;
   /** Each castle has its masons (default). */
   masons?: boolean;
-  /** Weapons nobody mans fire on their own (default); tests and tools may turn it off. */
-  gunnery?: boolean;
+  /**
+   * Weapons nobody mans fire on their own (default); tests and tools may turn
+   * it off. M6: or per team (the guided match's tutor, a passive castle: its
+   * crews are not at its guns, so your waves can reach its gate).
+   */
+  gunnery?: boolean | [boolean, boolean];
   /** When sudden death starts (default MATCH.suddenDeathTick); tests and tools may bring it forward. */
   suddenDeathTick?: number;
   /** When time is called (default MATCH.timeLimitTick); tests and tools may bring it forward. */
@@ -275,7 +279,7 @@ export class Match {
   readonly estate: Estate;
   private inputs = new Map<number, Array<{ team: Team; input: MatchInput }>>();
   private garrison: boolean;
-  private autoFire: boolean;
+  private autoFire: [boolean, boolean];
   private suddenAt: number;
   private owner: Team[];
   /** When time is called (MATCH.timeLimitTick unless a test brings it forward). */
@@ -308,7 +312,7 @@ export class Match {
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
     this.barracks = opts.barracks !== false;
     this.garrison = opts.garrison !== false;
-    this.autoFire = opts.gunnery !== false;
+    this.autoFire = Array.isArray(opts.gunnery) ? [opts.gunnery[0], opts.gunnery[1]] : [opts.gunnery !== false, opts.gunnery !== false];
     this.suddenAt = opts.suddenDeathTick ?? MATCH.suddenDeathTick;
     this.timeAt = opts.timeLimitTick ?? MATCH.timeLimitTick;
     if (this.garrison) for (const team of [Team.Enemy, Team.Player]) this.army.spawnGarrison(team, GARRISON.size, true);
@@ -408,7 +412,7 @@ export class Match {
         this.sendWaves(Team.Player);
         this.sendWaves(Team.Enemy);
       }
-      if (this.autoFire) this.gunnery(tick);
+      if (this.autoFire[0] || this.autoFire[1]) this.gunnery(tick);
     }
     this.world.step();
     if (this.result) return;
@@ -574,8 +578,8 @@ export class Match {
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
       const U = UNMANNED[e.weapon];
-      // After M5: a knocked-out gun's crew is busy getting it back on its mount.
-      if (!U || e.empty || this.manned[team] === e.id || !mounts.up(e.id)) continue;
+      // After M5: a knocked-out gun's crew is busy getting it back on its mount. M6: a team whose crews are not at its guns.
+      if (!U || e.empty || !this.autoFire[team] || this.manned[team] === e.id || !mounts.up(e.id)) continue;
       const g = this.guns[e.id];
       const w = weaponOf(e);
       if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);
