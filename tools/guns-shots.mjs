@@ -67,7 +67,7 @@ async function tour() {
     window.__sandbox.lookAt(1, 24);
   });
   await frames(45);
-  await page.evaluate(() => window.__sandbox.holdCharge(0.12));
+  await page.evaluate(() => window.__sandbox.holdCharge(0.02));
   await frames(2);
   await shot("mortar-near");
   await page.evaluate(() => window.__sandbox.lookAt(1, 150));
