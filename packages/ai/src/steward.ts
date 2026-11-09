@@ -14,6 +14,7 @@ import {
   MUSTER,
   PLOTS,
   ROUTE_NAMES,
+  TUTOR,
   UPGRADES,
   WEAPON_COST,
   type AiLevel,
@@ -51,6 +52,8 @@ export class Steward {
     private L: AiLevel,
     private rng: Rng,
     private send: (tick: number, input: MatchInput) => void,
+    /** M6: the tutor's stage (it builds, buys and repairs by it); null for every other AI. */
+    private stage: (() => number) | null = null,
   ) {
     this.plan = [...AI_PLANS[difficulty]]; // its own copy: a step that must wait can be put behind the next one
     // Its castle as it finds it (M5 audit: taking over a friend's castle mid-match, it assumed Advance and every repair on).
@@ -71,6 +74,7 @@ export class Steward {
   }
 
   private build(tick: number) {
+    if (this.stage && this.stage() < 1) return; // the tutor asleep builds and buys nothing
     const m = this.m, team = this.team, st = m.world.structures!;
     // A ruin first (a barracks before anything else), whenever it can be paid for: it costs half.
     for (const kind of [0, 1, 2]) {
@@ -100,6 +104,7 @@ export class Steward {
       let s = this.plan[this.step];
       if (this.done(s)) continue;
       if (!this.possible(s)) continue; // the plot is taken, the slot armed: passed over
+      if (this.stage && (s.stage ?? 0) > this.stage()) return; // the tutor's step waits for its stage
       if (this.blocked(s)) {
         // After M5: the masonry under the slot is down, and no gun goes there until masons put it back. It asked
         // again every few seconds and built nothing else meanwhile; now the next step it can take goes first.
@@ -175,7 +180,12 @@ export class Steward {
     for (const p of plots) {
       let route = this.routes[p] ?? m.estate.barracks[team][p].route;
       let mix = this.mixes[p] ?? m.estate.barracks[team][p].mix;
-      if (this.L.adapts) {
+      if (this.stage) {
+        // The tutor: the road the player's waves are not holding; sappers (something to shoot) once it fights.
+        mix = TUTOR.mixes[this.stage()];
+        const r = this.bestRoute(open, p);
+        if (r) route = r;
+      } else if (this.L.adapts) {
         // Its first barracks: pikes to batter a standing gate, a mixed wave to storm once there is a way in.
         if (p === 0) mix = way || !gateUp ? "mixed" : "pikemen";
         // Routes: a bridge still standing, the one with the fewest of the enemy on it, otherwise in turn.
@@ -217,7 +227,8 @@ export class Steward {
   private orders(tick: number) {
     const m = this.m, team = this.team, foe = 1 - team;
     let order: Order = Order.Advance;
-    if (V.wayIn(m, team)) order = Order.Push;
+    if (this.stage) order = Order.Advance; // the tutor never pushes or holds
+    else if (V.wayIn(m, team)) order = Order.Push;
     else if (this.L.adapts) {
       const mine = V.marchers(m, team), theirs = V.marchers(m, foe, MUSTER[team].x, MUSTER[team].z, 120);
       if (theirs > mine * 1.6 + 4) order = Order.Hold;
@@ -234,7 +245,8 @@ export class Steward {
   private switches(tick: number) {
     const g = this.gold, r = this.repairs;
     // With a margin either way, so the switches do not flick back and forth as gold comes and goes.
-    const want: Record<RepairKind, boolean> = { gate: true, keep: true, walls: r.walls ? g >= 15 : g >= 40, towers: r.towers ? g >= 50 : g >= 120 };
+    const tutor = this.stage ? TUTOR.repairs[this.stage()] : null;
+    const want: Record<RepairKind, boolean> = tutor ? { gate: tutor.includes("gate"), walls: tutor.includes("walls"), towers: tutor.includes("towers"), keep: false } : { gate: true, keep: true, walls: r.walls ? g >= 15 : g >= 40, towers: r.towers ? g >= 50 : g >= 120 };
     for (const k of ["gate", "walls", "towers", "keep"] as RepairKind[]) {
       if (want[k] === this.repairs[k]) continue;
       this.repairs[k] = want[k];

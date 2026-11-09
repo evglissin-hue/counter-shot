@@ -7,6 +7,7 @@
 import type { BuildingKind } from "./buildings";
 import type { MixName } from "./army";
 import type { RouteName } from "./map";
+import type { RepairKind } from "./siege";
 import type { UpgradeKind, WeaponKind } from "./weapons";
 
 export type Difficulty = "squire" | "knight" | "warlord";
@@ -147,17 +148,17 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
   tutor: {
     name: "Tutor",
     blurb: "The guided first match: asleep at first, it wakes up slowly",
-    think: 5 * 60,
-    react: 60,
-    settle: 5 * 60,
-    look: 8 * 60,
-    warmup: 25 * 60 * 60, // placeholder: no shot by hand at all until its stages are built
-    firstErr: 0.045,
-    firstErrM: 14,
-    firstErrPerM: 0.08,
-    noise: 0.016,
-    noiseM: 6,
-    learn: 0.25,
+    think: 8 * 60,
+    react: 90,
+    settle: 8 * 60,
+    look: 14 * 60,
+    warmup: 0, // its stages (TUTOR) decide when it fires by hand at all
+    firstErr: 0.06,
+    firstErrM: 20,
+    firstErrPerM: 0.1,
+    noise: 0.02,
+    noiseM: 8,
+    learn: 0.15,
     focus: 0.3,
     crowd: 9,
     raids: false,
@@ -177,9 +178,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
  * own (0 to 7), plots its own (0 to 5).
  */
 export type AiStep =
-  | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number }
-  | { kind: "buy"; slot: number; weapon: WeaponKind; after?: number }
-  | { kind: "upgrade"; slot: number; upgrade: UpgradeKind; after?: number };
+  | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number; stage?: number }
+  | { kind: "buy"; slot: number; weapon: WeaponKind; after?: number; stage?: number }
+  | { kind: "upgrade"; slot: number; upgrade: UpgradeKind; after?: number; stage?: number };
 
 export const AI_PLANS: Record<AiName, AiStep[]> = {
   // A slow, plain plan: a mill, then guns, a second barracks late.
@@ -222,6 +223,32 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "buy", slot: 5, weapon: "swivel" },
     { kind: "upgrade", slot: 6, upgrade: "rifled" },
   ],
-  // M6: the tutor raises its barracks only when it stirs (its castle starts without one: GUIDED_OPTIONS in @keepfall/rules). Placeholder.
-  tutor: [{ kind: "build", plot: 0, building: "barracks", mix: "pikemen", route: "left" }],
+  // M6: the tutor raises its barracks when it stirs (its castle starts without one: GUIDED_OPTIONS in @keepfall/rules), then a mill, then a swivel once it fights.
+  // `stage` holds a step back until the tutor has reached that stage (TUTOR below).
+  tutor: [
+    { kind: "build", plot: 0, building: "barracks", mix: "pikemen", route: "left", stage: 1 },
+    { kind: "build", plot: 1, building: "mill", stage: 1 },
+    { kind: "buy", slot: 4, weapon: "swivel", stage: 3 },
+  ],
+};
+
+/**
+ * M6: the tutor's stages (seconds of match time; the AI turns them to ticks).
+ * Stage 0 asleep, 1 stirs, 2 wakes, 3 fights. The stage only goes up, one at a
+ * time, judged from the match alone (what the player has built, bought and
+ * ordered), so a guided match replays from its seed and the player's inputs.
+ */
+export const TUTOR = {
+  /** Stage 1: once the player has built, bought or ordered, but not before `stirsFrom`; at `stirsBy` at the latest. */
+  stirsFrom: 90,
+  stirsBy: 320,
+  /** Stage 2: this long after stage 1, or once the player's order is Advance or Push, but not before `wakesSoonest` after stage 1. */
+  wakesAfter: 90,
+  wakesSoonest: 30,
+  /** Stage 3: this long after stage 2. */
+  fightsAfter: 150,
+  /** Its barracks' mix at each stage (sappers carry kegs from stage 3: something to shoot). */
+  mixes: ["pikemen", "pikemen", "pikemen", "breach"] as MixName[],
+  /** What it repairs at each stage (never the keep). */
+  repairs: [[], ["gate"], ["gate", "walls"], ["gate", "walls", "towers"]] as RepairKind[][],
 };
