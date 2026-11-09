@@ -66,6 +66,8 @@ import { Sound } from "./sound";
 import { Soundscape } from "./soundscape";
 import { Pacer, SCALES } from "./pacing";
 import { Timeline } from "./timeline";
+import { ThreatStrip } from "./threat";
+import { OverviewMarks } from "./overviewMarks";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -81,6 +83,9 @@ const soundscape = new Soundscape(sound, layout);
 const estate = new Estate(renderer, sound, send, (text, ms) => showNote(text, ms), $);
 /** The minimap: both castles and both armies at a glance (the owner's ask: less reading, more seeing). */
 const minimap = new Minimap($<HTMLCanvasElement>("minimap"));
+/** M6: the threat strip over the minimap, and the group marks in the overview. */
+const threat = new ThreatStrip($("threat"));
+const groupMarks = new OverviewMarks($("ovmarks"));
 /** The castles' sections as the worker last counted them (twice a second). */
 let sectionShares: Uint8Array | null = null;
 let mapFrame = 0;
@@ -556,6 +561,8 @@ function onFrame(f: FrameData) {
   foesAt.delete(f.tick);
   soundscape.frame(f, ear);
   lastApplied = f;
+  for (let k = 0; k < f.eventCount; k++) if (f.events[k * EVENT_STRIDE] === EventKind.Keg) groupMarks.kegSet(f.events[k * EVENT_STRIDE + 1] | 0);
+  groupMarks.update(f.minions, f.minionCount, f.tick);
   renderer.applyFrame(f);
 }
 /** The last frame applied (the screenshot tools read figures and ladders from it). */
@@ -1667,6 +1674,9 @@ function startMode(m: Mode, net?: OnlineStart) {
   const match = m === "versus" || m === "online";
   $("matchbar").hidden = !match;
   $("command").hidden = !match;
+  threat.setVisible(match);
+  threat.setSide(ME);
+  groupMarks.reset();
   $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
   // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
@@ -2074,6 +2084,7 @@ function updateStorm() {
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
+  threat.update(info.lanes, ME);
   updateWaves();
   updateRepairs();
   updateStorm();
@@ -2653,6 +2664,10 @@ function frame(wall: number) {
   updateCharge(now);
   if (mode !== null && (mapFrame++ % 3 === 0 || FIXED)) drawMap();
   placeWanted();
+  {
+    const cam = renderer.listener();
+    groupMarks.place(mode !== null && view === "overview", (x, y, z) => renderer.project(x, y, z), cam, innerWidth, innerHeight, dt);
+  }
   if (!paused) renderer.render(dt);
   estate.update(now);
   if (estate.wheelOpen !== wheelShown) {
@@ -2788,6 +2803,10 @@ else {
     send({ t: "spawn", team, count, x, z, ladder });
   },
   toggleOverview,
+  /** M6: the group marks showing now. */
+  get groupMarks() {
+    return groupMarks.visible;
+  },
   get view() {
     return view;
   },
