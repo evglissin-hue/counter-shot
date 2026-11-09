@@ -1237,7 +1237,8 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
   const d = aimDir(a.yaw, lay.pitch);
   const easy = aimHelp === "full";
   const burstAt = fuseTicks > 0 ? fuseTicks / 60 : Infinity;
-  let path = predictPath(muzzle(e, a.yaw, lay.pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, easy ? wind.x : 0, easy ? wind.z : 0, flightCoef(w.projectile), Math.min(12, burstAt), 2);
+  const coef = flightCoef(w.projectile);
+  let path = toGround(predictPath(muzzle(e, a.yaw, lay.pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, easy ? wind.x : 0, easy ? wind.z : 0, coef, Math.min(12, burstAt), 2), coef.gravity);
   const hit = renderer.castPath(path);
   if (hit) path = cutPath(path, hit);
   const n = path.length;
@@ -1247,6 +1248,34 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
   if (easy) aimHit = hit;
   renderer.setMortarAim(bearing, live ? p : null, easy && w.burst ? w.burst.radius : RING_SOFT, !easy);
   renderer.setAimArc(live && easy ? path : null);
+}
+
+/**
+ * A predicted path (a point every 2 ticks) stops at height 0, level ground;
+ * where the valley lies lower (most of the field is a little below 0, the
+ * stream nearly 2 m) it is carried on down to the ground, so the cast finds
+ * where it comes down: the ring lies on the ground, and the flight time the
+ * fuse keys start from is known.
+ */
+function toGround(path: Float32Array, gravity: number): Float32Array {
+  const n = path.length / 3;
+  if (n < 2) return path;
+  let x = path[n * 3 - 3], y = path[n * 3 - 2], z = path[n * 3 - 1];
+  if (y > 0.01 || y <= renderer.groundAt(x, z)) return path; // still in the air (time ran out), or already in the ground
+  const dt = 2 / 60;
+  let vx = (x - path[n * 3 - 6]) / dt, vy = (y - path[n * 3 - 5]) / dt, vz = (z - path[n * 3 - 4]) / dt;
+  const more: number[] = [];
+  for (let i = 0; i < 60 && y > renderer.groundAt(x, z) - 0.3; i++) {
+    vy -= G * gravity * dt;
+    x += vx * dt;
+    y += vy * dt;
+    z += vz * dt;
+    more.push(x, y, z);
+  }
+  const out = new Float32Array(path.length + more.length);
+  out.set(path);
+  out.set(more, path.length);
+  return out;
 }
 
 /** The keep's top storey is its roof. */
