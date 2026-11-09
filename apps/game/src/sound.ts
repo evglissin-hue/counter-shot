@@ -295,9 +295,11 @@ export class Sound {
   }
 
   /** A mallet on timber as a building's piece goes up. */
-  knock(x: number, y: number, z: number) {
+  knock(x: number, y: number, z: number, at = 0) {
     if (!this.ctx) return;
-    const c = this.out(this.place(x, y, z, 18), 0.25, 1);
+    const p = this.place(x, y, z, 30);
+    p.delay += at;
+    const c = this.out(p, 0.25, 1);
     this.burstNoise(c.input, c.t0, this.white, "bandpass", 650 + Math.random() * 250, 2.2, 0.001, 0.07, 0.4);
     this.tone(c.input, c.t0, 210, 140, 0.06, 0.001, 0.09, 0.35);
     if (Math.random() < 0.5) this.burstNoise(c.input, c.t0 + 0.16 + Math.random() * 0.05, this.white, "bandpass", 800, 2.5, 0.001, 0.05, 0.22);
@@ -452,7 +454,7 @@ export class Sound {
     if (!ours) this.hornNote(t0 + 0.6, 73.4, 2.4, 0.08);
   }
 
-  private hornNote(t0: number, f: number, length: number, peak: number) {
+  private hornNote(t0: number, f: number, length: number, peak: number, to?: AudioNode) {
     const ctx = this.ctx!;
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t0);
@@ -469,9 +471,12 @@ export class Sound {
     const send = ctx.createGain();
     send.gain.value = 0.8;
     lp.connect(g);
-    g.connect(this.dry);
-    g.connect(send);
-    send.connect(this.reverbIn);
+    if (to) g.connect(to);
+    else {
+      g.connect(this.dry);
+      g.connect(send);
+      send.connect(this.reverbIn);
+    }
     // The note leans up into pitch as the player's lips set, and sags at the end.
     for (const [mult, level] of [[1, 1], [0.5, 0.45], [2.005, 0.18]] as const) {
       const o = ctx.createOscillator();
@@ -525,6 +530,11 @@ export class Sound {
     this.storming = [ours, theirs];
   }
   private storming: [number, number] = [0, 0];
+  /** Where each castle's keep (its bell) is: yours, then the enemy's. */
+  private keeps = [{ x: 0, z: 4 }, { x: 0, z: -4 }];
+  setKeeps(ours: { x: number; z: number }, theirs: { x: number; z: number }) {
+    this.keeps = [ours, theirs];
+  }
   private nextDrum = 0;
   private drumBeat = 0;
   private nextBell = 0;
@@ -572,11 +582,11 @@ export class Sound {
     }
     // Your courtyard stormed: its alarm bell, ever quicker.
     if (theirs > 0 && now >= this.nextBell) {
-      this.bell(330, 0.32 + 0.25 * theirs);
+      this.bell(330, 0.32 + 0.25 * theirs, 0, this.keeps[0].x, 22, this.keeps[0].z);
       this.nextBell = now + 2.2 - 1.4 * theirs;
     } else if (ours > 0 && theirs <= 0 && now >= this.nextBell) {
       // The enemy's bell, across the valley.
-      this.bell(311, 0.45 + 0.3 * ours, 0, 0, 22, 4);
+      this.bell(311, 0.45 + 0.3 * ours, 0, this.keeps[1].x, 22, this.keeps[1].z);
       this.nextBell = now + 2.4 - 1.4 * ours;
     }
   }
@@ -677,6 +687,7 @@ export class Sound {
     }
     if (this.clatterDebt > 4) this.clatterDebt = 4;
     this.updateBeds();
+    this.updateTramp();
     this.stormBeat(now);
   }
 
@@ -1356,5 +1367,280 @@ export class Sound {
       }
     }
     this.later(g, t0 + 1.5);
+  }
+
+  // --- M6: the battle's shape (marching, fighting, building, repairs, alarms) -----------
+
+  /** One struck skin of a drum into `to` (a tabor when small, a war drum when `low`). */
+  private skin(to: AudioNode, t0: number, level: number, low = false) {
+    const f = low ? 62 : 118;
+    this.tone(to, t0, f * 1.6, f, 0.07, 0.002, low ? 0.4 : 0.16, 0.6 * level, 2);
+    this.burstNoise(to, t0, this.brown, "lowpass", low ? 320 : 600, 0.7, 0.002, 0.1, 0.4 * level);
+    if (!low) this.burstNoise(to, t0, this.white, "bandpass", 1900, 1.6, 0.001, 0.04, 0.18 * level);
+  }
+
+  /** A wave sets out: a short drum flourish at its gate (a rolling run into two heavy strokes). */
+  drumFlourish(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 45), 0.5, 3);
+    for (let i = 0; i < 5; i++) this.skin(c.input, c.t0 + i * 0.085, 0.22 + 0.06 * i);
+    this.skin(c.input, c.t0 + 0.55, 0.5, true);
+    this.skin(c.input, c.t0 + 0.9, 0.55, true);
+  }
+
+  /** The enemy's horn call from their gate: it keeps a floor of loudness so it carries to your walls. */
+  hornCall(x: number, y: number, z: number, floor: number) {
+    if (!this.ctx) return;
+    const p = this.place(x, y, z, 50);
+    p.gain = Math.max(floor, p.gain);
+    p.cutoff = Math.max(2500, p.cutoff);
+    const c = this.out(p, 0.6, 5);
+    this.hornNote(c.t0, 98, 2.2, 0.12, c.input);
+    this.hornNote(c.t0, 103.6, 2.2, 0.1, c.input);
+    this.hornNote(c.t0 + 0.5, 73.4, 1.8, 0.07, c.input);
+  }
+
+  /** A tabor beat at the pace of a marching group (heard to about 60 m); `accent` marks the first of each pair. */
+  marchDrum(x: number, y: number, z: number, accent: boolean) {
+    if (!this.ctx) return;
+    const p = this.place(x, y, z, 30);
+    if (p.dist > 75) return;
+    p.gain *= Math.min(1, (75 - p.dist) / 30);
+    const c = this.out(p, 0.2, 1);
+    this.skin(c.input, c.t0, accent ? 0.42 : 0.26);
+  }
+
+  /** A man knocked down cries out: short, a different voice and pitch each time. */
+  cry(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 25), 0.5, 1.5);
+    const f0 = 230 + Math.random() * 230;
+    const len = 0.2 + Math.random() * 0.22;
+    this.vowel(c.input, c.t0, f0 * 1.1, f0 * 0.65, len, Math.random(), 0.3);
+  }
+
+  /** A voice: a sawtooth through two formants; `v` (0..1) picks the vowel. */
+  private vowel(to: AudioNode, t0: number, f0: number, f1: number, len: number, v: number, peak: number) {
+    const ctx = this.ctx!;
+    const vowels: Array<[number, number]> = [[730, 1090], [570, 840], [530, 1840], [640, 1190], [850, 1220]];
+    const [a, b] = vowels[Math.min(vowels.length - 1, Math.floor(v * vowels.length))];
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(f0, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, f1), t0 + len);
+    const g = ctx.createGain();
+    this.envelope(g, t0, 0.025, len, peak);
+    for (const [f, q, w] of [[a, 6, 1], [b, 9, 0.6]] as const) {
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = f;
+      bp.Q.value = q;
+      const fg = ctx.createGain();
+      fg.gain.value = w;
+      osc.connect(bp);
+      bp.connect(fg);
+      fg.connect(g);
+    }
+    g.connect(to);
+    osc.start(t0);
+    osc.stop(t0 + len + 0.3);
+  }
+
+  /** A body hitting the ground a moment after it is struck: a dull fall, cloth and a rattle of kit (not the ball's thud). */
+  bodyFall(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const p = this.place(x, y, z, 14);
+    p.delay += 0.2 + Math.random() * 0.15;
+    const c = this.out(p, 0.15, 1.2);
+    this.tone(c.input, c.t0, 70, 44, 0.12, 0.004, 0.2, 0.3, 1.2);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 300, 0.7, 0.004, 0.2, 0.4);
+    const n = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) this.burstNoise(c.input, c.t0 + 0.02 + i * 0.035 + Math.random() * 0.02, this.white, "bandpass", 2200 + Math.random() * 1800, 3, 0.001, 0.04, 0.07);
+  }
+
+  /** The chain shot's chain going through a rank: a swish. */
+  swish(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 25), 0.3, 1);
+    this.sweptNoise(c.input, c.t0, this.white, 500, 3800, 0.14, 0.03, 0.22, 0.3);
+    this.tone(c.input, c.t0, 420, 900, 0.14, 0.02, 0.18, 0.06);
+  }
+
+  /** A blow of a ram or axe on a gate leaf: a heavy timber boom with the creak of the bands. */
+  gateBoom(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 35), 0.4, 2.5);
+    this.tone(c.input, c.t0, 92, 38, 0.3, 0.003, 0.55, 0.55, 2);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 300, 0.7, 0.003, 0.5, 0.5);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 700, 1.3, 0.001, 0.08, 0.3);
+    this.sweptNoise(c.input, c.t0 + 0.05, this.white, 1100, 400, 0.5, 0.1, 0.5, 0.05);
+    for (let i = 0; i < 3; i++) this.burstNoise(c.input, c.t0 + 0.03 + Math.random() * 0.15, this.white, "highpass", 2400, 0.8, 0.001, 0.02, 0.06);
+  }
+
+  /** Two lines meeting: a ragged war cry of several men and a swell of noise under it. */
+  warCry(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 40), 0.6, 3);
+    for (let i = 0; i < 5; i++) {
+      const f0 = 150 + Math.random() * 130;
+      this.vowel(c.input, c.t0 + i * 0.05 + Math.random() * 0.06, f0 * 1.15, f0 * 0.9, 0.7 + Math.random() * 0.5, Math.random(), 0.17);
+    }
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 700, 0.7, 0.3, 0.9, 0.22);
+  }
+
+  /** Coins and a first mallet: a build or a buy has gone through (the mallet where it will stand). */
+  purchase(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    this.coin(8);
+    this.knock(x, y, z, 0.22);
+  }
+
+  /** A saw and a rasp at a rising building's plot: two strokes, quiet. */
+  saw(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 20), 0.2, 1);
+    const f = 1500 + Math.random() * 500;
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", f, 1.4, 0.07, 0.17, 0.2);
+    this.burstNoise(c.input, c.t0 + 0.24, this.white, "bandpass", f * 0.85, 1.4, 0.05, 0.15, 0.16);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 500, 0.8, 0.05, 0.2, 0.08);
+  }
+
+  /** A building knocked out of working: a timber crash and splinters. */
+  crash(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 40), 0.4, 3);
+    this.tone(c.input, c.t0, 84, 40, 0.3, 0.004, 0.6, 0.45, 2);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 420, 0.7, 0.004, 0.9, 0.45);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 600, 1.1, 0.001, 0.14, 0.3);
+    for (let i = 0; i < 5; i++) {
+      const at = c.t0 + 0.05 + Math.random() * 0.7;
+      this.burstNoise(c.input, at, this.white, "bandpass", 300 + Math.random() * 500, 1.6, 0.001, 0.05, 0.14 + 0.12 * Math.random());
+    }
+    for (let i = 0; i < 12; i++) {
+      const u = Math.random();
+      this.burstNoise(c.input, c.t0 + 0.04 + 1.1 * u * u, this.white, "highpass", 2400 + Math.random() * 2400, 0.8, 0.001, 0.012 + Math.random() * 0.02, 0.05 + 0.07 * Math.random());
+    }
+  }
+
+  /** The rope and pulley of the gin pole as a stone is lifted, for `seconds`. */
+  creak(x: number, y: number, z: number, seconds: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const c = this.out(this.place(x, y, z, 16), 0.15, seconds + 0.5);
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(110, c.t0);
+    osc.frequency.linearRampToValueAtTime(150, c.t0 + seconds);
+    const wob = ctx.createOscillator();
+    wob.frequency.value = 6 + Math.random() * 3;
+    const depth = ctx.createGain();
+    depth.gain.value = 22;
+    wob.connect(depth);
+    depth.connect(osc.frequency);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 650;
+    bp.Q.value = 3;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, c.t0);
+    g.gain.linearRampToValueAtTime(0.1, c.t0 + 0.2);
+    g.gain.setValueAtTime(0.1, c.t0 + seconds - 0.25);
+    g.gain.linearRampToValueAtTime(0, c.t0 + seconds);
+    osc.connect(bp);
+    bp.connect(g);
+    g.connect(c.input);
+    osc.start(c.t0);
+    wob.start(c.t0);
+    osc.stop(c.t0 + seconds + 0.05);
+    wob.stop(c.t0 + seconds + 0.05);
+    // The pulley's squeak and the rope drawing over wood.
+    this.tone(c.input, c.t0 + 0.1, 1350, 1750, seconds * 0.8, 0.2, seconds * 0.6, 0.012);
+    this.sweptNoise(c.input, c.t0, this.white, 1800, 700, seconds, 0.2, seconds * 0.7, 0.03);
+  }
+
+  /** One short stroke of a bell for an alarm (not placed). */
+  private alarmStrike(f: number, level: number, at: number) {
+    if (!this.ctx) return;
+    const c = this.out({ delay: at, gain: 1, pan: 0, cutoff: 12000, dist: 8 }, 0.35, 2);
+    for (const [r, l, d] of [[1, 0.6, 1.1], [1.19, 0.3, 0.8], [1.5, 0.2, 0.6], [2, 0.25, 0.5], [2.66, 0.1, 0.3]] as const) {
+      this.tone(c.input, c.t0, f * r, f * r * 0.999, d, 0.002, d, l * level);
+    }
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", f * 4, 2, 0.001, 0.03, 0.2 * level);
+  }
+
+  /** Short alarms for your own castle, quiet but distinct (not placed). */
+  alarm(kind: "gate" | "ladder" | "keg") {
+    if (!this.ctx) return;
+    if (kind === "gate") {
+      this.alarmStrike(150, 0.26, 0);
+      this.alarmStrike(150, 0.26, 0.5);
+    } else if (kind === "ladder") {
+      this.alarmStrike(640, 0.32, 0);
+      const e = this.ear;
+      this.shout(e.x + e.fx * 3, e.y, e.z + e.fz * 3, 1);
+    } else {
+      const c = this.out({ delay: 0, gain: 1, pan: 0, cutoff: 12000, dist: 8 }, 0.2, 1);
+      this.tone(c.input, c.t0, 2700, 3500, 0.16, 0.004, 0.2, 0.1);
+      this.tone(c.input, c.t0 + 0.22, 2700, 3500, 0.16, 0.004, 0.2, 0.1);
+    }
+  }
+
+  private tramp: { gain: GainNode; pan: StereoPannerNode; air: BiquadFilterNode } | null = null;
+  private trampTarget = { level: 0, x: 0, y: 0, z: 0 };
+
+  /** The bed of marching men's tramp: `level` 0..1 from how many march near you, placed where they are. */
+  setTramp(level: number, x: number, y: number, z: number) {
+    const t = this.trampTarget;
+    t.level = Math.max(0, Math.min(1, level));
+    t.x = x;
+    t.y = y;
+    t.z = z;
+  }
+
+  private updateTramp() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.tramp) {
+      if (this.trampTarget.level <= 0) return;
+      const src = ctx.createBufferSource();
+      src.buffer = this.brown;
+      src.loop = true;
+      src.playbackRate.value = 1.1;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass";
+      band.frequency.value = 150;
+      band.Q.value = 0.9;
+      // The pace of the stride swells it twice a second or so.
+      const pulse = ctx.createGain();
+      pulse.gain.value = 0.55;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 2.1;
+      const depth = ctx.createGain();
+      depth.gain.value = 0.45;
+      lfo.connect(depth);
+      depth.connect(pulse.gain);
+      const air = ctx.createBiquadFilter();
+      air.type = "lowpass";
+      air.frequency.value = 2000;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const pan = ctx.createStereoPanner();
+      src.connect(band);
+      band.connect(pulse);
+      pulse.connect(air);
+      air.connect(gain);
+      gain.connect(pan);
+      pan.connect(this.dry);
+      src.start(0, 2.1);
+      lfo.start();
+      this.tramp = { gain, pan, air };
+    }
+    const t = this.trampTarget;
+    const p = this.place(t.x, t.y, t.z, 40);
+    const now = ctx.currentTime;
+    // Never louder than the stream's murmur (0.05).
+    this.tramp.gain.gain.setTargetAtTime(0.045 * t.level, now, 0.7);
+    this.tramp.pan.pan.setTargetAtTime(p.pan, now, 0.3);
+    this.tramp.air.frequency.setTargetAtTime(Math.min(2000, p.cutoff), now, 0.3);
   }
 }

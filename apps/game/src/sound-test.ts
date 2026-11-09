@@ -144,6 +144,57 @@ const CASES: Case[] = [
       return t < 5.9;
     },
   },
+  {
+    name: "storm bell (the enemy's keep)",
+    seconds: 6,
+    run: (s) => {
+      s.setKeeps({ x: 0, z: 4 }, { x: 0, z: -60 });
+      return (t: number) => {
+        s.setStorm(Math.min(1, t / 5), 0);
+        s.update(ear, 0.05, { wind: 3, awake: 0, slow: 1 });
+        return t < 5.9;
+      };
+    },
+  },
+  // M6: waves, marching, fighting, building, repairs and alarms.
+  { name: "long gun at its own gun", seconds: 3, run: (s) => s.fire("longGun", 0, 9.7, -133.6, true) },
+  { name: "wave sets out: drums", seconds: 3, run: (s) => s.drumFlourish(0, 3, -25) },
+  { name: "wave sets out: enemy horn", seconds: 5, run: (s) => s.hornCall(0, 8, -150, 0.3) },
+  {
+    name: "marching drum",
+    seconds: 3,
+    run: (s) => {
+      let n = 0;
+      return () => {
+        if (n % 10 === 0) s.marchDrum(6, 2, -15, (n / 10) % 2 === 0);
+        n++;
+        return true;
+      };
+    },
+  },
+  {
+    name: "tramp of a column",
+    seconds: 4,
+    run: (s) => {
+      s.setTramp(1, 0, 1, -25);
+      return () => {
+        s.update(ear, 0.05, { wind: 0, awake: 0, slow: 1 });
+        return true;
+      };
+    },
+  },
+  { name: "a man's cry", seconds: 1.5, run: (s) => s.cry(3, 1.5, -20) },
+  { name: "a body falls", seconds: 1.5, run: (s) => s.bodyFall(3, 0.3, -20) },
+  { name: "chain swish", seconds: 1.5, run: (s) => s.swish(2, 1.5, -20) },
+  { name: "gate blow", seconds: 3, run: (s) => s.gateBoom(0, 3, -10) },
+  { name: "war cry of two lines", seconds: 3, run: (s) => s.warCry(0, 1.5, -10) },
+  { name: "purchase", seconds: 2, run: (s) => s.purchase(7, 1.5, -22) },
+  { name: "saw at a rising building", seconds: 2, run: (s) => s.saw(-7, 2, -20) },
+  { name: "building wrecked", seconds: 3, run: (s) => s.crash(-7, 2, -25) },
+  { name: "rope and pulley lift", seconds: 2, run: (s) => s.creak(2, 9, -25, 1.15) },
+  { name: "alarm: gate battered", seconds: 3, run: (s) => s.alarm("gate") },
+  { name: "alarm: ladder on the wall", seconds: 3, run: (s) => s.alarm("ladder") },
+  { name: "alarm: keg at the wall", seconds: 2, run: (s) => s.alarm("keg") },
   { name: "sudden death tolls", seconds: 8, run: (s) => s.suddenDeath() },
   { name: "the end: a win", seconds: 7, run: (s) => s.matchEnd(true) },
   { name: "the end: a loss", seconds: 7, run: (s) => s.matchEnd(false) },
