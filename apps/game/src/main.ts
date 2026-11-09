@@ -8,13 +8,17 @@ import {
   ASHWRIGHT_EMPLACEMENTS,
   ASHWRIGHT_SLOTS,
   BARREL,
+  CASTLE_SHAPE,
   DIFFICULTIES,
+  DIST,
   type Difficulty,
   buildLayout,
   GAME_LAYOUT,
   KEEP_STOREYS,
   MATCH_EMPLACEMENTS,
+  REMOUNT,
   REPAIR_KINDS,
+  repairSections,
   ROUTE_NAMES,
   UPGRADE_KINDS,
   WEAPON_KINDS,
@@ -26,9 +30,13 @@ import {
   type Stone,
 } from "@keepfall/content";
 import { Estate } from "./estate-page";
+import { Guide } from "./guide";
+import { Minimap } from "./minimap";
 import {
   aimDir,
+  castleHeightAt,
   clampAim,
+  clearOfCastle,
   EVENT_STRIDE,
   EventKind,
   flightCoef,
@@ -38,7 +46,9 @@ import {
   predictPath,
   PROJECTILE_STRIDE,
   ProjectileKind,
+  mountPieces,
   restAim,
+  solveAim,
   Spin,
   spinVector,
   stepAim,
@@ -69,6 +79,14 @@ const layout = buildLayout(1, GAME_LAYOUT);
 const soundscape = new Soundscape(sound, layout);
 /** M3: the build wheel, gold coming in, notes and sounds of the plots. */
 const estate = new Estate(renderer, sound, send, (text, ms) => showNote(text, ms), $);
+/** The minimap: both castles and both armies at a glance (the owner's ask: less reading, more seeing). */
+const minimap = new Minimap($<HTMLCanvasElement>("minimap"));
+/** The castles' sections as the worker last counted them (twice a second). */
+let sectionShares: Uint8Array | null = null;
+let mapFrame = 0;
+/** The first-match guide: a checklist beside the field that ticks itself off as you play. */
+const guide = new Guide($("guide"), $("guide-goal"), $("guide-steps"), $<HTMLButtonElement>("guide-hide"), $("guide-title"));
+estate.onBuilt = () => noteBuilt();
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
 /**
@@ -101,6 +119,12 @@ let friendName = "";
 
 const SPIN_NAMES = ["None", "Top", "Back", "Left", "Right"];
 const MOUSE_RAD_PER_PX = 0.0016;
+/** The player's own mouse speed (Controls panel), a factor on MOUSE_RAD_PER_PX. */
+let mouseSpeed = 1;
+try {
+  const v = Number(localStorage.getItem("keepfall.mouseSpeed"));
+  if (v >= 0.4 && v <= 2.5) mouseSpeed = v;
+} catch {}
 const SEED = 7;
 const MINIONS = 12;
 if (location.hash.includes("fixed")) send({ t: "manual" });
@@ -166,6 +190,10 @@ let aimHit: PathHit | null = null;
 let spin: Spin = Spin.None;
 let view: "sight" | "overview" = "sight";
 let reload: number[] = ASHWRIGHT_SLOTS.map(() => 0);
+/** After M5: every emplacement's gun as the worker last reported it: [state (0 up), ticks left] each (protocol's frame `out`). */
+let gunOut: Int16Array = new Int16Array(0);
+/** Is a slot's gun knocked out now? */
+const isOut = (i: number) => (gunOut[gid(i) * 2] ?? 0) > 0 && !EMP[i]?.empty;
 let wind = { x: 0, z: 0 };
 let ready = false;
 let paused = false;
@@ -181,8 +209,18 @@ let shake = { at: -1e9, s: 0 };
 let lastFrameTick = 0;
 let stats = { stepMs: 0, stepPeak: 0, down: 0, standing: 0, awake: 0 };
 
-/** The mortar's observer camera: it eases towards where the shell will land, so small aim changes move the ring, not the world. */
-const obs = { x: 0, y: 0, z: 0, primed: false };
+/**
+ * The mortar's spotter (after M5; the owner found the top-down observer weird):
+ * a view from over the keep, looking along the mortar's bearing as far out as
+ * you look (look close and the spotter steps onto the front wall). The charge
+ * sets the range: a ring slides along the ground to where the shell would come
+ * down in still air while it goes in.
+ */
+const spot = { x: 0, y: 0, z: 0, tx: 0, ty: 0, tz: 0, primed: false };
+/** How far along the ground each slot's spotter looks (m): mouse up or W looks farther. */
+const lookD: number[] = ASHWRIGHT_SLOTS.map(() => 110);
+/** The range the ring shows now (m), while the charge goes in. */
+let chargeRange = 0;
 
 /** Riding a mortar shell: chase it up and over, stop short of the target, watch the burst in slow motion. */
 interface Ride {
@@ -222,13 +260,48 @@ interface Ride {
 }
 let ride: Ride | null = null;
 
-/** What the last burst brought down: stones that started moving (or turned to dust) and minions knocked down, shown a few seconds later. */
+/**
+ * What your last shot did (after M5, for every shot you fire by hand; a
+ * burst's only before): enemies knocked down from the moment a ball, chain or
+ * grapeshot leaves the muzzle (a chain shot mows men before it first touches
+ * anything) or a shell bursts, stones near where it came down that started
+ * moving (or turned to dust), and enemy guns it knocked out; shown a moment
+ * after it comes down. One shot's tally is open at a time: firing again shows
+ * the open one, so nothing is counted twice.
+ */
 const everMoved = new Uint8Array(layout.stones.length);
-let tally: { until: number; stones: number; down0: number } | null = null;
+interface Tally {
+  /** The shot and the gun (its match id) that fired it. */
+  shot: number;
+  emp: number;
+  until: number;
+  stones: number;
+  down0: number;
+  guns: number;
+  /** Where it came down, once it has (stones within r of it count). */
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  landed: boolean;
+}
+let tally: Tally | null = null;
+/** Your shells in flight (by hand): shot id -> the gun and where it was last seen (its burst opens its tally). */
+const myShells = new Map<number, { emp: number; x: number; y: number; z: number }>();
+/** Enemies down as of the frame before the one being applied: the other side's fallen in a match, everyone down on the Practice range. */
+const foesDown = () => (isMatch() ? lastFoes : lastDown);
+/** Open a shot's tally (the open one, if any, is shown first). */
+function openTally(shot: number, emp: number, x: number, y: number, z: number, landed: boolean, ms: number, r: number) {
+  if (tally) showTally();
+  tally = { shot, emp, until: clock() + ms, stones: 0, down0: foesDown(), guns: 0, x, y, z, r, landed };
+}
 /** Minions down as of the frame before the one being applied (a burst's own knockdowns count for it). */
 let lastDown = 0;
 /** Minions down as of each frame not yet applied, by tick. */
 const downAt = new Map<number, number>();
+/** The same for the other side's fallen in a match (the match's info runs ahead of the frame being shown). */
+let lastFoes = 0;
+const foesAt = new Map<number, number>();
 let rendererReady = false;
 /** Where in a mason's stroke the mallet strikes (ticks since the stroke began; the renderer's swing matches). */
 const MALLET_HIT = 14;
@@ -238,8 +311,11 @@ let laidSounds = 0, clearSounds = 0, cracks = 0;
 let matchLog: Array<{ tick: number; text: string; bad: boolean }> = [];
 
 // ---- worker -------------------------------------------------------------------
+/** The number of the world the page wants (startMode bumps it): messages from any other are an old world's, and dropped. */
+let gen = 0;
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
   const m = e.data;
+  if (m.t !== "error" && m.gen !== gen) return;
   if (m.t === "ready") {
     renderer.applyTerrain([m.terrain]);
     ready = true;
@@ -258,6 +334,15 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   if (m.t === "frame") {
     const was = rl(current);
     reload = m.reload;
+    onGunsOut(m.out);
+    // A shot sent but not fired in the match yet (online it waits out the input delay): the gun stays reloading, no "loaded" clack.
+    if (firePending.size) {
+      const now = performance.now();
+      for (const [g, until] of firePending) {
+        if (reload[g] > 0 || now > until) firePending.delete(g);
+        else if (ALL_EMP[g]) reload[g] = weaponOf(ALL_EMP[g]).reload;
+      }
+    }
     soundscape.reload(EMP[current].weapon, rl(current), WEAPONS[EMP[current].weapon].reload, view === "sight" && mode !== null);
     if (was > 0 && rl(current) === 0) {
       sound.ready(EMP[current].weapon);
@@ -265,9 +350,11 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     }
     stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
     downAt.set(m.frame.tick, m.down);
+    if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
     timeline.push(m.frame);
     if (m.match) onMatch(m.match);
     if (m.bridges) onBridges(m.bridges);
+    if (m.sections) sectionShares = m.sections;
     if (m.nav) renderer.updateNav(m.nav.kind, m.nav.floor);
   }
 };
@@ -292,7 +379,10 @@ function onFrame(f: FrameData) {
       const yours = slot >= 0 && slot < EMP.length;
       if (e) sound.fire(e.weapon, e.x, e.y, e.z, yours && slot === current && !auto);
       if (!auto && yours && e) {
+        guide.mark(e.weapon === "longGun" ? "fire" : e.weapon === "mortar" ? "mortar" : "others");
         recording.set(id, { emp: slot, pts: [] });
+        if (e.weapon === "mortar") myShells.set(id, { emp, x: e.x, y: e.y, z: e.z });
+        else openTally(id, emp, e.x, e.y, e.z, false, 6000, 9);
         if (shotCam[slot] && slot === current) {
           if (e.weapon === "mortar") startRide(id, slot, now);
           else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
@@ -310,10 +400,20 @@ function onFrame(f: FrameData) {
       }
       const dist = Math.hypot(a - ear.x, b - ear.y, c - ear.z);
       shake = { at: now, s: Math.max(0.08, Math.min(1, 1.25 - dist / 110)) };
-      if (!tally) tally = { until: now + 4500, stones: 0, down0: lastDown };
+      // One of your shells bursting: what it does is tallied (others' bursts are not yours to count).
+      for (const [id, p] of myShells) {
+        if (Math.hypot(a - p.x, b - p.y, c - p.z) > 14) continue;
+        myShells.delete(id);
+        openTally(id, p.emp, a, b, c, true, 4200, d * 2.4);
+        break;
+      }
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
-      if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+      if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) {
+        landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+        // Your ball, chain or grapeshot came down: its tally closes a moment later, counting the stones around here.
+        if (tally && !tally.landed && tally.emp === a) Object.assign(tally, { x: b, y: c, z: d, landed: true, until: clock() + 2600 });
+      }
       soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
       if (impacts++ < 3) soundscape.impact(a, b, c, d);
@@ -333,6 +433,10 @@ function onFrame(f: FrameData) {
       else sound.ladderDown(c, 1, d);
     } else if (kind === EventKind.Raised && a >= 0 && a < everMoved.length) {
       everMoved[a] = 0; // M3: a building's piece back up: its next fall counts again
+    } else if (kind === EventKind.GunOut) {
+      gunKnockedOut(a, b, c);
+    } else if (kind === EventKind.GunBack) {
+      gunBack(a);
     } else if (kind === EventKind.Cracked) {
       // M5: a shell cracked a keep floor board that held: timber splitting (the renderer throws splinters).
       if (cracks++ < 2) sound.woodHit(b, c, d, 0.8);
@@ -351,12 +455,13 @@ function onFrame(f: FrameData) {
   }
   // M3: the plots' notes and sounds, muskets and kegs heard.
   estate.onFrame(f, now);
-  // Stones moving for the first time count towards the burst's tally.
+  // Stones moving for the first time near your shot count towards its tally.
   for (let i = 0; i < f.stoneCount; i++) {
     const id = f.stones[i * 8] | 0;
     if (id >= 0 && id < everMoved.length && !everMoved[id]) {
       everMoved[id] = 1;
-      if (tally) tally.stones++;
+      const st = layout.stones[id];
+      if (tally && tally.landed && Math.hypot(st.x - tally.x, st.y - tally.y, st.z - tally.z) < tally.r) tally.stones++;
     }
   }
   if (tally && now > tally.until) showTally();
@@ -390,6 +495,12 @@ function onFrame(f: FrameData) {
     const vx = f.projectiles[o + 6], vy = f.projectiles[o + 7], vz = f.projectiles[o + 8];
     const rec = recording.get(id);
     if (rec && rec.pts.length < 3 * 600) rec.pts.push(x, y, z);
+    const shell = myShells.get(id);
+    if (shell) {
+      shell.x = x;
+      shell.y = y;
+      shell.z = z;
+    }
     if (follow && follow.id === id) {
       follow.lastX = x;
       follow.lastY = y;
@@ -422,6 +533,7 @@ function onFrame(f: FrameData) {
     if (rec.pts.length >= 6) trails[rec.emp] = new Float32Array(rec.pts);
     recording.delete(id);
   }
+  for (const id of myShells.keys()) if (!seen.has(id)) myShells.delete(id);
   if (ride && ride.alive && !seen.has(ride.id)) {
     ride.alive = false;
     ride.lostAt = now;
@@ -440,6 +552,8 @@ function onFrame(f: FrameData) {
   }
   lastDown = downAt.get(f.tick) ?? stats.down;
   downAt.delete(f.tick);
+  lastFoes = foesAt.get(f.tick) ?? lastFoes;
+  foesAt.delete(f.tick);
   soundscape.frame(f, ear);
   lastApplied = f;
   renderer.applyFrame(f);
@@ -449,12 +563,18 @@ let lastApplied: FrameData | null = null;
 
 function showTally() {
   if (!tally) return;
-  const down = Math.max(0, lastDown - tally.down0);
-  const parts = [`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`];
+  const down = Math.max(0, foesDown() - tally.down0);
+  const parts: string[] = [];
+  if (tally.guns) parts.push(tally.guns === 1 ? "gun silenced" : `${tally.guns} guns silenced`);
+  if (tally.stones) parts.push(`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`);
   if (down) parts.push(`${down} ${down === 1 ? "man" : "men"} down`);
   tally = null;
+  if (!parts.length) return;
+  parts[0] = parts[0][0].toUpperCase() + parts[0].slice(1);
   const el = $("tally");
   el.textContent = parts.join(", ");
+  // One result at a time under the match bar: the tally takes the place of a trick shot's banner.
+  $("trick").hidden = true;
   el.hidden = false;
   el.classList.remove("show");
   void el.offsetWidth; // restart the fade
@@ -614,7 +734,7 @@ function easeSpeed(v: number, target: number, up: number, down: number): number 
 }
 
 function aimTick() {
-  if (ride) {
+  if (ride || !$("menu").hidden || !$("end").hidden) {
     // No blind aiming while the camera rides a shell.
     keyVel.yaw = keyVel.pitch = 0;
     return;
@@ -652,8 +772,16 @@ function aimTick() {
   }
   const ks = fine || padFine ? w.fine : 1;
   const dYaw = ((keyVel.yaw + one(stickYaw) * ks) * w.yawRate) / 60;
-  const dPitch = ((keyVel.pitch + one(stickPitch) * ks) * w.pitchRate) / 60;
+  let dPitch = ((keyVel.pitch + one(stickPitch) * ks) * w.pitchRate) / 60;
+  if (e.weapon === "mortar" && !e.empty) {
+    // After M5: up and down look farther or nearer along the bearing; the charge sets the elevation.
+    lookD[current] = Math.min(LOOK_FAR, Math.max(LOOK_NEAR, lookD[current] * (1 - dPitch * 12)));
+    dPitch = 0;
+    if (charging && charging.slot === current && needle >= 0) wanted[current] = { yaw: wanted[current].yaw, pitch: mortarLay(e, needle, aims[current].yaw).pitch };
+  }
   if (dYaw || dPitch) {
+    guide.mark("aim");
+    if (!input.locked) playedFree = true;
     // Keys and sticks drive the weapon directly; the wanted aim follows.
     wanted[current] = clampAim({ yaw: aims[current].yaw + dYaw, pitch: aims[current].pitch + dPitch }, e, w);
   }
@@ -666,29 +794,208 @@ function applyMouse() {
     input.mouseX = input.mouseY = 0;
     return;
   }
+  if (input.mouseX || input.mouseY) guide.mark("aim");
   const e = EMP[current], w = weaponOf(e);
   const fine = input.down("ShiftLeft") || input.down("ShiftRight");
   const zoomK = fov[current] / w.fov[1]; // slower when zoomed in
-  const k = MOUSE_RAD_PER_PX * zoomK * (fine ? 0.35 : 1);
+  const k = MOUSE_RAD_PER_PX * mouseSpeed * zoomK * (fine ? 0.35 : 1);
   const t = wanted[current];
   // Mouse right turns the aim right (towards -X when facing +Z), i.e. lower yaw.
-  // The mortar ranges by elevation: pushing forward (mouse up) sends the shell farther, i.e. lowers the barrel.
-  const py = e.weapon === "mortar" ? 1 : -1;
-  wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch + py * input.mouseY * k }, e, w);
+  if (e.weapon === "mortar") {
+    // After M5: the mortar's spotter looks farther (mouse up) or nearer along the bearing; the charge sets the range.
+    lookD[current] = Math.min(LOOK_FAR, Math.max(LOOK_NEAR, lookD[current] * (1 - input.mouseY * k * 2.5)));
+    wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch }, e, w);
+  } else wanted[current] = clampAim({ yaw: t.yaw - input.mouseX * k, pitch: t.pitch - input.mouseY * k }, e, w);
   input.mouseX = input.mouseY = 0;
 }
 
-function fire() {
-  if (!ready || rl(current) > 0 || matchInfo?.result) return;
+function fire(charge = 1, pitch?: number) {
+  if (!ready || userPause || rl(current) > 0 || matchInfo?.result) return;
+  if (!input.locked) playedFree = true;
   const e = EMP[current];
   if (e.empty) {
     estate.openFor(current);
     return;
   }
+  if (isOut(current)) {
+    showNote(`${outShort(current)}: Q or E for another gun`, 3200);
+    return;
+  }
   const a = aims[current];
-  send({ t: "input", input: { kind: "fire", emplacement: gid(current), yaw: a.yaw, pitch: a.pitch, charge: 1, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
+  if (pitch !== undefined) aims[current] = { yaw: a.yaw, pitch };
+  send({ t: "input", input: { kind: "fire", emplacement: gid(current), yaw: a.yaw, pitch: pitch ?? a.pitch, charge, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
   reload[gid(current)] = weaponOf(e).reload; // until the worker confirms
+  if (isMatch()) firePending.set(gid(current), performance.now() + 1500);
 }
+
+/**
+ * The mortar's charge. The playtest pass (the owner's ask: aiming it should
+ * take a knack) made it a needle that swings from empty to full and back while
+ * fire is held, the shell flying when you let go; after M5 (the owner: no top
+ * view, show where it lands on the ground as the meter fills, but not too
+ * easily) the charge sets the range: the needle sweeps from the nearest range
+ * to the farthest at an even pace and back, the elevation following it, and a
+ * ring slides along the ground to where the shell would come down in still
+ * air (the wind is yours to read; the shell still scatters).
+ */
+const CHARGE_SWEEP = 1.8;
+let charging: { start: number; slot: number; ticks: number } | null = null;
+/** The needle (0 to 1) now, while charging (else -1), and where it was let go last, per slot. */
+let needle = -1;
+const lastNeedle: number[] = ASHWRIGHT_SLOTS.map(() => -1);
+let firedAt = { needle: -1, range: 0, until: 0 };
+function needleAt(now: number): number {
+  if (!charging) return -1;
+  const u = (now - charging.start) / 1000 / CHARGE_SWEEP;
+  const k = u - 2 * Math.floor(u / 2);
+  return k <= 1 ? k : 2 - k;
+}
+function cancelCharge() {
+  charging = null;
+  needle = -1;
+}
+/** Let go of the charge: the shell flies at the elevation and charge the needle gives now. */
+function releaseCharge(now: number) {
+  const n = needleAt(now);
+  cancelCharge();
+  const e = EMP[current];
+  if (n < 0 || !canFire() || e.weapon !== "mortar") return;
+  const lay = mortarLay(e, n, aims[current].yaw);
+  lastNeedle[current] = n;
+  firedAt = { needle: n, range: lay.range, until: now + 1400 };
+  wanted[current] = { yaw: wanted[current].yaw, pitch: lay.pitch };
+  fire(lay.charge, lay.pitch);
+}
+/** The mortar's barrel along the meter: steep and light at its start, the long lob (about its longest reach) at full charge. */
+const LOB_LONG = 0.84;
+/** The soft ring's radius with the standard aim help (m): about where it comes down, not a bullseye. */
+const RING_SOFT = 3.2;
+interface RangeTable {
+  pitch: Float32Array;
+  charge: Float32Array;
+  range: Float32Array;
+}
+const rangeTables = new Map<string, RangeTable>();
+
+/** A mortar as armed, along its meter: the elevation and charge, and the still-air range each gives on level ground. */
+function rangeTable(e: Emplacement): RangeTable {
+  const w = weaponOf(e);
+  const key = `${w.speed}/${w.minSpeed}/${w.minPitch}/${w.maxPitch}/${w.projectile.gravity}`;
+  const hit = rangeTables.get(key);
+  if (hit) return hit;
+  const N = 96;
+  const t: RangeTable = { pitch: new Float32Array(N + 1), charge: new Float32Array(N + 1), range: new Float32Array(N + 1) };
+  const coef = flightCoef(w.projectile);
+  const lo = Math.max(w.minPitch, LOB_LONG);
+  const at = { ...e, x: 0, z: 0 };
+  for (let i = 0; i <= N; i++) {
+    const p = i / N;
+    const pitch = w.maxPitch + (lo - w.maxPitch) * p;
+    const speed = w.minSpeed + (w.speed - w.minSpeed) * p;
+    const d = aimDir(0, pitch);
+    const path = predictPath(muzzle(at, 0, pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, 0, 0, coef, 12, 1);
+    const n = path.length;
+    t.pitch[i] = pitch;
+    t.charge[i] = p;
+    t.range[i] = Math.max(i ? t.range[i - 1] + 0.001 : 0, Math.hypot(path[n - 3], path[n - 1]));
+  }
+  rangeTables.set(key, t);
+  return t;
+}
+
+/**
+ * The nearest still-air range on this bearing (m) whose shell clears your own
+ * castle on the way and comes down clear of it (outside its courtyard, and its
+ * burst's reach from its masonry): where the meter starts. From the bottom of
+ * the table a shell fired off to the side came down on your own front towers,
+ * so a tap of fire shelled your own castle. The same flight and height model
+ * the guns nobody mans use (sim gunnery.ts); cached per bearing.
+ */
+const nearCache = new Map<string, number>();
+function nearestClear(e: Emplacement, yaw: number): number {
+  const t = rangeTable(e), N = t.range.length - 1;
+  const w = weaponOf(e);
+  const key = `${e.x}/${e.z}/${w.speed}/${w.minSpeed}/${Math.round(yaw * 200)}`;
+  const hit = nearCache.get(key);
+  if (hit !== undefined) return hit;
+  const castle = e.z < -DIST / 2 ? 1 : 0;
+  const S = CASTLE_SHAPE, cz = castle === 0 ? 0 : -DIST;
+  const [fx, , fz] = aimDir(yaw, 0);
+  const reach = (w.burst ? w.burst.radius : 0) + 0.5, diag = reach * 0.7071;
+  const ring = [reach, 0, -reach, 0, 0, reach, 0, -reach, diag, diag, diag, -diag, -diag, diag, -diag, -diag];
+  let near = t.range[0];
+  for (let i = 0; i < N; i++) {
+    const R = t.range[i], x = e.x + fx * R, z = e.z + fz * R;
+    if (Math.abs(x) < S.half && Math.abs(z - cz) < S.half) continue; // in its own courtyard
+    let clear = castleHeightAt(castle, x, z) === 0;
+    for (let k = 0; clear && k < ring.length; k += 2) clear = castleHeightAt(castle, x + ring[k], z + ring[k + 1]) === 0;
+    if (!clear || !clearOfCastle(e, yaw, t.pitch[i], t.charge[i], castle, x, z)) continue;
+    near = R;
+    break;
+  }
+  nearCache.set(key, near);
+  return near;
+}
+
+/** The elevation and charge that put a shell `m` (0..1) of the way from the nearest clear range on this bearing to the farthest (still air, level ground). */
+function mortarLay(e: Emplacement, m: number, yaw: number): { pitch: number; charge: number; range: number } {
+  const t = rangeTable(e), N = t.range.length - 1;
+  const near = nearestClear(e, yaw);
+  const R = near + (t.range[N] - near) * Math.min(1, Math.max(0, m));
+  let i = 0;
+  while (i < N - 1 && t.range[i + 1] < R) i++;
+  const span = t.range[i + 1] - t.range[i];
+  const f = span > 1e-6 ? Math.min(1, Math.max(0, (R - t.range[i]) / span)) : 0;
+  return { pitch: t.pitch[i] + (t.pitch[i + 1] - t.pitch[i]) * f, charge: t.charge[i] + (t.charge[i + 1] - t.charge[i]) * f, range: R };
+}
+
+const chargeBox = $("charge"), chargeFill = $("charge-fill"), chargeLast = $("charge-last"), chargeText = $("charge-text");
+let chargeShown = "";
+/** The charge gauge under the view while the mortar is yours to fire: the needle, where you let go last time, and the range. */
+function updateCharge(now: number) {
+  const e = EMP[current];
+  const show = mode !== null && view === "sight" && !ride && !follow && !e.empty && e.weapon === "mortar";
+  if (chargeBox.hidden === show) chargeBox.hidden = !show;
+  if (!show) return;
+  const fired = now < firedAt.until;
+  const n = needle >= 0 ? needle : fired ? firedAt.needle : 0;
+  chargeFill.style.transform = `scaleX(${n.toFixed(4)})`;
+  const last = lastNeedle[current];
+  chargeLast.hidden = last < 0;
+  if (last >= 0) chargeLast.style.left = `${(last * 100).toFixed(2)}%`;
+  const t = rangeTable(e), N = t.range.length - 1;
+  const text = isOut(current) ? "Knocked out" : needle >= 0 ? `${Math.round(chargeRange)} m` : fired ? `Fired at ${Math.round(firedAt.range)} m` : rl(current) > 0 ? "Reloading" : `Hold Space to charge: ${Math.round(nearestClear(e, aims[current].yaw))} to ${Math.round(t.range[N])} m`;
+  if (text !== chargeShown) {
+    chargeShown = text;
+    chargeText.textContent = text;
+  }
+  chargeBox.classList.toggle("on", needle >= 0);
+}
+
+/** The minimap from what the page last heard. */
+function drawMap() {
+  const f = lastApplied, pf = estate.plotFrame;
+  minimap.draw({
+    me: ME,
+    sections: sectionShares,
+    keeps: isMatch() ? keepsShown : [3, 3],
+    gateOpen: matchInfo ? matchInfo.gateOpen : [false, false],
+    bridges: bridgesOpen,
+    minions: f ? f.minions : null,
+    minionCount: f ? f.minionCount : 0,
+    plots: pf.data,
+    plotCount: pf.count,
+    match: isMatch(),
+  });
+}
+
+/** Can the gun you ride fire now? */
+function canFire(): boolean {
+  return ready && !userPause && rl(current) === 0 && !matchInfo?.result && !EMP[current].empty && !isOut(current);
+}
+
+/** Match ids of guns fired here and not yet seen reloading in the match, until when (ms) to wait for it. */
+const firePending = new Map<number, number>();
 
 /** Q and E: the next or the previous gun that is armed (M3: empty slots are passed over). */
 function step(dir: number) {
@@ -700,13 +1007,14 @@ function step(dir: number) {
 
 function select(i: number) {
   endRide();
+  cancelCharge();
   const prev = current;
   const wasSight = view === "sight";
   if (i >= EMP.length) return;
   current = ((i % EMP.length) + EMP.length) % EMP.length;
   if (current !== prev) sound.ui("switch");
   view = "sight";
-  obs.primed = false;
+  spot.primed = false;
   keyVel.yaw = keyVel.pitch = 0;
   if (isMatch() && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
   updateHud(true);
@@ -725,25 +1033,32 @@ function man(e: number, left: number) {
   send({ t: "input", input: { kind: "man", emplacement: id, left: left >= 0 ? { emplacement: gid(left), yaw: aims[left].yaw, pitch: aims[left].pitch } : undefined } });
 }
 
+/**
+ * Routes and bridges are named from castle 1's side (its left is +x). The
+ * guest online holds castle 0 and faces the other way, so its left is the
+ * match's right: the HUD speaks the player's own sides (the same swap both ways).
+ */
+const ownSide = (r: RouteName): RouteName => (ME === 0 && r !== "centre" ? (r === "left" ? "right" : "left") : r);
+
 /** Orders for all your waves (Ctrl+1, 2, 3) and the route of your next ones (L). */
 function giveOrder(order: number) {
   if (!isMatch() || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "order", order: order as Order } });
   sound.ui("order");
-  const text = [
-    "Your waves advance on the enemy gate.",
-    "Your waves hold at the midfield markers, short of the bridges.",
-    "Your waves push for the nearest gap in the enemy walls (they make for the gate while there is none).",
-  ][order];
+  guide.mark("waves");
+  const text = ["Waves advance on the gate", "Waves hold at midfield", "Waves push the breach"][order];
   showNote(text, 3200);
   matchInfo.order = order;
   updateWaves();
 }
-function setRoute(route: RouteName) {
+/** The route of your next waves, as you see it (your own left and right). */
+function setRoute(view: RouteName) {
   if (!isMatch() || !matchInfo || matchInfo.result) return;
+  const route = ownSide(view);
   send({ t: "input", input: { kind: "route", route } });
   sound.ui("click");
-  showNote(`Your next waves march down the ${route === "centre" ? "centre road" : `${route} flank`}.`, 2600);
+  guide.mark("waves");
+  showNote(`Next waves: ${view === "centre" ? "centre road" : `${view} flank`}`, 2200);
   matchInfo.route = route;
   updateWaves();
 }
@@ -765,6 +1080,8 @@ function sendAim(now: number) {
 // ---- camera and aim help ---------------------------------------------------------
 /** Test hook (the screenshot tools): a fixed camera, eye and target, instead of the player's view. */
 let testCamera: { x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number } | null = null;
+/** Test hook: a mortar's charge held without a key (the screenshot tools). */
+let testHold = false;
 
 function cameraPose(now: number, dt: number): CameraPose {
   if (testCamera) return { mode: "free", ...testCamera };
@@ -779,66 +1096,52 @@ function cameraPose(now: number, dt: number): CameraPose {
   if (follow && follow.until && now >= follow.until) follow = null;
   if (view === "overview") return { mode: "overview" as const };
   const e = EMP[current], a = aims[current];
-  if (e.weapon === "mortar") return observerPose(dt);
+  if (e.weapon === "mortar") return mortarPose(dt);
   const [dx, dy, dz] = aimDir(a.yaw, a.pitch);
   return { mode: "sight" as const, x: e.x - dx * 3.2, y: e.y + 1.1 - dy * 3.2, z: e.z - dz * 3.2, yaw: a.yaw, pitch: a.pitch - 0.05, fov: fov[current] };
 }
 
-/**
- * The mortar's observer: raised over the field, partway to the target, looking
- * down at where the shell will land (or, with partial aim help, at its range
- * in still air). Left and right on screen turn the mortar; up the screen is farther.
- */
-function observerPose(dt: number): CameraPose {
-  const e = EMP[current], a = aims[current];
-  let t = predicted;
-  if (!t || aimHelp === "partial") {
-    // Where it would come down in still air on level ground: a rough cue, not the answer.
-    const range = Math.min(240, Math.max(30, stillAirRange(a.pitch)));
-    const [fx, , fz] = aimDir(a.yaw, 0);
-    t = { x: e.x + fx * range, y: 0, z: e.z + fz * range };
-  }
-  if (!obs.primed) {
-    obs.x = t.x;
-    obs.y = t.y;
-    obs.z = t.z;
-    obs.primed = true;
-  }
-  const k = 1 - Math.exp(-dt * 3);
-  obs.x += (t.x - obs.x) * k;
-  obs.y += (t.y - obs.y) * k;
-  obs.z += (t.z - obs.z) * k;
-  const dx = obs.x - e.x, dz = obs.z - e.z;
-  const D = Math.max(30, Math.hypot(dx, dz));
-  const ux = dx / D, uz = dz / D;
-  const rx = -uz, rz = ux; // right
-  return {
-    mode: "free",
-    x: e.x + ux * D * 0.42 + rx * D * 0.1,
-    y: e.y + 24 + D * 0.32,
-    z: e.z + uz * D * 0.42 + rz * D * 0.1,
-    tx: obs.x,
-    ty: obs.y + 1,
-    tz: obs.z,
-    fov: fov[current],
-  };
+/** Smooth 0..1 step. */
+function smooth01(u: number): number {
+  const c = u < 0 ? 0 : u > 1 ? 1 : u;
+  return c * c * (3 - 2 * c);
 }
 
-/** Horizontal distance a mortar shell flies at this elevation in still air, down to level ground (y = 0). */
-const rangeCache = new Map<number, number>();
-function stillAirRange(pitch: number): number {
-  const key = Math.round(pitch * 2000);
-  const hit = rangeCache.get(key);
-  if (hit !== undefined) return hit;
-  const e = EMP.find((m) => m.weapon === "mortar")!;
-  const m = muzzle(e, 0, pitch);
-  const d = aimDir(0, pitch);
-  const path = predictPath(m, [d[0] * MORTAR.speed, d[1] * MORTAR.speed, d[2] * MORTAR.speed], null, 0, 0, flightCoef(MORTAR.projectile), 12, 1);
-  const n = path.length;
-  const range = Math.hypot(path[n - 3] - m[0], path[n - 1] - m[2]);
-  if (rangeCache.size > 4000) rangeCache.clear();
-  rangeCache.set(key, range);
-  return range;
+/** How near and how far the mortar's spotter may look along the bearing (m). */
+const LOOK_NEAR = 12, LOOK_FAR = 180;
+
+/**
+ * The mortar's spotter (after M5): over the keep, looking along the bearing at
+ * the ground as far out as you look; look close and the spotter steps onto the
+ * front wall (a few metres to the side of the gun over the gate) to see over
+ * the battlements. The charge never moves the camera: only where you look does.
+ */
+function mortarPose(dt: number): CameraPose {
+  const e = EMP[current], a = aims[current];
+  const [fx, , fz] = aimDir(a.yaw, 0);
+  const D = lookD[current];
+  const gx = e.x + fx * D, gz = e.z + fz * D;
+  const gy = renderer.groundAt(gx, gz);
+  // Where the castle's front wall crosses the bearing (castle 1 faces +z, castle 0 -z).
+  const dir = e.z < -DIST / 2 ? 1 : -1;
+  const frontZ = (dir > 0 ? -DIST : 0) + dir * CASTLE_SHAPE.half;
+  const along = fz * dir > 0.2 ? Math.min(40, Math.max(4, (frontZ - e.z) / fz)) : 12;
+  // 0: on the wall, looking down at the ground before the gate; 1: over the keep, looking out over the field.
+  const t = smooth01((D - 16) / 34);
+  // Never as far out as where it looks (the mortar turned well to the side meets its front wall far along the bearing).
+  const f = Math.min(along - 1.2 + (-4 - (along - 1.2)) * t, D - 6);
+  const h = 13.5 + 13.5 * t;
+  const side = 3.2 * (1 - t);
+  const x = e.x + fx * f - fz * side, y = e.y + h, z = e.z + fz * f + fx * side;
+  if (!spot.primed) Object.assign(spot, { x, y, z, tx: gx, ty: gy, tz: gz, primed: true });
+  const k = 1 - Math.exp(-dt * 7);
+  spot.x += (x - spot.x) * k;
+  spot.y += (y - spot.y) * k;
+  spot.z += (z - spot.z) * k;
+  spot.tx += (gx - spot.tx) * k;
+  spot.ty += (gy - spot.ty) * k;
+  spot.tz += (gz - spot.tz) * k;
+  return { mode: "free", x: spot.x, y: spot.y, z: spot.z, tx: spot.tx, ty: spot.ty + 0.5, tz: spot.tz, fov: fov[current] };
 }
 
 /** Seconds of flight to a hit on a path sampled every 2 ticks. */
@@ -868,25 +1171,27 @@ function updateAimHelp() {
   aimHit = null;
   let marker: { x: number; y: number; z: number; nx?: number; ny?: number; nz?: number } | null = null;
   if (!showing) {
+    renderer.setMortarAim(null, null, 0, true);
     renderer.setAimArc(null);
+  } else if (e.weapon === "mortar") {
+    // After M5: the mortar's own marks (the bearing, the charge ring); the last landing below as for any gun.
+    mortarHelp(e, w, a);
   } else {
+    renderer.setMortarAim(null, null, 0, true);
     const m = muzzle(e, a.yaw, a.pitch);
     const d = aimDir(a.yaw, a.pitch);
     const sv = e.weapon === "longGun" ? spinVector(a.yaw, spin, w.spinRate) : null;
     const v: [number, number, number] = [d[0] * w.speed, d[1] * w.speed, d[2] * w.speed];
     const coef = flightCoef(w.projectile);
-    // The whole flight, stopped where it first hits masonry or the ground. A mortar
-    // fuse shorter than the flight bursts the shell in the air: the arc stops there.
-    const burstAt = e.weapon === "mortar" && fuseTicks > 0 ? fuseTicks / 60 : Infinity;
-    let path = predictPath(m, v, sv, wind.x, wind.z, coef, Math.min(12, burstAt), 2);
+    // The whole flight, stopped where it first hits masonry or the ground.
+    let path = predictPath(m, v, sv, wind.x, wind.z, coef, 12, 2);
     const hit = renderer.castPath(path);
     if (hit) path = cutPath(path, hit);
-    flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
-    const n = path.length;
+    flightSeconds = hit ? pathTime(path, hit) : 0;
     if (aimHelp === "full") {
       renderer.setAimArc(path);
       aimHit = hit;
-      predicted = hit ? { x: hit.x, y: hit.y, z: hit.z } : burstAt < 12 && n >= 3 ? { x: path[n - 3], y: path[n - 2], z: path[n - 1] } : null;
+      predicted = hit ? { x: hit.x, y: hit.y, z: hit.z } : null;
       marker = hit ? { x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz } : predicted;
     } else {
       // Ranked style: only the first part of the flight (still stopped by walls).
@@ -897,8 +1202,8 @@ function updateAimHelp() {
     }
   }
   renderer.setGhostTrail(showing ? trails[current] : null);
-  // Full aim help marks where this shot will land or burst, with the reach of a burst; partial marks where the last one landed.
-  if (marker) renderer.setLandingMarker(marker, e.weapon === "mortar" && w.burst ? w.burst.radius : 0);
+  // Full aim help marks where this shot will land; partial marks where the last one landed (the mortar's charge ring is its own).
+  if (marker) renderer.setLandingMarker(marker, 0);
   else renderer.setLandingMarker(showing ? landing[current] : null);
   const guns = isMatch() ? matchInfo?.guns : undefined;
   for (let i = 0; i < ALL_EMP.length; i++) {
@@ -909,6 +1214,68 @@ function updateAimHelp() {
     if (guns && !riding && guns.length >= (i + 1) * 2) renderer.setWeaponPose(i, guns[i * 2], guns[i * 2 + 1], false);
     else if (yours) renderer.setWeaponPose(i, aims[slot].yaw, aims[slot].pitch, slot === current);
   }
+}
+
+/**
+ * The mortar's marks (after M5): the bearing along the ground from its nearest
+ * range to its farthest, and while the charge goes in the ring where the shell
+ * would come down now. With the standard aim help the ring is a soft patch in
+ * still air (the wind is the gunner's to read); with the easy one it is the
+ * true landing, with the burst's reach and the whole flight.
+ */
+function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState) {
+  const [fx, , fz] = aimDir(a.yaw, 0);
+  const table = rangeTable(e);
+  const bearing = { x: e.x, z: e.z, dx: fx, dz: fz, near: Math.max(6, nearestClear(e, a.yaw)), far: table.range[table.range.length - 1] };
+  const live = !!charging && charging.slot === current && needle >= 0;
+  // Not charging, the flight is still worked out (and not shown) for where you let go last, or the middle of the
+  // meter before your first shell: the fuse keys start from its flight time, and the shell ride frames its landing.
+  const m = live ? needle : lastNeedle[current] >= 0 ? lastNeedle[current] : 0.5;
+  const lay = mortarLay(e, m, a.yaw);
+  if (live) chargeRange = lay.range;
+  const speed = w.minSpeed + (w.speed - w.minSpeed) * lay.charge;
+  const d = aimDir(a.yaw, lay.pitch);
+  const easy = aimHelp === "full";
+  const burstAt = fuseTicks > 0 ? fuseTicks / 60 : Infinity;
+  const coef = flightCoef(w.projectile);
+  let path = toGround(predictPath(muzzle(e, a.yaw, lay.pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, easy ? wind.x : 0, easy ? wind.z : 0, coef, Math.min(12, burstAt), 2), coef.gravity);
+  const hit = renderer.castPath(path);
+  if (hit) path = cutPath(path, hit);
+  const n = path.length;
+  const p = hit ? { x: hit.x, y: hit.y, z: hit.z } : { x: path[n - 3], y: path[n - 2], z: path[n - 1] };
+  flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
+  predicted = p;
+  if (easy) aimHit = hit;
+  renderer.setMortarAim(bearing, live ? p : null, easy && w.burst ? w.burst.radius : RING_SOFT, !easy);
+  renderer.setAimArc(live && easy ? path : null);
+}
+
+/**
+ * A predicted path (a point every 2 ticks) stops at height 0, level ground;
+ * where the valley lies lower (most of the field is a little below 0, the
+ * stream nearly 2 m) it is carried on down to the ground, so the cast finds
+ * where it comes down: the ring lies on the ground, and the flight time the
+ * fuse keys start from is known.
+ */
+function toGround(path: Float32Array, gravity: number): Float32Array {
+  const n = path.length / 3;
+  if (n < 2) return path;
+  let x = path[n * 3 - 3], y = path[n * 3 - 2], z = path[n * 3 - 1];
+  if (y > 0.01 || y <= renderer.groundAt(x, z)) return path; // still in the air (time ran out), or already in the ground
+  const dt = 2 / 60;
+  let vx = (x - path[n * 3 - 6]) / dt, vy = (y - path[n * 3 - 5]) / dt, vz = (z - path[n * 3 - 4]) / dt;
+  const more: number[] = [];
+  for (let i = 0; i < 60 && y > renderer.groundAt(x, z) - 0.3; i++) {
+    vy -= G * gravity * dt;
+    x += vx * dt;
+    y += vy * dt;
+    z += vz * dt;
+    more.push(x, y, z);
+  }
+  const out = new Float32Array(path.length + more.length);
+  out.set(path);
+  out.set(more, path.length);
+  return out;
 }
 
 /** The keep's top storey is its roof. */
@@ -938,7 +1305,7 @@ function describeHit(h: PathHit | null): string {
   }
   const bridge = h.stone >= 0 ? layout.bridges.find((b) => h.stone >= b.first && h.stone < b.first + b.count) : undefined;
   if (bridge) {
-    what = `the ${bridge.site.name} bridge`;
+    what = `the ${ownSide(bridge.site.name)} bridge`;
   } else if (h.stone >= 0) {
     const s = layout.stones[h.stone];
     const part = s && s.part === "storey" && s.course === KEEP_TOP_COURSE ? "keep roof" : s ? PART_NAMES[s.part] : "";
@@ -973,6 +1340,87 @@ function flashLoaded() {
   freshTimer = setTimeout(() => weaponPanel.classList.remove("fresh"), 800);
 }
 
+// ---- guns knocked out (after M5) ---------------------------------------------------
+/** What knocked a gun out (sim OutCause), in a word or two. */
+const CAUSE_SHORT = ["", "its masonry fell", "a direct hit", "chain shot", "a shell"];
+
+/** The repairs that put back the masonry under each emplacement (its sections' kinds), worked out once. */
+const mountKinds = new Map<number, RepairKind[]>();
+function mountRepairs(id: number): RepairKind[] {
+  let k = mountKinds.get(id);
+  if (k) return k;
+  const e = ALL_EMP[id], sections = repairSections(layout), kinds = new Set<RepairKind>();
+  if (e) for (const sec of sections) if (sec.castle === (e.z < -DIST / 2 ? 1 : 0)) for (const p of mountPieces(layout, e)) if (sec.stones.includes(p)) kinds.add(sec.kind);
+  k = REPAIR_KINDS.filter((r) => kinds.has(r));
+  mountKinds.set(id, k);
+  return k;
+}
+
+/** "Out: back in 24 s" (or what it waits for), for a slot of yours. */
+function outShort(i: number): string {
+  const id = gid(i), st = gunOut[id * 2] ?? 0, left = gunOut[id * 2 + 1] ?? 0;
+  if (st === 2) {
+    // Masons put its masonry back, unless you turned those repairs off: then say which, and the key.
+    const off = matchInfo ? mountRepairs(id).filter((r) => matchInfo!.repairs[r] === false) : [];
+    return off.length ? `Out: ${off[0] === "towers" ? "tower" : off[0] === "walls" ? "wall" : off[0]} repairs off (Alt+${REPAIR_KINDS.indexOf(off[0]) + 1})` : "Out: masonry down";
+  }
+  if (st === 3) return "Out: needs gold";
+  return `Out: back in ${Math.max(1, Math.ceil(left / 60))} s`;
+}
+
+/**
+ * The worker's report of which guns are out: the tabs and the weapon card
+ * follow when it changes. (The gun models follow the GunOut and GunBack events
+ * instead, which come with the frame they happen in: the report runs a couple
+ * of frames ahead of what is drawn, and only the event says a gun fell.)
+ */
+let outSeen = "";
+function onGunsOut(out: Int16Array) {
+  gunOut = out;
+  let key = "";
+  for (let i = 0; i < out.length; i += 2) key += out[i];
+  if (key === outSeen) return;
+  outSeen = key;
+  tabs.forEach((b, i) => {
+    const o = isOut(i);
+    b.classList.toggle("out", o);
+    if (!EMP[i].empty) b.title = o ? `Slot ${i + 1}: knocked out` : "";
+  });
+  updateHud(true);
+}
+
+/** A gun was knocked out (sim mounts.ts; `shot` is the shot that did it, -1 when its masonry fell): a short note, the log, a crash; the model tips over or falls with its masonry. */
+function gunKnockedOut(emp: number, cause: number, shot: number) {
+  const e = ALL_EMP[emp];
+  if (!e) return;
+  sound.woodHit(e.x, e.y, e.z, 1);
+  sound.impact(e.x, e.y, e.z, cause === 1 ? 0.9 : 0.6);
+  renderer.setGunOut(emp, true, cause === 1);
+  const slot = emp - BASE;
+  const name = WEAPONS[e.weapon].name.toLowerCase();
+  if (slot >= 0 && slot < EMP.length) {
+    showNote(`Your ${name} is out: ${CAUSE_SHORT[cause]}`, 4000);
+    if (isMatch()) logMoment(`Your ${name} was knocked out (${CAUSE_SHORT[cause]})`, true);
+  } else {
+    // Your open tally's shot did it, or the masonry it brought down under the gun.
+    if (tally && (shot === tally.shot || (shot < 0 && tally.landed && Math.hypot(e.x - tally.x, e.z - tally.z) < tally.r + 8))) tally.guns++;
+    showNote(`Enemy ${name} silenced`, 3500);
+    if (isMatch()) logMoment(`You silenced the enemy ${name}`);
+  }
+}
+
+/** A knocked-out gun's crew has it back. */
+function gunBack(emp: number) {
+  const e = ALL_EMP[emp];
+  if (!e) return;
+  renderer.setGunOut(emp, false);
+  const slot = emp - BASE;
+  if (slot >= 0 && slot < EMP.length && !e.empty) {
+    // Its crew has it on its mount again and loads it from empty: the loaded clack comes when it is ready.
+    showNote(`Your ${WEAPONS[e.weapon].name.toLowerCase()} is back, reloading`, 2600);
+  }
+}
+
 // ---- HUD -------------------------------------------------------------------------
 const hud = {
   name: $("w-name"),
@@ -996,19 +1444,24 @@ let tabs: HTMLButtonElement[] = [];
 function buildTabs() {
   const group = $("weapons");
   group.innerHTML = "";
+  outSeen = ""; // the next report marks the new tabs of guns that are out
   tabs = EMP.map((e, i) => {
     const b = document.createElement("button");
     b.dataset.weapon = String(i);
-    b.textContent = e.empty ? `${i + 1} +` : `${i + 1} ${WEAPONS[e.weapon].name}`;
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = String(i + 1);
+    b.append(n, e.empty ? "+" : WEAPONS[e.weapon].name);
     if (e.empty) {
       // Empty slots stay short, so eight tabs and the buttons beside them fit one row on a laptop.
       b.className = "emptyslot";
-      b.title = `Slot ${i + 1}: empty (buy a gun for it in the build menu, B)`;
+      b.title = `Slot ${i + 1}: empty (click to buy a gun for it)`;
       b.setAttribute("aria-label", `Slot ${i + 1}, empty`);
     }
     b.addEventListener("click", () => {
       select(i);
       b.blur(); // keep keys like Space for the game, not the button
+      if (e.empty && isMatch()) estate.openFor(i); // an empty slot: straight to the guns it can take
     });
     group.append(b);
     return b;
@@ -1016,53 +1469,102 @@ function buildTabs() {
 }
 buildTabs();
 
-// The match bar and the Controls panel sit below the top bar, however many rows it wraps into.
+// The match bar and the Controls panel sit below the top bar, however many rows it wraps into; gold coming in sits below the match bar.
 {
   const topBar = document.querySelector<HTMLElement>(".top");
+  const bar = $("matchbar");
   if (topBar) {
-    const sync = () => document.documentElement.style.setProperty("--top-h", `${topBar.offsetHeight}px`);
+    const sync = () => {
+      document.documentElement.style.setProperty("--top-h", `${topBar.offsetHeight}px`);
+      const bottom = bar.hidden ? topBar.getBoundingClientRect().bottom : bar.getBoundingClientRect().bottom;
+      document.documentElement.style.setProperty("--mb-bottom", `${Math.round(bottom)}px`);
+    };
     sync();
-    if (typeof ResizeObserver !== "undefined") new ResizeObserver(sync).observe(topBar);
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(sync);
+      ro.observe(topBar);
+      ro.observe(bar);
+    }
   }
 }
 
+const LOCK_HINT = "<kbd>Click</kbd> take the gun <kbd>Esc</kbd> free the mouse";
+const LOCK_REFUSED = "Mouse not captured: click again, or aim with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> and fire with <kbd>Space</kbd>";
+/** The sound button's two faces (a speaker, struck through when muted). */
+const SOUND_ICON = (on: boolean) =>
+  `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h3l4-3.5v11L6 12H3z" fill="currentColor" stroke="none"/>${on ? '<path d="M13 7.2a4 4 0 0 1 0 5.6M15.4 5a7 7 0 0 1 0 10"/>' : '<path d="M13.5 7.5l5 5M18.5 7.5l-5 5"/>'}</svg>`;
+let soundShown: boolean | null = null;
+/** The player aimed or fired with the keys since the mouse was last free (or since the start): the click hint has done its job. */
+let playedFree = false;
 let hudFrame = 0;
+/** The weapon card's settings line: fixed words, numbers and keycaps only (it is set as HTML), redrawn when it changes. */
+function setExtra(html: string) {
+  if (hud.extra.dataset.html === html) return;
+  hud.extra.dataset.html = html;
+  hud.extra.innerHTML = html;
+}
+
+/** The sound button's face and the "click to take the gun" hint, whatever gun is up. */
+function updateChrome() {
+  if (soundShown !== !sound.muted) {
+    soundShown = !sound.muted;
+    hud.sound.innerHTML = SOUND_ICON(soundShown);
+    hud.sound.title = soundShown ? "Sound on (M)" : "Sound off (M)";
+    hud.sound.setAttribute("aria-label", soundShown ? "Sound on" : "Sound off");
+  }
+  hud.sound.setAttribute("aria-pressed", String(!sound.muted));
+  // "Click to take the gun" until the player has the mouse, or plays on with the keys without it (then it has done
+  // its job); it comes back when the mouse is let go (Esc), until the next click or key.
+  if (input.locked) playedFree = false;
+  // A click the browser turned down says so for a few seconds (the keys aim all the same).
+  const refused = input.lockRefusedAt > 0 && performance.now() - input.lockRefusedAt < 5000;
+  const lockText = refused ? LOCK_REFUSED : LOCK_HINT;
+  if (hud.lock.dataset.text !== lockText) {
+    hud.lock.dataset.text = lockText;
+    hud.lock.innerHTML = lockText;
+  }
+  hud.lock.hidden = input.locked || (playedFree && !refused) || view !== "sight" || input.usedPad || !!ride;
+}
+
 function updateHud(force = false) {
   if (!force && (hudFrame++ & 3) !== 0) return;
+  updateChrome();
   const e = EMP[current], w = weaponOf(e);
-  hud.name.textContent = e.empty ? "Empty emplacement" : w.name;
+  hud.name.textContent = e.empty ? "Empty slot" : w.name;
   hud.slot.textContent = `${current + 1}`;
   tabs.forEach((b, i) => b.setAttribute("aria-pressed", String(i === current)));
   if (e.empty) {
     // M3: nothing to fire here yet.
-    hud.reload.textContent = e.place ? `On ${e.place}` : "";
+    hud.reload.textContent = "No gun";
     hud.reloadFill.style.transform = "scaleX(0)";
-    hud.target.textContent = "B or a click: buy a gun for it";
-    hud.extra.textContent = "";
+    hud.target.textContent = "";
+    setExtra("<kbd>Space</kbd> buys one");
     hud.reticle.hidden = true;
     return;
   }
   const r = rl(current);
-  hud.reload.textContent = r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
-  hud.reloadFill.style.transform = `scaleX(${1 - r / w.reload})`;
-  weaponPanel.classList.toggle("loaded", r === 0);
+  const out = isOut(current);
+  hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
+  hud.reloadFill.style.transform = `scaleX(${out ? 0 : 1 - r / w.reload})`;
+  weaponPanel.classList.toggle("loaded", r === 0 && !out);
+  weaponPanel.classList.toggle("out", out);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).
-  const elevation = `Elevation ${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
+  const elevation = `${((aims[current].pitch * 180) / Math.PI).toFixed(1)}°`;
+  // The settings line is fixed words and numbers only (it is set as HTML for its keycaps).
+  let extra = "";
   if (e.weapon === "mortar") {
+    // After M5: the range the charge gives now (in still air with the standard aim help), or what to do.
     const flight = aimHelp === "full" && flightSeconds ? `, ${flightSeconds.toFixed(1)} s` : "";
-    hud.target.textContent = hitText ? `Lands on ${hitText}${flight}` : `${elevation}, ${Math.round(stillAirRange(aims[current].pitch))} m in still air`;
-    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? " (bursts in the air)" : fuseTicks > 0 ? " (bounces, then bursts)" : "";
-    hud.extra.textContent = (fuseTicks === 0 ? "Fuse: on impact" : `Fuse: ${(fuseTicks / 60).toFixed(1)} s${air}`) + "  ( [ ] )";
+    hud.target.textContent = needle >= 0 ? (hitText ? `Lands on ${hitText}${flight}` : `${Math.round(chargeRange)} m`) : "";
+    const air = fuseTicks > 0 && flightSeconds && fuseTicks / 60 <= flightSeconds + 0.02 && !aimHit ? ", airburst" : "";
+    extra = `Fuse <b>${fuseTicks === 0 ? "impact" : `${(fuseTicks / 60).toFixed(1)} s${air}`}</b> <kbd>[</kbd><kbd>]</kbd>`;
   } else {
     hud.target.textContent = hitText ? `Hits ${hitText}` : elevation;
-    if (e.weapon === "longGun") hud.extra.textContent = `Spin: ${SPIN_NAMES[spin]}  (R)`;
-    else if (e.weapon === "chainShot") hud.extra.textContent = "Two balls on a spinning chain";
-    else hud.extra.textContent = `${w.pellets} balls of grapeshot`;
+    if (e.weapon === "longGun") extra = `Spin <b>${SPIN_NAMES[spin].toLowerCase()}</b> <kbd>R</kbd>`;
   }
+  setExtra(extra);
   hud.shotCam.checked = shotCam[current];
-  hud.sound.textContent = sound.muted ? "Sound off (M)" : "Sound on (M)";
-  hud.sound.setAttribute("aria-pressed", String(!sound.muted));
   // Wind relative to where you look: up on the gauge is straight ahead.
   const a = aims[current];
   const [fx, , fz] = aimDir(a.yaw, 0);
@@ -1074,7 +1576,7 @@ function updateHud(force = false) {
   hud.windSpeed.textContent = `${ws.toFixed(1)} m/s`;
   hud.minions.textContent = isMatch() ? "" : `${stats.down} down, ${stats.standing} standing`;
   hud.perf.textContent = `step ${stats.stepMs.toFixed(1)} ms (peak ${stats.stepPeak.toFixed(1)}), ${stats.awake} moving, tick ${lastFrameTick}, frame ${pacer.frameMs.toFixed(1)} ms, resolution ${Math.round(SCALES[pacer.scaleIdx] * 100)}%`;
-  hud.lock.hidden = input.locked || view !== "sight" || input.usedPad || !!ride;
+  // After M5 the mortar is aimed by the ring on the ground, not the middle of the view.
   hud.reticle.hidden = view !== "sight" || !!ride || !!follow || e.weapon === "mortar";
 }
 
@@ -1127,6 +1629,14 @@ slowBox.addEventListener("change", () => {
 });
 const gore = $<HTMLInputElement>("gore");
 gore.addEventListener("change", () => renderer.setGore(gore.checked));
+const mouseBox = $<HTMLInputElement>("mousespeed");
+mouseBox.value = String(mouseSpeed);
+mouseBox.addEventListener("input", () => {
+  mouseSpeed = Math.max(0.4, Math.min(2.5, Number(mouseBox.value) || 1));
+  try {
+    localStorage.setItem("keepfall.mouseSpeed", String(mouseSpeed));
+  } catch {}
+});
 const volume = $<HTMLInputElement>("volume");
 volume.value = String(Math.round(sound.volume * 100));
 volume.addEventListener("input", () => sound.setVolume(Number(volume.value) / 100));
@@ -1140,6 +1650,7 @@ hud.sound.addEventListener("click", () => {
 function startMode(m: Mode, net?: OnlineStart) {
   const first = mode === null;
   if (mode === "online" && m !== "online") void online.leave();
+  setPause(false);
   mode = m;
   ME = m === "online" && net ? net.team : 1;
   FOE = ME === 1 ? 0 : 1;
@@ -1152,8 +1663,10 @@ function startMode(m: Mode, net?: OnlineStart) {
   document.body.classList.remove("title-screen");
   $("end").hidden = true;
   $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "online" ? `Against ${friendName}` : "Practice range";
+  $("keep-theirs-name").textContent = m === "online" ? "Their keep" : "Enemy keep";
   const match = m === "versus" || m === "online";
   $("matchbar").hidden = !match;
+  $("command").hidden = !match;
   $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
   // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
@@ -1170,10 +1683,12 @@ function startMode(m: Mode, net?: OnlineStart) {
   if (rendererReady) $("loading").hidden = false;
   const setup: MatchSetup = m === "versus" ? { difficulty } : m === "online" && net ? { team: net.team, delay: net.delay } : {};
   const seed = m === "online" && net ? net.seed : SEED;
-  if (first) send({ t: "init", mode: m, seed, minions: MINIONS, setup });
+  // A new world: what the old one still says (frames, the match, the lockstep) is dropped from here.
+  gen++;
+  if (first) send({ t: "init", gen, mode: m, seed, minions: MINIONS, setup });
   else {
     resetLocal();
-    send({ t: "reset", mode: m, seed, minions: MINIONS, setup });
+    send({ t: "reset", gen, mode: m, seed, minions: MINIONS, setup });
   }
   // M3: a match starts with its emplacements as built (empty slots empty); your guns are your castle's eight.
   MATCH_EMPLACEMENTS.forEach((e, i) => Object.assign(ALL_EMP[i], e, { upgrade: undefined }));
@@ -1188,7 +1703,8 @@ function startMode(m: Mode, net?: OnlineStart) {
   renderer.setSide(ME);
   buildTabs();
   estate.reset(m, ME);
-  renderer.showEmplacements(match ? ALL_EMP.length : EMP.length);
+  // After M5 the Practice range shows the target castle's guns too: something to silence.
+  renderer.showEmplacements(ALL_EMP.length);
   renderer.setMarkers(match);
   prevGate = null;
   matchLog = [];
@@ -1199,13 +1715,30 @@ function startMode(m: Mode, net?: OnlineStart) {
   $("clock").classList.remove("sudden");
   surrenderBtn.hidden = true;
   sound.setStorm(0, 0);
+  // The first-match guide (the test clock's screenshots leave it out).
+  guide.start(FIXED ? null : match ? "match" : "practice");
+  keepsShown = [3, 3];
+  floorShown = [1, 1];
+  sectionShares = null;
+  showKeeps([3, 3], [1, 1], false);
+  advice = { lastBuild: 0, at: -1e9, count: 0, built: 0 };
   if (match) {
     send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
-    const how = "Every barracks sends a wave every 25 seconds, some with ladders. B: build on your plots and buy guns for your empty emplacements; gold comes from your keep, mills, every enemy and every stone you bring down, and pays your masons. Ctrl+1, 2, 3: advance, hold, push the breach. L: your route. Alt+1 to 4: repairs.";
-    if (m === "online") showNote(`You hold the ${ME === 1 ? "oxblood" : "green"} castle against ${friendName}. Topple their keep or storm their courtyard. ${how}`, 12000);
-    else showNote(`Topple the enemy keep or storm its courtyard. The ${AI_LEVELS[difficulty].name} commands the enemy: it builds, aims and repairs by the same rules as you. ${how}`, 12000);
+    const goal = guide.open ? "" : ": bring down its keep or storm its courtyard";
+    if (m === "online") showNote(`Versus ${friendName}: you hold the ${ME === 1 ? "oxblood" : "green"} castle`, 5000);
+    else showNote(`Versus the ${AI_LEVELS[difficulty].name}${goal}`, 4500);
   }
-  if (m === "online") online.onGone = () => offerTakeover();
+  if (m === "online") {
+    online.onGone = () => offerTakeover();
+    online.onBack = () => friendBack();
+  }
+}
+
+/** Online: the friend who had gone is back and the match runs again: the dialog goes. */
+function friendBack() {
+  if (mode !== "online" || $("gone").hidden) return;
+  $("gone").hidden = true;
+  showNote(`${friendName} is back`, 3000);
 }
 
 /** Online: the friend has gone (or gone quiet for long): keep playing against the AI, or leave. */
@@ -1218,14 +1751,19 @@ function offerTakeover() {
 $("gone-ai").addEventListener("click", () => {
   $("gone").hidden = true;
   send({ t: "takeover", difficulty: "knight" });
-  void online.leave();
-  showNote(`The Knight takes ${friendName}'s castle from here.`, 5000);
+  void online.leave(false); // the match goes on here, against the AI
+  showNote(`The Knight takes over ${friendName}'s castle`, 5000);
   $("netline").hidden = true;
 });
 $("gone-menu").addEventListener("click", () => {
   $("gone").hidden = true;
   void online.leave();
+  // That match is over for this page: there is no going back to it.
   $("menu").hidden = false;
+  $("choices").hidden = false;
+  $("online").hidden = true;
+  $("menu-back").hidden = true;
+  surrenderBtn.hidden = true;
 });
 
 /**
@@ -1242,6 +1780,7 @@ function syncArms(arms: Int8Array) {
     const empty = w < 0;
     if (e.empty === empty && e.weapon === kind && e.upgrade === upgrade) continue;
     const bought = !!e.empty && !empty;
+    const upgraded = !!upgrade && e.upgrade !== upgrade;
     e.empty = empty;
     e.weapon = kind;
     e.upgrade = upgrade;
@@ -1256,6 +1795,7 @@ function syncArms(arms: Int8Array) {
       shotCam[slot] = kind === "mortar";
       reload[i] = 0;
     }
+    if (slot >= 0 && slot < SLOTS && (bought || upgraded)) noteBuilt();
   }
   if (!changed) return;
   renderer.setArms(ALL_EMP);
@@ -1266,9 +1806,18 @@ function syncArms(arms: Int8Array) {
 /** Forget everything drawn from the old world. */
 function resetLocal() {
   endRide();
+  cancelCharge();
+  myShells.clear();
+  gunOut = new Int16Array(0);
+  outSeen = "";
+  spot.primed = false; // the next spotter view starts where it is wanted, not swooping over from the old castle
+  for (let i = 0; i < ALL_EMP.length; i++) renderer.setGunOut(i, false);
+  tabs.forEach((b) => b.classList.remove("out"));
   renderer.resetWorld();
   timeline.reset();
   downAt.clear();
+  foesAt.clear();
+  lastFoes = 0;
   everMoved.fill(0);
   tally = null;
   trails.fill(null);
@@ -1344,14 +1893,19 @@ $("online-back").addEventListener("click", () => {
   $("choices").hidden = false;
 });
 $("menu-btn").addEventListener("click", () => {
+  setPause(true);
+  $("paused").hidden = true;
   $("menu").hidden = false;
   $("choices").hidden = false;
   $("online").hidden = true;
-  surrenderBtn.hidden = !isMatch() || !!matchInfo?.result;
+  surrenderBtn.hidden = !isMatch() || !!matchInfo?.result || (mode === "online" && !online.active);
   $<HTMLButtonElement>("menu-btn").blur();
   document.exitPointerLock?.();
 });
-$("menu-back").addEventListener("click", () => ($("menu").hidden = true));
+$("menu-back").addEventListener("click", () => {
+  $("menu").hidden = true;
+  setPause(false);
+});
 $("end-again").addEventListener("click", () => {
   if (mode !== "online") {
     startMode("versus");
@@ -1393,8 +1947,8 @@ function toggleRepair(kind: RepairKind, on?: boolean) {
   send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
   matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
   updateRepairs();
-  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep" };
-  showNote(now ? `Your masons repair ${names[kind]}.` : `Your masons leave ${names[kind]} alone.`, 2400);
+  const names: Record<RepairKind, string> = { gate: "Gate", walls: "Wall", towers: "Tower", keep: "Keep" };
+  showNote(`${names[kind]} repairs ${now ? "on" : "off"}`, 2400);
 }
 
 /** Give up the match (a second press within a few seconds confirms). */
@@ -1420,6 +1974,7 @@ surrenderBtn.addEventListener("click", () => {
   surrenderBtn.classList.remove("confirm");
   send({ t: "input", input: { kind: "surrender" } });
   $("menu").hidden = true;
+  setPause(false); // the menu paused the match: the surrender must reach it
 });
 orderChips.forEach((b) =>
   b.addEventListener("click", () => {
@@ -1433,8 +1988,8 @@ function updateWaves() {
   const info = matchInfo;
   if (!info) return;
   const s = Math.ceil(info.nextWave / 60);
-  $("next-wave").textContent = info.result ? "" : info.waves[ME] === 0 ? `First waves in ${s} s` : `Next waves in ${s} s`;
-  routeChips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.route === info.route)));
+  $("next-wave").textContent = info.result ? "" : info.waves[ME] === 0 ? `first in ${s} s` : `next in ${s} s`;
+  routeChips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.route === ownSide(info.route))));
   orderChips.forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.order) === info.order)));
   $("army-count").textContent = `Pikemen ${info.standing[ME]} (${info.fallen[ME]} down), enemy ${info.standing[FOE]} (${info.fallen[FOE]} down)`;
 }
@@ -1453,20 +2008,19 @@ function logMoment(text: string, bad = false, tick = matchInfo?.tick ?? 0) {
   if (matchLog.length > 60) matchLog.shift();
 }
 
-/** What the masons are doing, in words (hold is the sim's WorksHold). */
-function masonText(m: MasonInfo, own: boolean): string {
-  if (!m.up) return own ? "Masons: all down, more on the way" : "";
-  if (!m.job) return own ? `Masons: ${m.up} in the yard, nothing to repair` : "";
-  const what = `${m.job} (${m.left} ${m.left === 1 ? "piece" : "pieces"} down)`;
+/** What your masons are doing, in a word or two for the command card, and in full for its tooltip (hold is the sim's WorksHold). */
+function masonText(m: MasonInfo): { short: string; long: string } {
+  if (!m.up) return { short: "all down", long: "Your masons are all down" };
+  if (!m.job) return { short: `${m.up} idle`, long: `${m.up} masons, nothing to repair` };
   switch (m.hold) {
     case 1:
-      return `Masons wait for gold: ${what}`;
+      return { short: "need gold", long: `Your masons need gold to repair ${m.job}` };
     case 2:
-      return `Masons wait for the way to clear: ${what}`;
+      return { short: "waiting", long: `Your masons wait to repair ${m.job}` };
     case 3:
-      return `Masons driven off ${m.job} by the enemy`;
+      return { short: "driven off", long: `Your masons were driven off ${m.job}` };
     default:
-      return `Masons rebuilding ${what}`;
+      return { short: `${m.left} to lay`, long: `Your masons are repairing ${m.job}: ${m.left} pieces to lay` };
   }
 }
 
@@ -1479,7 +2033,9 @@ function updateRepairs() {
     b.classList.toggle("off", !on);
   });
   const el = $("masons");
-  el.textContent = masonText(info.masons[ME], true);
+  const t = masonText(info.masons[ME]);
+  if (el.textContent !== t.short) el.textContent = t.short;
+  el.title = t.long;
   el.classList.toggle("wait", info.masons[ME].hold === 1 || info.masons[ME].hold === 3);
 }
 
@@ -1525,23 +2081,26 @@ function onMatch(info: MatchInfo) {
     const was = prevGate;
     if (was) {
       if (!was.open[ME] && info.gateOpen[ME]) {
-        showNote("Your gate is down: enemy pikemen can get into your courtyard.", 5000);
+        showNote("Your gate is down", 4000);
         logMoment("Your gate was broken down", true);
       } else if (!was.open[FOE] && info.gateOpen[FOE]) {
-        showNote("The enemy gate is down.", 4000);
+        showNote("The enemy gate is down", 4000);
         logMoment("The enemy gate was broken down");
-      } else if (was.hits[ME] === 0 && info.gateHits[ME] > 0) showNote("Enemy pikemen are battering your gate.", 4000);
+      } else if (was.hits[ME] === 0 && info.gateHits[ME] > 0) showNote("Your gate is under attack", 4000);
       else if (was.open[ME] && !info.gateOpen[ME]) {
-        showNote("Your masons have the gate back on its hinges.", 4000);
+        showNote("Your gate is repaired", 3000);
         logMoment("Your masons rehung your gate");
       } else if (was.open[FOE] && !info.gateOpen[FOE]) {
-        showNote("Enemy masons have rehung their gate.", 4000);
+        showNote("The enemy gate is repaired", 3000);
         logMoment("The enemy rehung its gate", true);
       }
     }
     prevGate = { hits: [info.gateHits[0], info.gateHits[1]], open: [info.gateOpen[0], info.gateOpen[1]] };
     if (prev) momentsOf(prev, info);
+    advise(info);
   }
+  nudgeBuild(info);
+  updateKeeps(info);
   $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
   $("clock").classList.toggle("sudden", info.suddenDeath);
   $("sudden").hidden = !info.suddenDeath || !!info.result;
@@ -1549,9 +2108,10 @@ function onMatch(info: MatchInfo) {
   // M3: the rate it comes in, what was earned since, the guns as built and bought.
   $("gold-rate").textContent = `+${info.income[ME].toFixed(1)}/s`;
   syncArms(info.arms);
-  estate.onMatch(info, EMP[current] ?? null, current);
+  // After M5: by slot, whether the masonry a gun would stand on is down (none can be bought for it until rebuilt).
+  estate.onMatch(info, EMP[current] ?? null, current, EMP, EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2));
   const r = info.result;
-  $("match-note").textContent = r ? endLine(r).short : "Topple the enemy keep or storm its courtyard";
+  $("match-note").textContent = r ? endLine(r).short : "";
   // The end screen a moment after the end, so the collapse (or the storm) can be seen.
   if (r && endShownFor !== r.tick) {
     endShownFor = r.tick;
@@ -1565,28 +2125,28 @@ function onMatch(info: MatchInfo) {
 function momentsOf(prev: MatchInfo, info: MatchInfo) {
   // Ladders up against a wall.
   if (info.ladders[ME] > prev.ladders[ME]) {
-    showNote("A ladder is up against your wall: the enemy is climbing in. Your guns cannot reach the foot of your own wall; the garrison fights them inside.", 6500);
+    showNote("Enemy ladder on your wall", 4500);
     logMoment("The enemy raised a ladder against your wall", true);
   }
   if (info.ladders[FOE] > prev.ladders[FOE]) {
-    showNote("Your ladder is up against the enemy wall: your men are climbing.", 4500);
+    showNote("Your ladder is up", 3500);
     logMoment("Your crew raised a ladder against the enemy wall");
   }
   // Storms begun and beaten off.
   if (!prev.storm[FOE] && info.storm[FOE]) {
-    showNote("Your men are storming the enemy courtyard: hold it for 20 seconds with more men inside than its defenders.", 6000);
+    showNote("Storming their courtyard: hold it for 20 s", 5000);
     logMoment("Your men began to storm the enemy courtyard");
     sound.horn(true);
   } else if (prev.storm[FOE] && !info.storm[FOE]) {
-    showNote("Your storm was beaten off.", 3500);
+    showNote("Your storm was beaten off", 3500);
     logMoment("The enemy beat your storm off", true);
   }
   if (!prev.storm[ME] && info.storm[ME]) {
-    showNote("The enemy is storming your courtyard! Your next wave musters inside to defend it.", 6000);
+    showNote("Your courtyard is being stormed", 5000);
     logMoment("The enemy began to storm your courtyard", true);
     sound.horn(false);
   } else if (prev.storm[ME] && !info.storm[ME]) {
-    showNote("Your courtyard is clear: the storm is beaten off.", 4000);
+    showNote("Storm beaten off", 3500);
     logMoment("You beat the enemy's storm off");
   }
   // The garrisons.
@@ -1598,22 +2158,130 @@ function momentsOf(prev: MatchInfo, info: MatchInfo) {
   if (theirs.job && !prev.masons[FOE].job) {
     if (info.tick - lastEnemyMasonNote > 40 * 60) {
       lastEnemyMasonNote = info.tick;
-      showNote(`Enemy masons are rebuilding ${theirs.job}: shoot them to keep it open.`, 5000);
+      showNote(`Enemy masons repairing ${theirs.job}`, 4000);
     }
     logMoment(`Enemy masons began rebuilding ${theirs.job}`, true);
   }
   if (mine.up && mine.hold === 1 && prev.masons[ME].hold !== 1 && info.tick - lastGoldNote > 30 * 60) {
     lastGoldNote = info.tick;
-    showNote("Your masons are waiting for gold.", 3500);
+    showNote("Your masons are waiting for gold", 3500);
   }
   if (info.suddenDeath && !prev.suddenDeath) {
-    showNote("Sudden death: income doubles and every gun reloads faster.", 6000);
+    showNote("Sudden death: double income, faster reloads", 5000);
     logMoment("Sudden death");
     sound.suddenDeath();
+  }
+  // Time is called at 25:00: the keep with more floors under its banner wins, then the less battered castle.
+  for (const [at, text] of [[20, "Five minutes left: then the taller keep wins"], [24, "One minute left"]] as const) {
+    const t = at * 3600;
+    if (prev.tick < t && info.tick >= t) showNote(text, 5000);
   }
 }
 let lastEnemyMasonNote = -1e9;
 let lastGoldNote = -1e9;
+
+/** Each keep's floors left under its banner as last shown (they only ever go down), and how sound the floor under it is, for notes and the flash. */
+let keepsShown: [number, number] = [3, 3];
+let floorShown: [number, number] = [1, 1];
+const keepMeters = [$("keep-mine"), $("keep-theirs")];
+const FLOOR_NAMES = ["", "the lowest floor", "the upper floor", "the roof"];
+
+/**
+ * The keep tracker: a pip for each floor left under each banner (lowest
+ * first, the roof last), yours first. The top one drains as shells crack and
+ * break its boards, so every hit shows; masons laying boards back fill it.
+ */
+function showKeeps(levels: [number, number], soundness: [number, number], flash: [boolean, boolean] | false) {
+  const teams = [ME, FOE];
+  keepMeters.forEach((el, k) => {
+    const team = teams[k], n = levels[team];
+    el.classList.toggle("team0", team === 0);
+    el.classList.toggle("low", n <= 1);
+    el.querySelectorAll("i").forEach((pip, f) => {
+      pip.classList.toggle("lost", f >= n);
+      pip.style.setProperty("--fill", f === n - 1 ? String(Math.max(0.08, soundness[team])) : "1");
+    });
+    el.setAttribute("aria-label", n > 0 ? `${k === 0 ? "Your keep" : "The enemy keep"}: the banner stands on ${FLOOR_NAMES[n]}, ${Math.round(soundness[team] * 100)}% sound, ${n - 1} more ${n === 2 ? "floor" : "floors"} below` : `${k === 0 ? "Your keep" : "The enemy keep"} has fallen`);
+    if (flash && flash[team]) {
+      el.classList.remove("hit");
+      void el.offsetWidth; // restart the flash
+      el.classList.add("hit");
+    }
+  });
+}
+
+/** A keep losing a floor under its banner, or a board of it: the tracker, a note and the log. */
+function updateKeeps(info: MatchInfo) {
+  const k = info.keeps, h = info.keepFloor;
+  if (!k || !h) return;
+  const was = keepsShown, wasH = floorShown;
+  const now: [number, number] = [Math.min(was[0], k[0]), Math.min(was[1], k[1])];
+  // Whole boards in twelfths (a crack is half a board of six), so the HUD redraws only when a board changes.
+  const hq: [number, number] = [Math.round(h[0] * 12) / 12, Math.round(h[1] * 12) / 12];
+  const floorGone = now[0] !== was[0] || now[1] !== was[1];
+  if (!floorGone && hq[0] === wasH[0] && hq[1] === wasH[1]) return;
+  keepsShown = now;
+  floorShown = hq;
+  const worse = (t: 0 | 1) => now[t] < was[t] || (now[t] === was[t] && hq[t] < wasH[t]);
+  showKeeps(now, hq, [worse(0), worse(1)]);
+  if (!floorGone || info.result) return;
+  const theirs = mode === "online" ? `${friendName}'s` : "The enemy";
+  if (now[FOE] < was[FOE] && now[FOE] > 0) {
+    showNote(now[FOE] === 2 ? `${theirs} roof is in: two floors to go` : `${theirs} banner is on its last floor`, 4500);
+    logMoment(now[FOE] === 2 ? `${theirs} keep's roof caved in` : `${theirs} banner came down to the lowest floor`);
+    sound.horn(true);
+  }
+  if (now[ME] < was[ME] && now[ME] > 0) {
+    showNote(now[ME] === 2 ? "Your roof is in: two floors left" : "Your banner is on its last floor", 4500);
+    logMoment(now[ME] === 2 ? "Your keep's roof caved in" : "Your banner came down to the lowest floor", true);
+    sound.horn(false);
+  }
+}
+
+/**
+ * Advice for a player whose gold piles up unspent: a few nudges a match,
+ * well apart, and never while they are building anyway.
+ */
+let advice = { lastBuild: 0, at: -1e9, count: 0, built: 0 };
+function noteBuilt() {
+  guide.mark("build");
+  advice.lastBuild = matchInfo?.tick ?? 0;
+}
+function advise(info: MatchInfo) {
+  const t = info.tick, gold = info.gold[ME];
+  if (gold < 320 || t < 50 * 60 || t - advice.lastBuild < 45 * 60 || t - advice.at < 80 * 60 || advice.count >= 4 || estate.wheelOpen) return;
+  // Only when there is something left to build or buy.
+  const plots = estate.emptyPlots(), slots = EMP.filter((e) => e.empty).length;
+  if (!plots && !slots) return;
+  advice.at = t;
+  advice.count++;
+  showNote(`${gold} gold unspent: press B to build`, 5000);
+}
+
+/** The Build button by your gold: it opens the build menu, and glows while there is gold to spend and nothing built yet, or gold piling up. */
+const buildBtn = $<HTMLButtonElement>("build-btn");
+buildBtn.addEventListener("click", () => {
+  buildBtn.blur();
+  if (estate.wheelOpen) estate.wheel.close();
+  else estate.openList();
+});
+function nudgeBuild(info: MatchInfo) {
+  const gold = info.gold[ME];
+  const room = estate.emptyPlots() > 0 || EMP.some((e) => e.empty);
+  buildBtn.classList.toggle("nudge", !info.result && !estate.wheelOpen && room && gold >= 160 && (advice.lastBuild === 0 || gold >= 450));
+}
+
+/** Paused by the player (P, or the menu): Versus AI and the Practice range only (a friend's match never waits for a menu). */
+let userPause = false;
+function setPause(on: boolean) {
+  if (on && mode !== "versus" && mode !== "practice") return;
+  if (userPause === on) return;
+  userPause = on;
+  send({ t: "pause", paused: on || document.hidden });
+  sound.setPaused(on || document.hidden);
+  $("paused").hidden = !on || !$("menu").hidden;
+  if (on) document.exitPointerLock?.();
+}
 
 /** M3: trick shots as the end screen says them (ricochet, collapse, multi-kill, keep hit counts). */
 function trickText(t: number[]): string {
@@ -1624,8 +2292,12 @@ function trickText(t: number[]): string {
 
 /** How a match ended, in a few words and in a sentence. */
 function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: string } {
-  if (r.winner === -1) return { short: "A draw", long: r.reason === "storm" ? "Both courtyards fell together." : "Both banners came down together." };
+  if (r.winner === -1) {
+    const why = r.reason === "storm" ? "Both courtyards fell together." : r.reason === "surrender" ? "Both sides gave up at once." : r.reason === "time" ? "Time was called with both keeps standing as high and as battered." : "Both banners came down together.";
+    return { short: "A draw", long: why };
+  }
   const won = r.winner === ME;
+  if (r.reason === "time") return won ? { short: "Time: you held out better", long: "Time was called at 25:00: your keep stood taller (or less battered) than theirs." } : { short: "Time: they held out better", long: "Time was called at 25:00: their keep stood taller (or less battered) than yours." };
   if (r.reason === "surrender") return won ? { short: "The enemy surrendered", long: mode === "online" ? `${friendName} surrendered.` : "The enemy surrendered." } : { short: "You surrendered", long: "You gave up the match." };
   if (r.reason === "storm") return won ? { short: "The enemy courtyard is yours", long: "Your men held the enemy courtyard." } : { short: "Your courtyard has fallen", long: "The enemy held your courtyard." };
   return won ? { short: "The enemy keep has fallen", long: "The enemy keep's banner is on the ground." } : { short: "Your keep has fallen", long: "Your keep's banner is on the ground." };
@@ -1649,6 +2321,8 @@ function showEnd() {
     ["Gold spent", st ? st[a].goldSpent : "", st ? st[b].goldSpent : ""],
     // M3: trick shots by kind.
     ["Trick shots", trickText(info.tricks[a]), trickText(info.tricks[b])],
+    // After M5: guns knocked out.
+    ["Guns silenced", st ? st[a].gunsSilenced : "", st ? st[b].gunsSilenced : ""],
     ["Men lost", info.fallen[a], info.fallen[b]],
     ["Waves sent", info.waves[a], info.waves[b]],
     ["Ladders raised", st ? st[a].laddersRaised : "", st ? st[b].laddersRaised : ""],
@@ -1683,9 +2357,11 @@ function showEnd() {
 
 /** The bridges from the player's left to right, as the overlay's status line shows them. */
 function updateBridges() {
+  // Castle 1's left is +x, castle 0's is -x.
+  const leftFirst = ME === 1 ? -1 : 1;
   const parts = layout.bridges
-    .map((b, k) => ({ name: b.site.name, open: bridgesOpen[k] ?? true, x: b.site.x }))
-    .sort((a, b) => b.x - a.x)
+    .map((b, k) => ({ name: ownSide(b.site.name), open: bridgesOpen[k] ?? true, x: b.site.x }))
+    .sort((a, b) => leftFirst * (a.x - b.x))
     .map((b) => `${b.name} <b class="${b.open ? "" : "down"}">${b.open ? "open" : "down"}</b>`);
   $("bridges").innerHTML = `Bridges: ${parts.join(", ")}`;
 }
@@ -1695,7 +2371,7 @@ function onBridges(open: boolean[]) {
   bridgesOpen = open;
   updateBridges();
   for (let k = 0; k < open.length; k++) {
-    if (was[k] && !open[k]) showNote(`The ${layout.bridges[k].site.name} bridge is down: that route is closed.`, 4500);
+    if (was[k] && !open[k]) showNote(`The ${ownSide(layout.bridges[k].site.name)} bridge is down: that route is closed`, 4500);
   }
 }
 
@@ -1721,6 +2397,13 @@ $("more").addEventListener("click", () => send({ t: "input", input: { kind: "min
 const help = $("help");
 $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
 $("help-close").addEventListener("click", () => (help.hidden = true));
+$("guide-show").addEventListener("click", () => {
+  $<HTMLButtonElement>("guide-show").blur();
+  guide.start(mode === null ? null : isMatch() ? "match" : "practice", true);
+  help.hidden = true;
+});
+// A checkbox or a slider keeps no focus once changed: the game's keys stay the game's (Space never toggles it again).
+for (const el of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input[type=checkbox], input[type=range], select")) el.addEventListener("change", () => el.blur());
 hud.shotCam.addEventListener("change", () => toggleShotCam(hud.shotCam.checked));
 // M3: in the overview, a click (not a drag) on one of your plots opens the build wheel on it.
 let downAtPx: { x: number; y: number } | null = null;
@@ -1804,8 +2487,12 @@ function pace(dt: number, now: number) {
 
 function toggleOverview() {
   endRide();
+  cancelCharge();
   view = view === "sight" ? "overview" : "sight";
-  if (view === "overview") document.exitPointerLock?.();
+  if (view === "overview") {
+    document.exitPointerLock?.();
+    guide.mark("overview");
+  }
   if (isMatch()) man(view === "sight" ? current : -1, view === "sight" ? -1 : current);
 }
 
@@ -1842,6 +2529,8 @@ function applyShake(pose: CameraPose, now: number) {
 
 // ---- main loop ----------------------------------------------------------------------
 let last = performance.now();
+/** Is the build wheel open, as the page's layout last knew (notes move under it). */
+let wheelShown = false;
 function frame(wall: number) {
   let dt = Math.min(0.1, (wall - last) / 1000);
   last = wall;
@@ -1855,6 +2544,14 @@ function frame(wall: number) {
   } else frames++;
   const now = clock();
   const p = input.read();
+  // Behind the menu, the end screen or the friend-gone dialog the field takes no keys (only M and H).
+  const blocked = !$("menu").hidden || !$("end").hidden || !$("gone").hidden;
+  if (blocked) {
+    const keep = { mute: p.mute, help: p.help };
+    for (const k of Object.keys(p) as Array<keyof typeof p>) (p as unknown as Record<string, unknown>)[k] = typeof p[k] === "number" ? -1 : false;
+    Object.assign(p, keep);
+    keyVel.yaw = keyVel.pitch = 0;
+  }
   // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
   const wheelKeys = estate.keys(p, isMatch());
   if (!wheelKeys && p.weapon >= 0) select(p.weapon);
@@ -1862,6 +2559,7 @@ function frame(wall: number) {
   if (p.prev) step(-1);
   if (p.overview) toggleOverview();
   if (p.help) help.hidden = !help.hidden;
+  if (p.pause && $("menu").hidden && $("end").hidden) setPause(!userPause);
   if (p.shotCam) toggleShotCam();
   if (p.mute) {
     sound.setMuted(!sound.muted);
@@ -1870,7 +2568,7 @@ function frame(wall: number) {
   if (p.nav) toggleNav();
   if (p.order >= 0) giveOrder(p.order);
   if (p.orderNext && matchInfo) giveOrder((matchInfo.order + 1) % 3);
-  if (p.route && matchInfo) setRoute(ROUTE_NAMES[(ROUTE_NAMES.indexOf(matchInfo.route) + 1) % ROUTE_NAMES.length]);
+  if (p.route && matchInfo) setRoute(ROUTE_NAMES[(ROUTE_NAMES.indexOf(ownSide(matchInfo.route)) + 1) % ROUTE_NAMES.length]);
   if (p.repair >= 0) toggleRepair(REPAIR_KINDS[p.repair]);
   if (p.spin && EMP[current].weapon === "longGun") spin = ((spin + 1) % 5) as Spin;
   const w = weaponOf(EMP[current]);
@@ -1897,7 +2595,25 @@ function frame(wall: number) {
   if (ride) {
     // Any fire or skip key takes you back to the gun; it never fires.
     if (p.fire || p.skip) endRide();
-  } else if (p.fire && view === "sight" && !estate.wheelOpen) fire();
+    cancelCharge();
+  } else if (view !== "sight" || estate.wheelOpen || blocked) {
+    cancelCharge();
+  } else if (EMP[current].weapon === "mortar" && !EMP[current].empty) {
+    // The mortar: the press starts the charge, letting go fires it (a knocked-out one says when it is back).
+    if (p.fire && !charging) {
+      if (canFire()) charging = { start: now, slot: current, ticks: 0 };
+      else if (isOut(current)) fire();
+    }
+    if (charging) {
+      needle = needleAt(now);
+      const k = Math.floor(((now - charging.start) / 1000) * 9);
+      if (k > charging.ticks) {
+        charging.ticks = k;
+        sound.chargeTick(needle);
+      }
+      if ((!input.fireHeld() && !testHold) || !canFire()) releaseCharge(now);
+    }
+  } else if (p.fire) fire();
 
   applyMouse();
   aimAcc += dt;
@@ -1934,9 +2650,15 @@ function frame(wall: number) {
   renderer.setCamera(pose);
   updateAimHelp();
   updateHud();
+  updateCharge(now);
+  if (mode !== null && (mapFrame++ % 3 === 0 || FIXED)) drawMap();
   placeWanted();
   if (!paused) renderer.render(dt);
   estate.update(now);
+  if (estate.wheelOpen !== wheelShown) {
+    wheelShown = estate.wheelOpen;
+    document.body.classList.toggle("wheel-open", wheelShown);
+  }
   sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: timeScale });
   soundscape.update(dt, renderer.listener());
   calibrate(dt);
@@ -1944,10 +2666,13 @@ function frame(wall: number) {
   requestAnimationFrame(frame);
 }
 
+// Leaving the page mid-charge (another tab or window) drops the charge: the keys let go on blur, and that is no release to fire on.
+window.addEventListener("blur", () => cancelCharge());
 document.addEventListener("visibilitychange", () => {
+  if (document.hidden) cancelCharge();
   paused = document.hidden;
-  send({ t: "pause", paused });
-  sound.setPaused(paused);
+  send({ t: "pause", paused: paused || userPause });
+  sound.setPaused(paused || userPause);
   // Online, the friend's match waits for this page while it is hidden: say so.
   if (mode === "online") online.setPaused(paused);
 });
@@ -1985,7 +2710,7 @@ async function start() {
   if (location.hash.includes("low")) tier = "low";
   quality.value = tier;
   renderer.setLayout(layout, ALL_EMP);
-  renderer.showEmplacements(isMatch() ? ALL_EMP.length : EMP.length);
+  renderer.showEmplacements(ALL_EMP.length);
   renderer.setMarkers(isMatch());
   renderer.setQuality(tier);
   renderer.setGore(gore.checked);
@@ -2086,5 +2811,36 @@ else {
   },
   setFov(emp: number, f: number) {
     fov[emp] = f;
+  },
+  /** After M5: lay a slot's gun on a point in still air (the aim solver the AI uses); false if it cannot reach. */
+  aimAtPoint(emp: number, x: number, y: number, z: number) {
+    const sol = solveAim(EMP[emp], x, y, z);
+    if (!sol) return false;
+    aims[emp] = clampAim({ yaw: sol.yaw, pitch: sol.pitch }, EMP[emp], weaponOf(EMP[emp]));
+    wanted[emp] = { ...aims[emp] };
+    return true;
+  },
+  /** After M5: how far the mortar's spotter looks along the bearing (m). */
+  lookAt(emp: number, d: number) {
+    lookD[emp] = d;
+  },
+  /** After M5: hold the mortar's charge at a level (0..1) without a key, or (null) let it go: the shell leaves at that level. */
+  holdCharge(level: number | null) {
+    const now = clock();
+    if (level === null) {
+      testHold = false;
+      releaseCharge(now);
+      return;
+    }
+    testHold = true;
+    charging = { start: now - level * CHARGE_SWEEP * 1000, slot: current, ticks: 0 };
+    needle = level;
+  },
+  get chargeRange() {
+    return chargeRange;
+  },
+  /** After M5: every emplacement's knocked-out state as last reported ([state, ticks left] each). */
+  get gunOut() {
+    return Array.from(gunOut);
   },
 };

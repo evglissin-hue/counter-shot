@@ -26,6 +26,8 @@ export interface Pressed {
   repair: number;
   /** M3: the build wheel (B), and Backspace and Esc on their own (the wheel goes back or closes). */
   build: boolean;
+  /** Pause or resume (P): Versus AI and the Practice range. */
+  pause: boolean;
   back: boolean;
   esc: boolean;
 }
@@ -42,8 +44,14 @@ export class Input {
   private edges = new Set<string>();
   private padPrev: boolean[] = [];
   locked = false;
-  fireHeld = false;
+  /**
+   * When the browser last refused to give the game the mouse (performance.now(), 0 for never): a click too
+   * soon after Esc, or a page framed without pointer lock. The keys still aim; the page says so.
+   */
+  lockRefusedAt = 0;
   usedPad = false;
+  /** The left mouse button is down with the gun taken (the mortar's charge goes in while it is held). */
+  private mouse0 = false;
 
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
@@ -67,21 +75,38 @@ export class Input {
       this.usedPad = false;
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
-    window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("blur", () => {
+      this.keys.clear();
+      this.mouse0 = false;
+    });
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 0) {
-        if (!this.locked) canvas.requestPointerLock?.();
-        else this.edges.add("Mouse0");
+        if (!this.locked) {
+          const refused = () => (this.lockRefusedAt = performance.now());
+          try {
+            const p: unknown = canvas.requestPointerLock?.();
+            if (p instanceof Promise) p.catch(refused);
+          } catch {
+            refused();
+          }
+        } else {
+          this.edges.add("Mouse0");
+          this.mouse0 = true;
+        }
       }
       if (e.button === 2) this.zoomHeld = true;
     });
     window.addEventListener("mouseup", (e) => {
       if (e.button === 2) this.zoomHeld = false;
+      if (e.button === 0) this.mouse0 = false;
     });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
+      if (!this.locked) this.mouse0 = false;
+      else this.lockRefusedAt = 0;
     });
+    document.addEventListener("pointerlockerror", () => (this.lockRefusedAt = performance.now()));
     window.addEventListener("mousemove", (e) => {
       if (!this.locked) return;
       this.mouseX += e.movementX;
@@ -101,6 +126,13 @@ export class Input {
 
   down(code: string): boolean {
     return this.keys.has(code);
+  }
+
+  /** Is a fire control held down now: Space, the mouse button with the gun taken, or the gamepad's right trigger? */
+  fireHeld(): boolean {
+    if (this.keys.has("Space") || this.mouse0) return true;
+    const pad = this.gamepad();
+    return !!pad && !!pad.buttons[7]?.pressed;
   }
 
   /** Axis from two keys: -1, 0 or 1. */
@@ -142,6 +174,7 @@ export class Input {
       route: e.has("KeyL") || edge(15),
       repair: e.has("Repair1") ? 0 : e.has("Repair2") ? 1 : e.has("Repair3") ? 2 : e.has("Repair4") ? 3 : -1,
       build: e.has("KeyB"),
+      pause: e.has("KeyP"),
       back: e.has("Backspace"),
       esc: e.has("Escape"),
     };
@@ -151,7 +184,12 @@ export class Input {
   }
 }
 
+/** Keys meant for a text field or a list on the page (a focused checkbox, slider or button is not typing: the game keeps its keys). */
 function isTyping(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
-  return !!t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA");
+  if (!t) return false;
+  if (t.tagName === "SELECT" || t.tagName === "TEXTAREA" || t.isContentEditable) return true;
+  if (t.tagName !== "INPUT") return false;
+  const type = (t as HTMLInputElement).type;
+  return type !== "checkbox" && type !== "radio" && type !== "range" && type !== "button";
 }

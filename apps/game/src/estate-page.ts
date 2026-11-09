@@ -15,13 +15,23 @@ import type { Sound } from "./sound";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2, RUINED = 3;
+/**
+ * The trick shots that earn the banner and the brass ping. A hit on the enemy
+ * keep pays a bonus too, but it is the everyday work of a siege, not a trick:
+ * it floats its number where it hit (and still pings), with no banner.
+ */
 const TRICK_NAMES: Partial<Record<Earn, string>> = {
   [Earn.Ricochet]: "Ricochet kill",
   [Earn.Collapse]: "Collapse kill",
   [Earn.MultiKill]: "Multi-kill",
-  [Earn.KeepHit]: "Keep hit",
 };
-const FEED_NAMES: Partial<Record<Earn, string>> = { [Earn.Bounty]: "bounties", [Earn.Masonry]: "masonry" };
+const FEED_NAMES: Partial<Record<Earn, string>> = { [Earn.Bounty]: "bounties", [Earn.Masonry]: "masonry", [Earn.KeepHit]: "keep hit", [Earn.Silenced]: "gun silenced" };
+/** Earnings that float with a label and ping, as a keep hit does (after M5: an enemy gun knocked out). */
+const DEED_NAMES: Partial<Record<Earn, string>> = { [Earn.KeepHit]: "Keep hit", [Earn.Silenced]: "Gun silenced" };
+/** Gold of one kind earned this close (metres) and this soon after (ms) adds to the number already rising there. */
+const MERGE_M = 15, MERGE_MS = 1200;
+/** A number rises this far (px) over its life (ms); two never start closer than the gap (px). */
+const FLOAT_RISE = 46, FLOAT_MS = 1700, FLOAT_GAP = 22;
 
 interface Float {
   el: HTMLSpanElement;
@@ -29,6 +39,11 @@ interface Float {
   y: number;
   z: number;
   born: number;
+  /** What it counts ("" for plain gold, else its label) and how much so far. */
+  label: string;
+  amount: number;
+  /** Pixels above its point, so numbers rising from one spot stack instead of printing over each other. */
+  lift: number;
 }
 
 export class Estate {
@@ -52,6 +67,8 @@ export class Estate {
   private lastPlots: Float32Array | null = null;
   private lastPlotCount = 0;
   private gold = 0;
+  /** The player started a building (or a rebuild) on one of their plots. */
+  onBuilt: (() => void) | null = null;
 
   constructor(
     private renderer: GameRenderer,
@@ -89,12 +106,28 @@ export class Estate {
     this.feedSum.clear();
   }
 
-  /** Open the wheel on the gun in this slot (an empty slot's click, or B then 7). */
+  /** Every plot as the last frame with plots had it (PLOT_STRIDE each), for the minimap. */
+  get plotFrame(): { data: Float32Array | null; count: number } {
+    return { data: this.lastPlots, count: this.lastPlotCount };
+  }
+
+  /** The player's plots with nothing on them (a ruin counts as taken: it is rebuilt from the wheel too). */
+  emptyPlots(): number {
+    return this.plots[this.team].filter((p) => p.state === EMPTY).length;
+  }
+
+  /** Open the build menu on one of your gun slots (an empty slot's tab or its fire button). */
   openFor(slot: number) {
     if (!this.inMatch) return;
-    void slot;
     document.exitPointerLock?.();
-    this.wheel.open(6);
+    this.wheel.open(10 + slot);
+  }
+
+  /** Open the build menu on its list (the Build button). */
+  openList() {
+    if (!this.inMatch) return;
+    document.exitPointerLock?.();
+    this.wheel.open();
   }
 
   /** Open the wheel on one of the player's plots (a click in the overview). */
@@ -173,13 +206,14 @@ export class Estate {
       if (this.plotsSeen && this.inMatch && (was.state !== state || was.kind !== kind) && kind >= 0) {
         const name = BUILDINGS[BUILDING_KINDS[kind]].name;
         if (castle === this.team) {
+          if (state === RISING && (was.state === EMPTY || was.state === RUINED)) this.onBuilt?.();
           if (state === STANDING && was.state === RISING) {
-            const what = BUILDING_KINDS[kind] === "mill" ? `${name} is up: ${BUILDINGS.mill.income} more gold a second.` : BUILDING_KINDS[kind] === "barracks" ? "new barracks is ready: its waves leave with the others. B sets its mix and route." : `${name} is lit: B, then 7, upgrades the gun you ride.`;
-            this.note(`Your ${what}`, 4500);
-          } else if (state === RUINED) this.note(`Your ${name} is wrecked: B to rebuild it for half its cost.`, 5000);
+            const what = BUILDING_KINDS[kind] === "mill" ? `+${BUILDINGS.mill.income} gold a second` : BUILDING_KINDS[kind] === "barracks" ? "more waves" : "gun upgrades in the build menu";
+            this.note(`${name} built: ${what}`, 4000);
+          } else if (state === RUINED) this.note(`Your ${name} is wrecked: rebuild it for half (B)`, 5000);
         } else {
-          if (state === RISING && was.state === EMPTY) this.note(`The enemy is building a ${name}.`, 3500);
-          else if (state === RUINED) this.note(`The enemy's ${name} is wrecked${BUILDING_KINDS[kind] === "barracks" ? ": its waves stop until it is rebuilt" : ""}.`, 4500);
+          if (state === RISING && was.state === EMPTY) this.note(`The enemy is building a ${name}`, 3500);
+          else if (state === RUINED) this.note(`Enemy ${name} wrecked${BUILDING_KINDS[kind] === "barracks" ? ": its waves stop" : ""}`, 4500);
         }
       }
       this.plots[castle][plot] = { kind, state };
@@ -188,30 +222,38 @@ export class Estate {
   }
 
   /** The match: gold coming in, and what the wheel shows. */
-  onMatch(info: MatchInfo, gun: Emplacement | null, slot: number) {
+  onMatch(info: MatchInfo, gun: Emplacement | null, slot: number, guns: Emplacement[], mountDown: boolean[] = []) {
     this.gold = info.gold[this.team];
     const e = info.earned;
     for (let k = 0; k + EARN_STRIDE - 1 < e.length; k += EARN_STRIDE) {
       const team = e[k], amount = e[k + 1], kind = e[k + 2] as Earn;
       if (team !== this.team || kind === Earn.Income) continue;
       const trick = TRICK_NAMES[kind];
-      this.float(e[k + 3], e[k + 4], e[k + 5], trick ? `+${amount} ${trick}` : `+${amount}`, !!trick);
-      if (trick) this.toast(trick, amount);
+      if (trick) {
+        // The banner says it (a number at the spot as well would print the same thing twice).
+        this.toast(trick, amount);
+        continue;
+      }
+      const deed = DEED_NAMES[kind];
+      if (deed) this.sound.trick();
       else {
-        this.feedSum.set(kind, (this.feedSum.get(kind) ?? 0) + amount);
         const now = performance.now();
         if (now - this.lastCoin > 120) {
           this.lastCoin = now;
           this.sound.coin(amount);
         }
       }
+      // A number where it was earned when that is in view, else a line in the feed under the match bar: never both.
+      if (!this.float(e[k + 3], e[k + 4], e[k + 5], amount, deed ?? "")) this.feedSum.set(kind, (this.feedSum.get(kind) ?? 0) + amount);
     }
-    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot });
+    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot, guns, mountDown });
   }
 
   private toast(name: string, amount: number) {
     const el = this.trickEl;
-    el.innerHTML = `${name} +${amount}<small>a trick shot</small>`;
+    el.innerHTML = `${name}<b>+${amount}</b>`; // fixed names and a number
+    // One result at a time under the match bar: the banner takes the place of a tally still showing.
+    this.$("tally").hidden = true;
     el.hidden = false;
     el.classList.remove("show");
     void el.offsetWidth;
@@ -221,24 +263,57 @@ export class Estate {
     this.sound.trick();
   }
 
-  private float(x: number, y: number, z: number, text: string, big: boolean) {
-    if (y < -100) return;
+  /**
+   * A number rising from where gold was earned; false when that spot is out of
+   * view (the feed reports it instead). Gold of one kind earned close by and
+   * moments apart adds to one number, so a shot that brings down a dozen
+   * stones shows one sum rather than a dozen figures on top of each other.
+   */
+  private float(x: number, y: number, z: number, amount: number, label: string): boolean {
+    if (y < -100) return false;
+    const s = this.renderer.project(x, y, z);
+    if (!s || s.x < 0 || s.y < 0 || s.x > this.floatsEl.clientWidth || s.y > this.floatsEl.clientHeight) return false;
+    const now = performance.now();
+    for (const f of this.floats) {
+      if (f.label === label && now - f.born < MERGE_MS && Math.hypot(f.x - x, f.y - y, f.z - z) < MERGE_M) {
+        f.amount += amount;
+        (f.el.firstChild as Text).data = `+${f.amount}`;
+        return true;
+      }
+    }
+    // Clear of every number still rising nearby, where it is now: they all rise at one pace, so one placed clear
+    // stays clear. From the lowest up, a number in the way moves this one above it.
+    const near: number[] = [];
+    for (const f of this.floats) {
+      const p = this.renderer.project(f.x, f.y, f.z);
+      if (p && Math.abs(p.x - s.x) < 90) near.push(p.y - FLOAT_RISE * ((now - f.born) / FLOAT_MS) - f.lift);
+    }
+    near.sort((a, b) => b - a);
+    let at = s.y;
+    for (const fy of near) if (Math.abs(at - fy) < FLOAT_GAP) at = fy - FLOAT_GAP;
+    const lift = s.y - at;
     if (this.floats.length > 28) {
       const old = this.floats.shift()!;
       old.el.remove();
     }
     const el = document.createElement("span");
-    el.textContent = text;
-    if (big) el.className = "big";
+    el.append(`+${amount}`);
+    if (label) {
+      el.className = "big";
+      const small = document.createElement("small");
+      small.textContent = label;
+      el.append(small);
+    }
     this.floatsEl.append(el);
-    this.floats.push({ el, x, y, z, born: performance.now() });
+    this.floats.push({ el, x, y, z, born: now, label, amount, lift });
+    return true;
   }
 
   /** Every rendered frame: numbers rise and fade, the feed sums up, the trades are heard at work. */
   update(now: number) {
     for (let i = this.floats.length - 1; i >= 0; i--) {
       const f = this.floats[i];
-      const t = (now - f.born) / 1700;
+      const t = (now - f.born) / FLOAT_MS;
       const s = t < 1 ? this.renderer.project(f.x, f.y, f.z) : null;
       if (!s || t >= 1) {
         f.el.remove();
@@ -246,17 +321,15 @@ export class Estate {
         continue;
       }
       f.el.style.opacity = String(t < 0.12 ? t / 0.12 : t > 0.7 ? (1 - t) / 0.3 : 1);
-      f.el.style.transform = `translate(${s.x}px, ${s.y - 46 * t}px) translate(-50%, -50%)`;
+      f.el.style.transform = `translate(${s.x}px, ${s.y - FLOAT_RISE * t - f.lift}px) translate(-50%, -50%)`;
     }
     if (this.feedSum.size && now - this.feedAt > 900) {
+      // Gold earned out of view: one line under the match bar (it never grows into the notes below it).
       this.feedAt = now;
-      for (const [kind, sum] of this.feedSum) {
-        const line = document.createElement("span");
-        line.textContent = `+${sum} ${FEED_NAMES[kind] ?? ""}`;
-        this.feedEl.prepend(line);
-        setTimeout(() => line.remove(), 2400);
-      }
-      while (this.feedEl.children.length > 4) this.feedEl.lastElementChild?.remove();
+      const line = document.createElement("span");
+      line.textContent = [...this.feedSum].map(([kind, sum]) => `+${sum} ${FEED_NAMES[kind] ?? ""}`.trim()).join(", ");
+      this.feedEl.replaceChildren(line);
+      setTimeout(() => line.remove(), 2400);
       this.feedSum.clear();
     }
     // The mills grind and the foundries ring, near enough to hear.

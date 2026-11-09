@@ -67,9 +67,9 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 #want { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border: 2px solid var(--aim); border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,0.5); pointer-events: none; opacity: 0.8; }
 .hint { position: absolute; left: 50%; top: 58%; transform: translateX(-50%); padding: 8px 12px; font: 500 14px/1.2 var(--ui); pointer-events: none; }
 .hint.ride { top: auto; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
-.hint.tally { top: 32%; font: 22px/1.1 var(--display); padding: 10px 16px; }
+.hint.tally { font: 19px/1.1 var(--display); padding: 8px 14px; }
 .hint.tally.show { animation: tally 3.2s ease-out forwards; }
-@keyframes tally { 0% { opacity: 0; transform: translate(-50%, 6px); } 8% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes tally { 0% { opacity: 0; transform: translateY(6px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hint.tally.show { animation: none; } }
 .weapon .target { color: var(--ink); }
 .weapon .target:empty { display: none; }
@@ -82,17 +82,12 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .center > div { padding: 16px 20px; font: 18px/1.3 var(--display); }
 #error { position: absolute; left: 50%; top: 20%; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: 14px 16px; color: var(--bad); background: var(--glass-strong); border: 1px solid var(--line); border-radius: 10px; }
-#note { top: 25%; }
-.matchbar { position: absolute; left: 50%; top: calc(24px + var(--top-h, 40px) + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: grid; gap: 6px; justify-items: center; padding: 7px 12px; max-width: calc(100% - 32px); }
+.matchbar { position: absolute; left: 0; right: 0; margin: 0 auto; width: fit-content; top: calc(24px + var(--top-h, 40px) + env(safe-area-inset-top, 0px)); display: grid; gap: 6px; justify-items: center; padding: 7px 12px; max-width: calc(100% - 32px); }
 .matchbar .line { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; align-items: baseline; }
 .matchbar .clock { font: 500 20px/1 var(--mono); color: var(--ink); }
 .matchbar .gold { font: 500 15px/1 var(--ui); color: var(--brass); }
-.chips { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
-.chips button { padding: 5px 8px; font-size: 13px; }
-.chips .key { font: 11px/1 var(--mono); color: var(--ink-dim); padding: 0 4px 0 2px; align-self: center; }
 .matchbar .clock.sudden { color: var(--bad); }
 .matchbar .badge { font: 600 11px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bad); border: 1px solid currentColor; border-radius: 4px; padding: 3px 5px; }
-.chips button.off { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: rgba(236,228,210,0.35); }
 .masons { max-width: 46ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .masons.wait { color: var(--brass); }
 .netline.wait { color: var(--brass); }
@@ -153,14 +148,14 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .actions button { border: 1px solid var(--line); }
 .actions button.primary { background: var(--brass); color: var(--brass-ink); border-color: transparent; }
-@media (max-width: 640px) { .weapon { min-width: 0; right: 140px; } .brand .sub { display: none; } .card h1 { font-size: 36px; } }
+@media (max-width: 640px) { .weapon { min-width: 0; right: 140px; } .card h1 { font-size: 36px; } }
 /* M3: gold coming in, trick shots, the build wheel, empty gun slots. */
 .matchbar .rate { font: 500 12px/1 var(--mono); color: var(--ink-dim); }
 .feed { position: absolute; left: 50%; top: calc(124px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); display: grid; gap: 2px; justify-items: center; pointer-events: none; }
 .feed span { font: 500 13px/1.2 var(--ui); color: var(--brass); text-shadow: 0 1px 2px rgba(0,0,0,0.8); animation: feed 2.4s ease-out forwards; }
 @keyframes feed { 0% { opacity: 0; transform: translateY(4px); } 10% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; } }
-.hint.trick { top: 22%; font: 26px/1.1 var(--display); color: var(--brass); padding: 10px 18px; }
-.hint.trick small { display: block; font: 500 13px/1.3 var(--ui); color: var(--ink-dim); text-align: center; }
+.hint.trick { font: 22px/1.05 var(--display); color: var(--brass); padding: 7px 16px 8px; text-align: center; }
+.hint.trick small { display: block; font: 500 12px/1.3 var(--ui); color: var(--ink-dim); }
 .hint.trick.show { animation: tally 2.8s ease-out forwards; }
 .floats { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .floats span { position: absolute; left: 0; top: 0; font: 600 15px/1 var(--ui); color: #e8c06a; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0,0,0,0.6); white-space: nowrap; will-change: transform, opacity; }
@@ -197,8 +192,7 @@ button { transition: background-color 120ms ease, color 120ms ease, box-shadow 1
 button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(201, 154, 70, 0.35); }
 .brand .mark { letter-spacing: 0.02em; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5); }
 /* Keys read as keys. */
-.chips .key, #w-slot { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; font: 500 11px/1 var(--mono); color: var(--ink-dim); background: rgba(0, 0, 0, 0.25); }
-.chips .key { margin: 0 4px 0 2px; }
+#w-slot { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; font: 500 11px/1 var(--mono); color: var(--ink-dim); background: rgba(0, 0, 0, 0.25); }
 .keys dt { padding: 3px 0; }
 .keys dd { padding: 3px 0; border-bottom: 1px solid rgba(236, 228, 210, 0.07); }
 /* The weapon panel: a heavier name, the slot as a key, a reload bar that lights when loaded. */
@@ -217,7 +211,7 @@ button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 
 #wind-arrow { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
 /* Notes: a brass edge, and a short rise into place. */
 #note { border-left: 3px solid var(--brass); padding: 10px 14px; max-width: min(620px, calc(100% - 32px)); text-align: left; animation: note-in 260ms ease-out; }
-@keyframes note-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes note-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .hint.tally { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); border-color: rgba(201, 154, 70, 0.35); }
 /* The match bar. */
 .matchbar .clock { font-size: 22px; letter-spacing: 0.02em; }
@@ -232,7 +226,7 @@ button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 
 .choice b::after { content: " \203A"; color: var(--brass); opacity: 0; transition: opacity 140ms ease; }
 .choice:hover b::after, .choice:focus-visible b::after { opacity: 1; }
 /* The title screen (before a mode is chosen): the valley behind the menu, without the gun's instruments. */
-body.title-screen .weapon, body.title-screen .wind, body.title-screen .reticle, body.title-screen #want, body.title-screen #lock-hint, body.title-screen .top .group[aria-label="Weapons"], body.title-screen #overview-btn, body.title-screen label.check:has(#shotcam) { display: none !important; }
+body.title-screen .weapon, body.title-screen .wind, body.title-screen .reticle, body.title-screen #want, body.title-screen #lock-hint, body.title-screen .top .group[aria-label="Weapons"], body.title-screen #overview-btn { display: none !important; }
 body.title-screen .overlay { background: radial-gradient(ellipse at 50% 40%, rgba(10, 9, 7, 0) 30%, rgba(10, 9, 7, 0.55)); }
 body.title-screen #menu .card { background: rgba(14, 12, 10, 0.78); }
 body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
@@ -241,6 +235,161 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
 #loading > div::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--brass), transparent); background-size: 50% 100%; background-repeat: no-repeat; animation: raise 1.6s ease-in-out infinite; }
 @keyframes raise { from { background-position: -50% 0; } to { background-position: 150% 0; } }
 @media (prefers-reduced-motion: reduce) { #note, .weapon.loaded.fresh .bar, #loading > div::after { animation: none; } .choice:hover, .choice:focus-visible { transform: none; } }
+/* Each keep's floors left under its banner, in its team's colour (team 0 yellow-green, team 1 oxblood). */
+.keepmeter { display: inline-flex; align-items: center; gap: 3px; font: 500 13px/1 var(--ui); color: var(--ink-dim); --team: #d8424a; }
+.keepmeter.team0 { --team: #c8d43a; }
+.keepmeter > span { margin-right: 5px; }
+.keepmeter i { --fill: 1; width: 8px; height: 13px; border-radius: 2px; background: linear-gradient(to top, var(--team) calc(var(--fill) * 100%), rgba(236, 228, 210, 0.16) calc(var(--fill) * 100%)); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.28); }
+.keepmeter i.lost { background: transparent; box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.3); }
+.keepmeter.low > span { color: var(--bad); }
+.keepmeter.hit i:not(.lost) { animation: keephit 900ms ease-out; }
+@keyframes keephit { 0% { box-shadow: 0 0 0 0 rgba(255, 210, 140, 0.9); } 100% { box-shadow: 0 0 0 6px rgba(255, 210, 140, 0); } }
+#match-note:empty { display: none; }
+/* The first-match guide: a checklist that ticks itself off as you play. */
+.guide { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(24px + var(--top-h, 40px) + env(safe-area-inset-top, 0px)); width: 262px; padding: 12px 14px 12px; display: grid; gap: 8px; animation: note-in 260ms ease-out; }
+.guide-head { display: flex; align-items: baseline; gap: 8px; }
+.guide-head b { font: 19px/1.1 var(--display); font-weight: 400; }
+.guide-head button { margin-left: auto; padding: 4px 8px; font-size: 12px; border: 1px solid var(--line); }
+.guide p { margin: 0; color: var(--ink); }
+.guide ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; counter-reset: step; }
+.guide li { position: relative; padding-left: 26px; font: 400 13.5px/1.3 var(--ui); color: var(--ink); counter-increment: step; }
+.guide li::before { content: counter(step); position: absolute; left: 0; top: -1px; width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid rgba(201, 154, 70, 0.6); border-radius: 50%; font: 500 11px/1 var(--mono); color: var(--brass); }
+.guide li.done { color: var(--ink-dim); text-decoration: line-through; text-decoration-color: rgba(236, 228, 210, 0.3); }
+.guide li.done::before { content: "\2713"; background: var(--brass); color: var(--brass-ink); border-color: transparent; }
+.guide li.next { color: var(--ink); }
+.guide li.next::before { box-shadow: 0 0 0 3px rgba(201, 154, 70, 0.25); }
+.guide li kbd { height: 16px; min-width: 16px; padding: 0 4px; margin: 0 1px; font-size: 10.5px; }
+.guide .all { color: var(--brass); padding-left: 0; }
+.guide .all::before { content: none; }
+/* A step is its title; the one to do next also says how. */
+.guide li b { font-weight: 500; }
+.guide li:not(.done):not(.next):not(.all) { color: var(--ink-dim); }
+.guide li.next b { font-weight: 600; color: var(--brass); }
+.guide li.next span { display: block; margin-top: 3px; }
+.guide .nw { white-space: nowrap; }
+/* The Build button by your gold: it glows while there is gold to spend and nothing built yet (or gold piling up). */
+.buildbtn { padding: 4px 9px; border: 1px solid rgba(201, 154, 70, 0.6); color: var(--brass); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.buildbtn .key { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 3px; border: 1px solid rgba(236, 228, 210, 0.28); border-bottom-width: 2px; border-radius: 4px; font: 500 10px/1 var(--mono); color: var(--ink-dim); }
+.buildbtn.nudge { animation: nudge 1.6s ease-in-out infinite; }
+@keyframes nudge { 0%, 100% { box-shadow: 0 0 0 0 rgba(201, 154, 70, 0); } 50% { box-shadow: 0 0 0 4px rgba(201, 154, 70, 0.35); background: rgba(201, 154, 70, 0.18); } }
+@media (prefers-reduced-motion: reduce) { .buildbtn.nudge { animation: none; background: rgba(201, 154, 70, 0.18); } }
+.choice2.more b::after { content: " \203A"; color: var(--brass); }
+/* The mortar's charge: it fills from the nearest range to the farthest while fire is held, and falls back if held on (after M5). */
+.charge { position: absolute; left: 50%; bottom: calc(102px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(340px, calc(100% - 320px)); min-width: 200px; padding: 9px 12px 8px; display: grid; gap: 6px; justify-items: center; pointer-events: none; }
+.charge .track { position: relative; width: 100%; height: 12px; border-radius: 6px; background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.16); overflow: hidden; }
+.charge .track > i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, #6b4c1d, var(--brass) 70%, #ffd27a); }
+.charge .track > em { position: absolute; right: 0; top: 0; bottom: 0; width: 4%; background: rgba(255, 220, 150, 0.22); }
+.charge .track > b { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--aim); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.charge.on { border-color: rgba(201, 154, 70, 0.6); }
+.charge.on #charge-text { color: var(--ink); }
+/* The minimap: both castles and both armies at a glance, above the wind gauge. */
+.mapbox { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 176px; height: min(290px, calc(100% - 330px)); min-height: 180px; padding: 5px; }
+.mapbox canvas { width: 100%; height: 100%; display: block; }
+body.title-screen .mapbox { display: none !important; }
+/* What the minimap shows, the match bar need not say. */
+#army-count { display: none; }
+/* Paused (Versus AI and the Practice range: P, or the menu). */
+.pausedbadge { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); padding: 12px 18px; font: 28px/1.1 var(--display); display: grid; justify-items: center; gap: 4px; pointer-events: none; }
+/* Gold coming in, notes, trick shots and tallies sit under the match bar, whatever its height (a storm meter, the online line). */
+.feed { top: calc(var(--mb-bottom, 124px) + 6px); }
+/* Notes, trick shots and tallies: one column under the match bar (and its one line of gold), so they never print over each other or come down over the sight. */
+.msgs { position: absolute; left: 50%; top: max(16%, calc(var(--mb-bottom, 0px) + 30px)); transform: translateX(-50%); width: min(620px, calc(100% - 32px)); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.msgs > .hint { position: static; transform: none; max-width: 100%; }
+/* While the build wheel is open, its notes ("not enough gold") show under it, not behind it. */
+body.wheel-open .msgs { top: auto; bottom: calc(22px + env(safe-area-inset-bottom, 0px)); z-index: 20; }
+/* "Click to take the gun" sits low, under the charge gauge's place, never over the target. */
+#lock-hint { top: auto; bottom: calc(50px + env(safe-area-inset-bottom, 0px)); }
+/* With the build menu open, the field's hints step aside: only its own notes show, under it. */
+body.wheel-open #lock-hint, body.wheel-open .msgs > :not(#note), body.wheel-open #feed { display: none; }
+body.title-screen #menu-btn { display: none; }
+.weapon .shotcam { justify-self: start; padding: 2px 0 0; font-size: 13px; color: var(--ink-dim); }
+/* The build wheel: the courtyard beside its choices on a laptop screen, so nothing needs scrolling. */
+@media (min-width: 900px) {
+  .wheel { width: min(780px, calc(100% - 32px)); grid-template-columns: minmax(0, 320px) minmax(0, 1fr); column-gap: 18px; align-items: start; max-height: calc(100% - 130px); top: calc(80px + env(safe-area-inset-top, 0px)); }
+  .wheel > .wheel-head, .wheel > p { grid-column: 1 / -1; }
+  .wheel > .yard { grid-column: 1; margin: 0; }
+  .wheel > .choices2 { grid-column: 2; }
+}
+</style>
+<style>
+/* The HUD, quieter (overrides the rules above): fewer boxes, a tint rather than a brass block for what is selected,
+   the display face for titles only, short labels with keys in keycaps or tooltips. */
+kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin: 0 1px; border: 1px solid rgba(236, 228, 210, 0.26); border-bottom-width: 2px; border-radius: 4px; background: rgba(0, 0, 0, 0.3); font: 500 11px/1 var(--mono); color: var(--ink); vertical-align: 1px; }
+button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc57a; box-shadow: inset 0 -2px 0 var(--brass); }
+.brand { display: none; }
+.top .group { padding: 3px; }
+.top .group button { padding: 7px 10px; }
+#weapons button .n { font: 500 11px/1 var(--mono); color: var(--ink-dim); margin-right: 6px; }
+#weapons button[aria-pressed="true"] .n { color: var(--brass); }
+#weapons button.emptyslot { font-style: normal; color: rgba(181, 171, 149, 0.6); padding-inline: 8px; }
+/* After M5: a gun knocked out: its tab turns red until its crew has it back. */
+#weapons button.out { color: var(--bad); }
+#weapons button.out[aria-pressed="true"] { color: #f0a08c; box-shadow: inset 0 -2px 0 var(--bad); background: rgba(226, 113, 90, 0.16); }
+#sound-btn { display: inline-grid; place-items: center; padding: 6px 9px; }
+#sound-btn svg { width: 18px; height: 18px; display: block; }
+#sound-btn[aria-pressed] { background: transparent; box-shadow: none; color: var(--ink); }
+#sound-btn[aria-pressed="false"] { color: var(--ink-dim); }
+/* The scoreboard: each keep's floors either side of the clock; gold and Build under it. */
+.matchbar { gap: 5px; padding: 7px 14px 8px; }
+.matchbar .score { display: flex; align-items: center; gap: 16px; }
+.matchbar .clock { font: 500 22px/1 var(--mono); min-width: 3.1em; text-align: center; }
+.keepmeter > span { margin: 0 6px 0 0; font: 600 11px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; }
+.keepmeter.theirs > span { margin: 0 0 0 6px; }
+.matchbar .econ { gap: 4px 10px; align-items: center; }
+.matchbar .gold { font: 600 15px/1 var(--ui); font-variant-numeric: tabular-nums; min-width: 5.6em; text-align: right; }
+.matchbar .rate { font-variant-numeric: tabular-nums; min-width: 4.4em; }
+.buildbtn { padding: 4px 6px 4px 10px; gap: 7px; }
+.buildbtn kbd { height: 16px; min-width: 16px; font-size: 10px; color: var(--ink-dim); }
+/* The right-hand column: the map, your waves' and masons' commands, the wind. */
+.side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.side > * { pointer-events: auto; }
+.mapbox { position: static; width: auto; height: min(260px, calc(100vh - 480px)); min-height: 150px; }
+.command { padding: 9px 9px 10px; display: grid; gap: 6px; }
+.cmd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px; font: 600 10.5px/1.1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+.cmd-head + .seg { margin-top: -1px; }
+.seg + .cmd-head { margin-top: 4px; }
+.cmd-head > span + span { font: 500 12px/1.1 var(--ui); letter-spacing: 0; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmd-head .masons { max-width: 120px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 2px; border-radius: 7px; background: rgba(0, 0, 0, 0.26); box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.07); }
+.seg button { padding: 6px 2px; font-size: 12.5px; border-radius: 5px; text-align: center; }
+.seg button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.2); color: #f0cd86; box-shadow: none; }
+.seg button.off { color: rgba(181, 171, 149, 0.55); text-decoration: line-through; text-decoration-color: rgba(236, 228, 210, 0.3); }
+.seg.toggles button[aria-pressed="true"] { background: transparent; color: var(--ink); }
+.seg.toggles button.off { background: rgba(226, 113, 90, 0.12); color: #e9a594; }
+.wind { position: static; width: auto; display: flex; align-items: center; justify-items: initial; gap: 12px; padding: 8px 12px; }
+.wind .dial { width: 46px; height: 46px; flex: none; }
+.wind .dial::after { content: none; }
+#wind-arrow { inset: 5px; }
+.wind-txt { display: grid; gap: 4px; }
+.wind-txt span { font: 600 10.5px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+.wind-txt b { font: 500 15px/1 var(--mono); color: var(--ink); }
+body.title-screen .side > * { display: none !important; }
+/* The weapon card: the gun, its reload, two short lines. */
+.weapon { width: 236px; min-width: 0; padding: 10px 14px 11px; gap: 7px; }
+.weapon .title { align-items: center; justify-content: space-between; }
+.weapon .title b { font: 600 13px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; text-shadow: none; }
+.weapon .wline { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font: 500 13px/1.25 var(--ui); color: var(--ink-dim); }
+.weapon .wline .target { font: 500 12px/1.25 var(--mono); color: var(--ink); text-align: right; }
+.weapon .wline.set { font-size: 12.5px; align-items: center; }
+.weapon .wline.set b { font-weight: 500; color: var(--ink); }
+.weapon .wline.set kbd { height: 16px; min-width: 16px; font-size: 10px; }
+.weapon .shotcam { margin-left: auto; padding: 0; gap: 5px; font: 500 12.5px/1 var(--ui); color: var(--ink-dim); }
+.weapon .shotcam input { margin: 0; }
+.weapon #minions:empty { display: none; }
+/* Messages: plain type, the display face left to titles. */
+#note { padding: 8px 14px; }
+.hint kbd { margin: 0 4px; }
+.hint.trick { display: flex; align-items: baseline; gap: 10px; font: 700 12.5px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); padding: 9px 14px; }
+.hint.trick b { font: 600 16px/1 var(--mono); letter-spacing: 0; color: #ffd98c; }
+.hint.tally { font: 500 14px/1.2 var(--ui); padding: 8px 14px; }
+.floats span.big { font: 700 17px/1 var(--ui); color: #ffd27a; }
+.floats span small { margin-left: 5px; font: 700 10.5px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: #f0d9a8; }
+.msgs { width: clamp(360px, calc(100% - 560px), 560px); }
+/* The guide: a small card at the top left. */
+.guide { width: 248px; padding: 11px 13px 12px; gap: 7px; }
+.guide-head b { font: 600 11px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+.guide p { font: 400 13px/1.35 var(--ui); }
+.guide li { font-size: 13px; }
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -250,8 +399,8 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
   <canvas id="scene" aria-label="The battlefield"></canvas>
   <div id="reticle" class="reticle" aria-hidden="true"></div>
   <div id="want" hidden aria-hidden="true"></div>
-  <div id="lock-hint" class="hint glass">Click to take the gun (mouse aims; Esc frees the mouse)</div>
-  <div id="ride-hint" class="hint glass ride" hidden>Riding the shell. Click, Space or Enter goes back to the mortar</div>
+  <div id="lock-hint" class="hint glass"><kbd>Click</kbd> take the gun <kbd>Esc</kbd> free the mouse</div>
+  <div id="ride-hint" class="hint glass ride" hidden>Riding the shell <kbd>Space</kbd> back to the mortar</div>
   <div class="top">
     <div class="brand glass"><span class="mark">Keepfall</span><span class="sub" id="mode-name"></span></div>
     <div class="group glass" role="group" aria-label="Weapons" id="weapons">
@@ -261,74 +410,78 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
       <button data-weapon="3">4 Swivel</button>
     </div>
     <div class="spacer"></div>
-    <div class="group glass">
-      <button id="overview-btn">Overview (Tab)</button>
-      <label class="check"><input type="checkbox" id="shotcam"> Shot camera (V)</label>
-      <button id="sound-btn" aria-pressed="true">Sound on (M)</button>
-      <button id="help-btn">Controls (H)</button>
-      <button id="menu-btn">Menu</button>
+    <div class="group glass sys">
+      <button id="overview-btn" title="Overview of the valley (Tab)">Overview</button>
+      <button id="sound-btn" class="icon" aria-pressed="true" title="Sound (M)" aria-label="Sound"></button>
+      <button id="help-btn" title="Controls and settings (H)">Controls</button>
+      <button id="menu-btn" title="Menu (pauses against the AI)">Menu</button>
     </div>
   </div>
   <div id="matchbar" class="matchbar glass" hidden aria-live="off">
-    <div class="line">
+    <div class="score" id="keeps" role="group" aria-label="Floors left under each keep's banner">
+      <span class="keepmeter" id="keep-mine" title="Your keep: floors left under your banner. Lose them all and the keep falls"><span>Your keep</span><i></i><i></i><i></i></span>
       <span class="clock" id="clock">0:00</span>
+      <span class="keepmeter theirs" id="keep-theirs" title="The enemy keep: floors left under its banner. Bring them all down to win"><i></i><i></i><i></i><span id="keep-theirs-name">Enemy keep</span></span>
+    </div>
+    <div class="line econ">
       <span class="gold" id="gold">150 gold</span>
       <span class="rate" id="gold-rate"></span>
-      <span class="small" id="match-note">Topple the enemy keep or storm its courtyard</span>
+      <button id="build-btn" class="buildbtn" title="Spend your gold: buildings, guns for empty slots, upgrades (B)">Build <kbd>B</kbd></button>
       <span class="badge" id="sudden" hidden>Sudden death</span>
     </div>
-    <div class="line">
-      <span class="small" id="next-wave"></span>
-      <span class="chips" role="group" aria-label="Route of your next waves (L)"><span class="key">L</span><button data-route="left">Left</button><button data-route="centre">Centre</button><button data-route="right">Right</button></span>
-      <span class="chips" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><span class="key">Ctrl</span><button data-order="0">1 Advance</button><button data-order="1">2 Hold</button><button data-order="2">3 Push</button></span>
-      <span class="mono" id="army-count"></span>
-    </div>
-    <div class="line">
-      <span class="chips" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><span class="key">Alt</span><button data-repair="gate" aria-pressed="true">1 Gate</button><button data-repair="walls" aria-pressed="true">2 Walls</button><button data-repair="towers" aria-pressed="true">3 Towers</button><button data-repair="keep" aria-pressed="true">4 Keep</button></span>
-      <span class="small masons" id="masons"></span>
-    </div>
-    <div class="line"><span class="small netline" id="netline" hidden role="status"></span></div>
+    <span class="small" id="match-note"></span>
+    <span class="small netline" id="netline" hidden role="status"></span>
     <div id="storm" class="storm" hidden role="status" aria-live="polite">
       <div class="title"><b id="storm-title"></b><span class="mono" id="storm-count"></span></div>
       <div class="meter"><i id="storm-fill"></i></div>
     </div>
   </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
-  <div class="weapon glass" aria-live="polite">
+  <div class="weapon glass">
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
     <div class="bar"><i id="w-reload-fill"></i></div>
-    <div class="small" id="w-reload">Ready</div>
-    <div class="small target" id="w-target"></div>
-    <div class="small" id="w-extra"></div>
+    <div class="wline"><span id="w-reload" aria-live="polite">Ready</span><span class="target" id="w-target"></span></div>
+    <div class="wline set"><span id="w-extra"></span><label class="check shotcam" title="Shot camera: follow your shot (V)"><input type="checkbox" id="shotcam"> Shot cam</label></div>
     <div class="mono" id="minions"></div>
   </div>
-  <div class="wind glass" aria-label="Wind">
-    <div class="dial"><div id="wind-arrow"></div></div>
-    <div class="small" id="wind-speed">0 m/s</div>
+  <div class="side">
+    <div id="mapbox" class="mapbox glass" title="Both castles and both armies: walls pale when sound, amber when hit, red when breached; the keep's bars are its floors left; a dot is a man standing"><canvas id="minimap" aria-label="Map of the valley: both castles, the bridges and every man standing"></canvas></div>
+    <div id="command" class="command glass" hidden>
+      <div class="cmd-head"><span>Waves</span><span id="next-wave"></span></div>
+      <div class="seg" role="group" aria-label="Route of your next waves (L)"><button data-route="left" title="Next waves take your left flank (L)">Left</button><button data-route="centre" title="Next waves take the centre road (L)">Centre</button><button data-route="right" title="Next waves take your right flank (L)">Right</button></div>
+      <div class="seg" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><button data-order="0" title="Advance on the enemy gate (Ctrl+1)">Advance</button><button data-order="1" title="Hold at the midfield markers (Ctrl+2)">Hold</button><button data-order="2" title="Push through the nearest breach (Ctrl+3)">Push</button></div>
+      <div class="cmd-head"><span>Repairs</span><span class="masons" id="masons"></span></div>
+      <div class="seg toggles" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><button data-repair="gate" aria-pressed="true" title="Masons repair the gate (Alt+1)">Gate</button><button data-repair="walls" aria-pressed="true" title="Masons repair the walls (Alt+2)">Walls</button><button data-repair="towers" aria-pressed="true" title="Masons repair the towers (Alt+3)">Towers</button><button data-repair="keep" aria-pressed="true" title="Masons repair the keep (Alt+4)">Keep</button></div>
+      <span class="mono" id="army-count" hidden></span>
+    </div>
+    <div class="wind glass" aria-label="Wind" title="Wind against where you aim: up is ahead">
+      <div class="dial"><div id="wind-arrow"></div></div>
+      <div class="wind-txt"><span>Wind</span><b id="wind-speed">0 m/s</b></div>
+    </div>
   </div>
   <div id="help" class="panel glass" hidden>
     <h2>Controls</h2>
     <dl class="keys">
-      <dt>Click</dt><dd>Take the gun (mouse aims), then fire</dd>
-      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly: lead your target. With the keys a gun gathers speed while you hold them and coasts to a stop: tap for small corrections. Aim help shows the first part of each flight, your last shot's trail and where it landed: correct from there, and mind the wind (it gusts: watch the gauge, the flags and the smoke). No two shots fly quite alike. The mortar is aimed from an observer's view, centred on where the shell would land in still air; forward sends it farther</dd>
+      <dt>Click</dt><dd>Take the gun, then fire. Esc frees the mouse</dd>
+      <dt>Mouse, W A S D</dt><dd>Aim. Heavy guns turn slowly; with the keys a gun gathers speed and coasts, so tap to correct. The mortar: up and down look farther or nearer</dd>
       <dt>Shift</dt><dd>Fine aim</dd>
-      <dt>Right mouse, Z</dt><dd>Zoom the sight or the observer's view (scroll sets it)</dd>
-      <dt>Space</dt><dd>Fire</dd>
-      <dt>1 to 4, Q, E</dt><dd>Switch weapon (in a match: 1 to 8, your castle's eight emplacements; Q and E skip the empty ones)</dd>
-      <dt>B</dt><dd>In a match: the build wheel. A number picks one of your six plots (or 7, the gun you ride), a second picks what to do: build a Barracks, a Powder Mill or a Foundry, rebuild a ruin for half its cost, set a barracks' wave mix and route, buy a gun for an empty emplacement, or upgrade a gun at a working Foundry. In the overview, click a plot. Gold comes from your keep, your mills, every enemy you knock down, enemy masonry you bring down and trick shots: a ricochet kill, a collapse kill, three or more with one shot, a hit on the enemy keep</dd>
-      <dt>[ ] or Alt+scroll</dt><dd>Mortar fuse. Starts on impact; a fuse shorter than the flight bursts in the air (the arc stops there), a longer one lets the shell bounce first</dd>
+      <dt>Right mouse, Z</dt><dd>Zoom (scroll sets it)</dd>
+      <dt>Space</dt><dd>Fire. The mortar: hold to charge, let go to fire. The ring on the ground is where it lands in still air</dd>
+      <dt>1 to 8, Q, E</dt><dd>Switch gun (Q and E skip empty slots)</dd>
       <dt>R</dt><dd>Long gun spin: top, back, left, right</dd>
-      <dt>V</dt><dd>Shot camera for this weapon: follow your shot (slow motion at impact if you turn it on below). On for the mortar: ride the shell down</dd>
-      <dt>Click, Space, Enter</dt><dd>While riding a shell: back to the mortar</dd>
-      <dt>M</dt><dd>Sound on or off (volume below)</dd>
+      <dt>Guns</dt><dd>Knock one out: bring down the masonry under it, hit it square, sweep its crew with chain shot, or shell it. It is out 30 s, or until masons rebuild under it (20 gold to whoever does it)</dd>
+      <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
+      <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
+      <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
+      <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
+      <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
+      <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
-      <dt>N</dt><dd>Show where minions can walk: green from your gate, sandy over rubble and the fallen, amber cut off, blue water, red in the way. Blow a bridge and watch its crossing close</dd>
-      <dt>Ctrl+1, 2, 3</dt><dd>In a match: orders for all your waves (or the buttons in the match bar). Advance on the enemy gate (they batter it down), Hold at the midfield markers short of the bridges, Push the breach (the nearest gap in the enemy walls: knock one open at the foot of a wall)</dd>
-      <dt>L</dt><dd>In a match: the route of your next waves (left flank, centre road, right flank). A wave whose bridge is down takes the nearest one standing</dd>
-      <dt>Alt+1, 2, 3, 4</dt><dd>In a match: your masons' repairs on or off for the gate, walls, towers and keep (or the chips in the match bar). Each stone costs gold; masons rebuild the lowest gap first, and run from enemy pikemen. Shoot the enemy's masons to keep a breach open</dd>
-      <dt>Storming</dt><dd>Win by holding the enemy courtyard for 20 seconds with more men inside than its defenders. Each courtyard keeps a garrison of four; a barracks under attack musters its wave inside. Every other wave carries a ladder: shoot the crews before they reach your wall</dd>
-      <dt>Gamepad</dt><dd>Left stick aims, right stick fine aim, RT fire, LT zoom, bumpers switch, D-pad up and down fuse, D-pad left orders, D-pad right route, X spin, Y shot camera, B back from the shot camera, View overview</dd>
+      <dt>N</dt><dd>Where minions can walk: green open, amber cut off, red blocked</dd>
+      <dt>M, P</dt><dd>Sound on or off; pause (not against a friend)</dd>
+      <dt>Gamepad</dt><dd>Left stick aim, right stick fine aim, RT fire, LT zoom, bumpers switch gun, D-pad fuse (up, down), orders (left), route (right), X spin, Y shot camera, B back, View overview</dd>
     </dl>
+    <p class="small">Win by bringing down the three floors of the enemy keep, or by holding its courtyard for 20 s with more men inside than its defenders. Gold comes from your keep and mills, enemies you knock down, enemy masonry, hits on the enemy keep and enemy guns knocked out. Aim help shows the first part of each flight and where your last shot landed: correct from there, and mind the wind.</p>
     <div class="row group">
       <label class="small" for="quality">Quality</label>
       <select id="quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="ultra">Ultra</option></select>
@@ -341,35 +494,50 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
     <div class="row group">
       <label class="small" for="volume">Volume</label>
       <input type="range" id="volume" min="0" max="100" step="5" value="80">
+      <label class="small" for="mousespeed">Mouse speed</label>
+      <input type="range" id="mousespeed" min="0.4" max="2.5" step="0.1" value="1">
     </div>
     <div class="row group">
       <button id="reset">Rebuild the castles</button>
       <button id="more">More minions</button>
+      <button id="guide-show">Show the guide</button>
       <button id="help-close">Close</button>
     </div>
     <div class="mono"><span id="backend"></span>, <span id="perf"></span></div>
   </div>
-  <div id="note" class="hint glass" hidden role="status"></div>
-  <div id="tally" class="hint glass tally" hidden role="status"></div>
+  <aside id="guide" class="guide glass" hidden aria-labelledby="guide-title">
+    <div class="guide-head"><b id="guide-title">Your first match</b><button id="guide-hide" title="Hide the guide (Controls brings it back)">Hide</button></div>
+    <p class="small" id="guide-goal"></p>
+    <ol id="guide-steps"></ol>
+  </aside>
+  <div id="charge" class="charge glass" hidden aria-hidden="true">
+    <div class="track"><i id="charge-fill"></i><b id="charge-last" hidden></b></div>
+    <span id="charge-text" class="small"></span>
+  </div>
+  <div id="paused" class="pausedbadge glass" hidden role="status">Paused <span class="small"><kbd>P</kbd> resumes</span></div>
   <div id="floats" class="floats" aria-hidden="true"></div>
   <div id="feed" class="feed" aria-hidden="true"></div>
-  <div id="trick" class="hint glass trick" hidden role="status"></div>
+  <div id="msgs" class="msgs">
+    <div id="note" class="hint glass" hidden role="status"></div>
+    <div id="trick" class="hint glass trick" hidden role="status"></div>
+    <div id="tally" class="hint glass tally" hidden role="status"></div>
+  </div>
   <div id="build" class="wheel glass" hidden role="dialog" aria-label="Build"></div>
   <div id="loading" class="center" hidden><div class="glass">Raising the walls...</div></div>
   <div id="menu" class="overlay">
     <div class="card glass" role="dialog" aria-labelledby="menu-title">
       <h1 id="menu-title">Keepfall</h1>
-      <p>Two castles across a valley, a stream with three timber bridges between them. Ride the siege guns of the Ashwright castle.</p>
+      <p>Two castles across a valley. Man the siege guns and bring down the enemy keep.</p>
       <div class="choices" id="choices">
-        <button class="choice" data-mode="practice"><b>Practice range</b><span>Every weapon against the target castle and a patrol of pikemen. No clock, no rules: rebuild the castles any time.</span></button>
+        <button class="choice" data-mode="practice"><b>Practice range</b><span>Every gun against a target castle and a patrol of pikemen. No clock, no enemy.</span></button>
         <div class="choice versus">
-          <button class="choice-go" id="versus-go"><b>Versus AI</b><span>A match on the clock against a castle that plays by your rules: it builds, buys guns, rides them, sends waves and repairs. Bring its keep's banner to the ground (its keep takes a real siege: thick walls, and floors that need two shells each) or storm its courtyard.</span></button>
+          <button class="choice-go" id="versus-go"><b>Versus AI</b><span>A full match against a castle that builds, fires and sends waves. Bring down its keep or storm its courtyard.</span></button>
           <div class="levels" role="group" aria-label="Difficulty">
             <button data-level="squire">Squire</button><button data-level="knight">Knight</button><button data-level="warlord">Warlord</button>
             <span class="small" id="level-blurb"></span>
           </div>
         </div>
-        <button class="choice" id="online-go"><b>Play a friend</b><span>The same match against a friend on their own laptop. Both of you open this game's link; one hosts, the other joins.</span></button>
+        <button class="choice" id="online-go"><b>Play a friend</b><span>The same match against a friend on their own laptop: one hosts, the other joins.</span></button>
       </div>
       <div id="online" class="online" hidden>
         <p id="online-status" class="small">Looking for the room...</p>

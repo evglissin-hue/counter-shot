@@ -25,6 +25,12 @@ export interface AiLevel {
   /** Ticks after a shot lands before the next one leaves (watching, correcting), on top of the reload. */
   look: number;
   /**
+   * Ticks into the match before its first shot by hand: you get a moment to
+   * take your own gun before its shots come in (it takes its gun and lays it
+   * meanwhile, so you can watch the barrel turn).
+   */
+  warmup: number;
+  /**
    * Aim. A new target's first shot is off by up to `firstErr` (rad, either
    * way, for flat fire) or `firstErrM` metres plus `firstErrPerM` of the range
    * (lobbed shells); every shot after adds the hand's own noise (`noise`, rad,
@@ -44,6 +50,14 @@ export interface AiLevel {
   crowd: number;
   /** It shells the enemy's buildings and masons, not only walls, gate and keep. */
   raids: boolean;
+  /**
+   * After M5: in this share of its looks at the field it goes after the enemy
+   * gun that has hit its castle in the last 20 seconds: its chain shot sweeps
+   * the crew off a wall or tower, its mortar shells a mortar pit. 0: never.
+   * After knocking a gun out it leaves the guns alone for `counterRest` ticks.
+   */
+  counter: number;
+  counterRest: number;
   /** Ticks between looks at its build plan, its barracks, its orders and its repairs. */
   plan: number;
   /** Gold it keeps back for its masons before it builds or buys. */
@@ -55,20 +69,23 @@ export interface AiLevel {
 export const AI_LEVELS: Record<Difficulty, AiLevel> = {
   squire: {
     name: "Squire",
-    blurb: "Slow to aim and slow to learn; spends when it remembers",
+    blurb: "Slow to aim and slow to learn; spends when it remembers. Start here",
     think: 4 * 60,
     react: 50,
     settle: 4 * 60,
-    look: 4 * 60,
+    look: 6 * 60,
+    warmup: 40 * 60,
     firstErr: 0.03,
     firstErrM: 9,
     firstErrPerM: 0.06,
-    noise: 0.009,
+    noise: 0.011,
     noiseM: 4,
     learn: 0.35,
     focus: 0.35,
     crowd: 7,
     raids: false,
+    counter: 0,
+    counterRest: 0,
     plan: 9 * 60,
     reserve: 40,
     adapts: false,
@@ -80,6 +97,7 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     react: 30,
     settle: 2 * 60,
     look: 100,
+    warmup: 15 * 60,
     firstErr: 0.018,
     firstErrM: 6,
     firstErrPerM: 0.04,
@@ -89,6 +107,8 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     focus: 0.7,
     crowd: 5,
     raids: true,
+    counter: 0.2,
+    counterRest: 75 * 60,
     plan: 4 * 60,
     reserve: 60,
     adapts: true,
@@ -100,6 +120,7 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     react: 18,
     settle: 70,
     look: 40,
+    warmup: 5 * 60,
     firstErr: 0.01,
     firstErrM: 3.5,
     firstErrPerM: 0.025,
@@ -109,6 +130,8 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     focus: 0.92,
     crowd: 4,
     raids: true,
+    counter: 0.3,
+    counterRest: 45 * 60,
     plan: 2 * 60,
     reserve: 80,
     adapts: true,

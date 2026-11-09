@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { ASHWRIGHT_EMPLACEMENTS, BUILDING_KINDS, isKeepPiece, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { BUILDING_KINDS, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { Army } from "./army";
@@ -28,15 +28,17 @@ import {
 } from "./frame";
 import { Ladders } from "./ladders";
 import { Cause, Minions, MinionState } from "./minions";
+import { Mounts } from "./mounts";
 import { NavGrid } from "./nav";
 import { Specialists } from "./specialists";
 import { Structures } from "./structures";
+import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 10;
+export const RULES_VERSION = 11;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -86,6 +88,8 @@ interface Shot {
   joint: unknown;
   /** Fired by a weapon nobody mans. */
   auto: boolean;
+  /** After M5: the men a chain shot's chain has swept so far (each only once). */
+  swept?: Set<number>;
 }
 
 export interface SandboxOptions {
@@ -123,6 +127,10 @@ export class SandboxSim {
   /** M3: the plots' buildings (with plots in the layout), and sappers' kegs and musketeers' shots (matches). */
   readonly structures: Structures | null;
   readonly specialists: Specialists | null;
+  /** After M5: the masonry each gun stands on, and which guns are knocked out. */
+  readonly mounts: Mounts;
+  /** Where each ball slot was before the last step (a shot's path through a gun, a chain's sweep). */
+  private prevPos = new Float64Array(64 * 3);
   /** M3: which shot each ball slot carries now, what is known about each shot, and keep hits ([shot, castle] pairs) for the match to read. */
   private slotShot = new Int32Array(64).fill(-1);
   readonly shotInfo = new Map<number, ShotInfo>();
@@ -171,7 +179,8 @@ export class SandboxSim {
     this.rng = new Rng(opts.seed);
     this.wind = new Wind(this.rng.fork("wind"));
     this.pelletRng = this.rng.fork("pellets");
-    this.emplacements = opts.emplacements ?? ASHWRIGHT_EMPLACEMENTS;
+    // After M5 the Practice range has the match's emplacements too: the target castle's guns stand as targets (nobody fires them).
+    this.emplacements = opts.emplacements ?? MATCH_EMPLACEMENTS;
     this.reload = this.emplacements.map(() => 0);
     this.minions.spawnPatrol(this.rng.fork("patrol"), opts.minions);
     this.scatterRng = this.rng.fork("scatter");
@@ -185,6 +194,7 @@ export class SandboxSim {
     this.nav = new NavGrid(this.castle, this.terrain);
     this.minions.nav = this.nav;
     const emit = (k: EventKind, a: number, b: number, c: number, d: number) => this.event(k, a, b, c, d);
+    this.mounts = new Mounts(this.castle, this.emplacements, emit);
     this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, emit) : null;
     this.ladders = this.army ? new Ladders(R, this.castle.world, this.castle, this.terrain, this.minions, emit) : null;
     this.works = this.army ? new Works(this.minions, this.castle, this.terrain, this.army, emit) : null;
@@ -216,6 +226,9 @@ export class SandboxSim {
   step() {
     const tick = this.tick;
     this.landings.length = 0;
+    // After M5: guns knocked out and put back during this step, for the match to read after it.
+    this.mounts.outs.length = 0;
+    this.mounts.backs.length = 0;
     const list = this.inputs.get(tick);
     if (list) {
       this.inputs.delete(tick);
@@ -230,6 +243,7 @@ export class SandboxSim {
     this.works?.step(tick);
     this.structures?.step(tick);
     this.terrain.rebuild();
+    this.notePositions();
     this.castle.step();
     this.afterStep();
     this.specialists?.afterStep(tick);
@@ -251,6 +265,8 @@ export class SandboxSim {
     }
     const e = this.emplacements[input.emplacement];
     if (!e || e.empty || this.reload[e.id] > 0) return;
+    // After M5: a knocked-out gun cannot fire until its crew has it back on its mount.
+    if (!this.mounts.up(e.id)) return;
     // The gun's own weapon, its Foundry upgrade worked in (the same object as WEAPONS[kind] without one).
     const w = weaponOf(e);
     const aim = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
@@ -438,6 +454,9 @@ export class SandboxSim {
       this.event(EventKind.Blood, p.x, p.y, p.z, 0.5);
     }
 
+    // After M5: shots through guns, and the chain shot's chain sweeping men, ladders and gun crews.
+    this.sweepShots();
+
     for (let k = this.shots.length - 1; k >= 0; k--) {
       const shot = this.shots[k];
       let alive = 0;
@@ -492,6 +511,91 @@ export class SandboxSim {
       }
     }
     this.minions.settle(this.tick);
+    // After M5: guns whose masonry gave way fall with it; guns whose crews have them back are loaded afresh.
+    const M = this.mounts;
+    M.step(this.tick);
+    for (let k = 0; k + 1 < M.backs.length; k += 2) {
+      const e = this.emplacements[M.backs[k]];
+      if (e && !e.empty) this.reload[e.id] = weaponOf(e).reload;
+    }
+  }
+
+  /** Where every ball in flight is before the step (after M5: a shot's path, a chain's sweep). */
+  private notePositions() {
+    const prev = this.prevPos;
+    for (const shot of this.shots) {
+      if (shot.kind !== ProjectileKind.Ball && shot.kind !== ProjectileKind.Chain) continue;
+      for (const slot of shot.slots) {
+        const ball = this.castle.balls[slot];
+        if (!ball || !ball.alive || slot * 3 + 2 >= prev.length) continue;
+        const t = ball.body.translation();
+        prev[slot * 3] = t.x;
+        prev[slot * 3 + 1] = t.y;
+        prev[slot * 3 + 2] = t.z;
+      }
+    }
+  }
+
+  /**
+   * After M5, after the world's step: a ball that passed through a gun this
+   * step knocks it out (a round shot must strike the gun itself; a chain
+   * shot's balls take its crew), and a chain shot's chain, swept from where
+   * it was to where it is, knocks down every man standing in its way, knocks
+   * planted ladders off the walls and sweeps gun crews away. Each man it
+   * takes slows it.
+   */
+  private sweepShots() {
+    const castle = this.castle, prev = this.prevPos, tick = this.tick;
+    const min2 = GUN_HITS.minSpeed * GUN_HITS.minSpeed;
+    for (const shot of this.shots) {
+      if (shot.kind !== ProjectileKind.Ball && shot.kind !== ProjectileKind.Chain) continue;
+      const chain = shot.kind === ProjectileKind.Chain;
+      for (const slot of shot.slots) {
+        const ball = castle.balls[slot];
+        if (!ball || !ball.alive || slot * 3 + 2 >= prev.length) continue;
+        const v = ball.body.linvel();
+        if (v.x * v.x + v.y * v.y + v.z * v.z < min2) continue;
+        const t = ball.body.translation();
+        this.mounts.sweep(prev[slot * 3], prev[slot * 3 + 1], prev[slot * 3 + 2], t.x, t.y, t.z, ball.radius, chain, shot.id, shot.emplacement, tick);
+      }
+      if (!chain || shot.slots.length < 2) continue;
+      const A = castle.balls[shot.slots[0]], B = castle.balls[shot.slots[1]];
+      if (!A || !B || !A.alive || !B.alive) continue;
+      const va = A.body.linvel(), vb = B.body.linvel();
+      const vx = (va.x + vb.x) / 2, vy = (va.y + vb.y) / 2, vz = (va.z + vb.z) / 2;
+      if (vx * vx + vy * vy + vz * vz < SWEEP.minSpeed * SWEEP.minSpeed) continue;
+      const ta = A.body.translation(), tb = B.body.translation();
+      const oa = shot.slots[0] * 3, ob = shot.slots[1] * 3;
+      const mv: ChainMove = {
+        a0: [prev[oa], prev[oa + 1], prev[oa + 2]],
+        b0: [prev[ob], prev[ob + 1], prev[ob + 2]],
+        a1: [ta.x, ta.y, ta.z],
+        b1: [tb.x, tb.y, tb.z],
+      };
+      // The whirl is as wide as the chain (its weapon's, with any upgrade).
+      const half = weaponOf(this.emplacements[shot.emplacement]).chainLength / 2;
+      // Men in its way.
+      const swept = (shot.swept ??= new Set<number>());
+      let keep = 1;
+      for (const hit of sweptMen(this.minions, mv, half, swept)) {
+        swept.add(hit.id);
+        const k = SWEEP.share * keep;
+        this.minions.knock({ minion: hit.id, vx: vx * k, vy: vy * k + SWEEP.lift, vz: vz * k, px: hit.x, py: hit.y, pz: hit.z, extra: 1.2, cause: Cause.Ball, shot: shot.id }, tick);
+        this.event(EventKind.Blood, hit.x, hit.y, hit.z, 0.7);
+        this.event(EventKind.Swept, hit.id, hit.x, hit.y, hit.z);
+        keep *= SWEEP.keep;
+      }
+      if (keep < 1) {
+        A.body.setLinvel({ x: va.x * keep, y: va.y * keep, z: va.z * keep }, true);
+        B.body.setLinvel({ x: vb.x * keep, y: vb.y * keep, z: vb.z * keep }, true);
+      }
+      // Ladders it passes come off the wall; the crews of guns it passes are swept away.
+      this.ladders?.sweptBy(mv, half, vx, vy, vz, tick);
+      for (let k = 0; k <= SWEEP.steps; k++) {
+        const c = chainMid(mv, k);
+        this.mounts.whirl(c[0], c[1], c[2], half, shot.id, shot.emplacement, tick);
+      }
+    }
   }
 
   /** A powder burst: masonry, minions, a crater if it is near the ground. `shot` is the shell's (-1: none, a keg left to burn). */
@@ -499,6 +603,8 @@ export class SandboxSim {
     const E = burst;
     this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift);
     this.event(EventKind.Explosion, x, y, z, E.radius);
+    // After M5: a gun beside the burst is blown off its bed.
+    this.mounts.burst(x, y, z, E.radius, shot, this.tick);
     this.ladders?.blast(x, y, z, E.knock * 0.5, this.tick);
     // M3: kegs set within its reach go off with it.
     this.specialists?.burstNear(x, y, z, E.radius * 1.3, shot, this.tick);
@@ -605,6 +711,7 @@ export class SandboxSim {
     this.works?.hashInto(extra);
     this.structures?.hashInto(extra);
     this.specialists?.hashInto(extra);
+    this.mounts.hashInto(extra);
     for (const s of this.shots) {
       extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);
       for (const slot of s.slots) {

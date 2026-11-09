@@ -82,6 +82,12 @@ export const enum EventKind {
   Built = 11,
   /** [kind, stone id, x, y, z]: a blast cracked a tough piece (a keep floor board) without breaking it (M5); x, y, z is the piece's place. */
   Cracked = 12,
+  /** [kind, emplacement, cause (mounts.ts OutCause), shot id (-1: none), 0]: a gun was knocked out (after M5). */
+  GunOut = 13,
+  /** [kind, emplacement, gold paid, 0, 0]: a knocked-out gun's crew put it back on its mount. */
+  GunBack = 14,
+  /** [kind, minion id, x, y, z]: a chain shot's chain swept a man off his feet (after M5); x, y, z is where. */
+  Swept = 15,
 }
 export const EVENT_STRIDE = 5;
 

@@ -7,9 +7,9 @@
 // marker). The barrel turns at the gun's own rates, it waits for the reload,
 // and it waits to see where a shot came down before it fires again.
 
-import { MUSTER, SLOTS_PER_CASTLE, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
+import { MID_Z, MUSTER, SLOTS_PER_CASTLE, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, type Rng } from "@keepfall/core";
-import { clampAim, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
+import { clampAim, clearOfCastle, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
 import * as V from "./view";
 
@@ -21,6 +21,8 @@ export const enum Aim {
   /** A shell on an enemy building: + its plot. */
   Raid = 10,
   Masons = 20,
+  /** After M5: an enemy gun, its crew swept off its wall or its pit shelled: + its emplacement. */
+  Gun = 30,
 }
 
 interface Target {
@@ -72,6 +74,8 @@ const ON_MARK = 0.0015;
 const AIM_EVERY = 8;
 /** Longest a shot is waited for (ticks) before it is given up for lost. */
 const LOST = 10 * 60;
+/** After M5: an enemy gun that hit its castle within this long (ticks) is one it may go after. */
+const HURT_TICKS = 20 * 60;
 
 export class Gunner {
   /** The emplacement it rides (-1: none). */
@@ -90,6 +94,11 @@ export class Gunner {
   /** Which of the keep's face it hits next (left, middle, right). */
   private faceStep = 0;
   private breachSide = 1;
+  /** A gun it could not lay on its target just now, passed over until then (so it moves on to another gun rather than trying the same one for ever). */
+  private stuck = { emp: -1, until: 0 };
+  /** After M5: the enemy guns that hit its castle, and when they last did; and the tick until which it leaves guns alone. */
+  private hurtBy = new Map<number, number>();
+  private counterUntil = 0;
 
   constructor(
     private m: Match,
@@ -97,21 +106,58 @@ export class Gunner {
     private L: AiLevel,
     private rng: Rng,
     private send: (tick: number, input: MatchInput) => void,
-  ) {}
+  ) {
+    // No shot by hand before its warm-up is over (it takes and lays its gun meanwhile).
+    this.readyAt = L.warmup;
+  }
 
   private get foe(): number {
     return 1 - this.team;
   }
 
-  /** The team's armed guns of a kind. */
+  /** The team's armed guns of a kind (after M5: those not knocked out). */
   private guns(kind: WeaponKind): Emplacement[] {
     const first = firstSlot(this.team);
     const out: Emplacement[] = [];
+    const mounts = this.m.world.mounts;
     for (let i = first; i < first + SLOTS_PER_CASTLE; i++) {
       const e = this.m.emplacements[i];
-      if (e && !e.empty && e.weapon === kind) out.push(e);
+      if (e && !e.empty && e.weapon === kind && mounts.up(i)) out.push(e);
     }
     return out;
+  }
+
+  /**
+   * After M5: the enemy gun that hit its castle last (within HURT_TICKS), if
+   * it stands to be knocked out now.
+   */
+  private threat(tick: number): Emplacement | null {
+    const mounts = this.m.world.mounts;
+    let best: Emplacement | null = null, at = -1;
+    for (const [emp, t] of this.hurtBy) {
+      const e = this.m.emplacements[emp];
+      if (tick - t > HURT_TICKS || t <= at || !e || e.empty || !mounts.up(emp)) continue;
+      best = e;
+      at = t;
+    }
+    return best;
+  }
+
+  /** After M5: note the enemy's shots that came down on its castle (by hand), and its own knock-outs. */
+  private watch(tick: number) {
+    const m = this.m, cz = m.world.castle.layout.castleZ[this.team];
+    for (const l of m.world.landings) {
+      if (l.auto || l.emplacement < 0) continue;
+      const e = m.emplacements[l.emplacement];
+      if (!e || (e.z < MID_Z ? 1 : 0) !== this.foe) continue;
+      const dz = l.z - cz;
+      if (l.x > -26 && l.x < 26 && dz > -26 && dz < 26) this.hurtBy.set(l.emplacement, tick);
+    }
+    const outs = m.world.mounts.outs;
+    for (let k = 0; k + 2 < outs.length; k += 3) {
+      const info = m.world.shotInfo.get(outs[k + 2]);
+      if (info && (m.emplacements[info.emplacement].z < MID_Z ? 1 : 0) === this.team) this.counterUntil = tick + this.L.counterRest;
+    }
   }
 
   /** Ticks until a gun could fire if it took it now (its reload, plus settling in if it is not the one it rides). */
@@ -119,12 +165,20 @@ export class Gunner {
     return this.m.world.reload[e.id] + (e.id === this.riding ? 0 : this.L.settle);
   }
 
-  /** The gun of a kind that would be ready first (of those that can reach a point, if one is given: a mortar pit behind the keep cannot reach the far keep). */
+  /**
+   * The gun of a kind that would be ready first (of those that can reach a
+   * point, if one is given, without hitting their own castle on the way: a
+   * gun on the back tower cannot fire short over its own front).
+   */
   private soonest(kind: WeaponKind, x?: number, y?: number, z?: number): Emplacement | null {
     let best: Emplacement | null = null;
     for (const e of this.guns(kind)) {
       if (best && this.readyIn(e) >= this.readyIn(best)) continue;
-      if (x !== undefined && !reach(e, x, y!, z!)) continue;
+      if (e.id === this.stuck.emp && this.m.tick < this.stuck.until) continue;
+      if (x !== undefined) {
+        const s = reach(e, x, y!, z!);
+        if (!s || !clearOfCastle(e, s.yaw, s.pitch, s.charge, this.team, x, z!)) continue;
+      }
       best = e;
     }
     return best;
@@ -132,17 +186,27 @@ export class Gunner {
 
   step(tick: number) {
     this.learn(tick);
+    this.watch(tick);
+    // After M5: the gun it rides was knocked out: drop what it was laying on and look again.
+    if (this.riding >= 0 && !this.m.world.mounts.up(this.riding) && this.target) {
+      this.target = null;
+      this.lay = null;
+      this.nextThink = tick;
+    }
     if (tick >= this.nextThink) {
       this.think(tick);
       this.nextThink = tick + this.L.think;
     }
-    if (this.riding < 0 || !this.target) return;
+    if (this.riding < 0 || !this.target || !this.m.world.mounts.up(this.riding)) return;
     const e = this.m.emplacements[this.riding];
     const w = weaponOf(e);
     if (!this.lay) {
       this.lay = this.layFor(e, w, this.target);
       if (!this.lay) {
+        // It cannot lay this gun on it now: pass the gun over for a while and look again at once.
+        this.stuck = { emp: e.id, until: tick + 8 * 60 };
         this.target = null;
+        this.nextThink = tick + 1;
         return;
       }
     }
@@ -229,11 +293,22 @@ export class Gunner {
       const e = this.soonest("mortar", t.x, t.y, t.z);
       if (e && this.readyIn(e) < 5 * 60) pick = { e, t };
     }
+    if (!pick && L.counter > 0 && tick >= this.counterUntil && this.rng.next() < L.counter) {
+      // After M5: the gun that has been hitting it. On a wall or a tower its crew is swept off by the chain shot; a mortar in its pit takes a shell.
+      const g = this.threat(tick);
+      if (g) {
+        const t: Target = { key: Aim.Gun + g.id, x: g.x, y: g.y - 0.3, z: g.z, vx: 0, vz: 0 };
+        const e = g.y > 5 ? this.soonest("chainShot", t.x, t.y, t.z) : this.soonest("mortar", t.x, g.y, t.z);
+        // Loaded or nearly (its reload, not the time to settle in on it, as for the mortar below).
+        if (e && this.m.world.reload[e.id] < (e.weapon === "mortar" ? 90 : 3 * 60)) pick = { e, t };
+      }
+    }
     if (!pick) {
       // 2. A loaded mortar: on the keep, or (from a Knight up) now and then on the enemy's buildings or masons.
       const t = this.shellTarget();
       const e = this.soonest("mortar", t.x, t.y, t.z);
-      if (e && this.readyIn(e) < 90) pick = { e, t };
+      // Loaded or nearly: its reload, not the time to settle in on it (which would rule out every level but the Warlord).
+      if (e && this.m.world.reload[e.id] < 90) pick = { e, t };
     }
     if (!pick) {
       // 3. The long gun: a way in for its waves, or the keep.
@@ -334,20 +409,26 @@ export class Gunner {
       const s = reach(e, ax, t.y, az);
       if (!s) return null;
       const c = clampAim({ yaw: s.yaw, pitch: s.pitch }, e, w);
+      if (!clearOfCastle(e, c.yaw, c.pitch, s.charge, this.team, ax, az)) return null;
       return { yaw: c.yaw, pitch: c.pitch, charge: s.charge, sYaw: s.yaw, sPitch: s.pitch, x, y: t.y, z };
     }
     const s = reach(e, x, t.y, z);
     if (!s) return null;
     const c = clampAim({ yaw: s.yaw + o.yaw + rng.range(-1, 1) * L.noise, pitch: s.pitch + o.pitch + rng.range(-1, 1) * L.noise * 0.5 }, e, w);
+    if (!clearOfCastle(e, c.yaw, c.pitch, 1, this.team, x, z)) return null;
     return { yaw: c.yaw, pitch: c.pitch, charge: 1, sYaw: s.yaw, sPitch: s.pitch, x, y: t.y, z };
   }
 }
 
-/** The still-air aim for a point, or for the nearest point short of it that can be reached (a shell against a headwind). */
+/**
+ * The still-air aim for a point, or for the nearest point short of it that
+ * can be reached (a shell against a headwind, or an aim its corrections have
+ * pushed past the gun's reach: the playtest pass found a Squire stalled there).
+ */
 function reach(e: Emplacement, x: number, y: number, z: number): AimSolution | null {
   const dx = x - e.x, dz = z - e.z;
   const d = dsqrt(dx * dx + dz * dz) + 1e-9;
-  for (let back = 0; back <= 6; back += 0.5) {
+  for (let back = 0; back <= 30; back += back < 6 ? 0.5 : 2) {
     const s = solveAim(e, x - (dx / d) * back, y, z - (dz / d) * back);
     if (s) return s;
   }

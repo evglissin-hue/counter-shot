@@ -41,6 +41,8 @@ export class Economy {
   readonly spent: [number, number] = [0, 0];
   /** Trick shots each team has made, by kind (Earn.Ricochet .. Earn.KeepHit). */
   readonly tricks: [number[], number[]] = [[0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0]];
+  /** After M5: enemy guns each team has knocked out. */
+  readonly silenced: [number, number] = [0, 0];
   /** Earnings since the page last looked (the worker drains it). */
   feed: Earning[] = [];
   private incomeAcc: [number, number] = [0, 0];
@@ -89,7 +91,7 @@ export class Economy {
     if (amount <= 0) return;
     this.gold[team] += amount;
     this.earned[team] += amount;
-    if (kind >= Earn.Ricochet) this.tricks[team][kind]++;
+    if (kind >= Earn.Ricochet && kind <= Earn.KeepHit) this.tricks[team][kind]++;
     this.feed.push({ team, amount, kind, x, y, z });
   }
 
@@ -168,10 +170,19 @@ export class Economy {
       this.earn(team, T.keep, Earn.KeepHit, 0, 21, kz + (hits[k + 1] === 0 ? 4 : -4));
     }
     hits.length = 0;
+    // After M5: an enemy gun knocked out pays its silencer's side, whatever did it (as masonry does).
+    const outs = w.mounts.outs;
+    for (let k = 0; k + 2 < outs.length; k += 3) {
+      const e = w.emplacements[outs[k]];
+      const owner = this.teamOfEmp(outs[k]);
+      if (!e || owner < 0) continue;
+      this.silenced[1 - owner]++;
+      this.earn(1 - owner, G.silenced, Earn.Silenced, e.x, e.y + 1.5, e.z);
+    }
   }
 
   hashInto(out: number[]) {
-    out.push(this.earned[0], this.earned[1], this.spent[0], this.spent[1], this.incomeAcc[0], this.incomeAcc[1], this.masonryAcc[0], this.masonryAcc[1]);
+    out.push(this.earned[0], this.earned[1], this.spent[0], this.spent[1], this.incomeAcc[0], this.incomeAcc[1], this.masonryAcc[0], this.masonryAcc[1], this.silenced[0], this.silenced[1]);
     for (const id of [...this.tallies.keys()].sort((a, b) => a - b)) {
       const t = this.tallies.get(id)!;
       out.push(id, t.team, t.kills, t.last);

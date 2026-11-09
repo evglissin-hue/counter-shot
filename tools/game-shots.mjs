@@ -1,8 +1,9 @@
 // Screenshots of every camera view of the sandbox in headless Chromium
-// (WebGL2, Low): each weapon's sight, the mortar's observer (and zoomed), a
-// mortar shell ride from launch to the burst and back, the long gun's shot
-// camera and the overview. Writes tools/.shots/*.png and prints what the page
-// reported. Usage: node tools/game-shots.mjs [names...]
+// (WebGL2, Low): each weapon's sight, the mortar's spotter (far and near) and
+// its charge (the ring and the meter), a mortar shell ride from launch to the
+// burst and back, a chain shot sweeping the crew off the target castle's long
+// gun, the long gun's shot camera and the overview. Writes tools/.shots/*.png
+// and prints what the page reported. Usage: node tools/game-shots.mjs [names...]
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -76,36 +77,42 @@ async function tour() {
   await shot("01-longgun-sight");
   console.log("long gun:", JSON.stringify(await state()));
 
-  // The mortar: the observer, then zoomed.
+  // The mortar (after M5): the spotter's view along the bearing, far and near, then a charge held with its ring and meter.
   await page.evaluate(() => window.__sandbox.select(1));
   await frames(60);
-  await shot("02-mortar-observer");
+  await shot("02-mortar-spotter");
   console.log("mortar:", JSON.stringify(await state()));
-  await page.evaluate(() => window.__sandbox.setFov(1, 14));
-  await frames(30);
-  await shot("03-mortar-zoomed");
-  await page.evaluate(() => window.__sandbox.setFov(1, 44));
+  await page.evaluate(() => window.__sandbox.lookAt(1, 22));
+  await frames(45);
+  await shot("03-mortar-near");
+  await page.evaluate(() => window.__sandbox.lookAt(1, 140));
+  await frames(45);
+  await page.evaluate(() => window.__sandbox.holdCharge(0.55));
+  await frames(2);
+  await shot("03-mortar-charging");
+  console.log("charging:", JSON.stringify({ ...(await state()), range: await page.evaluate(() => window.__sandbox.chargeRange) }));
 
-  // Find an elevation that lands on the target keep's roof (else anywhere on the keep), then ride a shell into it.
-  // The search reads where the shell lands, which only the full aim help shows (the standard is the first part of the arc).
+  // Find a charge that comes down on the target keep's roof (else anywhere on the keep), then ride a shell into it.
+  // The search reads where the shell lands, which only the full aim help shows (the standard is a soft ring in still air).
   await setAimHelp("full");
   let aim = null, fallback = null;
-  for (let p = 1.34; p >= 0.7 && !aim; p -= 0.005) {
-    await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), p);
-    await frames(2);
+  for (let m = 0.8; m <= 1.0 && !aim; m += 0.004) {
+    await page.evaluate((level) => window.__sandbox.holdCharge(level), m);
+    await frames(1);
     const s = await state();
-    if (/keep roof|target battlements/.test(s.hud || "")) aim = { pitch: p, hud: s.hud };
-    else if (!fallback && /target keep/.test(s.hud || "")) fallback = { pitch: p, hud: s.hud };
+    if (/keep roof|target battlements/.test(s.hud || "")) aim = { level: m, hud: s.hud };
+    else if (!fallback && /target keep/.test(s.hud || "")) fallback = { level: m, hud: s.hud };
   }
-  if (!aim && fallback) {
-    aim = fallback;
-    await page.evaluate((pitch) => window.__sandbox.aimAt(1, 0, pitch), aim.pitch);
-  }
-  console.log("aim at the keep:", JSON.stringify(aim));
+  if (!aim && fallback) aim = fallback;
+  console.log("charge for the keep:", JSON.stringify(aim));
   await setAimHelp("partial");
-  await frames(45);
+  await page.evaluate((level) => window.__sandbox.holdCharge(level), aim ? aim.level : 0.95);
+  await frames(2);
   await shot("04-mortar-on-keep");
-  await page.evaluate(() => window.__sandbox.fire());
+  await page.evaluate((level) => {
+    window.__sandbox.holdCharge(level);
+    window.__sandbox.holdCharge(null);
+  }, aim ? aim.level : 0.95);
   await frames(9);
   await shot("05-ride-launch");
   await frames(24);
@@ -126,12 +133,26 @@ async function tour() {
   await waitFor(() => !window.__sandbox.ride);
   await frames(30);
   await shot("12-mortar-after");
+
   if (only.length && only.every((o) => /ride|mortar/.test(o))) return;
 
   // The other weapons' sights.
   await page.evaluate(() => window.__sandbox.select(2));
   await frames(30);
   await shot("13-chain-sight");
+  // After M5: the chain shot sweeps the crew off the target castle's long gun (emplacement 8, on its gate wall).
+  const laid = await page.evaluate(() => window.__sandbox.aimAtPoint(2, 0, 9.4, -16.4));
+  await page.evaluate(() => window.__sandbox.setFov(2, 16));
+  await frames(20);
+  await shot("13-chain-on-gun");
+  if (laid) {
+    await page.evaluate(() => window.__sandbox.fire());
+    await waitFor(() => window.__sandbox.gunOut[16] > 0, 240);
+    await frames(20);
+    await shot("13-chain-gun-out");
+    console.log("gun out:", JSON.stringify((await page.evaluate(() => window.__sandbox.gunOut)).slice(16, 18)), "note:", await page.evaluate(() => document.getElementById("note")?.textContent));
+  }
+  await page.evaluate(() => window.__sandbox.setFov(2, 44));
   await page.evaluate(() => window.__sandbox.select(3));
   await frames(30);
   await shot("14-swivel-sight");

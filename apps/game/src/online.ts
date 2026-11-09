@@ -59,11 +59,18 @@ export class Online {
   private delay = 8;
   private friendPing = 0;
   private playing = false;
+  /** Between the handshake and the match starting (the friend's name is being looked up). */
+  private starting = false;
+  /** Bumped by every host, join and leave: an answer that arrives for an older one is dropped. */
+  private attempt = 0;
   private names: Record<string, string> = {};
   private waiting = 0;
-  /** Since when the friend has not been seen in the match room (ms), and whether that has been said. */
+  /** Since when the friend has not been seen in the match room (ms), and whether the page has been told they are gone. */
   private goneSince = 0;
+  private goneSaid = false;
+  /** The friend has gone (or gone quiet for long), and has come back. */
   onGone: (() => void) | null = null;
+  onBack: (() => void) | null = null;
 
   constructor(
     private ui: OnlineUi,
@@ -165,7 +172,13 @@ export class Online {
     this.code = matchCode();
     this.seed = Math.floor(Math.random() * 1e9);
     this.render();
+    const attempt = ++this.attempt;
     const room = await this.lobby.join(`kf-${this.code.toLowerCase()}`);
+    if (attempt !== this.attempt) {
+      // Cancelled while the room was being joined.
+      await room.leave().catch(() => {});
+      return;
+    }
     this.room = room;
     room.presence({ kf: { v: NET_VERSION, role: "host", seed: this.seed } });
     this.lobby.lobby.presence({ kf: { v: NET_VERSION, open: this.code } });
@@ -178,7 +191,12 @@ export class Online {
     this.role = "guest";
     this.code = code;
     this.render();
+    const attempt = ++this.attempt;
     const room = await this.lobby.join(`kf-${code.toLowerCase()}`);
+    if (attempt !== this.attempt) {
+      await room.leave().catch(() => {});
+      return;
+    }
     this.room = room;
     room.presence({ kf: { v: NET_VERSION, role: "guest" } });
     room.onChange(() => this.onRoom());
@@ -199,7 +217,7 @@ export class Online {
     const f = this.other();
     const kf = (f?.presence.kf ?? {}) as KfPresence;
     if (!this.playing) {
-      if (!f || kf.v !== NET_VERSION) return;
+      if (this.starting || !f || kf.v !== NET_VERSION) return;
       if (this.role === "host" && kf.role === "guest") {
         this.friendPeer = f.peer;
         room.presence({ kf: { v: NET_VERSION, role: "host", seed: this.seed, go: true } });
@@ -232,19 +250,28 @@ export class Online {
     const ls = f.presence.ls;
     if (ls && ls !== this.lastLs) {
       this.lastLs = ls;
-      this.send({ t: "net", state: ls as NetState, now: performance.now() });
+      this.send({ t: "net", state: ls as NetState, now: performance.now(), rtt: this.rtt });
     }
   }
 
   private async begin(team: 0 | 1, f: Friend) {
-    this.playing = true;
+    // Playing only from the start of the new match: until then this page's worker may still hold an old one, whose state must not reach this room.
+    this.starting = true;
     this.ui.panel.hidden = true;
     this.friendName = "";
+    const attempt = this.attempt;
     if (f.by && this.lobby) {
-      const n = await this.lobby.names([f.by]);
+      const n = await this.lobby.names([f.by]).catch(() => ({}) as Record<string, string>);
       this.friendName = n[f.by] ?? "";
     }
+    if (attempt !== this.attempt || !this.room) return; // left meanwhile
+    this.starting = false;
+    this.playing = true;
+    this.goneSaid = false;
     this.start({ team, seed: this.seed, delay: this.delay, friend: this.friend });
+    // Whatever the friend's page has said so far is for this match: take it now.
+    this.lastLs = null;
+    this.onRoom();
   }
 
   /** This side's lockstep state from the worker: into the room, with a ping and the echo of the friend's. */
@@ -253,16 +280,23 @@ export class Online {
     this.room.presence({ ls: state, ping: performance.now(), pong: this.friendPing });
     this.waiting = waiting;
     const gone = this.goneSince ? performance.now() - this.goneSince : 0;
+    const paused = this.friendPaused;
     const ui = this.ui.line;
     if (desync !== null) ui.textContent = `Out of step with ${this.friend} since ${Math.floor(desync / 3600)}:${String(Math.floor(desync / 60) % 60).padStart(2, "0")}: start a new match`;
-    else if (gone > 1500) ui.textContent = `${this.friend} has left the match`;
+    else if (gone > 1500) ui.textContent = `${this.friend} has dropped out of the match (${Math.floor(gone / 1000)} s)`;
+    else if (paused && waiting > 500) ui.textContent = `${this.friend} has paused (their game is hidden): the match waits for them`;
     else if (waiting > 1500) ui.textContent = `Waiting for ${this.friend}... (${Math.floor(waiting / 1000)} s)`;
     else ui.textContent = `Against ${this.friend}, ${Math.round(this.rtt)} ms`;
     ui.classList.toggle("wait", waiting > 1500 || gone > 1500 || desync !== null);
-    if ((gone > 3000 || waiting > 25000) && this.onGone) {
-      const fn = this.onGone;
-      this.onGone = null;
-      fn();
+    // Gone: out of the room for 10 s, or the match stalled for 30 s with their page not paused (a hidden tab is a pause, not a leaving).
+    const goneNow = gone > 10000 || (waiting > 30000 && !paused);
+    if (goneNow && !this.goneSaid) {
+      this.goneSaid = true;
+      this.onGone?.();
+    } else if (this.goneSaid && !gone && waiting < 1000) {
+      // Back, and the match runs again.
+      this.goneSaid = false;
+      this.onBack?.();
     }
   }
 
@@ -281,18 +315,26 @@ export class Online {
     return this.waiting;
   }
 
-  /** Leave the match room (and the lobby's listing). */
-  async leave() {
+  /**
+   * Leave the match room (and the lobby's listing). Leaving a match stops the
+   * worker's lockstep for it (`stopWorker`), unless the AI is taking the
+   * friend's castle and the match goes on here.
+   */
+  async leave(stopWorker = true) {
     const room = this.room;
+    const wasPlaying = this.playing || this.starting;
+    this.attempt++;
     this.room = null;
     this.role = null;
     this.playing = false;
+    this.starting = false;
     this.friendPeer = null;
     this.lastLs = null;
     this.goneSince = 0;
+    this.goneSaid = false;
     this.rtt = 0;
     this.delay = 8;
-    this.onGone = null;
+    if (wasPlaying && stopWorker) this.send({ t: "netStop" });
     this.lobby?.lobby.presence({ kf: { v: NET_VERSION, open: null } });
     if (room) await room.leave().catch(() => {});
   }
