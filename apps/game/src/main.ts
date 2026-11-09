@@ -31,6 +31,7 @@ import {
 } from "@keepfall/content";
 import { Estate } from "./estate-page";
 import { Guide } from "./guide";
+import { Coach } from "./coach";
 import { Minimap } from "./minimap";
 import {
   aimDir,
@@ -66,6 +67,8 @@ import { Sound } from "./sound";
 import { Soundscape } from "./soundscape";
 import { Pacer, SCALES } from "./pacing";
 import { Timeline } from "./timeline";
+import { ThreatStrip } from "./threat";
+import { OverviewMarks } from "./overviewMarks";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -81,11 +84,20 @@ const soundscape = new Soundscape(sound, layout);
 const estate = new Estate(renderer, sound, send, (text, ms) => showNote(text, ms), $);
 /** The minimap: both castles and both armies at a glance (the owner's ask: less reading, more seeing). */
 const minimap = new Minimap($<HTMLCanvasElement>("minimap"));
+/** M6: the threat strip over the minimap, and the group marks in the overview. */
+const threat = new ThreatStrip($("threat"));
+const groupMarks = new OverviewMarks($("ovmarks"));
 /** The castles' sections as the worker last counted them (twice a second). */
 let sectionShares: Uint8Array | null = null;
 let mapFrame = 0;
 /** The first-match guide: a checklist beside the field that ticks itself off as you play. */
 const guide = new Guide($("guide"), $("guide-goal"), $("guide-steps"), $<HTMLButtonElement>("guide-hide"), $("guide-title"));
+/** M6: the guided match's coach (its card, highlights and world marks); it only reads what the page knows. */
+const coach = new Coach(
+  { project: (x, y, z) => renderer.project(x, y, z), size: () => ({ w: canvas.clientWidth, h: canvas.clientHeight }), note: (t, ms) => showNote(t, ms) },
+  $,
+);
+guide.onMark = (s) => coach.did(s);
 estate.onBuilt = () => noteBuilt();
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
@@ -139,15 +151,17 @@ const FIXED = location.hash.includes("fixed");
 /** The mode being played (null while the start menu is up). #practice or #versus in the address skips the menu (tests use #fixed: the Practice range). */
 let mode: Mode | null = null;
 /** In a match (against the AI or a friend), not the Practice range. */
-const isMatch = () => mode === "versus" || mode === "online";
+const isMatch = () => mode === "versus" || mode === "online" || mode === "guided";
 /** A gun slot's match id, and its reload in ticks. */
 const gid = (i: number) => EMP[i]?.id ?? i;
 const rl = (i: number) => reload[gid(i)] ?? 0;
-const hashMode: Mode | null = location.hash.includes("versus") ? "versus" : location.hash.includes("practice") || FIXED ? "practice" : null;
+const hashMode: Mode | null = location.hash.includes("guided") ? "guided" : location.hash.includes("versus") ? "versus" : location.hash.includes("practice") || FIXED ? "practice" : null;
 // #versus=squire (or knight, warlord) picks the difficulty too.
 for (const d of ["squire", "knight", "warlord"] as const) if (location.hash.includes(`versus=${d}`)) difficulty = d;
 /** The match as the worker last reported it (Versus AI only). */
 let matchInfo: MatchInfo | null = null;
+/** Test only: fields laid over every match report (a test sets the tutor's stage, a storm, a result). */
+let matchPatch: Partial<MatchInfo> | null = null;
 let endShownFor = -1;
 let endTimer: ReturnType<typeof setTimeout> | undefined;
 /** Can each bridge still be crossed (layout order), and is the walk overlay on. */
@@ -352,7 +366,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     downAt.set(m.frame.tick, m.down);
     if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
     timeline.push(m.frame);
-    if (m.match) onMatch(m.match);
+    if (m.match) onMatch(matchPatch ? { ...m.match, ...matchPatch } : m.match);
     if (m.bridges) onBridges(m.bridges);
     if (m.sections) sectionShares = m.sections;
     if (m.nav) renderer.updateNav(m.nav.kind, m.nav.floor);
@@ -364,6 +378,7 @@ function onFrame(f: FrameData) {
   const now = clock();
   wind = { x: f.windX, z: f.windZ };
   lastFrameTick = f.tick;
+  coach.onFrame(f);
   const ear = renderer.listener();
   let impacts = 0;
   for (let k = 0; k < f.eventCount; k++) {
@@ -416,9 +431,9 @@ function onFrame(f: FrameData) {
       }
       soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
     } else if (kind === EventKind.Impact) {
-      if (impacts++ < 3) soundscape.impact(a, b, c, d);
+      soundscape.impact(a, b, c, d, impacts++ < 3);
     } else if (kind === EventKind.Blood) {
-      sound.thud(a, b, c, d);
+      // The cries, falls and thuds of men struck are the soundscape's (frame).
     } else if (kind === EventKind.Laid) {
       // Masons put a piece back: it rises on the hoist and settles (the renderer), then the sound of it bedding in.
       const s = layout.stones[a | 0];
@@ -556,6 +571,8 @@ function onFrame(f: FrameData) {
   foesAt.delete(f.tick);
   soundscape.frame(f, ear);
   lastApplied = f;
+  for (let k = 0; k < f.eventCount; k++) if (f.events[k * EVENT_STRIDE] === EventKind.Keg) groupMarks.kegSet(f.events[k * EVENT_STRIDE + 1] | 0);
+  groupMarks.update(f.minions, f.minionCount, f.tick);
   renderer.applyFrame(f);
 }
 /** The last frame applied (the screenshot tools read figures and ladders from it). */
@@ -1662,11 +1679,14 @@ function startMode(m: Mode, net?: OnlineStart) {
   $("gone").hidden = true;
   document.body.classList.remove("title-screen");
   $("end").hidden = true;
-  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "online" ? `Against ${friendName}` : "Practice range";
+  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "guided" ? "Guided match" : m === "online" ? `Against ${friendName}` : "Practice range";
   $("keep-theirs-name").textContent = m === "online" ? "Their keep" : "Enemy keep";
-  const match = m === "versus" || m === "online";
+  const match = m === "versus" || m === "online" || m === "guided";
   $("matchbar").hidden = !match;
   $("command").hidden = !match;
+  threat.setVisible(match);
+  threat.setSide(ME);
+  groupMarks.reset();
   $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
   // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
@@ -1716,7 +1736,9 @@ function startMode(m: Mode, net?: OnlineStart) {
   surrenderBtn.hidden = true;
   sound.setStorm(0, 0);
   // The first-match guide (the test clock's screenshots leave it out).
-  guide.start(FIXED ? null : match ? "match" : "practice");
+  // In the guided match the coach takes the checklist's place.
+  guide.start(FIXED || m === "guided" ? null : match ? "match" : "practice");
+  coach.start(m === "guided" && !FIXED, ME);
   keepsShown = [3, 3];
   floorShown = [1, 1];
   sectionShares = null;
@@ -1726,6 +1748,7 @@ function startMode(m: Mode, net?: OnlineStart) {
     send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
     const goal = guide.open ? "" : ": bring down its keep or storm its courtyard";
     if (m === "online") showNote(`Versus ${friendName}: you hold the ${ME === 1 ? "oxblood" : "green"} castle`, 5000);
+    else if (m === "guided") showNote("A real match against the Tutor's castle", 4000);
     else showNote(`Versus the ${AI_LEVELS[difficulty].name}${goal}`, 4500);
   }
   if (m === "online") {
@@ -1795,7 +1818,10 @@ function syncArms(arms: Int8Array) {
       shotCam[slot] = kind === "mortar";
       reload[i] = 0;
     }
-    if (slot >= 0 && slot < SLOTS && (bought || upgraded)) noteBuilt();
+    if (slot >= 0 && slot < SLOTS && (bought || upgraded)) {
+      noteBuilt();
+      if (bought) soundscape.purchase(e.x, e.y, e.z);
+    }
   }
   if (!changed) return;
   renderer.setArms(ALL_EMP);
@@ -1838,6 +1864,21 @@ document.querySelectorAll<HTMLButtonElement>("[data-mode]").forEach((b) =>
     startMode(b.dataset.mode === "versus" ? "versus" : "practice");
   }),
 );
+// M6: the guided match, with its "Start here" tag until one has been won.
+const guidedTag = $("guided-tag");
+function showGuidedTag() {
+  let won = false;
+  try {
+    won = localStorage.getItem("keepfall.guided") === "won";
+  } catch {}
+  guidedTag.hidden = won;
+}
+showGuidedTag();
+$("guided-go").addEventListener("click", () => {
+  $<HTMLButtonElement>("guided-go").blur();
+  sound.ui("click");
+  startMode("guided");
+});
 // M5: Versus AI's three difficulties (the card starts a match at the one picked).
 const levelBtns = [...document.querySelectorAll<HTMLButtonElement>("[data-level]")];
 function showLevels() {
@@ -1907,6 +1948,18 @@ $("menu-back").addEventListener("click", () => {
   setPause(false);
 });
 $("end-again").addEventListener("click", () => {
+  if (mode === "guided") {
+    // A win moves on to Versus AI at the Squire; a loss or a draw tries the guided match again.
+    if (matchInfo?.result?.winner === ME) {
+      difficulty = "squire";
+      try {
+        localStorage.setItem("keepfall.difficulty", difficulty);
+      } catch {}
+      showLevels();
+      startMode("versus");
+    } else startMode("guided");
+    return;
+  }
   if (mode !== "online") {
     startMode("versus");
     return;
@@ -1918,6 +1971,7 @@ $("end-again").addEventListener("click", () => {
   $("choices").hidden = true;
   void online.open();
 });
+$("end-guided").addEventListener("click", () => startMode("guided"));
 $("end-practice").addEventListener("click", () => startMode("practice"));
 $("end-look").addEventListener("click", () => {
   $("end").hidden = true;
@@ -2074,7 +2128,9 @@ function updateStorm() {
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
+  threat.update(info.lanes, ME);
   updateWaves();
+  soundscape.match(info, ME, FOE);
   updateRepairs();
   updateStorm();
   if (!info.result) {
@@ -2101,6 +2157,7 @@ function onMatch(info: MatchInfo) {
   }
   nudgeBuild(info);
   updateKeeps(info);
+  coach.onMatch(info);
   $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
   $("clock").classList.toggle("sudden", info.suddenDeath);
   $("sudden").hidden = !info.suddenDeath || !!info.result;
@@ -2274,7 +2331,7 @@ function nudgeBuild(info: MatchInfo) {
 /** Paused by the player (P, or the menu): Versus AI and the Practice range only (a friend's match never waits for a menu). */
 let userPause = false;
 function setPause(on: boolean) {
-  if (on && mode !== "versus" && mode !== "practice") return;
+  if (on && mode !== "versus" && mode !== "practice" && mode !== "guided") return;
   if (userPause === on) return;
   userPause = on;
   send({ t: "pause", paused: on || document.hidden });
@@ -2311,6 +2368,20 @@ function showEnd() {
   $("end-them").textContent = mode === "online" ? friendName : "Enemy";
   $("end-again").textContent = mode === "online" ? "Back to the lobby" : "Play again";
   $("end-line").textContent = `${endLine(r).long} ${clockText(r.tick)} on the clock.`;
+  // M6: the guided match's own end screen (a win moves on to Versus AI at the Squire).
+  const guided = mode === "guided";
+  const gwon = guided && r.winner === ME;
+  $("end-guided").hidden = !gwon;
+  if (gwon) {
+    try {
+      localStorage.setItem("keepfall.guided", "won");
+    } catch {}
+    showGuidedTag();
+  }
+  if (guided) {
+    $("end-line").textContent = gwon ? "You won your first match." : r.winner === FOE ? "The enemy won this time." : endLine(r).long;
+    $("end-again").textContent = gwon ? "Versus AI: Squire" : "Try again";
+  }
   const mas = info.masonry ?? info.down;
   const st = info.stats;
   const [a, b] = [ME, FOE];
@@ -2399,7 +2470,8 @@ $("help-btn").addEventListener("click", () => (help.hidden = !help.hidden));
 $("help-close").addEventListener("click", () => (help.hidden = true));
 $("guide-show").addEventListener("click", () => {
   $<HTMLButtonElement>("guide-show").blur();
-  guide.start(mode === null ? null : isMatch() ? "match" : "practice", true);
+  if (mode === "guided") coach.show();
+  else guide.start(mode === null ? null : isMatch() ? "match" : "practice", true);
   help.hidden = true;
 });
 // A checkbox or a slider keeps no focus once changed: the game's keys stay the game's (Space never toggles it again).
@@ -2651,8 +2723,13 @@ function frame(wall: number) {
   updateAimHelp();
   updateHud();
   updateCharge(now);
+  coach.render(now, { marksOn: !ride && !follow && blocked === false, weapon: current, charging: !!charging });
   if (mode !== null && (mapFrame++ % 3 === 0 || FIXED)) drawMap();
   placeWanted();
+  {
+    const cam = renderer.listener();
+    groupMarks.place(mode !== null && view === "overview", (x, y, z) => renderer.project(x, y, z), cam, innerWidth, innerHeight, dt);
+  }
   if (!paused) renderer.render(dt);
   estate.update(now);
   if (estate.wheelOpen !== wheelShown) {
@@ -2755,6 +2832,14 @@ else {
   get match() {
     return matchInfo;
   },
+  /** M6 test hook: lay fields over every match report the page gets (null: none). */
+  patchMatch(p: Partial<MatchInfo> | null) {
+    matchPatch = p;
+  },
+  /** M6: the coach (tests set its stage, fake keep hits and read its card). */
+  get coach() {
+    return coach;
+  },
   get bridges() {
     return bridgesOpen.slice();
   },
@@ -2788,6 +2873,15 @@ else {
     send({ t: "spawn", team, count, x, z, ladder });
   },
   toggleOverview,
+  /** Test clock: stop following wall time and step the match this many game seconds (the worker takes 0.2 s a message). */
+  advance(seconds: number) {
+    send({ t: "manual" });
+    for (let t = 0; t < seconds - 1e-9; t += 0.2) send({ t: "advance", seconds: Math.min(0.2, seconds - t) });
+  },
+  /** M6: the group marks showing now. */
+  get groupMarks() {
+    return groupMarks.visible;
+  },
   get view() {
     return view;
   },

@@ -5,8 +5,12 @@ import type { MatchInput, MatchResult, TeamStats } from "@keepfall/rules";
 import type { FrameData, SandboxInput, TerrainPatch } from "@keepfall/sim";
 import type { NetState } from "./lockstep";
 
-/** The Practice range (the sandbox: target castle, a patrol, no rules), a match against the AI castle, or one against a friend online (M5). */
-export type Mode = "practice" | "versus" | "online";
+/**
+ * The Practice range (the sandbox: target castle, a patrol, no rules), a match
+ * against the AI castle, one against a friend online (M5), or the guided first
+ * match against the tutor (M6: GUIDED_OPTIONS in @keepfall/rules).
+ */
+export type Mode = "practice" | "versus" | "online" | "guided";
 
 /** How a match is set up: against the AI at a difficulty, or online as one team (the other is the friend's). */
 export interface MatchSetup {
@@ -110,6 +114,10 @@ export interface MatchInfo {
   keeps: [number, number];
   /** How sound the floor under each banner still is, 0 to 1 (cracked boards count a half). */
   keepFloor: [number, number];
+  /** M6: per team and road (ROUTE_NAMES order), LANE_STRIDE numbers (threat.ts): men marching, kegs, muskets, ladders, metres to the enemy front wall (-1: nobody), flags. */
+  lanes: Int16Array;
+  /** M6: the guided match's tutor: its stage (AiPlayer.stage: 0 asleep, higher as it wakes); -1 in any other match. */
+  tutor: number;
 }
 
 export interface MasonInfo {

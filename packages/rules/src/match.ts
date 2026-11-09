@@ -56,7 +56,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 7;
+export const MATCH_RULES_VERSION = 8;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -115,8 +115,12 @@ export interface MatchOptions {
   garrison?: boolean;
   /** Each castle has its masons (default). */
   masons?: boolean;
-  /** Weapons nobody mans fire on their own (default); tests and tools may turn it off. */
-  gunnery?: boolean;
+  /**
+   * Weapons nobody mans fire on their own (default); tests and tools may turn
+   * it off. M6: or per team (the guided match's tutor, a passive castle: its
+   * crews are not at its guns, so your waves can reach its gate).
+   */
+  gunnery?: boolean | [boolean, boolean];
   /** When sudden death starts (default MATCH.suddenDeathTick); tests and tools may bring it forward. */
   suddenDeathTick?: number;
   /** When time is called (default MATCH.timeLimitTick); tests and tools may bring it forward. */
@@ -128,6 +132,16 @@ export interface MatchOptions {
    * someone commands the enemy castle (M5: the AI, or a second player).
    */
   rotate?: boolean;
+  /**
+   * M6: each castle's buildings at the start, by team (default
+   * START_BUILDINGS for both). The guided match's tutor starts with none and
+   * raises its barracks when it stirs (GUIDED_OPTIONS).
+   */
+  startBuildings?: [Array<{ plot: number; kind: BuildingKind }>, Array<{ plot: number; kind: BuildingKind }>];
+  /** M6: each team's standing order at the start, by team (default Advance for both): in the guided match your waves hold until you send them in. */
+  orders?: [Order, Order];
+  /** M6: each team's route at the start, by team (default the centre road): in the guided match your waves wait on a flank, off the mortar's line to the enemy keep. */
+  routes?: [RouteName, RouteName];
 }
 
 /** What a team did in a match, for the end screen. */
@@ -265,7 +279,7 @@ export class Match {
   readonly estate: Estate;
   private inputs = new Map<number, Array<{ team: Team; input: MatchInput }>>();
   private garrison: boolean;
-  private autoFire: boolean;
+  private autoFire: [boolean, boolean];
   private suddenAt: number;
   private owner: Team[];
   /** When time is called (MATCH.timeLimitTick unless a test brings it forward). */
@@ -283,7 +297,7 @@ export class Match {
   constructor(R: Rapier, layout: CastleLayout, opts: MatchOptions) {
     // The match's own copies: empty slots fill in as guns are bought, upgrades are worked in.
     this.emplacements = (opts.emplacements ?? MATCH_EMPLACEMENTS).map((e) => ({ ...e }));
-    const buildings = [0, 1].flatMap((castle) => START_BUILDINGS.map((b) => ({ castle, ...b })));
+    const buildings = [0, 1].flatMap((castle) => (opts.startBuildings?.[castle] ?? START_BUILDINGS).map((b) => ({ castle, ...b })));
     this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true, buildings });
     this.owner = this.emplacements.map(teamOf);
     this.economy = new Economy(this.world, this.gold, (emp) => this.owner[emp] ?? -1);
@@ -298,10 +312,17 @@ export class Match {
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
     this.barracks = opts.barracks !== false;
     this.garrison = opts.garrison !== false;
-    this.autoFire = opts.gunnery !== false;
+    this.autoFire = Array.isArray(opts.gunnery) ? [opts.gunnery[0], opts.gunnery[1]] : [opts.gunnery !== false, opts.gunnery !== false];
     this.suddenAt = opts.suddenDeathTick ?? MATCH.suddenDeathTick;
     this.timeAt = opts.timeLimitTick ?? MATCH.timeLimitTick;
     if (this.garrison) for (const team of [Team.Enemy, Team.Player]) this.army.spawnGarrison(team, GARRISON.size, true);
+    if (opts.orders) for (const team of [Team.Enemy, Team.Player]) this.army.setOrder(team, opts.orders[team]);
+    if (opts.routes) {
+      for (const team of [Team.Enemy, Team.Player]) {
+        this.route[team] = opts.routes[team];
+        this.estate.setRoutes(team, opts.routes[team]);
+      }
+    }
     const works = this.world.works!;
     works.policy = {
       allowed: (team, kind) => this.repairs[team][kind],
@@ -391,7 +412,7 @@ export class Match {
         this.sendWaves(Team.Player);
         this.sendWaves(Team.Enemy);
       }
-      if (this.autoFire) this.gunnery(tick);
+      if (this.autoFire[0] || this.autoFire[1]) this.gunnery(tick);
     }
     this.world.step();
     if (this.result) return;
@@ -519,7 +540,11 @@ export class Match {
    * barracks takes the routes in turn until the AI arrives), as many as the
    * team's cap allows. The first tops the garrison up (M4); with the enemy in
    * its courtyard a wave musters inside and defends; and every other wave a
-   * barracks sends from its second carries a ladder.
+   * barracks sends from its second carries a ladder. M6 (match rules version
+   * 8): the garrison's top-up and a wave mustering inside to defend are sent
+   * whatever the cap on men standing: a castle whose men all waited out in the
+   * field kept an empty courtyard (the cap is unseen, so nothing told the
+   * player), and two waves stormed it.
    */
   private sendWaves(team: Team) {
     const plots = this.estate.workingBarracks(team);
@@ -529,16 +554,15 @@ export class Match {
       const route = this.rotate && team === Team.Enemy && plot === 0 ? ENEMY_ROUTES[this.enemyWaves++ % ENEMY_ROUTES.length] : this.estate.barracks[team][plot].route;
       const units = this.estate.waveUnits(team, plot);
       const room = WAVES.maxStanding - this.army.standing(team);
-      let count = room < units.length ? room : units.length;
+      let count = inside ? units.length : room < units.length ? room : units.length;
       this.waves[team]++;
       const n = ++this.plotWaves[team][plot];
       // Side by side: the first in front of the gate, the next to its left and right, then further out.
       const offset = k === 0 ? 0 : (k & 1 ? -1 : 1) * 5.5 * ((k + 1) >> 1);
       k++;
-      if (count <= 0) continue;
       if (this.garrison && k === 1) {
         const short = GARRISON.size - this.army.garrisonCount(team);
-        if (short > 0) count -= this.army.spawnGarrison(team, short < count ? short : count, false);
+        if (short > 0) count -= this.army.spawnGarrison(team, count <= 0 ? short : short < count ? short : count, false);
       }
       if (count <= 0) continue;
       const ladder = !inside && n >= WAVES.ladderFrom && (n - WAVES.ladderFrom) % WAVES.ladderEvery === 0;
@@ -557,8 +581,8 @@ export class Match {
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
       const U = UNMANNED[e.weapon];
-      // After M5: a knocked-out gun's crew is busy getting it back on its mount.
-      if (!U || e.empty || this.manned[team] === e.id || !mounts.up(e.id)) continue;
+      // After M5: a knocked-out gun's crew is busy getting it back on its mount. M6: a team whose crews are not at its guns.
+      if (!U || e.empty || !this.autoFire[team] || this.manned[team] === e.id || !mounts.up(e.id)) continue;
       const g = this.guns[e.id];
       const w = weaponOf(e);
       if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);

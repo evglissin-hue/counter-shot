@@ -7,9 +7,10 @@
 
 import { buildLayout, CASTLE_SHAPE, Earn, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
-import { Match, Team, type MatchInput } from "@keepfall/rules";
+import { GUIDED_OPTIONS, Match, Team, TUTOR_TEAM, type MatchInput } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
+import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { EARN_STRIDE, type FromWorker, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type ToWorker } from "./protocol";
 
@@ -99,7 +100,12 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   stopped = false;
   me = Team.Player;
   matchSeed = seed;
-  if (mode === "versus" || mode === "online") {
+  if (mode === "guided") {
+    // M6: the guided first match: the tutor commands the enemy castle (it starts without a barracks; your waves start on Hold).
+    match = new Match(R, layout, { ...GUIDED_OPTIONS, seed });
+    sim = match.world;
+    ai = new AiPlayer(match, TUTOR_TEAM, "tutor", seed);
+  } else if (mode === "versus" || mode === "online") {
     // Someone commands the enemy castle now (the AI, or a friend): no fixed build order, no routes in turn.
     match = new Match(R, layout, { seed, plan: false, rotate: false });
     sim = match.world;
@@ -119,6 +125,9 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   endSent = false;
   post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
+
+/** The lane summary's buffer (the page gets a copy each time: the message is cloned). */
+const lanesBuf = new Int16Array(LANE_COUNT);
 
 function matchInfo(): MatchInfo | null {
   if (!match) return null;
@@ -165,6 +174,8 @@ function matchInfo(): MatchInfo | null {
     stats: ended && !endSent ? [match.stats(Team.Enemy), match.stats(Team.Player)] : null,
     keeps: [keepFloors(match, 0), keepFloors(match, 1)],
     keepFloor: [floorSound(match, 0), floorSound(match, 1)],
+    lanes: laneSummary(match.world.minions.list, L.list, lanesBuf),
+    tutor: ai && ai.difficulty === "tutor" ? ai.stage : -1,
     ...estateInfo(match),
   };
   if (info.masonry) endSent = true;

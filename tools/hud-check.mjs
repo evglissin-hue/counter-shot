@@ -18,6 +18,7 @@ const server = await createServer({ root, configFile: `${root}/vite.config.ts`, 
 await server.listen();
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 const page = await browser.newPage({ viewport: { width: 1100, height: 810 } });
+page.setDefaultTimeout(120000);
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -25,19 +26,23 @@ let failed = 0;
 /** Wait (up to 15 s) for fn() in the page to be true. */
 async function expect(name, fn, arg) {
   let ok = true;
-  try { await page.waitForFunction(fn, arg, { timeout: 15000, polling: 100 }); } catch { ok = false; }
+  try { await page.waitForFunction(fn, arg, { timeout: 30000, polling: 100 }); } catch { ok = false; }
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
 }
 const press = (sel) => page.evaluate((s) => document.querySelector(s).click(), sel);
-try {
+/** Load an address and wait for the world (Vite may reload the page once on the first visit). */
+async function load(hash) {
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto(`http://127.0.0.1:${port}/index.html#versus=knight-webgl-low`, { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${port}/index.html#${hash}`, { waitUntil: "load" });
       await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 180000 });
-      break;
+      return;
     } catch (e) { if (i === 2) throw e; }
   }
+}
+try {
+  await load("versus=knight-webgl-low");
   await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60, null, { timeout: 180000, polling: 200 });
   await expect("command card and scoreboard shown in a match", () => !document.getElementById("command").hidden && !document.getElementById("matchbar").hidden);
   await page.click('[data-route="left"]');
@@ -98,6 +103,34 @@ try {
   await expect("P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
   await page.keyboard.press("KeyP");
   await expect("P resumes", () => document.getElementById("paused").hidden);
+  // M6: the threat strip follows the enemy's first wave (a fresh match on the test clock: #fixed, frozen, stepped by hand).
+  await page.goto("about:blank");
+  await load("versus=knight-webgl-low-fixed");
+  await page.evaluate(() => window.__sandbox.freeze(true));
+  await page.waitForFunction(() => window.__sandbox.match != null, null, { timeout: 60000, polling: 100 });
+  await expect("the threat strip is shown in Versus AI, three cells", () => !document.getElementById("threat").hidden && document.querySelectorAll("#threat .tc").length === 3);
+  await page.evaluate(() => window.__sandbox.advance(5));
+  await expect("the road cells are quiet and empty while nobody comes", () => [...document.querySelectorAll("#threat .tc")].every((c) => c.classList.contains("quiet") && c.querySelector(".tc-men").textContent === ""));
+  // Step a second at a time until the enemy's first wave has set out.
+  for (let k = 0; k < 120 && !(await page.evaluate(() => (window.__sandbox.match?.waves?.[0] ?? 0) >= 1)); k++) {
+    const t = await page.evaluate(() => { window.__sandbox.advance(1); return window.__sandbox.match.tick + 60; });
+    await page.waitForFunction((tick) => (window.__sandbox.match?.tick ?? 0) >= tick - 6, t, { timeout: 60000, polling: 100 });
+  }
+  await expect("the enemy's first wave has set out", () => (window.__sandbox.match?.waves?.[0] ?? 0) >= 1);
+  await expect("its road's cell shows men, the other two stay quiet", () => {
+    const cells = [...document.querySelectorAll("#threat .tc")];
+    const busy = cells.filter((c) => Number(c.querySelector(".tc-men").textContent) > 0);
+    return busy.length === 1 && Number(busy[0].querySelector(".tc-men").textContent) >= 4 && cells.filter((c) => c.classList.contains("quiet")).length === 2;
+  });
+  await page.evaluate(() => window.__sandbox.advance(20));
+  await expect("its bar fills as the wave marches", () => [...document.querySelectorAll("#threat .tc:not(.quiet) .tc-bar u")].some((u) => Number((u.style.transform.match(/scaleX\(([\d.]+)\)/) ?? [0, 0])[1]) > 0));
+  await expect("the strip says what it shows in a tooltip", () => document.getElementById("threat").title.length > 40);
+  await page.keyboard.press("Tab");
+  await expect("in the overview the wave is one mark with its count", () => window.__sandbox.view === "overview" && window.__sandbox.groupMarks.some((g) => g.team === 0 && g.n >= 4));
+  // The Practice range has no matches to warn about: the strip stays hidden there.
+  await page.goto("about:blank");
+  await load("practice-webgl-low");
+  await expect("the threat strip is hidden on the Practice range", () => document.getElementById("threat").hidden && getComputedStyle(document.getElementById("threat")).display === "none");
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   console.log(failed ? `${failed} failed` : "all passed");

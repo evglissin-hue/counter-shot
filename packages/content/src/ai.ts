@@ -7,10 +7,17 @@
 import type { BuildingKind } from "./buildings";
 import type { MixName } from "./army";
 import type { RouteName } from "./map";
+import type { RepairKind } from "./siege";
 import type { UpgradeKind, WeaponKind } from "./weapons";
 
 export type Difficulty = "squire" | "knight" | "warlord";
 export const DIFFICULTIES: Difficulty[] = ["squire", "knight", "warlord"];
+/**
+ * M6: every AI there is: Versus AI's three difficulties (the menu offers only
+ * those), and the tutor, the passive castle of the guided first match that
+ * wakes up in stages (TUTOR).
+ */
+export type AiName = Difficulty | "tutor";
 
 export interface AiLevel {
   name: string;
@@ -66,10 +73,10 @@ export interface AiLevel {
   adapts: boolean;
 }
 
-export const AI_LEVELS: Record<Difficulty, AiLevel> = {
+export const AI_LEVELS: Record<AiName, AiLevel> = {
   squire: {
     name: "Squire",
-    blurb: "Slow to aim and slow to learn; spends when it remembers. Start here",
+    blurb: "Slow to aim and slow to learn; spends when it remembers. The level to start on after the guided match",
     think: 4 * 60,
     react: 50,
     settle: 4 * 60,
@@ -136,6 +143,31 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
     reserve: 80,
     adapts: true,
   },
+  // M6: the guided first match's castle. Placeholder numbers (a slower,
+  // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
+  tutor: {
+    name: "Tutor",
+    blurb: "The guided first match: asleep at first, it wakes up slowly",
+    think: 8 * 60,
+    react: 90,
+    settle: 8 * 60,
+    look: 14 * 60,
+    warmup: 0, // its stages (TUTOR) decide when it fires by hand at all
+    firstErr: 0.06,
+    firstErrM: 20,
+    firstErrPerM: 0.1,
+    noise: 0.02,
+    noiseM: 8,
+    learn: 0.15,
+    focus: 0.3,
+    crowd: 9,
+    raids: false,
+    counter: 0,
+    counterRest: 0,
+    plan: 6 * 60,
+    reserve: 40,
+    adapts: false,
+  },
 };
 
 /**
@@ -146,11 +178,11 @@ export const AI_LEVELS: Record<Difficulty, AiLevel> = {
  * own (0 to 7), plots its own (0 to 5).
  */
 export type AiStep =
-  | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number }
-  | { kind: "buy"; slot: number; weapon: WeaponKind; after?: number }
-  | { kind: "upgrade"; slot: number; upgrade: UpgradeKind; after?: number };
+  | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number; stage?: number }
+  | { kind: "buy"; slot: number; weapon: WeaponKind; after?: number; stage?: number }
+  | { kind: "upgrade"; slot: number; upgrade: UpgradeKind; after?: number; stage?: number };
 
-export const AI_PLANS: Record<Difficulty, AiStep[]> = {
+export const AI_PLANS: Record<AiName, AiStep[]> = {
   // A slow, plain plan: a mill, then guns, a second barracks late.
   squire: [
     { kind: "build", plot: 1, building: "mill", after: 60 },
@@ -191,4 +223,47 @@ export const AI_PLANS: Record<Difficulty, AiStep[]> = {
     { kind: "buy", slot: 5, weapon: "swivel" },
     { kind: "upgrade", slot: 6, upgrade: "rifled" },
   ],
+  // M6: the tutor raises its barracks when it stirs (its castle starts without one: GUIDED_OPTIONS in @keepfall/rules), then a mill, then a swivel once it fights.
+  // `stage` holds a step back until the tutor has reached that stage (TUTOR below).
+  tutor: [
+    { kind: "build", plot: 0, building: "barracks", mix: "pikemen", route: "left", stage: 1 },
+    { kind: "build", plot: 1, building: "mill", stage: 1 },
+    { kind: "buy", slot: 4, weapon: "swivel", stage: 3 },
+  ],
+};
+
+/**
+ * M6: the tutor's stages (seconds of match time; the AI turns them to ticks).
+ * Stage 0 asleep, 1 stirs, 2 wakes, 3 fights. The stage only goes up, one at a
+ * time, judged from the match alone (what the player has built, bought and
+ * ordered), so a guided match replays from its seed and the player's inputs.
+ */
+export const TUTOR = {
+  /** Stage 1: once the player has built, bought or ordered, but not before `stirsFrom`; at `stirsBy` at the latest. */
+  stirsFrom: 90,
+  stirsBy: 320,
+  /** Stage 2: this long after stage 1, or once the player's order is Advance or Push, but not before `wakesSoonest` after stage 1. */
+  wakesAfter: 90,
+  wakesSoonest: 30,
+  /** Stage 3: this long after stage 2. */
+  fightsAfter: 150,
+  /**
+   * Its first `sneak` waves come down a road the player's waves are not
+   * holding (something to stop with the guns: the guided match's lesson);
+   * later ones take the road the player's waves hold or are sent down, so a
+   * castle that never sends its waves is not ground down by the tutor. One:
+   * with two, a castle that never moved was stormed at about 8:00 on two
+   * seeds of five (sixteen men at its gate before its defence mustered).
+   */
+  sneak: 1,
+  /** Its barracks' mix at each stage (sappers carry kegs from stage 3: something to shoot). */
+  mixes: ["pikemen", "pikemen", "pikemen", "breach"] as MixName[],
+  /**
+   * What it repairs at each stage: never its keep, and never its gate (the
+   * player's chair: its masons hung gate leaves back as fast as the player's
+   * pikemen battered them off, so waves alone could never break in; ten
+   * minutes of waves at its gate and no storm began). Walls and towers mended
+   * show the masons at work and close the breaches a long gun opens.
+   */
+  repairs: [[], [], ["walls"], ["walls", "towers"]] as RepairKind[][],
 };

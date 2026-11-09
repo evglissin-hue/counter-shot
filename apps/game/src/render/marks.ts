@@ -36,10 +36,10 @@ export class Marks {
     m.depthWrite = false;
     m.fog = false;
     const a: N = attribute("aMark", "vec4");
-    // Hover over the head; about 11 px tall at 1280 x 720 whatever the distance, never smaller than a metre and a half.
+    // Hover over the head; about 8 px across at 1100 x 810 whatever the distance (M6: dots under the group banners), never smaller than 0.85 m.
     const head: N = a.xyz.add(vec3(0, 2.7, 0));
     const dist: N = head.sub(cameraPosition).length();
-    const size: N = max(dist.mul(0.016), 1.5);
+    const size: N = max(dist.mul(0.0092), 0.86);
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
     const up: N = (cameraWorldMatrix as N).element(1).xyz;
     const q: N = positionGeometry.xy;
