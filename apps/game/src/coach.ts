@@ -341,7 +341,8 @@ export class Coach {
     }
     // Stage 1's tip is what the page's own note says when it sees their barracks go up: not twice.
     if (top && !(top === 1 && this.foeBarracks)) this.host.note(STAGE_TIPS[top], 5000);
-    else if (!top && !this.downTip && info.down && info.down[this.me] > 0) {
+    else if (!top && !this.downTip && info.tutor >= 2 && info.down && info.down[this.me] > 0) {
+      // Once its guns are awake: a stone or two of yours falls on its own before (settling, your own shots).
       this.downTip = true;
       this.host.note("Your masons rebuild what falls, for gold", 5000);
     }

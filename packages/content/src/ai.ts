@@ -247,6 +247,13 @@ export const TUTOR = {
   wakesSoonest: 30,
   /** Stage 3: this long after stage 2. */
   fightsAfter: 150,
+  /**
+   * Its first `sneak` waves come down a road the player's waves are not
+   * holding (something to stop with the guns: the guided match's lesson);
+   * later ones take the road the player's waves hold or are sent down, so a
+   * castle that never sends its waves is not ground down by the tutor.
+   */
+  sneak: 2,
   /** Its barracks' mix at each stage (sappers carry kegs from stage 3: something to shoot). */
   mixes: ["pikemen", "pikemen", "pikemen", "breach"] as MixName[],
   /** What it repairs at each stage (never the keep). */

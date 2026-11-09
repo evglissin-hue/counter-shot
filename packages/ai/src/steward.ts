@@ -181,9 +181,10 @@ export class Steward {
       let route = this.routes[p] ?? m.estate.barracks[team][p].route;
       let mix = this.mixes[p] ?? m.estate.barracks[team][p].mix;
       if (this.stage) {
-        // The tutor: the road the player's waves are not holding; sappers (something to shoot) once it fights.
+        // The tutor: its first waves down a road the player's waves are not holding (the lesson: stop them with your
+        // guns), later ones down the road they hold or march (an idle castle is not ground down); sappers once it fights.
         mix = TUTOR.mixes[this.stage()];
-        const r = this.bestRoute(open, p);
+        const r = m.waves[team] < TUTOR.sneak ? this.bestRoute(open, p) : this.meetRoute(open);
         if (r) route = r;
       } else if (this.L.adapts) {
         // Its first barracks: pikes to batter a standing gate, a mixed wave to storm once there is a way in.
@@ -220,6 +221,30 @@ export class Steward {
       }
     }
     this.turn++;
+    return best >= 0 ? ROUTE_NAMES[best] : null;
+  }
+
+  /**
+   * M6, the tutor's later waves: the road with the most of the player's men
+   * within 30 m of its bridge; with none near any, the road the player sends
+   * its waves down (they meet there); a road whose bridge is down is passed over.
+   */
+  private meetRoute(open: boolean[]): RouteName | null {
+    const foe = 1 - this.team;
+    let best = -1, bestN = 0;
+    for (let r = 0; r < 3; r++) {
+      if (!open[r]) continue;
+      const b = V.bridgeOf(r);
+      const n = V.marchers(this.m, foe, b.x, b.z, 30);
+      if (n > bestN) {
+        bestN = n;
+        best = r;
+      }
+    }
+    if (best < 0) {
+      const k = ROUTE_NAMES.indexOf(this.m.route[foe]);
+      if (k >= 0 && open[k]) best = k;
+    }
     return best >= 0 ? ROUTE_NAMES[best] : null;
   }
 

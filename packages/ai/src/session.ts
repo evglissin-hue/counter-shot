@@ -54,7 +54,7 @@ export function runAiMatch(R: Rapier, ticks = AI_MATCH_TICKS, levels: [Difficult
 export const GUIDED_MATCH_TICKS = 5 * 60 * 60;
 
 /** Pinned: change only on purpose (and bump RULES_VERSION or MATCH_RULES_VERSION when play changes). */
-export const GUIDED_MATCH_HASH = { state: "5dec0c32", world: "605e3a06" } as const;
+export const GUIDED_MATCH_HASH = { state: "f9480d0e", world: "899154a8" } as const;
 
 const guidedFire = (yaw: number, pitch: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch, charge: 1, fuse: 0, spin: Spin.None });
 
