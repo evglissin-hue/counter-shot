@@ -28,3 +28,5 @@ node tools/overview-shots.mjs  # M6: the threat strip and the overview's pennant
 npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs enemy=knight player=knight seed=21  # the dead-end hunt: an AI match that flags guns stuck out, slots that cannot be bought, idle gunners, hoarded gold
 npx rolldown packages/ai/scripts/guided.ts --format esm --platform node -o node_modules/.scratch/guided.mjs && node node_modules/.scratch/guided.mjs player=newcomer seed=31  # M6: a guided match with a stand-in player (idle, newcomer, waves, squire): the tutor's stages and the result
 ```
+
+`tools/observatory-report.mjs <run dir>` turns an observatory run (`matches.jsonl` and friends) into `report.html`, `summary.json` and `summary.md` against the phase 3 targets; `tools/fixtures/observatory/` is a synthetic run to try it on (`node tools/observatory-report.mjs tools/fixtures/observatory`).
