@@ -46,6 +46,21 @@ try {
   await load("versus=knight-webgl-low");
   await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60, null, { timeout: 180000, polling: 200 });
   await expect("command card and scoreboard shown in a match", () => !document.getElementById("command").hidden && !document.getElementById("matchbar").hidden);
+  // L0: the minimap is drawn, and grows to twice its size over the scene when pointed at, or while G is held.
+  const mapW = () => page.evaluate(() => document.querySelector(".mapzoom").getBoundingClientRect().width);
+  const smallW = await mapW();
+  await expect("the minimap has drawn (its canvas is sized, draws are counted)", () => window.__sandbox.minimapMs.draws > 0 && document.getElementById("minimap").width > 100);
+  const mb = await page.evaluate(() => { const b = document.getElementById("mapbox").getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  await page.mouse.move(mb.x, mb.y);
+  await expect("pointing at the minimap grows it", () => window.__sandbox.mapBig && document.getElementById("mapbox").classList.contains("big"));
+  await expect("it is about twice as wide, and its canvas follows (crisp at the larger size)", (w) => { const r = document.querySelector(".mapzoom").getBoundingClientRect(); const c = document.getElementById("minimap"); return r.width > w * 1.6 && c.width >= Math.round(r.width) - 2; }, smallW);
+  await page.mouse.move(5, 5);
+  await expect("moving away shrinks it back", (w) => !window.__sandbox.mapBig && Math.abs(document.querySelector(".mapzoom").getBoundingClientRect().width - w) < 2, smallW);
+  await page.keyboard.down("KeyG");
+  await expect("holding G grows it", () => window.__sandbox.mapBig && document.getElementById("mapbox").classList.contains("big"));
+  await page.keyboard.up("KeyG");
+  await expect("letting go of G shrinks it", () => !window.__sandbox.mapBig && !document.getElementById("mapbox").classList.contains("big"));
+  await expect("the key help says what G does", () => /<dt>G<\/dt>/.test(document.getElementById("help").innerHTML));
   await page.click('[data-route="left"]');
   await expect("Left button sets the route", () => window.__sandbox.match.route === "left");
   await page.keyboard.press("KeyL");
@@ -86,8 +101,9 @@ try {
   await expect("H opens the Controls panel", () => !document.getElementById("help").hidden);
   await page.keyboard.press("KeyH");
   await expect("H closes it", () => document.getElementById("help").hidden);
+  console.log("(match at", JSON.stringify(await page.evaluate(() => ({ s: Math.round(window.__sandbox.match.tick / 60), result: window.__sandbox.match.result?.reason ?? null, end: !document.getElementById("end").hidden }))), ")");
   const cam = await page.isChecked("#shotcam");
-  await page.click("label.shotcam");
+  await press("label.shotcam");
   await expect("the Shot cam box toggles", (c) => document.getElementById("shotcam").checked !== c, cam);
   await page.keyboard.press("KeyV");
   await expect("V toggles it back", (c) => document.getElementById("shotcam").checked === c, cam);
@@ -104,21 +120,6 @@ try {
   await expect("P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
   await page.keyboard.press("KeyP");
   await expect("P resumes", () => document.getElementById("paused").hidden);
-  // L0: the minimap is drawn, and grows to twice its size over the scene when pointed at, or while G is held.
-  const mapW = () => page.evaluate(() => document.querySelector(".mapzoom").getBoundingClientRect().width);
-  const smallW = await mapW();
-  await expect("the minimap has drawn (its canvas is sized, draws are counted)", () => window.__sandbox.minimapMs.draws > 0 && document.getElementById("minimap").width > 100);
-  const mb = await page.evaluate(() => { const b = document.getElementById("mapbox").getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
-  await page.mouse.move(mb.x, mb.y);
-  await expect("pointing at the minimap grows it", () => window.__sandbox.mapBig && document.getElementById("mapbox").classList.contains("big"));
-  await expect("it is about twice as wide, and its canvas follows (crisp at the larger size)", (w) => { const r = document.querySelector(".mapzoom").getBoundingClientRect(); const c = document.getElementById("minimap"); return r.width > w * 1.6 && c.width >= Math.round(r.width) - 2; }, smallW);
-  await page.mouse.move(5, 5);
-  await expect("moving away shrinks it back", (w) => !window.__sandbox.mapBig && Math.abs(document.querySelector(".mapzoom").getBoundingClientRect().width - w) < 2, smallW);
-  await page.keyboard.down("KeyG");
-  await expect("holding G grows it", () => window.__sandbox.mapBig && document.getElementById("mapbox").classList.contains("big"));
-  await page.keyboard.up("KeyG");
-  await expect("letting go of G shrinks it", () => !window.__sandbox.mapBig && !document.getElementById("mapbox").classList.contains("big"));
-  await expect("the key help says what G does", () => /<dt>G<\/dt>/.test(document.getElementById("help").innerHTML));
   // M6: the threat strip follows the enemy's first wave (a fresh match on the test clock: #fixed, frozen, stepped by hand).
   await page.goto("about:blank");
   await load("versus=knight-webgl-low-fixed");

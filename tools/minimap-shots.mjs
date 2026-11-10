@@ -94,6 +94,14 @@ try {
   if (want("hud")) {
     await page.screenshot({ path: `${out}minimap-hud.png` });
     console.log("shot hud");
+    // And with the map grown over the scene (pointed at).
+    const m = await sb(() => { const b = document.getElementById("mapbox").getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+    await page.mouse.move(m.x, m.y);
+    await page.waitForFunction(() => window.__sandbox.mapBig, null, { polling: 100 });
+    await sleep(1500);
+    await page.screenshot({ path: `${out}minimap-hud-big.png` });
+    await page.mouse.move(5, 5);
+    console.log("shot hud-big");
     console.log("at the map's right edge:", JSON.stringify(await sb(() => document.elementsFromPoint(innerWidth - 24, 250).map((e) => e.id || e.className))));
   }
   // (Only the fresh match and the HUD asked for: stop here.)
