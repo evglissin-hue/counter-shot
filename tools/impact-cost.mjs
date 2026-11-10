@@ -20,7 +20,6 @@ const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gestur
 const page = await browser.newPage({ viewport: { width: Number(process.env.W) || 640, height: Number(process.env.H) || 360 } });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const frame = () => page.evaluate(() => window.__sandbox.frames);
 async function frames(n) {
   const start = await frame();

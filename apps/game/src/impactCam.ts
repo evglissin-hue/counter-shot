@@ -222,6 +222,7 @@ export function shotSeen(id: number, x: number, y: number, z: number, vx: number
   const hit = predictLanding([x, y, z], [vx, vy, vz], s.spin, wind, s.coef, deps);
   if (!hit) return;
   const ms = (hit.t * 1000) / Math.max(0.05, timeScale);
+  if (!Number.isFinite(ms)) return;
   if (cur && cur.shotId === id) {
     // The same shot, better known: move the landing and its time (the camera glides).
     cur.at.x = hit.x;
