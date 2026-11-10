@@ -277,7 +277,11 @@ function t6(openings) {
     if (typeof openings.pass === "boolean") pass = openings.pass;
     rows = Array.isArray(openings.rows) ? openings.rows : Array.isArray(openings.openings) ? openings.openings : null;
   }
-  return { value: `${rows ? rows.length : 0} openings listed below${pass === null ? "" : ""}`, pass, table: rows };
+  const o = !Array.isArray(openings) && typeof openings === "object" ? openings : {};
+  const pts = (v) => (typeof v === "number" ? `${num(v)} points` : "?");
+  const best = typeof o.best === "object" && o.best ? o.best.score : o.best;
+  const facts = o.best !== undefined ? `best ${pts(best)}, median ${pts(o.median)}, ${o.within5 ?? "?"} within 5 points of the best; ` : "";
+  return { value: `${facts}${rows ? rows.length : 0} openings listed below`, pass, table: rows };
 }
 
 // ---------------------------------------------------------------- analysis
