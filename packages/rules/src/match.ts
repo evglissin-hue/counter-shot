@@ -268,6 +268,8 @@ export class Match {
   /** Shots each team fired itself, and shots its unmanned weapons fired. */
   readonly shots: [number, number] = [0, 0];
   readonly autoShots: [number, number] = [0, 0];
+  /** Of those, shots at men on a mark of the team (a read-only count for tools: not in the hash). */
+  readonly autoOnMark: [number, number] = [0, 0];
   /** For tools (not in the hash): every build, buy and upgrade the estate accepted from an input, as [tick, castle, "build mill 1" | "buy mortar 7" | "upgrade heavyShot 0"]; plots and slots are the castle's own (slot 0 to 7). */
   readonly applied: Array<[number, 0 | 1, string]> = [];
   /** Each team's barracks route for its next waves, and waves sent so far. */
@@ -631,6 +633,7 @@ export class Match {
       g.target = -1;
       if (!m || m.state !== MinionState.Upright) continue;
       this.autoShots[team]++;
+      if (g.marked) this.autoOnMark[team]++;
       this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: (g.marked ? REGISTER.reload : U.reload) * this.reloadScale() });
     }
   }
