@@ -60,6 +60,8 @@ import {
 import { Input } from "./input";
 import { Feats, bestText, type FeatDef } from "./feats";
 import { Moments } from "./moments";
+import { describeLog, readLog, replayFileName, type ReplayFile } from "./matchLog";
+import { downloadText, readReplayFile, Watch } from "./watch";
 import {
   bindImpactFrame,
   closeImpactCam,
@@ -95,7 +97,11 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const canvas = $<HTMLCanvasElement>("scene");
 const renderer = new GameRenderer(canvas);
 const worker = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "module" });
-const send = (m: ToWorker) => worker.postMessage(m);
+/** S6: in a replay (mode "watch") the page sends nothing into the match: no shots, orders or builds. */
+const send = (m: ToWorker) => {
+  if (m.t === "input" && mode === "watch") return;
+  worker.postMessage(m);
+};
 const input = new Input(canvas);
 const sound = new Sound();
 const layout = buildLayout(1, GAME_LAYOUT);
@@ -135,7 +141,9 @@ const moments = new Moments({
   },
 });
 const feats = new Feats({ me: 1, onFirsts: (list) => showFeatToast(list) });
-moments.onMoment((m) => feats.observe(m));
+moments.onMoment((m) => {
+  if (mode !== "watch") feats.observe(m); // a replay earns no feats
+});
 /**
  * Track S2: a big moment in your own castle (a tower down, a breach, the gate
  * broken, a floor caved in, a shell among many of your men) that you are not
@@ -203,7 +211,9 @@ const FIXED = location.hash.includes("fixed");
 /** The mode being played (null while the start menu is up). #practice or #versus in the address skips the menu (tests use #fixed: the Practice range). */
 let mode: Mode | null = null;
 /** In a match (against the AI or a friend), not the Practice range. */
-const isMatch = () => mode === "versus" || mode === "online" || mode === "guided";
+const isMatch = () => mode === "versus" || mode === "online" || mode === "guided" || mode === "watch";
+/** In a match you play: a replay (S6) is looked at, never played. */
+const playing = () => isMatch() && mode !== "watch";
 /** A gun slot's match id, and its reload in ticks. */
 const gid = (i: number) => EMP[i]?.id ?? i;
 const rl = (i: number) => reload[gid(i)] ?? 0;
@@ -404,7 +414,17 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     online.fromWorker(m.state, m.waiting, m.desync);
     return;
   }
+  if (m.t === "log") {
+    logWaiters.shift()?.(m.text);
+    return;
+  }
+  if (m.t === "watchEnd") {
+    lastWatchEnd = { tick: m.tick, hash: m.hash, ok: m.ok };
+    watch.end(m.ok);
+    return;
+  }
   if (m.t === "frame") {
+    if (m.match) watch.frame(m.match.tick, m.stepMs);
     const was = rl(current);
     reload = m.reload;
     onGunsOut(m.out);
@@ -896,7 +916,7 @@ function applyMouse() {
 }
 
 function fire(charge = 1, pitch?: number) {
-  if (!ready || userPause || rl(current) > 0 || matchInfo?.result) return;
+  if (mode === "watch" || !ready || userPause || rl(current) > 0 || matchInfo?.result) return;
   if (!input.locked) playedFree = true;
   const e = EMP[current];
   if (e.empty) {
@@ -1178,7 +1198,7 @@ const ownSide = (r: RouteName): RouteName => (ME === 0 && r !== "centre" ? (r ==
 
 /** Orders for all your waves (Ctrl+1, 2, 3) and the route of your next ones (L). */
 function giveOrder(order: number) {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "order", order: order as Order } });
   sound.ui("order");
   guide.mark("waves");
@@ -1189,7 +1209,7 @@ function giveOrder(order: number) {
 }
 /** The route of your next waves, as you see it (your own left and right). */
 function setRoute(view: RouteName) {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   const route = ownSide(view);
   send({ t: "input", input: { kind: "route", route } });
   sound.ui("click");
@@ -1783,12 +1803,12 @@ hud.sound.addEventListener("click", () => {
   updateHud(true);
 });
 /** Start (or restart) a mode: the worker builds a fresh world for it. Online, `net` says which castle is yours and the host's seed. */
-function startMode(m: Mode, net?: OnlineStart) {
+function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   const first = mode === null;
   if (mode === "online" && m !== "online") void online.leave();
   setPause(false);
   mode = m;
-  ME = m === "online" && net ? net.team : 1;
+  ME = m === "online" && net ? net.team : m === "watch" && replay ? replay.setup.team : 1;
   FOE = ME === 1 ? 0 : 1;
   BASE = ME === 1 ? 0 : SLOTS;
   friendName = net?.friend ?? "";
@@ -1798,18 +1818,22 @@ function startMode(m: Mode, net?: OnlineStart) {
   $("gone").hidden = true;
   document.body.classList.remove("title-screen");
   $("end").hidden = true;
-  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "guided" ? "Guided match" : m === "online" ? `Against ${friendName}` : "Practice range";
+  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "guided" ? "Guided match" : m === "online" ? `Against ${friendName}` : m === "watch" && replay ? `Replay: ${describeLog(replay)}` : "Practice range";
   $("keep-theirs-name").textContent = m === "online" ? "Their keep" : "Enemy keep";
-  const match = m === "versus" || m === "online" || m === "guided";
+  const match = m === "versus" || m === "online" || m === "guided" || m === "watch";
   $("matchbar").hidden = !match;
-  $("command").hidden = !match;
+  $("command").hidden = !match || m === "watch";
+  $("build-btn").hidden = m === "watch";
+  if (m === "watch" && replay) watch.begin(replay);
+  else watch.stop();
+  lastWatchEnd = null;
   threat.setVisible(match);
   threat.setSide(ME);
   groupMarks.reset();
   $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
   // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
-  $("reset").hidden = m === "online";
+  $("reset").hidden = m === "online" || m === "watch";
   $("reset").textContent = match ? "Restart the match" : "Rebuild the castles";
   $("menu-back").hidden = false;
   matchInfo = null;
@@ -1819,17 +1843,17 @@ function startMode(m: Mode, net?: OnlineStart) {
   moments.reset();
   feats.me = ME;
   updateBridges();
-  view = "sight";
+  view = m === "watch" ? "overview" : "sight";
   ready = false;
   if (rendererReady) $("loading").hidden = false;
   const setup: MatchSetup = m === "versus" ? { difficulty } : m === "online" && net ? { team: net.team, delay: net.delay } : {};
-  const seed = m === "online" && net ? net.seed : SEED;
+  const seed = m === "online" && net ? net.seed : m === "watch" && replay ? replay.setup.opts.seed : SEED;
   // A new world: what the old one still says (frames, the match, the lockstep) is dropped from here.
   gen++;
-  if (first) send({ t: "init", gen, mode: m, seed, minions: MINIONS, setup });
+  if (first) send({ t: "init", gen, mode: m, seed, minions: MINIONS, setup, replay });
   else {
     resetLocal();
-    send({ t: "reset", gen, mode: m, seed, minions: MINIONS, setup });
+    send({ t: "reset", gen, mode: m, seed, minions: MINIONS, setup, replay });
   }
   // M3: a match starts with its emplacements as built (empty slots empty); your guns are your castle's eight.
   MATCH_EMPLACEMENTS.forEach((e, i) => Object.assign(ALL_EMP[i], e, { upgrade: undefined }));
@@ -1858,14 +1882,15 @@ function startMode(m: Mode, net?: OnlineStart) {
   sound.setStorm(0, 0);
   // The first-match guide (the test clock's screenshots leave it out).
   // In the guided match the coach takes the checklist's place.
-  guide.start(FIXED || m === "guided" ? null : match ? "match" : "practice");
+  guide.start(FIXED || m === "guided" || m === "watch" ? null : match ? "match" : "practice");
   coach.start(m === "guided" && !FIXED, ME);
   keepsShown = [3, 3];
   floorShown = [1, 1];
   sectionShares = null;
   showKeeps([3, 3], [1, 1], false);
   advice = { lastBuild: 0, at: -1e9, count: 0, built: 0 };
-  if (match) {
+  if (m === "watch") showNote("Watching a replay: look around (Tab for the overview); nothing you do reaches the match", 5000);
+  else if (match) {
     send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
     const goal = guide.open ? "" : ": bring down its keep or storm its courtyard";
     if (m === "online") showNote(`Versus ${friendName}: you hold the ${ME === 1 ? "oxblood" : "green"} castle`, 5000);
@@ -2061,7 +2086,8 @@ $("menu-btn").addEventListener("click", () => {
   $("menu").hidden = false;
   $("choices").hidden = false;
   $("online").hidden = true;
-  surrenderBtn.hidden = !isMatch() || !!matchInfo?.result || (mode === "online" && !online.active);
+  surrenderBtn.hidden = !playing() || !!matchInfo?.result || (mode === "online" && !online.active);
+  $("menu-save").hidden = !playing();
   $<HTMLButtonElement>("menu-btn").blur();
   document.exitPointerLock?.();
 });
@@ -2094,6 +2120,56 @@ $("end-again").addEventListener("click", () => {
   void online.open();
 });
 $("end-guided").addEventListener("click", () => startMode("guided"));
+// S6: the replay file. The worker keeps the match's log; a save asks it for the file as it stands (the match goes on).
+const logWaiters: Array<(text: string) => void> = [];
+let lastWatchEnd: { tick: number; hash: { state: string; world: string }; ok: boolean } | null = null;
+function saveLog(): Promise<string> {
+  return new Promise((resolve) => {
+    logWaiters.push(resolve);
+    send({ t: "saveLog" });
+  });
+}
+async function saveReplay() {
+  if (!playing()) return;
+  const text = await saveLog();
+  downloadText(text, replayFileName());
+  showNote("Replay saved", 2500);
+}
+$("end-save").addEventListener("click", () => void saveReplay());
+$("menu-save").addEventListener("click", () => void saveReplay());
+/** "Watch a replay": the file's text, or the reason it is refused (shown in the menu). */
+function watchText(text: string): boolean {
+  const r = readLog(text);
+  const why = $("replay-why");
+  why.hidden = r.ok;
+  if (!r.ok) {
+    why.textContent = r.why;
+    return false;
+  }
+  startMode("watch", undefined, r.log);
+  return true;
+}
+$("replay-go").addEventListener("click", () => {
+  sound.ui("click");
+  $<HTMLInputElement>("replay-file").click();
+});
+$<HTMLInputElement>("replay-file").addEventListener("change", async (ev) => {
+  const el = ev.target as HTMLInputElement;
+  const file = el.files?.[0];
+  el.value = "";
+  if (!file) return;
+  const r = await readReplayFile(file);
+  const why = $("replay-why");
+  why.hidden = r.ok;
+  if (!r.ok) why.textContent = r.why;
+  else startMode("watch", undefined, r.log);
+});
+const watch = new Watch({
+  send,
+  pause: (on) => setPause(on),
+  back: () => $("menu-btn").click(),
+  gate: !FIXED,
+});
 $("end-practice").addEventListener("click", () => startMode("practice"));
 $("end-look").addEventListener("click", () => {
   $("end").hidden = true;
@@ -2118,7 +2194,7 @@ repairChips.forEach((b) =>
 
 /** Switch your masons on or off for one kind of section (Alt+1 to 4). */
 function toggleRepair(kind: RepairKind, on?: boolean) {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   const now = on ?? !matchInfo.repairs[kind];
   send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
   matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
@@ -2131,7 +2207,7 @@ function toggleRepair(kind: RepairKind, on?: boolean) {
 let surrenderArmed = 0;
 const surrenderBtn = $<HTMLButtonElement>("menu-surrender");
 surrenderBtn.addEventListener("click", () => {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   const now = performance.now();
   if (now - surrenderArmed > 3500) {
     surrenderArmed = now;
@@ -2293,7 +2369,7 @@ function onMatch(info: MatchInfo) {
   const r = info.result;
   $("match-note").textContent = r ? endLine(r).short : "";
   // The end screen a moment after the end, so the collapse (or the storm) can be seen.
-  if (r && endShownFor !== r.tick) {
+  if (r && endShownFor !== r.tick && mode !== "watch") {
     endShownFor = r.tick;
     clearTimeout(endTimer);
     if (r.reason === "keep" || r.reason === "storm") sound.matchEnd(r.winner === ME);
@@ -2428,6 +2504,7 @@ function noteBuilt() {
   advice.lastBuild = matchInfo?.tick ?? 0;
 }
 function advise(info: MatchInfo) {
+  if (mode === "watch") return;
   const t = info.tick, gold = info.gold[ME];
   if (gold < 320 || t < 50 * 60 || t - advice.lastBuild < 45 * 60 || t - advice.at < 80 * 60 || advice.count >= 4 || estate.wheelOpen) return;
   // Only when there is something left to build or buy.
@@ -2454,9 +2531,10 @@ function nudgeBuild(info: MatchInfo) {
 /** Paused by the player (P, or the menu): Versus AI and the Practice range only (a friend's match never waits for a menu). */
 let userPause = false;
 function setPause(on: boolean) {
-  if (on && mode !== "versus" && mode !== "practice" && mode !== "guided") return;
+  if (on && mode !== "versus" && mode !== "practice" && mode !== "guided" && mode !== "watch") return;
   if (userPause === on) return;
   userPause = on;
+  watch.setPaused(on);
   send({ t: "pause", paused: on || document.hidden });
   sound.setPaused(on || document.hidden);
   $("paused").hidden = !on || !$("menu").hidden;
@@ -2485,7 +2563,7 @@ function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: st
 
 function showEnd() {
   const info = matchInfo;
-  if (!info || !info.result || !isMatch()) return;
+  if (!info || !info.result || !playing()) return;
   const r = info.result;
   $("end-title").textContent = r.winner === ME ? "Victory" : r.winner === FOE ? "Defeat" : "Draw";
   $("end-them").textContent = mode === "online" ? friendName : "Enemy";
@@ -2802,7 +2880,7 @@ function frame(wall: number) {
     keyVel.yaw = keyVel.pitch = 0;
   }
   // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
-  const wheelKeys = estate.keys(p, isMatch());
+  const wheelKeys = estate.keys(p, playing());
   if (!wheelKeys && p.weapon >= 0) select(p.weapon);
   if (p.next) step(1);
   if (p.prev) step(-1);
@@ -3053,6 +3131,15 @@ else {
     return bridgesOpen.slice();
   },
   startMode,
+  /** S6: the replay file of the match as it stands (the worker's log), start watching a file's text (false: refused, its reason is in the menu), and the last end the worker reported. */
+  saveLog,
+  watch: watchText,
+  get watchEnd() {
+    return lastWatchEnd;
+  },
+  get watchBar() {
+    return { active: watch.active, speed: watch.speed, ended: watch.ended };
+  },
   /** S1: every moment found this match, and the book (tests read them; fakeMoment feeds one in as if the match had made it). */
   get moments() {
     return moments.log.slice();
