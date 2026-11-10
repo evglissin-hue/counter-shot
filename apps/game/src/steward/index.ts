@@ -307,6 +307,10 @@ export function createSteward(deps: StewardDeps): Steward {
   });
   // A click on the scene closes the line; the click still fires (input.ts handles it).
   deps.canvas.addEventListener("mousedown", () => close());
+  // With the mouse taken, the browser keeps the first Esc for itself (it frees the mouse) and the page never sees the key: losing the mouse while the line is open closes it too.
+  document.addEventListener("pointerlockchange", () => {
+    if (open && !document.pointerLockElement && document.activeElement === inputEl && !voice.listening) close();
+  });
 
   return {
     get isOpen() {
