@@ -38,6 +38,7 @@ import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
+import { setCloudNoise, updateClouds } from "./clouds";
 import { WindField } from "./windField";
 import { Works } from "./works";
 
@@ -155,6 +156,7 @@ export class GameRenderer implements GameRendererApi {
     // is safe before init() resolves.
     this.noise = getNoiseTexture();
     this.windField = new WindField(this.time, this.noise);
+    setCloudNoise(this.noise);
     this.sky = new Sky(this.noise);
     this.scene.add(this.sky.mesh);
     this.scene.add(this.hemi);
@@ -892,6 +894,7 @@ export class GameRenderer implements GameRendererApi {
     this.sky.time.value = this.now;
     this.effects.setTime(this.now);
     this.windField.update(dt);
+    updateClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
     this.shock.update(this.now);
     this.views.update(real);
     const cam = this.views.camera;
