@@ -18,7 +18,9 @@
     "lab:build": "npm run build -w @counter-shot/lab",
     "game:dev": "npm run dev -w @keepfall/game",
     "game:build": "npm run build -w @keepfall/game",
-    "check:browser": "node tools/browser-hash.mjs"
+    "check:browser": "node tools/browser-hash.mjs",
+    "observe": "node tools/observatory.mjs",
+    "observe:quick": "node tools/observatory.mjs preset=quick"
   },
   "engines": {
     "node": ">=22"
