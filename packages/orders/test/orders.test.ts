@@ -525,3 +525,18 @@ test("parse does not change the view it is given", () => {
   parse("mill, then buy a swivel, then rifled barrel, then masons off the gate, then rebuild what falls", v);
   assert.equal(JSON.stringify(v), before);
 });
+
+test("the player's chair: words a newcomer tries", () => {
+  const v = viewWith(() => {});
+  const steps = (t: string) => {
+    const r = parse(t, v);
+    assert.ok(r.ok, `${t}: ${r.ok ? "" : r.reason}`);
+    return r.steps.map((s) => (s.kind === "input" ? s.input : s));
+  };
+  assert.deepEqual(steps("everyone advance"), [{ kind: "order", order: 0 }]);
+  assert.deepEqual(steps("retreat"), [{ kind: "order", order: 1 }]);
+  assert.deepEqual(steps("switch to the mortar"), [{ kind: "man", emplacement: 1 }]);
+  const up = parse("upgrade the mortar", v);
+  assert.equal(up.ok, false);
+  assert.equal(!up.ok && up.reason, "Which upgrade? Heavy shell or Quick loader");
+});

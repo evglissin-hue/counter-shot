@@ -4,6 +4,7 @@ import {
   plotName,
   REPAIR_KINDS,
   UPGRADES,
+  upgradesFor,
   WAVE_MIXES,
   WEAPON_COST,
   WEAPONS,
@@ -54,6 +55,7 @@ import {
   SURRENDER_PHRASES,
   SURRENDER_WORDS,
   SYNONYMS,
+  UPGRADE_VERBS,
   UPGRADE_WORDS,
   WEAPON_WORDS,
 } from "./words";
@@ -310,6 +312,10 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (isBarracksSetting(t)) return barracksSetting(t, w, notUnderstood);
   if (hasBuilding(t) || t.some((x) => REBUILD_WORDS.has(x))) return build(t, w, notUnderstood);
   if (findUpgrade(t)) return upgrade(t, w, notUnderstood);
+  if (t.some((x) => UPGRADE_VERBS.has(x))) {
+    const k = findWeapon(t)?.kind;
+    return fail(k ? `Which upgrade? ${upgradesFor(k).map((u) => u.name).join(" or ")}` : "Which upgrade? Name it, as the build menu does");
+  }
   const weapon = findWeapon(t);
   const buyVerb = t.some((x) => BUY_VERBS.has(x));
   if (t.some((x) => MAN_VERBS.has(x) || OVERVIEW_WORDS.has(x) || x === "leave") || (weapon && weapon.kind === null && !buyVerb)) return man(t, w, notUnderstood);

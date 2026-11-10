@@ -45,6 +45,12 @@ export const SYNONYMS: Record<string, string> = {
   flanks: "flank",
   roads: "road",
   plots: "plot",
+  retreat: "hold",
+  everyone: "all",
+  everybody: "all",
+  troops: "waves",
+  men: "waves",
+  army: "waves",
 };
 
 /** A line is cut into parts at these ("and then" before "and"), at most MAX_PARTS of them. */
@@ -60,7 +66,7 @@ export const FIRE_WORDS = ["fire", "shoot", "aim", "firing", "shooting"];
 export const BUILD_VERBS = new Set(["build", "construct", "raise", "make", "erect"]);
 export const BUY_VERBS = new Set(["buy", "get", "add", "fit", "install", "purchase", "build", "make", "mount"]);
 /** Verbs that put you on a gun; "overview" and the like leave it. */
-export const MAN_VERBS = new Set(["take", "man", "ride", "use", "board"]);
+export const MAN_VERBS = new Set(["take", "man", "ride", "use", "board", "switch", "change", "select", "jump"]);
 export const OVERVIEW_WORDS = new Set(["overview", "dismount"]);
 
 /** Building phrases (longest first within a kind). */
@@ -82,6 +88,8 @@ export const WEAPON_WORDS: Array<{ kind: WeaponKind | null; phrases: string[] }>
   { kind: null, phrases: ["gun"] },
 ];
 
+/** A part that asks for an upgrade without naming one is answered with the choices. */
+export const UPGRADE_VERBS = new Set(["upgrade", "improve"]);
 /** Upgrade phrases (the Foundry's names, and short forms). Taken before weapons, so "long chain" is not a chain shot gun. */
 export const UPGRADE_WORDS: Array<{ upgrade: UpgradeKind; phrases: string[] }> = [
   { upgrade: "heavyShot", phrases: ["heavy shot"] },
