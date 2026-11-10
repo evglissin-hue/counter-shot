@@ -142,6 +142,8 @@ export const enum Role {
   Defend = 2,
   /** One of a castle's masons (works.ts). */
   Mason = 3,
+  /** One of two men of a wave who relay a blown bridge deck (gangs.ts). */
+  Gang = 4,
 }
 
 /** What knocked a minion down (M3: bounties and trick shots). */

@@ -350,6 +350,7 @@ export class Match {
     if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
     // After M5: a knocked-out gun's crew puts it back for gold, through the same books as everything else.
     this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
+    this.world.gangs!.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
     this.register = new Register(
       { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale(), aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
       opts.seed,

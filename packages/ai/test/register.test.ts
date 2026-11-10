@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, type AiLevel, type Difficulty } from "@keepfall/content";
 import type { Rapier } from "@keepfall/sim";
-import { firstSlot, Match, Team, type MatchInput } from "@keepfall/rules";
+import { Match, Team, type MatchInput } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
 
 await RD.init();
@@ -82,28 +82,15 @@ function AI_WARM(): number {
 }
 
 test("with enemy men on a mark a Knight orders a salvo, not twice in 20 s; a Squire (and a Knight with salvo off) never does", () => {
-  for (const [level, over, expect] of [["knight", undefined, true], ["squire", undefined, false], ["knight", { salvo: false }, false]] as const) {
+  for (const [level, over, expect] of [["knight", undefined, true], ["squire", { marks: 1 }, false], ["knight", { salvo: false }, false]] as const) {
     const team = Team.Enemy, foe = Team.Player;
     const { m, ai, sent } = setup(level, team, 11, over);
     const marks = watchMarks(m, team);
-    // A Squire never marks by itself: give it a mark by hand all the same (its own guns, a shot by hand), so only its choice is tested.
+    // (The Squire is given the Knight's marking by an override, so only its salvo choice is tested.)
     for (let i = 0; i < 4 * 60 * 60 && m.register.list(team).length === 0; i++) {
       ai.step();
       m.step();
       marks();
-    }
-    if (level === "squire") {
-      m.gold[team] += 0;
-      // Fire the squire's own long gun and mark it, by hand.
-      const e = m.emplacements.find((x) => !x.empty && x.weapon === "longGun" && x.id >= firstSlot(team) && x.id < firstSlot(team) + 8)!;
-      m.queue(m.tick, team, { kind: "man", emplacement: e.id });
-      m.queue(m.tick + 1, team, { kind: "fire", emplacement: e.id, yaw: e.baseYaw, pitch: 0.1, charge: 1, fuse: 0, spin: 0 });
-      for (let i = 0; i < 6 * 60 && !m.register.canMark(team, e.id, m.tick); i++) {
-        ai.step();
-        m.step();
-      }
-      m.queue(m.tick, team, { kind: "mark", emplacement: e.id });
-      for (let i = 0; i < 5; i++) m.step();
     }
     const mark = m.register.list(team)[0];
     assert.ok(mark, "there is a mark");

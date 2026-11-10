@@ -225,13 +225,14 @@ export class Steward {
   }
 
   /**
-   * 3.2, from a Knight up: a bridge is down, no wave has been sent to it in the last minute (the sim shows the AI
-   * nothing of its gangs) and there is gold for a gang: one working barracks sends its next wave down that road,
+   * 3.2, from a Knight up: a bridge is down, no wave has been sent to it in the last minute (the sim reports gangs at work: gangs.status())
+   * and no gang works it now) and there is gold for a gang: one working barracks sends its next wave down that road,
    * which a gang then relays. A road it has used goes first.
    */
   private startGang(tick: number, plots: number[], open: boolean[]): { plot: number; route: RouteName; waves: number } | null {
     if (!this.L.gangs || this.gold < REGISTER.gangCost + this.L.reserve) return null;
-    const down = [0, 1, 2].filter((r) => !open[r] && tick - this.gangSent[r] >= 60 * 60);
+    const working = this.m.world.gangs?.status() ?? [];
+    const down = [0, 1, 2].filter((r) => !open[r] && tick - this.gangSent[r] >= 60 * 60 && !working.some((g) => g.bridge === r));
     if (!down.length) return null;
     down.sort((a, b) => Number(this.used.has(b)) - Number(this.used.has(a)) || a - b);
     this.gangSent[down[0]] = tick;
