@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { mkdirSync } from "node:fs";
 
 const port = Number(process.env.PORT) || 5183;
-const seconds = Number(process.argv[2]) || 180;
+const seconds = process.argv[2] === undefined ? 180 : Number(process.argv[2]);
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const root = fileURLToPath(new URL("../apps/game", import.meta.url));
@@ -82,10 +82,11 @@ try {
   console.log(`match tick ${end.tick}, ${shots} shots laid, ${log.length} moments, result ${JSON.stringify(end.result)}`);
 
   // A feat's toast (a moment made as the match would make it), looked at over the field.
+  await page.evaluate(() => window.__sandbox.setFeatToastMs(60000));
   await page.evaluate(() => window.__sandbox.fakeMoment({ kind: "towerDown", size: 212, men: 9, text: "Tower down: 212 stones, 9 men, a gun", score: 637 }));
   await page.waitForFunction(() => !document.getElementById("feat-toast").hidden);
   ok("the toast shows a feat", /Domino/.test(await page.textContent("#feat-toast-name")));
-  await page.waitForTimeout(1200);
+  await page.waitForFunction(() => getComputedStyle(document.getElementById("feat-toast")).opacity === "1", null, { timeout: 60000, polling: 100 });
   await page.screenshot({ path: `${out}feat-toast.png` });
   const box = await page.evaluate(() => {
     const r = document.getElementById("feat-toast").getBoundingClientRect();

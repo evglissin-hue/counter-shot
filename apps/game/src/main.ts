@@ -2479,6 +2479,7 @@ navBox.addEventListener("change", () => toggleNav(navBox.checked));
 
 /** A feat earned for the first time: one short line in the corner, never over the middle of the screen. */
 let featTimer: ReturnType<typeof setTimeout> | undefined;
+let featToastMs = 5200;
 function showFeatToast(list: Array<{ def: FeatDef; value: number }>) {
   const el = $("feat-toast");
   const { def, value } = list[0];
@@ -2490,7 +2491,7 @@ function showFeatToast(list: Array<{ def: FeatDef; value: number }>) {
   void el.offsetWidth; // restart the slide
   el.classList.add("show");
   clearTimeout(featTimer);
-  featTimer = setTimeout(() => (el.hidden = true), 5200);
+  featTimer = setTimeout(() => (el.hidden = true), featToastMs);
 }
 
 /** The book of feats: earned ones with their date and best, the rest dimmed with their hint. */
@@ -2511,10 +2512,14 @@ function showBook() {
     li.append(name, hint, meta);
     list.append(li);
   }
+  $("menu").classList.add("behind");
   $("book").hidden = false;
 }
 $("book-open").addEventListener("click", showBook);
-$("book-close").addEventListener("click", () => ($("book").hidden = true));
+$("book-close").addEventListener("click", () => {
+  $("book").hidden = true;
+  $("menu").classList.remove("behind");
+});
 
 let noteTimer: ReturnType<typeof setTimeout> | undefined;
 function showNote(text: string, ms: number) {
@@ -2909,6 +2914,10 @@ else {
     return moments.log.slice();
   },
   feats,
+  /** Test hook: how long a feat's toast stays (ms), so a slow software-rendered screenshot can catch it. */
+  setFeatToastMs(ms: number) {
+    featToastMs = ms;
+  },
   fakeMoment(m: Partial<import("./moments").Moment>) {
     const full = { atMs: 0, tick: lastFrameTick, x: 0, y: 0, z: 0, kind: "multiKill", team: ME, score: 100, text: "", size: 3, ...m } as import("./moments").Moment;
     feats.observe(full);
