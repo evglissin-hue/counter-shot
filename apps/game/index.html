@@ -210,6 +210,18 @@ button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 
 #wind-arrow::before { background: linear-gradient(var(--aim), rgba(244, 246, 248, 0.15)); }
 #wind-arrow { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
 /* Notes: a brass edge, and a short rise into place. */
+.feat-toast { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(24px + var(--top-h, 40px) + 120px); max-width: min(280px, calc(100% - 32px)); padding: 8px 12px 9px; display: grid; gap: 2px; border-left: 3px solid var(--brass); pointer-events: none; }
+.feat-toast small { font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
+.feat-toast b { font: 20px/1.1 var(--display); font-weight: 400; }
+.feat-toast span { font: 400 12px/1.3 var(--ui); color: var(--ink-dim); }
+.feat-toast.show { animation: note-in 260ms ease-out; }
+.feats { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px 16px; max-height: min(56vh, 460px); overflow: auto; }
+.feats li { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.feats li b { font: 600 14px/1.3 var(--ui); }
+.feats li span { grid-column: 1; font: 400 12px/1.3 var(--ui); color: var(--ink-dim); }
+.feats li i { grid-column: 2; grid-row: 1 / span 2; align-self: center; font: 500 12px/1.3 var(--mono); font-style: normal; color: var(--brass); text-align: right; }
+.feats li.not { opacity: 0.5; }
+#menu.behind .card { visibility: hidden; }
 #note { border-left: 3px solid var(--brass); padding: 10px 14px; max-width: min(620px, calc(100% - 32px)); text-align: left; animation: note-in 260ms ease-out; }
 @keyframes note-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .hint.tally { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); border-color: rgba(201, 154, 70, 0.35); }
@@ -595,6 +607,7 @@ body.title-screen .side > * { display: none !important; }
   <div id="paused" class="pausedbadge glass" hidden role="status">Paused <span class="small"><kbd>P</kbd> resumes</span></div>
   <div id="floats" class="floats" aria-hidden="true"></div>
   <div id="feed" class="feed" aria-hidden="true"></div>
+  <div id="feat-toast" class="feat-toast glass" hidden role="status"><small>Feat</small><b id="feat-toast-name"></b><span id="feat-toast-hint"></span></div>
   <div id="msgs" class="msgs">
     <div id="note" class="hint glass" hidden role="status"></div>
     <div id="trick" class="hint glass trick" hidden role="status"></div>
@@ -625,8 +638,16 @@ body.title-screen .side > * { display: none !important; }
         <div class="actions"><button class="primary" id="online-host">Host a match</button><button id="online-cancel">Cancel</button><button id="online-back">Back</button></div>
         <p class="small">The host plays the oxblood castle, the friend who joins the green one. Both of you open this game's claude.ai link, signed in: share it with your friend from the artifact's Share menu.</p>
       </div>
-      <div class="actions"><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
+      <div class="actions"><button id="book-open">Book of feats</button><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
+    </div>
+  </div>
+  <div id="book" class="overlay" hidden>
+    <div class="card glass" role="dialog" aria-labelledby="book-title">
+      <h2 id="book-title">Book of feats</h2>
+      <p id="book-count" class="small"></p>
+      <ul class="feats" id="book-list" aria-label="Feats"></ul>
+      <div class="actions"><button class="primary" id="book-close">Close</button></div>
     </div>
   </div>
   <div id="end" class="overlay" hidden>

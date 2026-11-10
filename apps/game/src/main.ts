@@ -58,6 +58,8 @@ import {
   type FrameData,
 } from "@keepfall/sim";
 import { Input } from "./input";
+import { Feats, bestText, type FeatDef } from "./feats";
+import { Moments } from "./moments";
 import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, ToWorker } from "./protocol";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
@@ -101,6 +103,20 @@ guide.onMark = (s) => coach.did(s);
 estate.onBuilt = () => noteBuilt();
 /** Sim frames are applied on a render clock a little behind the sim, and shells and stones are drawn between them. */
 const timeline = new Timeline(layout);
+/** Track S1: what happened that was worth showing, and the player's book of feats (see moments.ts, feats.ts). */
+const moments = new Moments({
+  layout,
+  clock: () => clock(),
+  me: () => ME,
+  gun: (emp) => {
+    const e = ALL_EMP[emp];
+    if (!e) return null;
+    const slot = emp - BASE;
+    return { team: slot >= 0 && slot < SLOTS ? ME : FOE, name: WEAPONS[e.weapon].name.toLowerCase(), x: e.x, y: e.y, z: e.z };
+  },
+});
+const feats = new Feats({ me: 1, onFirsts: (list) => showFeatToast(list) });
+moments.onMoment((m) => feats.observe(m));
 /**
  * The guns you ride: the Practice range's four, or in a match your castle's
  * eight emplacements (M3: empty slots fill in as you buy guns). A match also
@@ -376,6 +392,7 @@ worker.onerror = (e) => showError(e.message || "The simulation worker failed to 
 
 function onFrame(f: FrameData) {
   const now = clock();
+  moments.frame(f);
   wind = { x: f.windX, z: f.windZ };
   lastFrameTick = f.tick;
   coach.onFrame(f);
@@ -1747,6 +1764,8 @@ function startMode(m: Mode, net?: OnlineStart) {
   endShownFor = -1;
   clearTimeout(endTimer);
   bridgesOpen = layout.bridges.map(() => true);
+  moments.reset();
+  feats.me = ME;
   updateBridges();
   view = "sight";
   ready = false;
@@ -2177,6 +2196,7 @@ function updateStorm() {
 
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
+  moments.match(info);
   matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
   threat.update(info.lanes, ME);
   updateWaves();
@@ -2490,6 +2510,7 @@ function updateBridges() {
 function onBridges(open: boolean[]) {
   const was = bridgesOpen;
   bridgesOpen = open;
+  moments.bridges(was, open);
   updateBridges();
   for (let k = 0; k < open.length; k++) {
     if (was[k] && !open[k]) showNote(`The ${ownSide(layout.bridges[k].site.name)} bridge is down: that route is closed`, 4500);
@@ -2505,6 +2526,50 @@ function toggleNav(on = !navOn) {
 }
 const navBox = $<HTMLInputElement>("navbox");
 navBox.addEventListener("change", () => toggleNav(navBox.checked));
+
+/** A feat earned for the first time: one short line in the corner, never over the middle of the screen. */
+let featTimer: ReturnType<typeof setTimeout> | undefined;
+let featToastMs = 5200;
+function showFeatToast(list: Array<{ def: FeatDef; value: number }>) {
+  const el = $("feat-toast");
+  const { def, value } = list[0];
+  const size = def.unit && value > 1 ? ` (${value} ${def.unit})` : "";
+  $("feat-toast-name").textContent = def.name + size;
+  $("feat-toast-hint").textContent = list.length > 1 ? `And ${list.slice(1).map((x) => x.def.name).join(", ")}` : def.hint;
+  el.hidden = false;
+  el.classList.remove("show");
+  void el.offsetWidth; // restart the slide
+  el.classList.add("show");
+  clearTimeout(featTimer);
+  featTimer = setTimeout(() => (el.hidden = true), featToastMs);
+}
+
+/** The book of feats: earned ones with their date and best, the rest dimmed with their hint. */
+function showBook() {
+  const rows = feats.list();
+  $("book-count").textContent = `${feats.earned()} of ${rows.length} feats`;
+  const list = $("book-list");
+  list.textContent = "";
+  for (const { def, record } of rows) {
+    const li = document.createElement("li");
+    li.className = record ? "got" : "not";
+    const name = document.createElement("b");
+    name.textContent = def.name;
+    const hint = document.createElement("span");
+    hint.textContent = def.hint;
+    const meta = document.createElement("i");
+    meta.textContent = record ? [bestText(def, record) && `best ${bestText(def, record)}`, record.first].filter(Boolean).join(", ") : "";
+    li.append(name, hint, meta);
+    list.append(li);
+  }
+  $("menu").classList.add("behind");
+  $("book").hidden = false;
+}
+$("book-open").addEventListener("click", showBook);
+$("book-close").addEventListener("click", () => {
+  $("book").hidden = true;
+  $("menu").classList.remove("behind");
+});
 
 let noteTimer: ReturnType<typeof setTimeout> | undefined;
 function showNote(text: string, ms: number) {
@@ -2921,6 +2986,19 @@ else {
     return bridgesOpen.slice();
   },
   startMode,
+  /** S1: every moment found this match, and the book (tests read them; fakeMoment feeds one in as if the match had made it). */
+  get moments() {
+    return moments.log.slice();
+  },
+  feats,
+  /** Test hook: how long a feat's toast stays (ms), so a slow software-rendered screenshot can catch it. */
+  setFeatToastMs(ms: number) {
+    featToastMs = ms;
+  },
+  fakeMoment(m: Partial<import("./moments").Moment>) {
+    const full = { atMs: 0, tick: lastFrameTick, x: 0, y: 0, z: 0, kind: "multiKill", team: ME, score: 100, text: "", size: 3, ...m } as import("./moments").Moment;
+    feats.observe(full);
+  },
   /** M3: send a match input as the player (the screenshot tools build and buy with it). */
   input(i: unknown) {
     send({ t: "input", input: i as never });
