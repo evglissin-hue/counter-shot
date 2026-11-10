@@ -1,0 +1,10 @@
+{
+  "name": "@keepfall/orders",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The steward's ear (track V): orders in plain words, parsed into the same match inputs a key or button sends.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "dependencies": { "@keepfall/content": "0.0.0", "@keepfall/rules": "0.0.0", "@keepfall/sim": "0.0.0" }
+}
