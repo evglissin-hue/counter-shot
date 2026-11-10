@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { BUILDING_KINDS, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { BUILDING_KINDS, sectionOf, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { Army } from "./army";
@@ -402,8 +402,28 @@ export class SandboxSim {
     }
   }
 
+  /** Turn what the minions and the masonry logged into page events (Down, Fell). State is untouched. */
+  private drainLogs() {
+    const dl = this.minions.downLog;
+    for (let k = 0; k + 3 < dl.length; k += 4) this.event(EventKind.Down, dl[k], dl[k + 1], dl[k + 2], dl[k + 3]);
+    dl.length = 0;
+    const ll = this.castle.looseLog;
+    if (ll.length) {
+      const secs = sectionOf(this.castle.layout);
+      const stones = this.castle.layout.stones;
+      const counts = new Map<number, number>();
+      for (const id of ll) {
+        const key = stones[id].castle * 1000 + (secs[id] + 1);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      for (const key of [...counts.keys()].sort((a, b) => a - b)) this.event(EventKind.Fell, Math.floor(key / 1000), (key % 1000) - 1, counts.get(key)!, 0);
+      ll.length = 0;
+    }
+  }
+
   private afterStep() {
     const castle = this.castle;
+    this.drainLogs();
     for (const im of castle.impacts) this.event(EventKind.Impact, im.x, im.y, im.z, im.strength);
     // M5: tough pieces (keep floor boards) cracked by a blast but still standing.
     for (const id of castle.cracked) {
@@ -659,6 +679,7 @@ export class SandboxSim {
     const worksCount = this.works ? this.works.collect(b.works) : 0;
     const terrain: TerrainPatch[] = this.terrain.patches;
     this.terrain.patches = [];
+    this.drainLogs();
     const events = new Float32Array(this.events);
     this.events.length = 0;
     const plotCount = this.structures ? this.structures.collect(b.plots) : 0;

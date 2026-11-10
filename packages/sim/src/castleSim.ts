@@ -188,6 +188,8 @@ export class CastleSim {
   /** M3: when set, every piece that goes from standing to loose (or dust) is listed in `fell`, for the match to pay for. */
   recordFalls = false;
   fell: number[] = [];
+  /** Page events only (not state): every piece that came loose, drained by the world into Fell events. */
+  looseLog: number[] = [];
   /** M5: blasts each tough piece (Stone.tough) has taken without breaking, and the pieces of the layout that are tough, in id order. */
   readonly hits: Uint8Array;
   private toughIds: Int32Array;
@@ -915,6 +917,7 @@ export class CastleSim {
       this.dynList.push(id);
       this.supportDirty |= 1 << this.castleOf[id];
       if (this.recordFalls) this.fell.push(id);
+      this.looseLog.push(id);
     }
     this.shattered[id] = 1;
     this.frozen[id] = 0;
@@ -928,6 +931,7 @@ export class CastleSim {
     this.dynList.push(id);
     this.supportDirty |= 1 << this.castleOf[id];
     if (this.recordFalls) this.fell.push(id);
+    this.looseLog.push(id);
     const body = this.bodies[id];
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();

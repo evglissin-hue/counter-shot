@@ -88,6 +88,10 @@ export const enum EventKind {
   GunBack = 14,
   /** [kind, minion id, x, y, z]: a chain shot's chain swept a man off his feet (after M5); x, y, z is where. */
   Swept = 15,
+  /** [kind, minion id, cause (minions.ts Cause), shot id (-1: none), speed m/s]: a man was knocked down; speed is his body's fastest part just after the blow. */
+  Down = 16,
+  /** [kind, castle, section (content sectionOf, -1: no section), count, 0]: pieces of a castle that came loose this tick, one event per castle and section. */
+  Fell = 17,
 }
 export const EVENT_STRIDE = 5;
 
