@@ -19,6 +19,25 @@ export type CameraPose =
   /** Placed by the page (the mortar's spotter and its ride): eye position, the point it looks at, field of view. */
   | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number };
 
+/** The impact cam's camera: eye position, the point it looks at, field of view in degrees. */
+export interface InsetPose {
+  x: number;
+  y: number;
+  z: number;
+  tx: number;
+  ty: number;
+  tz: number;
+  fov: number;
+}
+
+/** A rectangle on the canvas in CSS pixels from its top left. */
+export interface InsetRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** The first thing a predicted flight hits. */
 export interface PathHit {
   /** Index of the path point just before the hit. */
@@ -102,6 +121,13 @@ export interface GameRendererApi {
   groundAt(x: number, z: number): number;
   /** After M5: a gun knocked out (it tips over, or with `fell` falls with its masonry) or back on its mount. */
   setGunOut(emplacement: number, out: boolean, fell?: boolean): void;
+  /**
+   * The impact cam: draw the same world from `pose` into `rect` of the canvas after the main view (null pose: closed).
+   * `swapped` draws the main view from the inset's pose and the inset from the gun's.
+   */
+  setInset(pose: InsetPose | null, rect: InsetRect, swapped: boolean): void;
+  /** Is the straight line between two points cut by masonry? */
+  sightBlocked(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean;
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (0.4..1). */
   setRenderScale(scale: number): void;
   /** GPU time per frame in ms when the browser can measure it, else null. */

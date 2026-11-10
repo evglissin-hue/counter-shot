@@ -58,6 +58,24 @@ import {
   type FrameData,
 } from "@keepfall/sim";
 import { Input } from "./input";
+import {
+  bindImpactFrame,
+  closeImpactCam,
+  impactEnabled,
+  impactState,
+  placeImpactFrame,
+  setImpactClock,
+  setImpactDeps,
+  setImpactEnabled,
+  setImpactIgnorePacer,
+  setImpactPaced,
+  shotBurst,
+  shotFired,
+  shotLanded,
+  shotSeen,
+  shotsGone,
+  updateImpactCam,
+} from "./impactCam";
 import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, ToWorker } from "./protocol";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
@@ -172,6 +190,13 @@ let frames = 0;
 /** Test clock only: hold game time still (for a screenshot). */
 let frozen = false;
 const clock = () => (FIXED ? vclock : performance.now());
+// The impact cam (impactCam.ts) asks the renderer where masonry and ground are, on the page's own clock.
+setImpactClock(clock);
+setImpactDeps({
+  groundAt: (x, z) => renderer.groundAt(x, z),
+  sightBlocked: (ax, ay, az, bx, by, bz) => renderer.sightBlocked(ax, ay, az, bx, by, bz),
+  castPath: (path) => renderer.castPath(path),
+});
 
 // ---- state ------------------------------------------------------------------
 let current = 0;
@@ -398,9 +423,14 @@ function onFrame(f: FrameData) {
         recording.set(id, { emp: slot, pts: [] });
         if (e.weapon === "mortar") myShells.set(id, { emp, x: e.x, y: e.y, z: e.z });
         else openTally(id, emp, e.x, e.y, e.z, false, 6000, 9);
-        if (shotCam[slot] && slot === current) {
+        const camOnShot = shotCam[slot] && slot === current;
+        if (camOnShot) {
           if (e.weapon === "mortar") startRide(id, slot, now);
           else follow = { id, lastX: 0, lastY: 0, lastZ: 0, vx: 0, vy: 0, vz: 0, until: 0 };
+        } else if (e.weapon !== "swivel") {
+          // The impact cam: a shot you fired by hand, when the main view is not already on it (the ride, the shot camera).
+          const w = weaponOf(e);
+          shotFired(id, emp, { x: e.x, z: e.z }, flightCoef(w.projectile), e.weapon === "longGun" ? spinVector(aims[slot].yaw, spin, w.spinRate) : null);
         }
       }
     } else if (kind === EventKind.Explosion) {
@@ -422,8 +452,10 @@ function onFrame(f: FrameData) {
         openTally(id, p.emp, a, b, c, true, 4200, d * 2.4);
         break;
       }
+      shotBurst(a, b, c);
       sound.explosion(a, b, c, d, timeScale);
     } else if (kind === EventKind.Landed) {
+      if (a >= 0) shotLanded(a, b, c, d);
       if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) {
         landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
         // Your ball, chain or grapeshot came down: its tally closes a moment later, counting the stones around here.
@@ -508,6 +540,7 @@ function onFrame(f: FrameData) {
     seen.add(id);
     const x = f.projectiles[o + 2], y = f.projectiles[o + 3], z = f.projectiles[o + 4];
     const vx = f.projectiles[o + 6], vy = f.projectiles[o + 7], vz = f.projectiles[o + 8];
+    shotSeen(id, x, y, z, vx, vy, vz, wind, timeScale);
     const rec = recording.get(id);
     if (rec && rec.pts.length < 3 * 600) rec.pts.push(x, y, z);
     const shell = myShells.get(id);
@@ -543,6 +576,7 @@ function onFrame(f: FrameData) {
     }
   }
   sound.endUnseen();
+  shotsGone(seen);
   for (const [id, rec] of recording) {
     if (seen.has(id)) continue;
     if (rec.pts.length >= 6) trails[rec.emp] = new Float32Array(rec.pts);
@@ -1832,6 +1866,7 @@ function syncArms(arms: Int8Array) {
 /** Forget everything drawn from the old world. */
 function resetLocal() {
   endRide();
+  closeImpactCam();
   cancelCharge();
   myShells.clear();
   gunOut = new Int16Array(0);
@@ -2492,6 +2527,13 @@ canvas.addEventListener("pointerup", (e) => {
 });
 $("overview-btn").addEventListener("click", () => toggleOverview());
 
+/** K: the impact cam on or off (an inset on where your shot lands). */
+function toggleImpactCam(on = !impactEnabled()) {
+  setImpactEnabled(on);
+  showNote(on ? "Impact cam on: a small view of where your shot lands" : "Impact cam off", 2400);
+}
+bindImpactFrame($("impact"), (on) => document.body.classList.toggle("impact-swapped", on));
+
 function toggleShotCam(on = !shotCam[current]) {
   shotCam[current] = on;
   if (!on) endRide();
@@ -2555,6 +2597,8 @@ function pace(dt: number, now: number) {
     }
   }
   if (r.scaleChanged) renderer.setRenderScale(SCALES[pacer.scaleIdx]);
+  // The impact cam stays shut while the pacer holds the lowest resolution.
+  setImpactPaced(pacer.scaleIdx >= SCALES.length - 1);
 }
 
 function toggleOverview() {
@@ -2633,6 +2677,7 @@ function frame(wall: number) {
   if (p.help) help.hidden = !help.hidden;
   if (p.pause && $("menu").hidden && $("end").hidden) setPause(!userPause);
   if (p.shotCam) toggleShotCam();
+  if (p.impact) toggleImpactCam();
   if (p.mute) {
     sound.setMuted(!sound.muted);
     updateHud(true);
@@ -2720,6 +2765,10 @@ function frame(wall: number) {
   if (!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride))) pose.fov = shownFov;
   applyShake(pose, now);
   renderer.setCamera(pose);
+  {
+    const ic = updateImpactCam(now, dt);
+    renderer.setInset(ic.pose, placeImpactFrame(ic, canvas), ic.swapped);
+  }
   updateAimHelp();
   updateHud();
   updateCharge(now);
@@ -2844,6 +2893,11 @@ else {
     return bridgesOpen.slice();
   },
   startMode,
+  /** The impact cam: what is open, and (tests) a switch to draw it whatever the frame pacer says. */
+  get impact() {
+    return impactState();
+  },
+  impactIgnorePacer: setImpactIgnorePacer,
   /** M3: send a match input as the player (the screenshot tools build and buy with it). */
   input(i: unknown) {
     send({ t: "input", input: i as never });
