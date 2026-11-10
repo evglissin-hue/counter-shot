@@ -37,6 +37,8 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const samples: Sample[] = [];
   const richSecs: [number, number] = [0, 0];
   let moving = 0, movingMax = 0, windowMoving = 0, worst = 0, windowWorst = 0;
+  /** Steps slower than 16 ms and 33 ms (one slow step on a busy machine says little; many say more). */
+  const slow: [number, number] = [0, 0];
   const sample = (tick: number) => {
     const army = m.armyCounts();
     samples.push({
@@ -68,6 +70,8 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     const ms = performance.now() - s0;
     if (ms > worst) worst = ms;
     if (ms > windowWorst) windowWorst = ms;
+    if (ms > 16) slow[0]++;
+    if (ms > 33) slow[1]++;
     if (i % 10 === 0) {
       moving = m.world.castle.awakeCount();
       if (moving > movingMax) movingMax = moving;
@@ -77,7 +81,8 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     if (i % 1800 === 1799) sample(i + 1);
   }
   const tick = m.result ? m.result.tick : i;
-  sample(m.tick);
+  // The end, unless the last 30 s sample was taken on this very tick.
+  if (!samples.length || samples[samples.length - 1].t !== m.tick / 60) sample(m.tick);
   const wallMs = performance.now() - t0;
 
   const byHand = pair((c): Record<AimKind, number> => {
@@ -97,6 +102,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     stats: pair((c) => ({ ...m.stats(c) }) as unknown as Record<string, number>),
     movingMax,
     worstMs: worst,
+    slowSteps: slow,
   };
   const r = m.result;
   const line: MatchLine = {

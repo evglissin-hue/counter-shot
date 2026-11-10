@@ -77,6 +77,8 @@ export interface Totals {
   /** The most stones moving at once and the slowest step (ms) over the whole match. */
   movingMax: number;
   worstMs: number;
+  /** Steps slower than 16 ms and slower than 33 ms (wall clock, on the machine that ran it). Optional: older lines lack it. */
+  slowSteps?: [number, number];
 }
 
 export interface MatchLine {

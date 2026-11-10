@@ -257,10 +257,14 @@ function t9(all, run) {
   const p99 = quantile(all.map((m) => m.totals.movingMax ?? 0), 0.99);
   const worst = Math.max(...all.map((m) => m.totals.worstMs ?? 0));
   const mach = run?.machine ? `${run.machine.cpu ?? "unknown cpu"}, ${run.machine.cpus ?? "?"} cpus, node ${run.machine.node ?? "?"}` : "machine unknown";
+  // Steps over 33 ms per match (lines from before slowSteps lack it): one slow step on a busy machine says little, many say more.
+  const slow = all.filter((m) => m.totals.slowSteps).map((m) => m.totals.slowSteps[1]);
+  const slowMed = slow.length ? quantile(slow, 0.5) : null;
+  const slowText = slowMed === null ? "" : `; steps over 33 ms per match: median ${num(slowMed, 0)}, most ${num(Math.max(...slow), 0)}`;
   return {
-    value: `p99 of most stones moving ${num(p99, 0)}; worst step ${num(worst)} ms (measured on ${mach}; the reference is an Apple M3 laptop, so elsewhere it is only indicative)`,
+    value: `p99 of most stones moving ${num(p99, 0)}; worst step ${num(worst)} ms${slowText} (measured on ${mach}; the reference is an Apple M3 laptop, so elsewhere it is only indicative)`,
     pass: p99 <= 600 && worst <= 33,
-    data: { movingP99: p99, worstMs: worst, machine: run?.machine ?? null },
+    data: { movingP99: p99, worstMs: worst, slowStepsMedian: slowMed, machine: run?.machine ?? null },
   };
 }
 
