@@ -56,10 +56,13 @@ export const TIERS: Record<QualityTier, TierSettings> = {
   ultra: { pixelRatioCap: 2, pixelRatioScale: 1, shadowMap: 4096, shadowTaps: 16, softShadows: true, ao: "full", bloom: true, aa: "smaa", halfTrees: false },
 };
 
-export class Post {
-  readonly pipeline: THREE.RenderPipeline;
-  private readonly u = {
-    aoStrength: uniform(0.8),
+/**
+ * The per-style grade (saturation, contrast, lift and gain, vignette, grain) applied after
+ * tone mapping. `node` takes the uv to measure the vignette from: the screen's for the main
+ * view, the quad's own for the impact cam's inset, which covers only part of the screen.
+ */
+export class Grade {
+  readonly u = {
     saturation: uniform(1),
     contrast: uniform(1),
     lift: uniform(new THREE.Vector3()),
@@ -68,6 +71,39 @@ export class Post {
     grain: uniform(0),
     time: uniform(0),
   };
+
+  apply(style: StylePreset) {
+    const u = this.u;
+    u.saturation.value = style.grade.saturation;
+    u.contrast.value = style.grade.contrast;
+    u.lift.value.set(...style.grade.lift);
+    u.gain.value.set(...style.grade.gain);
+    u.vignette.value = style.grade.vignette;
+    u.grain.value = style.grade.grain;
+  }
+
+  node(input: N, uvNode: N): N {
+    const u = this.u;
+    return Fn(() => {
+      const c: N = input.rgb.toVar();
+      c.assign(c.mul(u.gain).add(u.lift.mul(float(1).sub(c))));
+      const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+      c.assign(mix(vec3(l), c, u.saturation));
+      c.assign(c.sub(0.5).mul(u.contrast).add(0.5));
+      const p = uvNode.sub(0.5).mul(vec2(1.25, 1.0));
+      const vig = float(1).sub(smoothstep(0.35, 0.95, length(p)).mul(u.vignette));
+      c.mulAssign(vig);
+      const g = hash(screenCoordinate.x.add(screenCoordinate.y.mul(4096.0)).add(u.time.mul(60.0).floor().mul(7919.0)).add(1.0)).sub(0.5);
+      c.addAssign(g.mul(u.grain));
+      return vec4(c.clamp(0.0, 1.0), 1.0);
+    })();
+  }
+}
+
+export class Post {
+  readonly pipeline: THREE.RenderPipeline;
+  private readonly u = { aoStrength: uniform(0.8) };
+  private readonly grade = new Grade();
   private aoNode: N = null;
   private bloomNode: N = null;
   private scenePass: N = null;
@@ -116,20 +152,7 @@ export class Post {
     const toned: N = renderOutput(colorNode);
     const aa: N = tier.aa === "smaa" ? smaa(toned) : fxaa(toned);
     this.disposables.push(aa);
-    const u = this.u;
-    const graded: N = Fn(() => {
-      const c: N = aa.rgb.toVar();
-      c.assign(c.mul(u.gain).add(u.lift.mul(float(1).sub(c))));
-      const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      c.assign(mix(vec3(l), c, u.saturation));
-      c.assign(c.sub(0.5).mul(u.contrast).add(0.5));
-      const p = screenUV.sub(0.5).mul(vec2(1.25, 1.0));
-      const vig = float(1).sub(smoothstep(0.35, 0.95, length(p)).mul(u.vignette));
-      c.mulAssign(vig);
-      const g = hash(screenCoordinate.x.add(screenCoordinate.y.mul(4096.0)).add(u.time.mul(60.0).floor().mul(7919.0)).add(1.0)).sub(0.5);
-      c.addAssign(g.mul(u.grain));
-      return vec4(c.clamp(0.0, 1.0), 1.0);
-    })();
+    const graded: N = this.grade.node(aa, screenUV);
     this.pipeline.outputColorTransform = false;
     this.pipeline.outputNode = graded;
     this.pipeline.needsUpdate = true;
@@ -140,12 +163,7 @@ export class Post {
   applyStyle(style: StylePreset) {
     const u = this.u;
     u.aoStrength.value = style.ao.strength;
-    u.saturation.value = style.grade.saturation;
-    u.contrast.value = style.grade.contrast;
-    u.lift.value.set(...style.grade.lift);
-    u.gain.value.set(...style.grade.gain);
-    u.vignette.value = style.grade.vignette;
-    u.grain.value = style.grade.grain;
+    this.grade.apply(style);
     if (this.aoNode) {
       this.aoNode.radius.value = style.ao.radius;
       this.aoNode.thickness.value = style.ao.thickness;
@@ -168,7 +186,7 @@ export class Post {
   }
 
   render(time: number) {
-    this.u.time.value = time;
+    this.grade.u.time.value = time;
     this.pipeline.render();
   }
 

@@ -61,6 +61,12 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 #wind-arrow::before { content: ""; position: absolute; left: 50%; top: 2px; bottom: 50%; width: 2px; margin-left: -1px; background: var(--aim); }
 #wind-arrow::after { content: ""; position: absolute; left: 50%; top: -2px; border: 6px solid transparent; border-bottom: 9px solid var(--aim); border-top: 0; margin-left: -6px; }
 .reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+/* The impact cam: an inset on where your shot lands, under the top bar on the right, in a thin brass frame. The renderer draws into the rectangle this element covers; the shade fades it in and out. */
+.impact { position: absolute; top: calc(68px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: max(25%, 200px); aspect-ratio: 16 / 9; box-sizing: border-box; box-shadow: 0 0 0 2px var(--brass), 0 0 0 3px rgba(0, 0, 0, 0.7), 0 8px 22px rgba(0, 0, 0, 0.5); border-radius: 2px; cursor: pointer; z-index: 5; }
+.impact .shade { position: absolute; inset: 0; background: #000; opacity: var(--shade, 0); pointer-events: none; }
+.impact .cap { position: absolute; left: 6px; top: 5px; font: 500 11px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
+.impact .cap kbd { font: 500 10px/1 var(--mono); color: var(--brass); }
+body.impact-swapped .reticle { display: none; }
 .reticle::before, .reticle::after { content: ""; position: absolute; background: var(--aim); box-shadow: 0 0 0 1px rgba(0,0,0,0.6); }
 .reticle::before { width: 18px; height: 2px; left: -9px; top: -1px; }
 .reticle::after { width: 2px; height: 18px; left: -1px; top: -9px; }
@@ -479,6 +485,7 @@ body.title-screen .side > * { display: none !important; }
   <canvas id="scene" aria-label="The battlefield"></canvas>
   <div id="ovmarks" class="ovmarks" hidden aria-hidden="true"></div>
   <div id="reticle" class="reticle" aria-hidden="true"></div>
+  <div id="impact" class="impact" hidden title="Impact cam: click to swap with the main view, K turns it off"><div class="shade"></div><span class="cap">Impact <kbd>K</kbd></span></div>
   <div id="want" hidden aria-hidden="true"></div>
   <div id="lock-hint" class="hint glass"><kbd>Click</kbd> take the gun <kbd>Esc</kbd> free the mouse</div>
   <div id="ride-hint" class="hint glass ride" hidden>Riding the shell <kbd>Space</kbd> back to the mortar</div>
@@ -554,6 +561,7 @@ body.title-screen .side > * { display: none !important; }
       <dt>Guns</dt><dd>Knock one out: bring down the masonry under it, hit it square, sweep its crew with chain shot, or shell it. It is out 30 s, or until masons rebuild under it (20 gold to whoever does it)</dd>
       <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
       <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
+      <dt>K</dt><dd>Impact cam: a small view of where your shot lands, a second before it does. Click it to swap views</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
       <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
       <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
