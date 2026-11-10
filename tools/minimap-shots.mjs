@@ -104,7 +104,7 @@ try {
   await pair("02-rising");
   // Walls: shells at the foot of the enemy front wall, left of its gate as its owner sees it, one after another.
   const yaws = [-0.0707, -0.0707, -0.0624, -0.0624, -0.0788, -0.0788];
-  for (let i = 0; i < yaws.length; i++) {
+  for (let i = 0; i < yaws.length && !process.env.SKIP_WALLS; i++) {
     await fireAt(yaws[i]);
     await report(`after shot ${i + 1}`);
     await pair(`03-wall-${i + 1}`);
@@ -132,8 +132,34 @@ try {
   await sb(() => window.__sandbox.patchMap({ storm: [0.55, 0], stormOn: [true, false] }));
   await pair("07-storm");
   await sb(() => window.__sandbox.patchMap(null));
-  // Cost: the draw's time as the page measured it over this run.
-  console.log("draw ms", JSON.stringify(await sb(() => window.__sandbox.minimapMs)));
+  // Every state of a wall cell side by side (laid over the worker's counts): damaged and half gone along your own castle's walls, a breach, hurt towers.
+  const base = await shares();
+  const cell = (castle, k) => (castle * 30 + k) * 2;
+  const set = (a, castle, k, share, foot) => { a[cell(castle, k)] = share; a[cell(castle, k) + 1] = foot; };
+  const states = Array.from(base);
+  set(states, 1, 1 * 6 + 1, 85, 95); set(states, 1, 1 * 6 + 2, 70, 90); set(states, 1, 1 * 6 + 3, 45, 80); // your side wall: damaged, damaged, half gone
+  set(states, 1, 3 * 6 + 2, 30, 20); set(states, 1, 3 * 6 + 3, 10, 5); // your back wall: a breach two cells wide
+  set(states, 1, 25, 80, 100); set(states, 1, 26, 40, 100); // your front towers: damaged, half gone
+  set(states, 0, 2 * 6 + 4, 88, 100); set(states, 0, 24, 50, 100); // their side wall damaged, their gate hurt
+  await sb((a) => window.__sandbox.patchMap({ sections: Uint8Array.from(a) }), states);
+  await pair("08-states");
+  // A cell flashes once when it is hit: lower two cells and take the very frame it draws.
+  await sb((a) => { window.__sandbox.patchMap({ sections: Uint8Array.from(a) }); window.__sandbox.redrawMap(); }, states);
+  const hit = states.slice();
+  set(hit, 1, 0 * 6 + 2, 60, 80); set(hit, 1, 27, 60, 100);
+  await sb((a) => { window.__sandbox.patchMap({ sections: Uint8Array.from(a) }); window.__sandbox.redrawMap(); }, hit);
+  await canvasShot(`${out}minimap-09-flash.png`);
+  console.log("shot 09-flash");
+  await sb(() => window.__sandbox.patchMap(null));
+  // Cost: ms per draw, timed over 300 draws on a busy machine, at the real size and at twice it.
+  const r = await sb(() => { const b = document.getElementById("mapbox").getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  console.log("ms per draw at real size:", (await sb(() => window.__sandbox.benchMinimap(300))).toFixed(3));
+  await page.mouse.move(r.x, r.y);
+  await page.waitForFunction(() => window.__sandbox.mapBig, null, { polling: 100 });
+  await sleep(1500);
+  console.log("ms per draw at twice the size:", (await sb(() => window.__sandbox.benchMinimap(300))).toFixed(3));
+  await page.mouse.move(5, 5);
+  console.log("draw ms as the page measured them over this run", JSON.stringify(await sb(() => window.__sandbox.minimapMs)));
   // The whole HUD once more, with a wall hit.
   if (want("hud")) {
     await page.screenshot({ path: `${out}minimap-hud-late.png` });

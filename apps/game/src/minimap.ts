@@ -976,7 +976,12 @@ export class Minimap {
     for (const f of found) {
       const wd = f.n >= 10 ? 34 : 27;
       const right = f.maxX + 9 + wd <= VW - 4;
-      const tx = right ? f.maxX + 9 : f.minX - 9 - wd, ty = f.y - 10;
+      const tx = right ? f.maxX + 9 : f.minX - 9 - wd;
+      let ty = f.y - 10;
+      // Never over a castle's masonry (a wave leaving its gate would hide the breach): out into the field.
+      for (const cy of [MINE_Y, THEIRS_Y]) {
+        if (tx + wd > 195 - 78 && tx < 195 + 78 && ty + 20 > cy - 78 && ty < cy + 78) ty = cy === MINE_Y ? cy - 78 - 20 : cy + 78;
+      }
       let best: Plate | null = null, bd = 60;
       for (const p of this.plates) {
         if (p.seen || p.team !== f.team) continue;

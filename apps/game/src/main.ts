@@ -2887,6 +2887,15 @@ else {
   patchMap(p: Partial<MinimapState> | null) {
     mapPatch = p;
   },
+  /** L0: draw the minimap now (a still wants the very frame), and time n draws of it (ms each). */
+  redrawMap() {
+    drawMap();
+  },
+  benchMinimap(n: number) {
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) drawMap();
+    return (performance.now() - t0) / n;
+  },
   get minimapMs() {
     return { last: minimap.lastMs, avg: minimap.avgMs, draws: minimap.draws };
   },
