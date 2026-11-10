@@ -77,6 +77,17 @@ body.impact-swapped .reticle { display: none; }
 .hint.tally.show { animation: tally 3.2s ease-out forwards; }
 @keyframes tally { 0% { opacity: 0; transform: translateY(6px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hint.tally.show { animation: none; } }
+/* The steward's order line (track V): one line at the bottom centre. */
+.steward { position: absolute; left: 50%; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(520px, calc(100% - 32px)); display: grid; gap: 6px; justify-items: stretch; z-index: 25; pointer-events: none; }
+.steward-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; pointer-events: auto; }
+.steward-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; font: 500 12px/1.2 var(--ui); background: var(--glass-strong); border: 1px solid var(--line); }
+.steward-chip button { border: 0; background: transparent; color: var(--ink-dim); padding: 0 6px; cursor: pointer; font: 500 13px/1 var(--ui); }
+.steward-answer { justify-self: center; padding: 6px 12px; border-radius: 8px; font: 500 14px/1.25 var(--ui); background: var(--glass-strong); border: 1px solid var(--line); text-align: center; }
+.steward-answer.bad { color: #e9b2a6; }
+.steward-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--glass-strong); border: 1px solid var(--line); pointer-events: auto; }
+.steward-row input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--ink); font: 500 15px/1.3 var(--ui); }
+#steward-listen { font: 600 12px/1 var(--ui); color: var(--brass); letter-spacing: 0.04em; text-transform: uppercase; }
+#steward-refused { margin: 0; padding-left: 18px; font: 12px/1.4 var(--mono); color: var(--ink-dim); }
 .weapon .target { color: var(--ink); }
 .weapon .target:empty { display: none; }
 input[type="range"] { accent-color: var(--brass); width: 120px; }
@@ -567,11 +578,15 @@ body.title-screen .side > * { display: none !important; }
       <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
       <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
+      <dt>Enter</dt><dd>Order line: type orders in plain words ("mill, then waves left"), Enter sends, Esc closes. Aiming goes on behind it</dd>
+      <dt id="steward-voice-dt" hidden>T (hold)</dt><dd id="steward-voice-dd" hidden>Speak an order; let go to send it</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
       <dt>N</dt><dd>Where minions can walk: green open, amber cut off, red blocked</dd>
       <dt>M, P</dt><dd>Sound on or off; pause (not against a friend)</dd>
       <dt>Gamepad</dt><dd>Left stick aim, right stick fine aim, RT fire, LT zoom, bumpers switch gun, D-pad fuse (up, down), orders (left), route (right), X spin, Y shot camera, B back, View overview</dd>
     </dl>
+    <h3 id="steward-refused-head" class="small" hidden>Orders the steward did not understand</h3>
+    <ol id="steward-refused" hidden></ol>
     <p class="small">Win by bringing down the three floors of the enemy keep, or by holding its courtyard for 20 s with more men inside than its defenders. Gold comes from your keep and mills, enemies you knock down, enemy masonry, hits on the enemy keep and enemy guns knocked out. Aim help shows the first part of each flight and where your last shot landed: correct from there, and mind the wind.</p>
     <div class="row group">
       <label class="small" for="quality">Quality</label>
@@ -581,6 +596,7 @@ body.title-screen .side > * { display: none !important; }
       <label class="check"><input type="checkbox" id="gore" checked> Gore</label>
       <label class="check"><input type="checkbox" id="slowmo"> Slow motion at impacts</label>
       <label class="check"><input type="checkbox" id="navbox"> Where minions can walk (N)</label>
+      <label class="check" id="steward-speak-row" hidden><input type="checkbox" id="steward-speak"> Steward answers aloud</label>
     </div>
     <div class="row group">
       <label class="small" for="volume">Volume</label>
@@ -620,6 +636,14 @@ body.title-screen .side > * { display: none !important; }
     <div id="note" class="hint glass" hidden role="status"></div>
     <div id="trick" class="hint glass trick" hidden role="status"></div>
     <div id="tally" class="hint glass tally" hidden role="status"></div>
+  </div>
+  <div id="steward" class="steward" hidden>
+    <div id="steward-chips" class="steward-chips" hidden></div>
+    <div id="steward-answer" class="steward-answer" hidden role="status" aria-live="polite"></div>
+    <div id="steward-row" class="steward-row glass" hidden>
+      <span id="steward-listen" hidden>Listening</span>
+      <input id="steward-input" type="text" autocomplete="off" spellcheck="false" maxlength="200" placeholder='Orders: "mill, then waves left"' aria-label="Orders for the steward">
+    </div>
   </div>
   <div id="build" class="wheel glass" hidden role="dialog" aria-label="Build"></div>
   <div id="loading" class="center" hidden><div class="glass">Raising the walls...</div></div>
