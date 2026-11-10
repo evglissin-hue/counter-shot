@@ -25,6 +25,19 @@ export const enum Aim {
   Gun = 30,
 }
 
+/** The kinds of target shots are counted by (for tools): Aim.Raid + plot counts as "raid", Aim.Gun + emplacement as "gun". */
+export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun"] as const;
+
+/** The index in AIM_GROUPS of a target's key. */
+function aimGroup(key: number): number {
+  if (key >= Aim.Gun) return 5;
+  if (key >= Aim.Masons) return 4;
+  if (key >= Aim.Raid) return 3;
+  if (key === Aim.Breach) return 2;
+  if (key === Aim.Crowd) return 1;
+  return 0;
+}
+
 interface Target {
   /** What it is (Aim, a raid with its plot): a new key is a new target, whose first shot carries the eye's first error. */
   key: number;
@@ -81,6 +94,8 @@ export class Gunner {
   /** The emplacement it rides (-1: none). */
   riding = -1;
   shotsFired = 0;
+  /** Shots fired by what they were laid for, indexed as AIM_GROUPS (for tools; sums to shotsFired). */
+  readonly byAim = [0, 0, 0, 0, 0, 0];
   private aim: AimState = { yaw: 0, pitch: 0 };
   private target: Target | null = null;
   private lay: Lay | null = null;
@@ -232,6 +247,7 @@ export class Gunner {
     this.sentYaw = a.yaw;
     this.sentPitch = a.pitch;
     this.shotsFired++;
+    this.byAim[aimGroup(this.target.key)]++;
     const L = this.lay;
     this.flight = { emp: e.id, tick, lobbed: w.minSpeed < w.speed, x: L.x, y: L.y, z: L.z, sYaw: L.sYaw, sPitch: L.sPitch };
     if (this.target.key === Aim.Keep) this.faceStep++;

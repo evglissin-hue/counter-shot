@@ -7,3 +7,4 @@ export * from "./buildings";
 export * from "./arsenal";
 export * from "./siege";
 export * from "./ai";
+export * from "./tuning";

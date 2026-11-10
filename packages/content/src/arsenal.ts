@@ -183,3 +183,8 @@ export function armedWeapon(kind: WeaponKind, upgrade?: UpgradeKind): WeaponDef 
 export function weaponOf(e: Emplacement): WeaponDef {
   return armedWeapon(e.weapon, e.upgrade);
 }
+
+/** For tools: forget every upgraded weapon armedWeapon() has made (after content was tuned or restored). */
+export function clearArmedCache() {
+  armed.clear();
+}
