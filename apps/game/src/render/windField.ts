@@ -19,17 +19,9 @@
 import * as THREE from "three/webgpu";
 import { clamp, dot, exp, float, max, min, sin, texture, uniform, vec2 } from "three/tsl";
 import type { N } from "./tslUtils";
+import { BAND, WIND_MAX, WindState } from "./windState";
 
-/** How fast a front crosses the land (m/s). A gust 2 to 5 s out starts 60 to 150 m upwind. */
-export const FRONT_SPEED = 30;
-/** Half width of a front's band on the land (m). */
-export const BAND = 9;
-/** How long a passing front rolls on downwind before it has faded (s). */
-export const PASS_FADE = 5;
-/** The strongest wind the match makes (m/s; sim Wind's maxSpeed with a full gust), for normalising. */
-export const WIND_MAX = 13.75;
-/** How fast the upwind side eases to a new gust's wind (1/s), so a new front never snaps the far land. */
-const NEXT_EASE = 3;
+export { FRONT_SPEED, BAND, PASS_FADE, WIND_MAX } from "./windState";
 
 export class WindField {
   /** The wind now at the gun (m/s, x and z). */
@@ -40,31 +32,14 @@ export class WindField {
   readonly front = uniform(new THREE.Vector4(0, -1e5, 0, 1));
   /** The passing front, the same way; its strength fades to 0. */
   readonly past = uniform(new THREE.Vector4(0, -1e5, 0, 1));
-  /** Signed size of each front's change: (|next| - |now|) / max(|now|, 2), so + is a gust and - a lull. x: coming, y: passing (faded). */
+  /** Signed size of each front's change: (|lead| - |wind the gust began from|) / max(|from|, 2), so + is a gust and - a lull. x: coming, y: passing (faded). */
   readonly change = uniform(new THREE.Vector2(0, 0));
   /** The wind integrated over time (m): noise that rides the wind scrolls by it. */
   readonly drift = uniform(new THREE.Vector2(0, 0));
   private readonly time: N;
   private readonly noise: THREE.Texture;
-  private anchorX = 0;
-  private anchorZ = -150;
-  private nowX = 0;
-  private nowZ = 0;
-  private leadX = 0;
-  private leadZ = 0;
-  private nextX = 0;
-  private nextZ = 0;
-  /** Seconds until the coming front reaches the anchor. */
-  private left = 0;
-  private dirX = 0;
-  private dirZ = 1;
-  private pastAge = PASS_FADE;
-  private pastChange = 0;
-  private pastX = 0;
-  private pastZ = -1e5;
-  private pastDirX = 0;
-  private pastDirZ = 1;
-  private hasLead = false;
+  /** The CPU half (plain numbers; tested in Node). */
+  readonly state = new WindState();
 
   constructor(time: N, noise: THREE.Texture) {
     this.time = time;
@@ -73,68 +48,24 @@ export class WindField {
 
   /** Each sim frame: the wind now and where it is heading (gust fields may be missing in old frames: then no front shows). */
   setFrame(windX: number, windZ: number, gustX?: number, gustZ?: number, gustIn?: number) {
-    this.nowX = windX || 0;
-    this.nowZ = windZ || 0;
-    if (gustX === undefined || gustZ === undefined || gustIn === undefined) {
-      this.hasLead = false;
-      this.leadX = this.nowX;
-      this.leadZ = this.nowZ;
-      this.left = 0;
-      return;
-    }
-    const left = gustIn / 60;
-    // A new gust began: the front that was coming has reached the gun and rolls on.
-    if (this.hasLead && left > this.left + 0.25) {
-      this.pastAge = 0;
-      this.pastChange = this.changeOf(this.nextX, this.nextZ, this.nowX, this.nowZ);
-      this.pastX = this.anchorX;
-      this.pastZ = this.anchorZ;
-      this.pastDirX = this.dirX;
-      this.pastDirZ = this.dirZ;
-    }
-    this.hasLead = true;
-    this.leadX = gustX;
-    this.leadZ = gustZ;
-    this.left = left;
+    this.state.setFrame(windX, windZ, gustX, gustZ, gustIn);
   }
 
   /** Where the front is aimed: the gun you ride (or the camera's focus when you ride none). */
   setAnchor(x: number, z: number) {
-    this.anchorX = x;
-    this.anchorZ = z;
+    this.state.setAnchor(x, z);
   }
 
   /** Once per rendered frame (cosmetic dt). */
   update(dt: number) {
-    const d = this.drift.value;
-    d.x += this.nowX * dt;
-    d.y += this.nowZ * dt;
-    // Keep the drift small so the noise lookups stay precise (the wrap is far beyond any noise period used).
-    if (Math.abs(d.x) > 4096) d.x -= Math.sign(d.x) * 4096;
-    if (Math.abs(d.y) > 4096) d.y -= Math.sign(d.y) * 4096;
-    this.now.value.set(this.nowX, this.nowZ);
-    const k = 1 - Math.exp(-dt * NEXT_EASE);
-    this.nextX += (this.leadX - this.nextX) * k;
-    this.nextZ += (this.leadZ - this.nextZ) * k;
-    this.next.value.set(this.nextX, this.nextZ);
-    this.left = Math.max(0, this.left - dt);
-    const sp = Math.hypot(this.nextX, this.nextZ);
-    if (sp > 0.05) {
-      this.dirX = this.nextX / sp;
-      this.dirZ = this.nextZ / sp;
-    }
-    const dist = this.hasLead ? this.left * FRONT_SPEED : 0;
-    this.front.value.set(this.anchorX - this.dirX * dist, this.anchorZ - this.dirZ * dist, this.dirX, this.dirZ);
-    this.pastAge += dt;
-    const fade = Math.max(0, 1 - this.pastAge / PASS_FADE);
-    const travelled = this.pastAge * FRONT_SPEED;
-    this.past.value.set(this.pastX + this.pastDirX * travelled, this.pastZ + this.pastDirZ * travelled, this.pastDirX, this.pastDirZ);
-    this.change.value.set(this.hasLead ? this.changeOf(this.nextX, this.nextZ, this.nowX, this.nowZ) : 0, this.pastChange * fade);
-  }
-
-  private changeOf(ax: number, az: number, bx: number, bz: number): number {
-    const a = Math.hypot(ax, az), b = Math.hypot(bx, bz);
-    return Math.max(-1, Math.min(1, (a - b) / Math.max(b, 2)));
+    const s = this.state;
+    s.update(dt);
+    this.drift.value.set(s.driftX, s.driftZ);
+    this.now.value.set(s.nowX, s.nowZ);
+    this.next.value.set(s.nextX, s.nextZ);
+    this.front.value.set(s.frontX, s.frontZ, s.frontDirX, s.frontDirZ);
+    this.past.value.set(s.pastX, s.pastZ, s.pastDirX, s.pastDirZ);
+    this.change.value.set(s.changeNext, s.changePast);
   }
 
   // --- TSL: evaluate at a world point (xz is a vec2 node) --------------------
@@ -186,19 +117,11 @@ export class WindField {
 
   /** The wind at (x, z) as `at` computes it, into out [x, z]. */
   sampleAt(x: number, z: number, out: { x: number; z: number }) {
-    const f = this.front.value;
-    const s = (x - f.x) * f.z + (z - f.y) * f.w;
-    const behind = 1 - Math.min(1, Math.max(0, (s / BAND) * 0.5 + 0.5));
-    const n = this.now.value, nx = this.next.value;
-    out.x = n.x + (nx.x - n.x) * behind;
-    out.z = n.y + (nx.y - n.y) * behind;
+    this.state.sampleAt(x, z, out);
   }
 
   /** The signed band at (x, z) as `band` computes it. */
   bandAt(x: number, z: number): number {
-    const f = this.front.value, p = this.past.value, c = this.change.value;
-    const a = ((x - f.x) * f.z + (z - f.y) * f.w) / BAND;
-    const b = ((x - p.x) * p.z + (z - p.y) * p.w) / BAND;
-    return Math.exp(-a * a) * c.x + Math.exp(-b * b) * c.y;
+    return this.state.bandAt(x, z);
   }
 }
