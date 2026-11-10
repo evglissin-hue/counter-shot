@@ -1,0 +1,104 @@
+# Track S: the shot as a show
+
+## Goal
+
+Every big moment gets the best seat. An inset shows your shot land as it happens; the best moments of a match come back as replays from a film camera; a match ends with its own thirty-second film you can save; and a whole match can be saved and watched again.
+
+The owner asked for the kill cam by name. S1 and S2 start with milestone 3.1 and need nothing else.
+
+## Why
+
+From the long gun a hit is a puff 150 m away. The shell ride shows how much a good camera gives, but only the mortar has one. And physics games are passed on as clips: a film at the end of every match is the cheapest way this game can be shown to someone.
+
+## What the code allows (traced on November 10)
+
+- A frame from the worker holds only what moved. A stone at rest, a body that has stopped moving, the ground's craters and a gun's state are sent once and then remembered by the renderer. So a stretch of recorded frames cannot be drawn again without a picture of the renderer's world at its start: a **keyframe**.
+- Every array in a frame is transferred to the page, so keeping frames costs no copying: about 0.5 MB a second in a calm match, and up to 0.5 MB for one frame of a great collapse.
+- There is one renderer and its state only goes forward. A second camera on the same moment is cheap; a replay of the past must take the renderer over and give it back.
+- A free camera can already look anywhere while a match runs (the screenshot tools' `look()`), and `render-test.ts` already drives the renderer from frames with no sim.
+- No list of a match's inputs is kept anywhere today (`Match.step` drops each tick's inputs once applied), and no whole-world snapshot exists. Replays by running the sim again need a log first (S6).
+- The match never slows for a camera online. Slow motion in a replay is the page drawing recorded frames slowly.
+
+## Steps
+
+### S1. Moments and the book of feats
+
+1. A **moment** is something worth showing: when, where, what kind, whose doing, a score, and a line of words ("Tower down: 212 stones, 9 men, a gun").
+2. The page finds moments from what it is already told (the earned feed with its places, each shot's tally, gun and plot states, the keep's floors, the storm) and from two new events the sim adds without touching a match's state:
+   - **Down**: a man fell, with the cause the sim already records (ball, burst, masonry, blow, fall, musket), the shot and how far he was thrown;
+   - **Fell**: a count of stones that came loose this tick by structure.
+3. Kinds to start with: a multi-kill; a ricochet kill; a collapse kill; a man thrown 20 m or more; kegs set off in a chain; a gun silenced; a building wrecked; a gate down; a breach opened; a floor caved in; a banner down a floor; a bridge down with men on it; a storm begun or beaten off; the last blow of a match. Each milestone adds its own (a mark's salvo, a magazine, a topple, a fire, a rout, an engine wrecked).
+4. Score: a base by kind, times its size (stones, men), more for the rare.
+5. **The book of feats**: named moments with a threshold, about fifty by the end of phase 3 ("Timber", "Domino", "Skipping stone", "Return to sender" for a keg sent back among its own). A first feat gets a toast and a page in the book with its date and your best. Feats pay no gold: the four trick shots that pay stay in the rules.
+
+### S2. The impact cam
+
+1. A second camera draws the same world, at the same instant, into an **inset** (a quarter of the screen's width, 16 by 9, under the top bar on the right, in a thin brass frame).
+2. It opens when a shot you fired by hand is a second from landing (the flight the page already predicts for the shell ride), and for a moment scoring high within your own castle that you are not looking at.
+3. The camera stands 30 to 40 m to one side of where the shot will land and a little above, on the side clear of masonry, and pushes in slowly. It stays 3 s past the landing, then closes.
+4. A click on it swaps it with the main view until it closes. K (if free) turns the impact cam off and on; it is on to start for the long gun and the chain shot, and off for the mortar while the shell ride is on.
+5. Cost: a second pass of the scene at about a third of the resolution, with no ambient occlusion, sharing the shadow map. It is skipped while the frame pacer is at its lowest resolution.
+6. It only draws, so it is the same online.
+
+### S3. The recorder
+
+1. The page keeps the last 40 s of frames as they came (to a cap of 48 MB), with each frame's gun barrels, guns out, storm and bridges.
+2. Every 10 s it takes a **keyframe** of the renderer's world: every stone not at its place as built (dust and withdrawn ones too), the bodies that have stopped moving, the ground, guns out and fallen, the kegs sappers have set down, plots, and later the state of fire, smoke, water and the day. `capture()` and `apply()` are a pair: applying a keyframe must put the renderer exactly there.
+3. When a moment scores above the film's line, its **clip** is copied out: the keyframe before, and frames from 4 s before the moment to 6 s after. The **reel** keeps the 8 best clips of a match, to 120 MB; the lowest score goes first.
+4. What the renderer makes up by chance (where a limb falls, a decal's turn) is drawn from the event's own tick and place, so a clip looks the same each time it is played.
+
+### S4. The replay
+
+1. A replay takes the renderer over: apply the clip's keyframe, feed its frames to a timeline at the speed wanted (a third of a second runs unseen first, so figures and smoke are in step), then apply the keyframe of now to give the view back.
+2. When replays play:
+   - at a match's end, the last blow, before the end screen;
+   - on the end screen, as the film (S5);
+   - alone (the Practice range, a siege, a match against the AI), R (if free) replays the last moment while the match waits;
+   - never over a match against a friend, where the impact cam serves.
+3. **The director**: a recipe by kind of moment. A topple: side on from 60 m, low, at real speed through the lean, a quarter speed from the release to the ground, real speed for the dust. A multi-kill: beside the ball at a fifth speed. A magazine: wide, then close as the stones come down. The camera never passes through standing masonry, and a clip is filmed the same way each time.
+4. In a replay the HUD is hidden, the bars close in top and bottom, a caption gives the moment's name and its tally, and the sound is played again from the clip's events (lower and longer when slowed, as a burst already is). Notes, tallies and gold are not given twice: the page's handling of a frame is split into what the world shows and what the match tells.
+5. Depth of field and motion blur (track L, round L5) are for replays and photos only.
+
+### S5. The film and the photo
+
+1. "Watch the film" on the end screen: a title card (both castles' colours, the result, the day), the five best clips in the order they happened, 30 to 45 s in all.
+2. "Save the film" records the canvas and the game's sound as the film plays (the browser's own recorder: webm, or mp4 where it is offered) and hands over a file.
+3. **Photo mode**, in a replay or a waiting match: a free camera, the field of view, the focus, a step forwards and back through the clip, the HUD off, save a picture.
+
+### S6. The log and replay files
+
+1. The worker keeps every input a match applied (tick, team, seat, input) and the match's setup (mode, seed, levels, options, both rules versions, a hash of content). Aim inputs are only for drawing a barrel: keep one in four.
+2. "Save the replay" writes a small file. "Watch a replay" opens one and runs it as a match with both castles driven by the log: free cameras, and 1, 2 or 4 times speed as the machine allows. A file from other rules versions is refused, and says why.
+3. The log is also what rewind needs (3.12), what the observatory needs to show a match from its table, and what a bug report should carry.
+
+## Data and code
+
+- All of it is on the game page (`apps/game`), except the two events of S1 and the log of S6 in the worker. No pinned hash moves; say so in the Status.
+- New modules: `moments.ts`, `feats.ts`, `recorder.ts` (the ring, keyframes, the reel), `replay.ts` (the player), `director.ts`, `film.ts`; the inset in the renderer (`GameRenderer` draws a second camera to a part of the canvas).
+- The renderer gains `capture()` and `apply()` across its stones, bodies, ground, guns and plots.
+
+## Tests and measures
+
+- Apply a keyframe, play its clip twice: the same pictures (a contact sheet test, as `tools/anim-shots.mjs` does).
+- After a replay the live view equals what it would have shown (compare stone poses with a page that did not replay).
+- The reel never passes its cap.
+- A replay file run again ends at the saved match's final hash.
+- New tools: `tools/show-shots.mjs` (stills of the inset and of each director recipe on the test clock).
+- Measure the inset's cost in frame time at each tier, and the recorder's memory through a ten-minute match.
+
+## Dead ends to hunt
+
+- A replay that leaves the view in the past (the live keyframe is always applied, also when a replay is skipped).
+- A film on a machine too slow to draw it in time: the recording follows the game's clock, not the wall's.
+
+## Try
+
+Fire the long gun and watch the hit in the inset. Win a match and watch its last blow from the director's chair, then the film; save it and send it to someone.
+
+## For the owner
+
+- Should the impact cam be on by default? The spec says yes for the long gun and the chain shot.
+
+## Status
+
+Not started.

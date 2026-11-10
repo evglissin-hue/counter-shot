@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.4)
+# Keepfall: Game Spec (draft 0.5)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Draft 0.5 adds the direction the owner approved after phase 2 (November 10): a sixth pillar (section 1) and phase 3 in the build phases (section 15). Sections 2 to 14 still describe the game as phase 2 left it; each phase 3 milestone folds its rules into them as it ships (`docs/phase-3.md` and the specs under `docs/phase-3/` say what is coming). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -15,6 +15,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 3. **Light RTS, no grind.** Few decisions with big consequences. Repetitive work is automated, and everything is on hotkeys.
 4. **Readable chaos.** You can always tell where shots are going, what is about to fall and what threatens you.
 5. **Same match on both screens.** The simulation is deterministic, so online play sends only inputs.
+6. **Strategy you can shoot** (phase 3). Every capability of a castle is a thing that stands somewhere and breaks in its own way; shooting costs powder the castle must make; a keep falls because what held it up was cut. When a design call is unclear: you can shoot the tech tree.
 
 ## 2. Platforms, players and modes
 
@@ -360,17 +361,26 @@ Each phase ends with a playable, deployed version.
    - The production monorepo with enforced package boundaries.
    - An Ashwright castle facing a target castle in the Gritty style, with all four weapons and real ballistics (drag, wind, spin, the chain shot as two linked balls).
    - Aim help, sight zoom, the shot camera, craters, a wind gauge, and test minions that ragdoll.
-2. **A full match versus the AI**:
+2. **A full match versus the AI** (done, `docs/phase-2.md`):
    - Build plots, buildings, gold and upgrades, repairs.
    - Barracks and waves with flow-field paths, orders, routes that physics can close.
    - Both win conditions, the AI castle, and the guided first match.
-3. **Online 1v1** (completes the MVP): lockstep over Cloudflare rooms, invite links, desync checks.
+   - Online 1v1 in lockstep, brought forward: it runs over the claude.ai artifact's room. Cloudflare rooms and invite links are still to come.
+3. **One game** (`docs/phase-3.md`; each milestone has its spec under `docs/phase-3/`): the parts of a match made to depend on each other, in this order:
+   - the observatory (AI matches by the thousand, measured against targets);
+   - range and register; powder; the keep that falls by engineering;
+   - machines; the household;
+   - elements (fire, smoke, water, mud); the day (weather as the match's clock);
+   - the valley as a board; armies with nerve and engines; the arsenal;
+   - sieges for one (the Master Gunner's exam, the Daily Siege);
+   - two seats (co-op in one castle, then the wave defence of section 11).
+   Alongside, on the page only: the shot as a show (the impact cam, replays, a film of each match), the steward's ear (orders typed and spoken), and the look.
 4. **Graniteborn**: the second race, with landslides and quakes.
-5. **Co-op wave defence**: the roster, the wave director, both roles.
-6. **Polish**: sound, gore, kill cams and replays of the best moments, more maps, 2v2.
+5. **Later** (`docs/future.md`): the Castle Architect and sieges by post, the March (a campaign), more maps, 2v2.
 
 ## 16. Open questions
 
 - How lockstep feels over a real connection (needs Cloudflare).
-- Castle distance and match pacing (playtests).
-- The final name.
+- Castle distance and match pacing: phase 3's targets (`docs/phase-3.md`) now say what pacing to aim for, and its observatory measures it.
+- The final name: Keepfall is the working title, and the repo's name counter-shot is to go. Candidates are under Name in `docs/plan.md`.
+- Each phase 3 spec ends with a short "For the owner" list of choices that are the owner's.

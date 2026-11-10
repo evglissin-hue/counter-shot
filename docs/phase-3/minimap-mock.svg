@@ -1,0 +1,387 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 960 600" width="960" height="600" font-family="'Barlow Semi Condensed', 'Arial Narrow', Arial, sans-serif">
+  <!--
+    Keepfall: the minimap redesign (track L, round L0). A design target, not code.
+    The map is drawn once as a symbol at twice its real size (390 x 500) and shown
+    twice: large for reading the drawing, and at its real size on the page (195 x 250).
+    The state shown: your castle (oxblood, below) with a breach left of its gate, a
+    damaged front tower, a gun out; their castle (yellow-green, above) with its gate
+    broken, a damaged wall, a ruined mill, its banner down one floor; the right bridge
+    down; groups of men on the roads and at their gate.
+  -->
+  <defs>
+    <linearGradient id="backdrop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4a5048"/>
+      <stop offset="0.55" stop-color="#3b4236"/>
+      <stop offset="1" stop-color="#2a2d25"/>
+    </linearGradient>
+    <radialGradient id="panel" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0" stop-color="#2a2720"/>
+      <stop offset="1" stop-color="#191713"/>
+    </radialGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f6074"/>
+      <stop offset="0.5" stop-color="#4b7188"/>
+      <stop offset="1" stop-color="#3f6074"/>
+    </linearGradient>
+    <pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="5" height="5" fill="#4a4336"/>
+      <rect width="2.4" height="5" fill="#d9d1bd"/>
+    </pattern>
+    <pattern id="hatchAmber" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="5" height="5" fill="#4a3a22"/>
+      <rect width="2.4" height="5" fill="#d7a049"/>
+    </pattern>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+    <clipPath id="panelClip"><rect x="0" y="0" width="390" height="500" rx="16"/></clipPath>
+
+    <!-- Building glyphs, drawn about a 0,0 centre in the map's own units. -->
+    <g id="gBarracks" fill="none" stroke="#efe8d6" stroke-width="1.7" stroke-linecap="round">
+      <path d="M-5 5.5 L5 -5.5 M5 5.5 L-5 -5.5"/>
+      <path d="M3.2 -5.8 L5.6 -6.2 L5.2 -3.8 M-3.2 -5.8 L-5.6 -6.2 L-5.2 -3.8" stroke-width="1.3"/>
+    </g>
+    <g id="gMill" fill="none" stroke="#efe8d6" stroke-width="1.5" stroke-linecap="round">
+      <circle r="5.2"/>
+      <path d="M0 -5.2 V5.2 M-5.2 0 H5.2"/>
+      <circle r="1.1" fill="#efe8d6" stroke="none"/>
+    </g>
+    <g id="gFoundry" fill="#efe8d6" stroke="none">
+      <path d="M0 -6.5 C3.6 -3 5 0 3.6 3.4 C2.6 5.8 -2.6 5.8 -3.6 3.4 C-4.8 0.6 -2.6 -1.2 -1.6 -3.2 C-1 -1.6 0.6 -2 0 -6.5 Z"/>
+    </g>
+    <g id="gMagazine" fill="none" stroke="#efe8d6" stroke-width="1.5" stroke-linejoin="round">
+      <rect x="-4" y="-5.5" width="8" height="11" rx="2.2"/>
+      <path d="M-4 -2 H4 M-4 2 H4"/>
+    </g>
+
+    <!-- A gun: armed, the one you ride, out, an empty slot. -->
+    <g id="gunArmed"><circle r="4.4" fill="#16140f"/><circle r="3.1" fill="#d7a049"/></g>
+    <g id="gunRide"><circle r="7.2" fill="none" stroke="#fff6dc" stroke-width="1.6"/><circle r="4.4" fill="#16140f"/><circle r="3.1" fill="#f0c56a"/></g>
+    <g id="gunOut"><circle r="4.6" fill="#16140f"/><circle r="3.3" fill="none" stroke="#ef6a52" stroke-width="1.7"/><path d="M-2.3 2.3 L2.3 -2.3" stroke="#ef6a52" stroke-width="1.7" stroke-linecap="round"/></g>
+    <g id="gunEmpty"><circle r="3.2" fill="#16140f" stroke="#7b725f" stroke-width="1.2"/></g>
+
+    <!-- A bridge standing, and one down. -->
+    <g id="bridgeUp">
+      <rect x="-7" y="-11" width="14" height="22" rx="1.5" fill="#15130f"/>
+      <rect x="-5.5" y="-10" width="11" height="20" rx="1" fill="#a9855a"/>
+      <path d="M-5.5 -5 H5.5 M-5.5 0 H5.5 M-5.5 5 H5.5" stroke="#6f5536" stroke-width="1.1"/>
+    </g>
+    <g id="bridgeDown">
+      <path d="M-5.5 -10 H5.5 V-6 H-5.5 Z M-5.5 6 H5.5 V10 H-5.5 Z" fill="#6f5536" stroke="#15130f" stroke-width="1"/>
+      <path d="M-6 6 L6 -6" stroke="#ef6a52" stroke-width="2.2" stroke-linecap="round"/>
+    </g>
+
+    <!-- A man standing (a dot with a dark rim), by team. -->
+    <g id="manMine"><circle r="3.9" fill="#15130f"/><circle r="2.9" fill="#e2525a"/></g>
+    <g id="manTheirs"><circle r="3.9" fill="#15130f"/><circle r="2.9" fill="#cdd842"/></g>
+
+    <!-- =========================== the map, 390 x 500 =========================== -->
+    <symbol id="map" viewBox="0 0 390 500">
+      <g clip-path="url(#panelClip)">
+        <rect width="390" height="500" fill="url(#panel)"/>
+
+        <!-- The valley floor: lighter where it is open, the ridges between the roads a shade darker. -->
+        <ellipse cx="195" cy="250" rx="210" ry="120" fill="#34352a" opacity="0.55" filter="url(#soft)"/>
+        <g fill="#1f1e18" opacity="0.5" filter="url(#glow)">
+          <ellipse cx="112" cy="214" rx="46" ry="15"/>
+          <ellipse cx="112" cy="288" rx="46" ry="15"/>
+          <ellipse cx="278" cy="212" rx="46" ry="15"/>
+          <ellipse cx="278" cy="286" rx="46" ry="15"/>
+        </g>
+
+        <!-- The three roads: the centre road a firm line, the flank paths dashed. -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M195 172 C204 205 186 295 195 328" stroke="#15130f" stroke-width="7" opacity="0.55"/>
+          <path d="M195 172 C204 205 186 295 195 328" stroke="#bda57a" stroke-width="3.6" opacity="0.8"/>
+          <path d="M184 176 C120 180 34 200 34 250 C34 300 120 320 184 324" stroke="#bda57a" stroke-width="2.6" stroke-dasharray="7 5" opacity="0.62"/>
+          <path d="M206 176 C270 180 356 200 356 250 C356 300 270 320 206 324" stroke="#bda57a" stroke-width="2.6" stroke-dasharray="7 5" opacity="0.62"/>
+        </g>
+
+        <!-- The stream, with a lighter thread down its middle. -->
+        <path d="M-10 243 C60 229 112 262 195 250 S322 236 400 256" fill="none" stroke="#15130f" stroke-width="15" opacity="0.5"/>
+        <path d="M-10 243 C60 229 112 262 195 250 S322 236 400 256" fill="none" stroke="url(#water)" stroke-width="11"/>
+        <path d="M-10 243 C60 229 112 262 195 250 S322 236 400 256" fill="none" stroke="#9cc3d6" stroke-width="1.4" stroke-dasharray="14 9" opacity="0.55"/>
+
+        <!-- Bridges: left and centre stand, the right one is down. -->
+        <use xlink:href="#bridgeUp" href="#bridgeUp" x="34" y="239"/>
+        <use xlink:href="#bridgeUp" href="#bridgeUp" x="195" y="250"/>
+        <use xlink:href="#bridgeDown" href="#bridgeDown" x="356" y="247"/>
+
+        <!-- ============ their castle (above): yellow-green ============ -->
+        <g>
+          <!-- A glow in the team's colour under the walls, and a tint on the courtyard. -->
+          <rect x="133" y="42" width="124" height="124" rx="10" fill="none" stroke="#cdd842" stroke-width="12" opacity="0.32" filter="url(#glow)"/>
+          <rect x="137" y="46" width="116" height="116" fill="#cdd842" opacity="0.07"/>
+          <!-- Walls: a dark edge, then stone. Sound stone is plain; damaged stone is hatched. -->
+          <g fill="none" stroke-linecap="butt">
+            <g stroke="#100f0c" stroke-width="12.5">
+              <path d="M144 42 H246 M133 53 V155 M257 53 V155 M144 166 H186 M204 166 H246"/>
+            </g>
+            <g stroke="#d9d1bd" stroke-width="9">
+              <path d="M144 42 H246 M133 53 V155 M257 53 V155 M144 166 H186"/>
+            </g>
+            <path d="M204 166 H246" stroke="url(#hatch)" stroke-width="9"/>
+          </g>
+          <!-- The gate, broken open: two stubs and a way in. -->
+          <path d="M186 166 l5 4 M204 166 l-5 4" stroke="#ef6a52" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M195 178 l-4.5 6 h9 z" fill="#ef6a52"/>
+          <!-- Towers. -->
+          <g>
+            <circle cx="133" cy="42" r="14.5" fill="#100f0c"/><circle cx="133" cy="42" r="12.6" fill="#d9d1bd"/><circle cx="133" cy="42" r="6.2" fill="#23211b"/>
+            <circle cx="257" cy="42" r="14.5" fill="#100f0c"/><circle cx="257" cy="42" r="12.6" fill="#d9d1bd"/><circle cx="257" cy="42" r="6.2" fill="#23211b"/>
+            <circle cx="133" cy="166" r="14.5" fill="#100f0c"/><circle cx="133" cy="166" r="12.6" fill="#d9d1bd"/><circle cx="133" cy="166" r="6.2" fill="#23211b"/>
+            <circle cx="257" cy="166" r="14.5" fill="#100f0c"/><circle cx="257" cy="166" r="12.6" fill="#d9d1bd"/><circle cx="257" cy="166" r="6.2" fill="#23211b"/>
+          </g>
+          <!-- Plots: a barracks, a ruined mill, a foundry; the rest empty. -->
+          <g>
+            <rect x="151.5" y="130.5" width="25" height="17" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/>
+            <use xlink:href="#gBarracks" href="#gBarracks" x="164" y="139"/>
+            <rect x="213.5" y="130.5" width="25" height="17" rx="2.5" fill="#2a1c18" stroke="#ef6a52" stroke-width="1.2" stroke-dasharray="3 2.4"/>
+            <g opacity="0.55"><use xlink:href="#gMill" href="#gMill" x="226" y="139"/></g>
+            <rect x="226" y="103" width="15" height="17.5" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/>
+            <use xlink:href="#gFoundry" href="#gFoundry" x="233.5" y="111.8"/>
+            <g fill="none" stroke="#5c5646" stroke-width="1" stroke-dasharray="1.6 2.6">
+              <rect x="149" y="103" width="15" height="17.5" rx="2.5"/>
+              <rect x="149" y="71.5" width="15" height="19" rx="2.5"/>
+              <rect x="226" y="71.5" width="15" height="19" rx="2.5"/>
+            </g>
+          </g>
+          <!-- The keep: stone walls, the banner, and a pip for each floor still under it (two of three). -->
+          <g>
+            <rect x="172.5" y="65" width="45" height="45" rx="2" fill="#100f0c"/>
+            <rect x="174" y="66.5" width="42" height="42" rx="1.5" fill="#d9d1bd"/>
+            <rect x="181" y="73.5" width="28" height="28" fill="#1d1b16"/>
+            <path d="M188 96 V79" stroke="#efe8d6" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M188.8 79.5 H197 L194.6 82.6 L197 85.7 H188.8 Z" fill="#cdd842"/>
+            <rect x="199" y="78" width="7.5" height="4.6" rx="1" fill="none" stroke="#6f6a58" stroke-width="1"/>
+            <rect x="199" y="85" width="7.5" height="4.6" rx="1" fill="#cdd842"/>
+            <rect x="199" y="92" width="7.5" height="4.6" rx="1" fill="#cdd842"/>
+          </g>
+          <!-- Guns: on the gate wall, the front wall, the towers and in the pit; one is out. -->
+          <use xlink:href="#gunArmed" href="#gunArmed" x="195" y="154"/>
+          <use xlink:href="#gunOut" href="#gunOut" x="133" y="166"/>
+          <use xlink:href="#gunArmed" href="#gunArmed" x="257" y="166"/>
+          <use xlink:href="#gunArmed" href="#gunArmed" x="195" y="119"/>
+          <use xlink:href="#gunEmpty" href="#gunEmpty" x="162" y="166"/>
+          <use xlink:href="#gunArmed" href="#gunArmed" x="228" y="166"/>
+          <use xlink:href="#gunEmpty" href="#gunEmpty" x="257" y="42"/>
+        </g>
+
+        <!-- ============ your castle (below): oxblood ============ -->
+        <g>
+          <rect x="133" y="334" width="124" height="124" rx="10" fill="none" stroke="#e2525a" stroke-width="12" opacity="0.34" filter="url(#glow)"/>
+          <rect x="137" y="338" width="116" height="116" fill="#e2525a" opacity="0.07"/>
+          <g fill="none" stroke-linecap="butt">
+            <g stroke="#100f0c" stroke-width="12.5">
+              <path d="M144 458 H246 M133 345 V447 M257 345 V447 M144 334 H156 M172 334 H186 M204 334 H246"/>
+            </g>
+            <g stroke="#d9d1bd" stroke-width="9">
+              <path d="M144 458 H246 M133 345 V447 M257 345 V447 M144 334 H156 M172 334 H186 M204 334 H246"/>
+            </g>
+          </g>
+          <!-- A breach left of the gate: a gap with rubble in it and a way in marked. -->
+          <g fill="#8d8470">
+            <circle cx="159.5" cy="333" r="1.5"/><circle cx="163.5" cy="336" r="1.3"/><circle cx="167" cy="332.5" r="1.6"/><circle cx="169.5" cy="336.5" r="1.2"/><circle cx="162" cy="330.5" r="1.1"/>
+          </g>
+          <path d="M164 321 l-4.5 -6 h9 z" fill="#ef6a52"/>
+          <!-- The gate holds: a brass bar. -->
+          <rect x="186" y="331" width="18" height="6" rx="1.5" fill="#100f0c"/>
+          <rect x="187.2" y="332.2" width="15.6" height="3.6" rx="1" fill="#d7a049"/>
+          <!-- Towers: the front right one is damaged (hatched). -->
+          <g>
+            <circle cx="133" cy="334" r="14.5" fill="#100f0c"/><circle cx="133" cy="334" r="12.6" fill="#d9d1bd"/><circle cx="133" cy="334" r="6.2" fill="#23211b"/>
+            <circle cx="257" cy="334" r="14.5" fill="#100f0c"/><circle cx="257" cy="334" r="12.6" fill="url(#hatchAmber)"/><circle cx="257" cy="334" r="6.2" fill="#23211b"/>
+            <circle cx="133" cy="458" r="14.5" fill="#100f0c"/><circle cx="133" cy="458" r="12.6" fill="#d9d1bd"/><circle cx="133" cy="458" r="6.2" fill="#23211b"/>
+            <circle cx="257" cy="458" r="14.5" fill="#100f0c"/><circle cx="257" cy="458" r="12.6" fill="#d9d1bd"/><circle cx="257" cy="458" r="6.2" fill="#23211b"/>
+          </g>
+          <!-- Plots: a barracks, a mill, a foundry, a magazine with its stock, a mill rising, one empty. -->
+          <g>
+            <rect x="151.5" y="352.5" width="25" height="17" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/>
+            <use xlink:href="#gBarracks" href="#gBarracks" x="164" y="361"/>
+            <rect x="213.5" y="352.5" width="25" height="17" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/>
+            <use xlink:href="#gMill" href="#gMill" x="226" y="361"/>
+            <rect x="149" y="379.5" width="15" height="17.5" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/>
+            <use xlink:href="#gFoundry" href="#gFoundry" x="156.5" y="388.3"/>
+            <rect x="226" y="379.5" width="15" height="17.5" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/>
+            <use xlink:href="#gMagazine" href="#gMagazine" x="232" y="388.3"/>
+            <rect x="238" y="382" width="2.2" height="12.5" rx="1" fill="#4a4336"/>
+            <rect x="238" y="386" width="2.2" height="8.5" rx="1" fill="#d7a049"/>
+            <rect x="149" y="409.5" width="15" height="19" rx="2.5" fill="#25221c" stroke="#d7a049" stroke-width="1.1" stroke-dasharray="2.6 2.2"/>
+            <g opacity="0.6"><use xlink:href="#gMill" href="#gMill" x="156.5" y="419"/></g>
+            <rect x="226" y="409.5" width="15" height="19" rx="2.5" fill="none" stroke="#5c5646" stroke-width="1" stroke-dasharray="1.6 2.6"/>
+          </g>
+          <!-- The keep with all three floors under its banner. -->
+          <g>
+            <rect x="172.5" y="390" width="45" height="45" rx="2" fill="#100f0c"/>
+            <rect x="174" y="391.5" width="42" height="42" rx="1.5" fill="#d9d1bd"/>
+            <rect x="181" y="398.5" width="28" height="28" fill="#1d1b16"/>
+            <path d="M188 421 V404" stroke="#efe8d6" stroke-width="1.6" stroke-linecap="round"/>
+            <path d="M188.8 404.5 H197 L194.6 407.6 L197 410.7 H188.8 Z" fill="#e2525a"/>
+            <rect x="199" y="403" width="7.5" height="4.6" rx="1" fill="#e2525a"/>
+            <rect x="199" y="410" width="7.5" height="4.6" rx="1" fill="#e2525a"/>
+            <rect x="199" y="417" width="7.5" height="4.6" rx="1" fill="#e2525a"/>
+          </g>
+          <!-- Guns: you ride the long gun on the gate wall; the swivel on the front left tower is out. -->
+          <use xlink:href="#gunRide" href="#gunRide" x="195" y="347"/>
+          <use xlink:href="#gunOut" href="#gunOut" x="133" y="334"/>
+          <use xlink:href="#gunArmed" href="#gunArmed" x="257" y="334"/>
+          <use xlink:href="#gunArmed" href="#gunArmed" x="195" y="381"/>
+          <use xlink:href="#gunArmed" href="#gunArmed" x="228" y="334"/>
+          <use xlink:href="#gunEmpty" href="#gunEmpty" x="133" y="458"/>
+          <use xlink:href="#gunEmpty" href="#gunEmpty" x="208" y="383"/>
+        </g>
+
+        <!-- ============ the men: a dot each, and a count beside each group ============ -->
+        <!-- Yours on the left road, short of the stream. -->
+        <g>
+          <use xlink:href="#manMine" href="#manMine" x="50" y="290"/><use xlink:href="#manMine" href="#manMine" x="58" y="294"/><use xlink:href="#manMine" href="#manMine" x="45" y="298"/><use xlink:href="#manMine" href="#manMine" x="54" y="302"/>
+          <use xlink:href="#manMine" href="#manMine" x="63" y="301"/><use xlink:href="#manMine" href="#manMine" x="49" y="307"/><use xlink:href="#manMine" href="#manMine" x="59" y="309"/><use xlink:href="#manMine" href="#manMine" x="68" y="308"/>
+          <rect x="76" y="287" width="27" height="20" rx="6" fill="#e2525a"/><text x="89.5" y="302.5" font-size="17" font-weight="700" text-anchor="middle" fill="#1a0d0e">8</text>
+        </g>
+        <!-- Yours at their gate, going in. -->
+        <g>
+          <use xlink:href="#manMine" href="#manMine" x="184" y="190"/><use xlink:href="#manMine" href="#manMine" x="192" y="188"/><use xlink:href="#manMine" href="#manMine" x="200" y="190"/><use xlink:href="#manMine" href="#manMine" x="208" y="189"/>
+          <use xlink:href="#manMine" href="#manMine" x="180" y="198"/><use xlink:href="#manMine" href="#manMine" x="188" y="197"/><use xlink:href="#manMine" href="#manMine" x="196" y="198"/><use xlink:href="#manMine" href="#manMine" x="204" y="197"/>
+          <use xlink:href="#manMine" href="#manMine" x="212" y="198"/><use xlink:href="#manMine" href="#manMine" x="186" y="206"/><use xlink:href="#manMine" href="#manMine" x="195" y="207"/><use xlink:href="#manMine" href="#manMine" x="204" y="206"/>
+          <use xlink:href="#manMine" href="#manMine" x="184" y="144"/><use xlink:href="#manMine" href="#manMine" x="206" y="145"/>
+          <rect x="220" y="187" width="34" height="20" rx="6" fill="#e2525a"/><text x="237" y="202.5" font-size="17" font-weight="700" text-anchor="middle" fill="#1a0d0e">14</text>
+        </g>
+        <!-- Theirs on your right, past the stream. -->
+        <g>
+          <use xlink:href="#manTheirs" href="#manTheirs" x="318" y="296"/><use xlink:href="#manTheirs" href="#manTheirs" x="326" y="292"/><use xlink:href="#manTheirs" href="#manTheirs" x="334" y="289"/><use xlink:href="#manTheirs" href="#manTheirs" x="322" y="304"/>
+          <use xlink:href="#manTheirs" href="#manTheirs" x="330" y="300"/><use xlink:href="#manTheirs" href="#manTheirs" x="338" y="297"/><use xlink:href="#manTheirs" href="#manTheirs" x="312" y="305"/><use xlink:href="#manTheirs" href="#manTheirs" x="343" y="288"/>
+          <rect x="283" y="287" width="27" height="20" rx="6" fill="#cdd842"/><text x="296.5" y="302.5" font-size="17" font-weight="700" text-anchor="middle" fill="#14160a">8</text>
+        </g>
+        <!-- Each courtyard's garrison, and your masons as small squares at the breach. -->
+        <g>
+          <use xlink:href="#manTheirs" href="#manTheirs" x="181" y="127"/><use xlink:href="#manTheirs" href="#manTheirs" x="190" y="127"/><use xlink:href="#manTheirs" href="#manTheirs" x="200" y="127"/><use xlink:href="#manTheirs" href="#manTheirs" x="209" y="127"/>
+          <use xlink:href="#manMine" href="#manMine" x="181" y="373"/><use xlink:href="#manMine" href="#manMine" x="190" y="373"/><use xlink:href="#manMine" href="#manMine" x="200" y="373"/><use xlink:href="#manMine" href="#manMine" x="209" y="373"/>
+          <g fill="#e2525a" stroke="#15130f" stroke-width="1">
+            <rect x="158.5" y="343.5" width="4.4" height="4.4"/><rect x="166" y="345" width="4.4" height="4.4"/>
+          </g>
+        </g>
+
+        <!-- Each side's men standing, with a pennant in its colour: theirs above, yours below. -->
+        <g font-size="23" font-weight="600" fill="#efe8d6">
+          <path d="M16 13 V33" stroke="#efe8d6" stroke-width="1.8" stroke-linecap="round"/><path d="M17 14 H31 L27 18.5 L31 23 H17 Z" fill="#cdd842"/>
+          <text x="37" y="31">26</text>
+          <path d="M16 467 V487" stroke="#efe8d6" stroke-width="1.8" stroke-linecap="round"/><path d="M17 468 H31 L27 472.5 L31 477 H17 Z" fill="#e2525a"/>
+          <text x="37" y="485">33</text>
+        </g>
+      </g>
+      <!-- The frame: a brass hairline and a faint inner light. -->
+      <rect x="0.75" y="0.75" width="388.5" height="498.5" rx="16" fill="none" stroke="#d7a049" stroke-opacity="0.38" stroke-width="1.5"/>
+      <rect x="3.5" y="3.5" width="383" height="493" rx="13.5" fill="none" stroke="#fff6dc" stroke-opacity="0.05" stroke-width="1"/>
+    </symbol>
+  </defs>
+
+  <!-- ================================ the sheet ================================ -->
+  <rect width="960" height="600" fill="url(#backdrop)"/>
+  <g filter="url(#shadow)">
+    <use xlink:href="#map" href="#map" x="40" y="60" width="390" height="500"/>
+  </g>
+  <g filter="url(#shadow)">
+    <use xlink:href="#map" href="#map" x="480" y="60" width="195" height="250"/>
+  </g>
+
+  <g fill="#efe8d6">
+    <text x="40" y="38" font-size="19" font-weight="600" letter-spacing="1.6">THE MINIMAP, REDRAWN</text>
+    <text x="40" y="52" font-size="12.5" fill="#cfc7b3" opacity="0.85">Twice its size, to read the drawing</text>
+    <text x="480" y="52" font-size="12.5" fill="#cfc7b3" opacity="0.85">At its real size on the page (195 by 250)</text>
+  </g>
+
+  <!-- The key (for this sheet only: the game needs none). -->
+  <g font-size="13.5" fill="#efe8d6" transform="translate(712 74)">
+    <text x="0" y="0" font-size="12.5" font-weight="600" letter-spacing="1.4" fill="#d7a049">WHAT EACH MARK MEANS</text>
+    <g transform="translate(0 26)">
+      <path d="M0 0 H30" stroke="#100f0c" stroke-width="12.5"/><path d="M0 0 H30" stroke="#d9d1bd" stroke-width="9"/><text x="42" y="4.5">Masonry that stands</text>
+    </g>
+    <g transform="translate(0 52)">
+      <path d="M0 0 H30" stroke="#100f0c" stroke-width="12.5"/><path d="M0 0 H30" stroke="url(#hatch)" stroke-width="9"/><text x="42" y="4.5">Damaged (hatched)</text>
+    </g>
+    <g transform="translate(0 78)">
+      <path d="M0 0 H30" stroke="#100f0c" stroke-width="12.5"/><path d="M0 0 H30" stroke="url(#hatchAmber)" stroke-width="9"/><text x="42" y="4.5">Half gone (amber hatch)</text>
+    </g>
+    <g transform="translate(0 104)">
+      <path d="M0 0 H8 M22 0 H30" stroke="#100f0c" stroke-width="12.5"/><path d="M0 0 H8 M22 0 H30" stroke="#d9d1bd" stroke-width="9"/>
+      <g fill="#8d8470"><circle cx="12" cy="-1" r="1.5"/><circle cx="16" cy="2" r="1.3"/><circle cx="19" cy="-1.5" r="1.4"/></g>
+      <path d="M15 -9 l-4.5 -6 h9 z" fill="#ef6a52"/><text x="42" y="4.5">A breach: a way in</text>
+    </g>
+    <g transform="translate(15 132)"><use xlink:href="#gunRide" href="#gunRide"/><text x="27" y="4.5">The gun you ride</text></g>
+    <g transform="translate(15 156)"><use xlink:href="#gunArmed" href="#gunArmed"/><text x="27" y="4.5">A gun, armed</text></g>
+    <g transform="translate(15 180)"><use xlink:href="#gunOut" href="#gunOut"/><text x="27" y="4.5">A gun knocked out</text></g>
+    <g transform="translate(15 204)"><use xlink:href="#gunEmpty" href="#gunEmpty"/><text x="27" y="4.5">An empty slot</text></g>
+    <g transform="translate(15 232)">
+      <rect x="-12" y="-9" width="24" height="18" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/><use xlink:href="#gBarracks" href="#gBarracks"/><text x="27" y="4.5">Barracks</text>
+    </g>
+    <g transform="translate(15 258)">
+      <rect x="-12" y="-9" width="24" height="18" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/><use xlink:href="#gMill" href="#gMill"/><text x="27" y="4.5">Powder Mill</text>
+    </g>
+    <g transform="translate(15 284)">
+      <rect x="-12" y="-9" width="24" height="18" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/><use xlink:href="#gFoundry" href="#gFoundry"/><text x="27" y="4.5">Foundry</text>
+    </g>
+    <g transform="translate(15 310)">
+      <rect x="-12" y="-9" width="24" height="18" rx="2.5" fill="#2b2720" stroke="#8a7850" stroke-width="1.1"/><use xlink:href="#gMagazine" href="#gMagazine" x="-3"/>
+      <rect x="6" y="-6" width="2.2" height="12" rx="1" fill="#4a4336"/><rect x="6" y="-2" width="2.2" height="8" rx="1" fill="#d7a049"/><text x="27" y="4.5">Magazine and its stock (3.3)</text>
+    </g>
+    <g transform="translate(15 336)">
+      <rect x="-12" y="-9" width="24" height="18" rx="2.5" fill="#25221c" stroke="#d7a049" stroke-width="1.1" stroke-dasharray="2.6 2.2"/><text x="27" y="4.5">Rising</text>
+    </g>
+    <g transform="translate(15 362)">
+      <rect x="-12" y="-9" width="24" height="18" rx="2.5" fill="#2a1c18" stroke="#ef6a52" stroke-width="1.2" stroke-dasharray="3 2.4"/><text x="27" y="4.5">A ruin</text>
+    </g>
+    <g transform="translate(15 392)">
+      <rect x="-5" y="-9" width="10" height="5.5" rx="1" fill="none" stroke="#6f6a58" stroke-width="1"/><rect x="-5" y="-1.5" width="10" height="5.5" rx="1" fill="#e2525a"/><rect x="-5" y="6" width="10" height="5.5" rx="1" fill="#e2525a"/>
+      <text x="27" y="6">Floors under the banner</text>
+    </g>
+    <g transform="translate(15 426)"><use xlink:href="#bridgeDown" href="#bridgeDown"/><text x="27" y="4.5">A bridge down</text></g>
+    <g transform="translate(15 456)">
+      <use xlink:href="#manMine" href="#manMine" x="-6"/><use xlink:href="#manTheirs" href="#manTheirs" x="6"/><text x="27" y="4.5">A man standing (yours, theirs)</text>
+    </g>
+    <g transform="translate(15 482)">
+      <rect x="-13" y="-10" width="27" height="20" rx="6" fill="#e2525a"/><text x="0.5" y="5.5" font-size="17" font-weight="700" text-anchor="middle" fill="#1a0d0e">8</text><text x="27" y="4.5">A group and its count</text>
+    </g>
+  </g>
+
+  <!-- The map as it is today, for comparison: flat strokes, letters in boxes. -->
+  <g transform="translate(480 350)">
+    <text x="0" y="-12" font-size="12.5" fill="#cfc7b3" opacity="0.85">Today, for comparison</text>
+    <rect width="195" height="218" rx="10" fill="#1d1a15" opacity="0.92"/>
+    <g fill="none" stroke-linecap="round">
+      <path d="M97 62 C101 80 93 138 97 156 M94 64 C60 66 20 80 20 109 C20 138 60 152 94 154 M100 64 C134 66 174 80 174 109 C174 138 134 152 100 154" stroke="#c4aa78" stroke-opacity="0.22" stroke-width="2.6"/>
+      <path d="M0 106 C35 100 60 114 97 109 S160 102 195 111" stroke="#5c8096" stroke-opacity="0.75" stroke-width="5"/>
+    </g>
+    <g fill="#8a6a44"><rect x="17" y="100" width="6" height="12"/><rect x="94" y="103" width="6" height="12"/><rect x="171" y="102" width="6" height="12"/></g>
+    <g fill="none" stroke="#d9d1bd" stroke-width="4">
+      <path d="M71 10 H123 M66 15 V57 M128 15 V57 M71 62 H92 M102 62 H123"/>
+      <path d="M71 208 H123 M66 163 V205 M128 163 V205 M71 158 H92 M102 158 H123"/>
+    </g>
+    <g fill="#d9d1bd"><circle cx="66" cy="10" r="5.5"/><circle cx="128" cy="10" r="5.5"/><circle cx="66" cy="62" r="5.5"/><circle cx="128" cy="62" r="5.5"/><circle cx="66" cy="158" r="5.5"/><circle cx="128" cy="158" r="5.5"/><circle cx="66" cy="208" r="5.5"/><circle cx="128" cy="208" r="5.5"/></g>
+    <path d="M92 62 H102 M92 158 H102" stroke="#8a6a44" stroke-width="3"/>
+    <g>
+      <rect x="86" y="20" width="22" height="22" fill="#000" fill-opacity="0.45" stroke="#d9d1bd" stroke-width="2"/>
+      <rect x="89" y="23" width="16" height="4.5" fill="#c8d43a"/><rect x="89" y="29" width="16" height="4.5" fill="#c8d43a"/><rect x="89" y="35" width="16" height="4.5" fill="#c8d43a"/>
+      <rect x="86" y="178" width="22" height="22" fill="#000" fill-opacity="0.45" stroke="#d9d1bd" stroke-width="2"/>
+      <rect x="89" y="181" width="16" height="4.5" fill="#d8424a"/><rect x="89" y="187" width="16" height="4.5" fill="#d8424a"/><rect x="89" y="193" width="16" height="4.5" fill="#d8424a"/>
+    </g>
+    <g font-size="8" font-weight="600" text-anchor="middle">
+      <g fill="#c99a46" fill-opacity="0.35" stroke="#c99a46" stroke-width="1">
+        <rect x="74" y="46" width="12" height="8"/><rect x="108" y="46" width="12" height="8"/><rect x="74" y="26" width="7" height="8"/><rect x="113" y="26" width="7" height="8"/>
+        <rect x="74" y="166" width="12" height="8"/><rect x="108" y="166" width="12" height="8"/><rect x="74" y="186" width="7" height="8"/><rect x="113" y="186" width="7" height="8"/>
+      </g>
+      <g fill="#efe8d6">
+        <text x="80" y="53">B</text><text x="114" y="53">M</text><text x="77.5" y="33">F</text><text x="116.5" y="33">B</text>
+        <text x="80" y="173">B</text><text x="114" y="173">M</text><text x="77.5" y="193">F</text><text x="116.5" y="193">B</text>
+      </g>
+    </g>
+    <g fill="#c8d43a"><circle cx="90" cy="78" r="2.1"/><circle cx="96" cy="76" r="2.1"/><circle cx="102" cy="79" r="2.1"/><circle cx="108" cy="77" r="2.1"/><circle cx="85" cy="82" r="2.1"/><circle cx="99" cy="84" r="2.1"/></g>
+    <g fill="#d8424a"><circle cx="90" cy="140" r="2.1"/><circle cx="96" cy="142" r="2.1"/><circle cx="102" cy="139" r="2.1"/><circle cx="108" cy="141" r="2.1"/></g>
+    <g font-size="12" font-weight="600" fill="#efe8d6"><circle cx="9" cy="11" r="3.5" fill="#c8d43a"/><text x="16" y="15">12</text><circle cx="9" cy="207" r="3.5" fill="#d8424a"/><text x="16" y="211">8</text></g>
+  </g>
+</svg>
