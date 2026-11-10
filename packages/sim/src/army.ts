@@ -42,6 +42,7 @@ import type { CastleSim } from "./castleSim";
 import { EventKind } from "./frame";
 import { FLOW_INF, FLOW_REGION, FlowFields, type FieldSpec } from "./flow";
 import type { Ladders } from "./ladders";
+import type { Gangs } from "./gangs";
 import { LocalFields } from "./local";
 import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
 import type { Specialists, Steer } from "./specialists";
@@ -208,6 +209,8 @@ export class Army {
   private garrisonWave: [number, number] = [-1, -1];
   /** M3: sappers and musketeers are steered here first (the sandbox sets it in a match). */
   specialists: Specialists | null = null;
+  /** 3.2: bridge gangs take two men of a wave sent down a road whose bridge is down (the sandbox sets it in a match). */
+  gangs: Gangs | null = null;
   private steerOut: Steer = { mx: 0, mz: 0, speed: 0, face: NaN, action: 0 };
 
   constructor(
@@ -361,6 +364,8 @@ export class Army {
       // Re-draw the speed for its kind from its own pikeman draw, so the army's stream is not touched.
       m.speed = (m.speed / UNITS.pikeman.speed) * unit.speed;
     }
+    // 3.2: a road with its bridge down gets a gang from this wave.
+    if (!inside && this.gangs) this.gangs.form(team, route, this.minions.list.slice(first, first + n));
     return n;
   }
 
@@ -370,7 +375,7 @@ export class Army {
    * their keg's errand (their task and aux are their own until then).
    */
   private climbs(m: Minion): boolean {
-    if (m.unit === Unit.Mason || m.unit === Unit.Musketeer) return false;
+    if (m.role === Role.Gang || m.unit === Unit.Mason || m.unit === Unit.Musketeer) return false;
     return !(this.specialists !== null && this.specialists.busy(m));
   }
 
@@ -432,7 +437,7 @@ export class Army {
           else this.attackers[c]++;
         }
       }
-      if (this.waveCrew[m.wave]) continue;
+      if (this.waveCrew[m.wave] || m.role === Role.Gang) continue; // a gang man is not on his wave's march
       counted[m.wave]++;
       this.waveX[m.wave] += m.x;
       this.waveZ[m.wave] += m.z;
@@ -451,6 +456,7 @@ export class Army {
   private think(m: Minion, tick: number) {
     if (m.role === Role.Mason) return; // works.ts
     if (this.ladders && this.ladders.controls(m)) return;
+    if (this.gangs && this.gangs.controls(m)) return; // gangs.ts
     const unit = UNIT_DEFS[m.unit] ?? UNITS.pikeman;
     const nav = this.nav;
     const c = navCell(m.x, m.z);
@@ -637,6 +643,17 @@ export class Army {
     m.action = action;
     if (m.act < 600) m.act++;
     this.minions.place(m);
+  }
+
+  /** The road's name (ROUTE_NAMES order). */
+  routeName(route: number): string {
+    return ROUTE_NAMES[route];
+  }
+
+  /** Is the floor still under this minion (else he falls: think handles it)? */
+  standsFirm(m: Minion): boolean {
+    const c = navCell(m.x, m.z);
+    return c >= 0 && navWalkable(this.nav.kind[c]) && m.y - this.surface(m.x, m.z, c) <= DROP;
   }
 
   /** Turn towards a yaw at the turning rate. */
