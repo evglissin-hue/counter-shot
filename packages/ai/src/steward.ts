@@ -54,8 +54,10 @@ export class Steward {
     private send: (tick: number, input: MatchInput) => void,
     /** M6: the tutor's stage (it builds, buys and repairs by it); null for every other AI. */
     private stage: (() => number) | null = null,
+    /** For tools: a plan to follow instead of the level's own. */
+    plan?: AiStep[],
   ) {
-    this.plan = [...AI_PLANS[difficulty]]; // its own copy: a step that must wait can be put behind the next one
+    this.plan = [...(plan ?? AI_PLANS[difficulty])]; // its own copy: a step that must wait can be put behind the next one
     // Its castle as it finds it (M5 audit: taking over a friend's castle mid-match, it assumed Advance and every repair on).
     this.order = m.army.order[team] as Order;
     this.repairs = { ...m.repairs[team] };

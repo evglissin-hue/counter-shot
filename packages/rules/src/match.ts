@@ -48,7 +48,7 @@ import {
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { clearOfCastle, MinionState, Order, Role, SandboxSim, SapperTask, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
 import { Economy } from "./economy";
-import { Estate } from "./estate";
+import { Estate, firstSlot } from "./estate";
 
 export const enum Team {
   Enemy = 0,
@@ -256,6 +256,8 @@ export class Match {
   /** Shots each team fired itself, and shots its unmanned weapons fired. */
   readonly shots: [number, number] = [0, 0];
   readonly autoShots: [number, number] = [0, 0];
+  /** For tools (not in the hash): every build, buy and upgrade the estate accepted from an input, as [tick, castle, "build mill 1" | "buy mortar 7" | "upgrade heavyShot 0"]; plots and slots are the castle's own (slot 0 to 7). */
+  readonly applied: Array<[number, 0 | 1, string]> = [];
   /** Each team's barracks route for its next waves, and waves sent so far. */
   readonly route: [RouteName, RouteName] = ["centre", "centre"];
   readonly waves: [number, number] = [0, 0];
@@ -503,13 +505,13 @@ export class Match {
         return;
       // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
       case "build":
-        this.estate.build(team, input.plot, input.building, tick);
+        if (this.estate.build(team, input.plot, input.building, tick)) this.applied.push([tick, team, `build ${input.building} ${input.plot}`]);
         return;
       case "buy":
-        this.estate.buy(team, input.emplacement, input.weapon);
+        if (this.estate.buy(team, input.emplacement, input.weapon)) this.applied.push([tick, team, `buy ${input.weapon} ${input.emplacement - firstSlot(team)}`]);
         return;
       case "upgrade":
-        this.estate.upgrade(team, input.emplacement, input.upgrade);
+        if (this.estate.upgrade(team, input.emplacement, input.upgrade)) this.applied.push([tick, team, `upgrade ${input.upgrade} ${input.emplacement - firstSlot(team)}`]);
         return;
       case "barracks":
         this.estate.setBarracks(team, input.plot, input.mix, input.route);
