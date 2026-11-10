@@ -58,7 +58,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 8;
+export const MATCH_RULES_VERSION = 9;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -179,6 +179,8 @@ export interface Gun {
   errZ: number;
   /** A minion it found it cannot fire at without hitting its own castle (it looks past him next time). */
   skip: number;
+  /** 3.2: its target stands on one of its team's marks (smaller error, shorter reload). */
+  marked: boolean;
 }
 
 /** Which team an emplacement belongs to: the castle on its side of the field. */
@@ -203,9 +205,9 @@ function nearBridge(x: number, z: number, r: number): boolean {
  * waiting to happen (M5 audit: a swivel's shot set off a chain of kegs on a
  * deck and the valley was cut for good), so he is left alone near a bridge.
  */
-function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number, keg: boolean): boolean {
+function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number, keg: boolean, errScale = 1): boolean {
   const pad = U.clearBridge + (keg ? KEG.burst.radius + 1.5 : 0);
-  if (nearBridge(x, z, U.errBase + U.errPerM * range + pad)) return true;
+  if (nearBridge(x, z, (U.errBase + U.errPerM * range) * errScale + pad)) return true;
   if (U.overshoot <= 0) return false;
   const dx = x - e.x, dz = z - e.z;
   const d = dsqrt(dx * dx + dz * dz) + 1e-9;
@@ -321,7 +323,7 @@ export class Match {
     this.guns = this.emplacements.map((e) => {
       const w = WEAPONS[e.weapon];
       const pitch = w.restPitch < w.minPitch ? w.minPitch : w.restPitch > w.maxPitch ? w.maxPitch : w.restPitch;
-      return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0, skip: -1 };
+      return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0, skip: -1, marked: false };
     });
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
     this.barracks = opts.barracks !== false;
@@ -347,7 +349,7 @@ export class Match {
     // After M5: a knocked-out gun's crew puts it back for gold, through the same books as everything else.
     this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
     this.register = new Register(
-      { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale() },
+      { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale(), aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
       opts.seed,
     );
   }
@@ -551,6 +553,12 @@ export class Match {
     }
   }
 
+  /** A salvo shot is leaving this emplacement: turn the barrel of a gun nobody rides to it (the one a team rides is left alone: the page swings it back). */
+  private aimed(id: number, yaw: number, pitch: number) {
+    const e = this.emplacements[id];
+    if (e && this.manned[this.owner[id]] !== id) this.setGun(id, yaw, pitch);
+  }
+
   /** A gunner put this barrel here (clamped to its limits). */
   private setGun(id: number, yaw: number, pitch: number) {
     const e = this.emplacements[id], w = weaponOf(e);
@@ -623,14 +631,14 @@ export class Match {
       g.target = -1;
       if (!m || m.state !== MinionState.Upright) continue;
       this.autoShots[team]++;
-      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: U.reload * this.reloadScale() });
+      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: (g.marked ? REGISTER.reload : U.reload) * this.reloadScale() });
     }
   }
 
   /** Choose a target for an unmanned gun and work out its aim (leading it, plus the gun's error). */
   private lay(e: Emplacement, g: Gun, team: Team, U: UnmannedDef) {
     const gate = MUSTER[team];
-    let best = -1, bestD = Infinity;
+    let best = -1, bestD = Infinity, bestMarked = false;
     for (const m of this.world.minions.list) {
       if (m.state !== MinionState.Upright || m.wave < 0 || m.team === team) continue;
       const dx = m.x - e.x, dz = m.z - e.z;
@@ -638,14 +646,17 @@ export class Match {
       if (r2 < U.minRange * U.minRange || r2 > U.maxRange * U.maxRange) continue;
       if (yawTowards(e, m.x, m.z) === null) continue;
       const gx = m.x - gate.x, gz = m.z - gate.z;
-      const threat = gx * gx + gz * gz;
-      if (threat > DEFEND * DEFEND || threat >= bestD) continue;
+      // 3.2: a man on one of the team's marks may be engaged anywhere in range, and counts as nearer the gate.
+      const onMark = this.register.onMark(team, m.x, m.z);
+      const threat = onMark ? (gx * gx + gz * gz) * (REGISTER.nearScale * REGISTER.nearScale) : gx * gx + gz * gz;
+      if ((!onMark && threat > DEFEND * DEFEND) || threat >= bestD) continue;
       if (m.id === g.skip) continue;
       const keg = m.unit === Unit.Sapper && (m.task === SapperTask.Carry || m.task === SapperTask.Plant);
-      if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg)) continue;
+      if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg, onMark ? REGISTER.errScale : 1)) continue;
       if (this.ownNear(team, m.x, m.z, U.clearOwn)) continue;
       bestD = threat;
       best = m.id;
+      bestMarked = onMark;
     }
     if (best < 0) {
       g.target = -1;
@@ -660,7 +671,7 @@ export class Match {
     if (g.target !== best) {
       // A new target: the gun's error for it, drawn once.
       const dx = m.x - e.x, dz = m.z - e.z;
-      const r = U.errBase + U.errPerM * dsqrt(dx * dx + dz * dz);
+      const r = (U.errBase + U.errPerM * dsqrt(dx * dx + dz * dz)) * (bestMarked ? REGISTER.errScale : 1);
       const rr = r * dsqrt(this.rng.next());
       const th = this.rng.range(0, 2 * DPI);
       g.errX = rr * dcos(th);
@@ -676,6 +687,7 @@ export class Match {
       return;
     }
     g.target = best;
+    g.marked = bestMarked;
     g.aimYaw = s.yaw;
     g.aimPitch = s.pitch;
     g.charge = s.charge;
@@ -747,7 +759,7 @@ export class Match {
     nums.push(this.storm[0], this.storm[1], this.stormsBegun[0], this.stormsBegun[1], this.stormsHeld[0], this.stormsHeld[1]);
     for (const r of this.repairs) for (const k of REPAIR_KINDS) nums.push(r[k] ? 1 : 0);
     if (r) nums.push(r.reason === "keep" ? 0 : r.reason === "storm" ? 1 : 2);
-    for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ);
+    for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ, g.marked ? 1 : 0);
     // M3: gold earned and spent, open trick-shot tallies, what is built and bought, the enemy's build order, each barracks' waves.
     this.economy.hashInto(nums);
     this.estate.hashInto(nums);
