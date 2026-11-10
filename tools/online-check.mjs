@@ -90,6 +90,35 @@ await aimFire(guest, 0.01);
 await guest.evaluate(() => window.__sandbox.input({ kind: "build", plot: 1, building: "mill" }));
 await host.evaluate(() => window.__sandbox.setRoute("left"));
 await guest.evaluate(() => window.__sandbox.setRoute("right"));
+// 3.2: each side marks where its own shot lands and orders fire for effect at it (through the lockstep); neither sees the other's marks, and the hash check below must stay quiet.
+// (The match's gun ids: the host's long gun is 0, the guest's 8.)
+const markShot = async (page, x, z) => {
+  await page.evaluate(([x, z]) => { window.__sandbox.select(0); if (!window.__sandbox.aimAtPoint(0, x, 0, z)) throw new Error("out of reach"); }, [x, z]);
+  await page.waitForFunction(() => window.__sandbox.reload[window.__sandbox.match.team === 1 ? 0 : 8] === 0, null, { timeout: 90000, polling: 200 });
+  await page.evaluate(() => window.__sandbox.fire());
+  await page.waitForFunction(() => window.__sandbox.register?.canMark.some((id) => id === 0 || id === 8), null, { timeout: 90000, polling: 200 });
+  await page.evaluate(() => window.__sandbox.markHere());
+  await page.waitForFunction(() => window.__sandbox.register.marks.length === 1, null, { timeout: 60000, polling: 200 });
+};
+await markShot(host, 0, -62);
+await markShot(guest, 0, -88);
+const marks = (page) => page.evaluate(() => window.__sandbox.register.marks.map((m) => ({ n: m.n, x: Math.round(m.x), z: Math.round(m.z), place: m.place, bear: m.bear })));
+const [hm, gm] = [await marks(host), await marks(guest)];
+console.log("marks", JSON.stringify(hm), JSON.stringify(gm));
+if (hm.length !== 1 || gm.length !== 1) fail(`each side should hold its own one mark, got ${hm.length} and ${gm.length}`);
+else if (Math.abs(hm[0].z - gm[0].z) < 10) fail(`the two sides' marks are the same place (${hm[0].z}, ${gm[0].z}): one side sees the other's`);
+for (const page of [host, guest]) {
+  await page.waitForFunction(() => window.__sandbox.reload[window.__sandbox.match.team === 1 ? 0 : 8] === 0 && window.__sandbox.register.marks[0].bear > 0 && window.__sandbox.register.salvoReady === 0, null, { timeout: 90000, polling: 200 });
+  await page.evaluate(() => window.__sandbox.orderSalvo(1));
+}
+for (const [who, page] of [["host", host], ["guest", guest]]) {
+  try {
+    await page.waitForFunction(() => window.__sandbox.register.salvoReady > 0 && window.__sandbox.register.salvoReady < 1200, null, { timeout: 60000, polling: 200 });
+    console.log(`${who}: the salvo went in`);
+  } catch {
+    fail(`${who}: the salvo order never reached its match`);
+  }
+}
 const t0 = Date.now();
 while (Date.now() - t0 < secs * 1000) {
   await sleep(5000);

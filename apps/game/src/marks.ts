@@ -52,19 +52,19 @@ export class SalvoKeys {
    */
   step(now: number, f: boolean, digit: number, other: boolean): { order: number; eat: boolean } {
     if (this.armedAt >= 0 && now - this.armedAt > SALVO_WAIT_MS) this.armedAt = -1;
-    if (this.armedAt >= 0) {
-      if (f) {
-        this.armedAt = -1;
-        return { order: 0, eat: false };
-      }
-      if (digit >= 0) {
-        this.armedAt = -1;
-        return { order: digit < 6 ? digit + 1 : -1, eat: true };
-      }
-      if (other) this.armedAt = -1;
-      return { order: -1, eat: false };
+    // F and its number may land in the same frame (a quick typist, a test): F arms, then the number is read at once.
+    const fresh = this.armedAt < 0 && f;
+    if (fresh) this.armedAt = now;
+    if (this.armedAt < 0) return { order: -1, eat: false };
+    if (f && !fresh) {
+      this.armedAt = -1;
+      return { order: 0, eat: false };
     }
-    if (f) this.armedAt = now;
+    if (digit >= 0) {
+      this.armedAt = -1;
+      return { order: digit < 6 ? digit + 1 : -1, eat: true };
+    }
+    if (other) this.armedAt = -1;
     return { order: -1, eat: false };
   }
 
@@ -102,21 +102,22 @@ export class MarkChips {
       this.chips.delete(n);
     }
     const sorted = marks.slice().sort((a, b) => a.n - b.n);
+    let added = false;
     for (const m of sorted) {
       let c = this.chips.get(m.n);
       if (!c) {
         const el = document.createElement("button");
         el.className = "chip";
         el.dataset.n = String(m.n);
-        el.innerHTML = '<i class="ring"><b></b></i><span class="pl"></span><span class="sec"></span>';
+        el.innerHTML = `<i class="ring"><b>${m.n}</b></i><span class="pl"></span><span class="sec"></span>`;
         el.addEventListener("click", () => {
           this.onOrder(m.n);
           el.blur();
         });
         c = { el, place: el.querySelector(".pl")!, sec: el.querySelector(".sec")!, key: "" };
         this.chips.set(m.n, c);
+        added = true;
       }
-      c.el.querySelector("b")!.textContent = String(m.n);
       if (c.place.textContent !== m.place) c.place.textContent = m.place;
       const bears = (mortar ? m.bearM : m.bear) > 0;
       const wait = salvoReady > 0 ? `${Math.ceil(salvoReady / 60)} s` : "";
@@ -131,9 +132,9 @@ export class MarkChips {
       const p = Math.max(0, Math.min(1, m.left / m.life));
       c.el.style.setProperty("--p", p.toFixed(3));
       c.el.classList.toggle("low", p < 0.15);
-      // Keep the chips in the order of their numbers.
-      this.list.appendChild(c.el);
     }
+    // Keep the chips in the order of their numbers (only when one came: a chip moved between a press and its release would lose the click).
+    if (added) for (const m of sorted) this.list.appendChild(this.chips.get(m.n)!.el);
   }
 
   /** Test hook: what the chips read. */

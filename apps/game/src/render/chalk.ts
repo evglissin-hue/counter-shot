@@ -9,6 +9,8 @@ const MAX = 6;
 /** Chalk white, and how long (m) a cross's arms are and how wide. */
 const CHALK = 0xf3eedb;
 const ARM = 3.4, WIDTH = 0.42;
+/** Turns a cross lying flat (its face up) to face along +z: with the camera's turn, it faces the camera. */
+const FACE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
 
 export interface ChalkMark {
   n: number;
@@ -21,7 +23,7 @@ export interface ChalkMark {
 
 export class Chalk {
   readonly root = new THREE.Group();
-  private slots: Array<{ g: THREE.Group; cross: THREE.Group; tag: THREE.Mesh; mats: THREE.MeshBasicNodeMaterial[]; shown: boolean }> = [];
+  private slots: Array<{ g: THREE.Group; cross: THREE.Group; tag: THREE.Mesh; mats: THREE.MeshBasicNodeMaterial[]; shown: boolean; wall: boolean }> = [];
   private geos: THREE.BufferGeometry[] = [];
   private textures: THREE.Texture[] = [];
 
@@ -73,7 +75,7 @@ export class Chalk {
       tag.position.y = 2.6;
       g.add(tag);
       this.root.add(g);
-      this.slots.push({ g, cross, tag, mats, shown: false });
+      this.slots.push({ g, cross, tag, mats, shown: false, wall: false });
     }
   }
 
@@ -110,7 +112,9 @@ export class Chalk {
       s.g.visible = true;
       const ground = height(m.x, m.z);
       // On masonry the cross lies on the surface the shot hit; on the ground, on the ground.
-      s.g.position.set(m.x, (m.y > ground + 0.5 ? m.y : ground) + 0.07, m.z);
+      s.wall = m.y > ground + 0.5;
+      s.g.position.set(m.x, (s.wall ? m.y : ground) + 0.07, m.z);
+      if (!s.wall) s.cross.quaternion.identity();
       // Fades over the last fifth of its life, so a mark is plain until it is nearly gone.
       const op = Math.max(0.15, Math.min(1, m.life / 0.2));
       // The materials are the two chalk arms, the two underlays, then the number.
@@ -133,6 +137,8 @@ export class Chalk {
       s.tag.scale.setScalar(k);
       s.tag.position.y = 2.6 * k;
       s.tag.quaternion.copy(cam.quaternion);
+      // A mark on masonry (a wall face stands upright): its cross faces the camera instead of lying flat.
+      if (s.wall) s.cross.quaternion.copy(cam.quaternion).multiply(FACE);
     }
   }
 

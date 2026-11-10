@@ -220,5 +220,7 @@ export function netHash(m: Match): number {
     const p = c.bodies[id].translation();
     nums.push(p.x, p.y, p.z);
   }
+  // 3.2: both sides' marks and salvos (so a mark one side made and the other did not is found at once).
+  m.register.hashInto(nums);
   return hashBytes(new Uint8Array(new Float64Array(nums).buffer));
 }

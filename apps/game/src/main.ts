@@ -3195,6 +3195,13 @@ else {
   },
   markHere,
   orderSalvo,
+  /** Where a mark of yours is on screen (client pixels), or null. */
+  markPoint(n: number) {
+    const m = regInfo()?.marks.find((k) => k.n === n);
+    const p = m ? renderer.project(m.x, m.y + 0.5, m.z) : null;
+    const r = canvas.getBoundingClientRect();
+    return p ? { x: p.x + r.left, y: p.y + r.top } : null;
+  },
   /** Upright figures [id, x, y, z, yaw, phase, team, action, act, unit] and ladders [id, team, state, foot xyz, top xyz, t] of the last frame drawn. */
   get frame() {
     const f = lastApplied;
