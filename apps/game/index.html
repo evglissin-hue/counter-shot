@@ -347,7 +347,7 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 /* The right-hand column: the map, your waves' and masons' commands, the wind. */
 .side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > * { pointer-events: auto; }
-.mapbox { position: relative; width: auto; height: min(250px, calc(100vh - 480px)); min-height: 150px; }
+.mapbox { position: relative; inset: auto; width: auto; height: min(250px, calc(100vh - 480px)); min-height: 150px; }
 .command { padding: 9px 9px 10px; display: grid; gap: 6px; }
 .cmd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px; font: 600 10.5px/1.1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
 .cmd-head + .seg { margin-top: -1px; }

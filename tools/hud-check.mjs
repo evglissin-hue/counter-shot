@@ -3,7 +3,8 @@
 // (L, Ctrl+1 to 3, Alt+1 to 4), the Build button and B, the build menu's Close
 // and Esc, the gun tabs (an empty slot opens the menu on it), the weapon card's
 // lines, the sound button and M, Controls and H, the shot camera box and V, the
-// overview (Tab), the "click to take the gun" hint, pause (P). Each result is
+// overview (Tab), the "click to take the gun" hint, pause (P), the minimap growing
+// on hover and while G is held. Each result is
 // polled: software rendering draws a few frames a second and the HUD redraws
 // every fourth frame. Exits 1 if anything fails.
 // Usage: PORT=6205 node tools/hud-check.mjs
@@ -103,6 +104,21 @@ try {
   await expect("P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
   await page.keyboard.press("KeyP");
   await expect("P resumes", () => document.getElementById("paused").hidden);
+  // L0: the minimap is drawn, and grows to twice its size over the scene when pointed at, or while G is held.
+  const mapW = () => page.evaluate(() => document.querySelector(".mapzoom").getBoundingClientRect().width);
+  const smallW = await mapW();
+  await expect("the minimap has drawn (its canvas is sized, draws are counted)", () => window.__sandbox.minimapMs.draws > 0 && document.getElementById("minimap").width > 100);
+  const mb = await page.evaluate(() => { const b = document.getElementById("mapbox").getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+  await page.mouse.move(mb.x, mb.y);
+  await expect("pointing at the minimap grows it", () => window.__sandbox.mapBig && document.getElementById("mapbox").classList.contains("big"));
+  await expect("it is about twice as wide, and its canvas follows (crisp at the larger size)", (w) => { const r = document.querySelector(".mapzoom").getBoundingClientRect(); const c = document.getElementById("minimap"); return r.width > w * 1.6 && c.width >= Math.round(r.width) - 2; }, smallW);
+  await page.mouse.move(5, 5);
+  await expect("moving away shrinks it back", (w) => !window.__sandbox.mapBig && Math.abs(document.querySelector(".mapzoom").getBoundingClientRect().width - w) < 2, smallW);
+  await page.keyboard.down("KeyG");
+  await expect("holding G grows it", () => window.__sandbox.mapBig && document.getElementById("mapbox").classList.contains("big"));
+  await page.keyboard.up("KeyG");
+  await expect("letting go of G shrinks it", () => !window.__sandbox.mapBig && !document.getElementById("mapbox").classList.contains("big"));
+  await expect("the key help says what G does", () => /<dt>G<\/dt>/.test(document.getElementById("help").innerHTML));
   // M6: the threat strip follows the enemy's first wave (a fresh match on the test clock: #fixed, frozen, stepped by hand).
   await page.goto("about:blank");
   await load("versus=knight-webgl-low-fixed");

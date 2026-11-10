@@ -2890,6 +2890,13 @@ else {
   get minimapMs() {
     return { last: minimap.lastMs, avg: minimap.avgMs, draws: minimap.draws };
   },
+  /** L0: the worker's last section shares for the minimap (SECTION_COUNT per castle, two bytes each), and where each gun stands. */
+  get mapShares() {
+    return sectionShares ? Array.from(sectionShares) : null;
+  },
+  get guns() {
+    return ALL_EMP.map((e) => ({ x: e.x, z: e.z }));
+  },
   get mapBig() {
     return mapBig;
   },
