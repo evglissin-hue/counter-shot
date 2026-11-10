@@ -215,11 +215,14 @@ export const PANEL_PLAN = { name: "stock-knight", steps: stockSteps("knight") };
  * on each seed, against the stock Knight plan; every plan played by the Knight
  * level. Ids carry both plan names (and the seconds when shortened), so a plan
  * that was scored in another run in the same directory is not played again.
+ * The stock Knight plan against itself is one match per seed (both castles
+ * would be the same match twice); scorePlan() scores it 50 by symmetry.
  */
 export function panelSetups(candidate, seeds, secs) {
   const out = [];
+  const mirror = candidate.name === PANEL_PLAN.name;
   for (const seed of seeds) {
-    for (const castle of [0, 1]) {
+    for (const castle of mirror ? [0] : [0, 1]) {
       const plans = castle === 0 ? [candidate, PANEL_PLAN] : [PANEL_PLAN, candidate];
       const setup = {
         id: `${plans[0].name}-${plans[1].name}-s${seed}${secs ? `-t${secs}` : ""}-base`,
@@ -244,6 +247,10 @@ export function panelSetups(candidate, seeds, secs) {
  * draw), in points of 100.
  */
 export function scorePlan(setups, lines) {
+  if (setups.length && setups[0].plans[0] === setups[0].plans[1]) {
+    const matches = setups.filter((s) => lines.has(s.id)).length;
+    return { wins: 0, draws: 0, matches, score: matches ? 50 : null };
+  }
   let wins = 0, draws = 0, matches = 0;
   setups.forEach((setup, i) => {
     const line = lines.get(setup.id);
