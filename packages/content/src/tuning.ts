@@ -62,10 +62,10 @@ function locate(path: string): [Bag, string] {
   const root = has(TUNING_ROOTS, segs[0]) ? TUNING_ROOTS[segs[0]] : undefined;
   if (root === undefined) throw new Error(`tuning: unknown root "${segs[0]}" in path "${path}"`);
   if (segs.length < 2) throw new Error(`tuning: path "${path}" names a whole root; name a value inside it`);
-  let at = root;
+  let at: unknown = root;
   for (let i = 1; i < segs.length; i++) {
     if (at === null || typeof at !== "object") throw new Error(`tuning: "${segs.slice(0, i).join(".")}" is not an object, so "${path}" cannot be reached`);
-    if (!has(at, segs[i])) throw new Error(`tuning: no "${segs[i]}" in "${segs.slice(0, i).join(".")}" (path "${path}")`);
+    if (!has(at as object, segs[i])) throw new Error(`tuning: no "${segs[i]}" in "${segs.slice(0, i).join(".")}" (path "${path}")`);
     if (i < segs.length - 1) at = (at as Bag)[segs[i]];
   }
   return [at as Bag, segs[segs.length - 1]];
