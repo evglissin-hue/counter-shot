@@ -92,6 +92,10 @@ export const enum EventKind {
   Down = 16,
   /** [kind, castle, section (content sectionOf, -1: no section), count, 0]: pieces of a castle that came loose this tick, one event per castle and section. */
   Fell = 17,
+  /** [kind, bridge (index in layout.bridges), team, x, z]: a bridge gang began work at the near end of its bridge (3.2). */
+  GangStart = 18,
+  /** [kind, bridge, team, x, z]: a gang put the last piece of a bridge back; it stands for both sides again (3.2). */
+  Relaid = 19,
 }
 export const EVENT_STRIDE = 5;
 

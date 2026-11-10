@@ -35,10 +35,11 @@ import { Structures } from "./structures";
 import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
+import { Gangs } from "./gangs";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 11;
+export const RULES_VERSION = 12;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -124,6 +125,8 @@ export class SandboxSim {
   readonly ladders: Ladders | null;
   /** Each castle's masons and what they rebuild (matches only). */
   readonly works: Works | null;
+  /** Bridge gangs (matches only): read `gangs.status()`. */
+  readonly gangs: Gangs | null;
   /** M3: the plots' buildings (with plots in the layout), and sappers' kegs and musketeers' shots (matches). */
   readonly structures: Structures | null;
   readonly specialists: Specialists | null;
@@ -198,6 +201,8 @@ export class SandboxSim {
     this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, emit) : null;
     this.ladders = this.army ? new Ladders(R, this.castle.world, this.castle, this.terrain, this.minions, emit) : null;
     this.works = this.army ? new Works(this.minions, this.castle, this.terrain, this.army, emit) : null;
+    this.gangs = this.army ? new Gangs(this.minions, this.castle, this.terrain, this.nav, this.army, emit) : null;
+    if (this.army) this.army.gangs = this.gangs;
     if (this.army && this.ladders) {
       this.army.ladders = this.ladders;
       this.ladders.army = this.army;
@@ -241,6 +246,7 @@ export class SandboxSim {
     this.army?.step(tick);
     this.ladders?.step(tick);
     this.works?.step(tick);
+    this.gangs?.step();
     this.structures?.step(tick);
     this.terrain.rebuild();
     this.notePositions();
@@ -730,6 +736,7 @@ export class SandboxSim {
     this.army?.hashInto(extra);
     this.ladders?.hashInto(extra);
     this.works?.hashInto(extra);
+    this.gangs?.hashInto(extra);
     this.structures?.hashInto(extra);
     this.specialists?.hashInto(extra);
     this.mounts.hashInto(extra);
