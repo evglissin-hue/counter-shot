@@ -21,7 +21,7 @@ test("a threshold met unlocks once, with the first date; the best then updates",
   const store = memory();
   const firsts: FeatDef[] = [];
   const bests: number[] = [];
-  const f = new Feats({ me: 1, store, today: () => "2026-11-10", onFirst: (d) => firsts.push(d), onBest: (_, v) => bests.push(v) });
+  const f = new Feats({ me: 1, store, today: () => "2026-11-10", onFirsts: (l) => firsts.push(...l.map((x) => x.def)), onBest: (_, v) => bests.push(v) });
   f.observe(moment({ size: 2 }));
   assert.equal(firsts.length, 0, "two men is under every threshold");
   f.observe(moment({ size: 3 }));
@@ -53,7 +53,7 @@ test("the book is kept between visits", () => {
   const store = memory();
   new Feats({ me: 1, store, today: () => "2026-11-10" }).observe(moment({ kind: "thrown", size: 24 }));
   let again = 0;
-  const f = new Feats({ me: 1, store, onFirst: () => again++ });
+  const f = new Feats({ me: 1, store, onFirsts: () => again++ });
   assert.equal(f.earned(), 1);
   f.observe(moment({ kind: "thrown", size: 22 }));
   assert.equal(again, 0, "already in the book");
@@ -70,7 +70,7 @@ test("storage that throws does not break the book", () => {
     },
   };
   const firsts: string[] = [];
-  const f = new Feats({ me: 1, store: broken, onFirst: (d) => firsts.push(d.id) });
+  const f = new Feats({ me: 1, store: broken, onFirsts: (l) => firsts.push(...l.map((x) => x.def.id)) });
   f.observe(moment({ kind: "towerDown", size: 212, men: 9 }));
   assert.ok(firsts.includes("timber") && firsts.includes("rubble") && firsts.includes("domino"));
   assert.equal(f.earned(), firsts.length, "held for the session");

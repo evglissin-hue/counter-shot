@@ -115,7 +115,7 @@ const moments = new Moments({
     return { team: slot >= 0 && slot < SLOTS ? ME : FOE, name: WEAPONS[e.weapon].name.toLowerCase(), x: e.x, y: e.y, z: e.z };
   },
 });
-const feats = new Feats({ me: 1, onFirst: (def, value) => showFeatToast(def, value) });
+const feats = new Feats({ me: 1, onFirsts: (list) => showFeatToast(list) });
 moments.onMoment((m) => feats.observe(m));
 /**
  * The guns you ride: the Practice range's four, or in a match your castle's
@@ -2479,11 +2479,12 @@ navBox.addEventListener("change", () => toggleNav(navBox.checked));
 
 /** A feat earned for the first time: one short line in the corner, never over the middle of the screen. */
 let featTimer: ReturnType<typeof setTimeout> | undefined;
-function showFeatToast(def: FeatDef, value: number) {
+function showFeatToast(list: Array<{ def: FeatDef; value: number }>) {
   const el = $("feat-toast");
+  const { def, value } = list[0];
   const size = def.unit && value > 1 ? ` (${value} ${def.unit})` : "";
   $("feat-toast-name").textContent = def.name + size;
-  $("feat-toast-hint").textContent = def.hint;
+  $("feat-toast-hint").textContent = list.length > 1 ? `And ${list.slice(1).map((x) => x.def.name).join(", ")}` : def.hint;
   el.hidden = false;
   el.classList.remove("show");
   void el.offsetWidth; // restart the slide

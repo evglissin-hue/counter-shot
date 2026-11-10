@@ -75,8 +75,8 @@ export interface FeatsOptions {
   /** Where records are kept; defaults to localStorage. Any call may throw: the book still works for the session. */
   store?: Store | null;
   today?: () => string;
-  /** A feat earned for the first time. */
-  onFirst?: (def: FeatDef, value: number) => void;
+  /** Feats earned for the first time by one moment (one call per moment, in the book's order). */
+  onFirsts?: (earned: Array<{ def: FeatDef; value: number }>) => void;
   /** A feat's best beaten (not the first time). */
   onBest?: (def: FeatDef, value: number) => void;
 }
@@ -127,6 +127,7 @@ export class Feats {
   observe(m: Moment) {
     if (m.team !== this.me) return;
     let changed = false;
+    const firsts: Array<{ def: FeatDef; value: number }> = [];
     for (const def of FEATS) {
       const v = def.rule(m);
       if (v === null) continue;
@@ -134,7 +135,7 @@ export class Feats {
       if (!had) {
         this.records.set(def.id, { first: this.today(), best: v });
         changed = true;
-        this.o.onFirst?.(def, v);
+        firsts.push({ def, value: v });
       } else if (v > had.best) {
         had.best = v;
         changed = true;
@@ -142,6 +143,7 @@ export class Feats {
       }
     }
     if (changed) this.save();
+    if (firsts.length) this.o.onFirsts?.(firsts);
   }
 
   private today(): string {
