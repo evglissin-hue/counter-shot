@@ -93,7 +93,7 @@ export type MatchInput =
    * fire carries its own aim.
    */
   | { kind: "aim"; emplacement: number; yaw: number; pitch: number }
-  /** 3.2: mark where the last shot by hand from this emplacement of the team came down (within REGISTER.window ticks; Register). */
+  /** 3.2: mark where the last shot by hand from this emplacement of the team came down (within REGISTER.markWindow ticks; Register). */
   | { kind: "mark"; emplacement: number }
   /** 3.2: fire for effect at the team's mark n (1 to 6): every gun that bears, the mortar only with `mortar` (Register). */
   | { kind: "salvo"; mark: number; mortar?: boolean };

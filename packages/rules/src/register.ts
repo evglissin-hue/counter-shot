@@ -3,7 +3,7 @@
 // are fixed; the executor building the rules fills in the behaviour.
 //
 // - A mark is made by the input { kind: "mark", emplacement } within
-//   REGISTER.window ticks after a shot fired by hand from that emplacement of
+//   REGISTER.markWindow ticks after a shot fired by hand from that emplacement of
 //   the team came down (the world's `landings`, auto false). It is the landing
 //   point with REGISTER.radius. A team holds REGISTER.max marks in numbered
 //   places 1 to 6: a new mark takes the lowest free place, or the oldest
@@ -114,7 +114,7 @@ export class Register {
     if (team !== 0 && team !== 1) return false;
     if (this.host.owner(emplacement) !== team) return false;
     const l = this.landings[emplacement];
-    return !!l && tick - l.tick <= REGISTER.window;
+    return !!l && tick - l.tick <= REGISTER.markWindow;
   }
 
   /** The input { kind: "mark" }: make the mark (true) or refuse it (false). */

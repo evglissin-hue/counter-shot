@@ -5,7 +5,7 @@
 
 export const REGISTER = {
   /** Ticks after a shot by hand comes down during which its landing may be marked (5 s). */
-  window: 5 * 60,
+  markWindow: 5 * 60,
   /** A mark's radius (m) around the landing point. */
   radius: 6,
   /** Marks a team holds at once; one more replaces the oldest. */

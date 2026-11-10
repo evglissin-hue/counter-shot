@@ -78,10 +78,10 @@ test("a mark is refused for an auto shot and after the window", () => {
   m.queue(m.tick + 400, Team.Player, ROAD);
   assert.ok(stepUntil(m, 800, () => m.register.landings[0] !== null));
   const at = m.register.landings[0]!.tick;
-  for (let i = 0; i < REGISTER.window + 1; i++) m.step();
-  assert.equal(m.register.canMark(Team.Player, 0, at + REGISTER.window + 1), false);
-  assert.equal(m.register.makeMark(Team.Player, 0, at + REGISTER.window + 1), false, "after the window");
-  assert.equal(m.register.makeMark(Team.Player, 0, at + REGISTER.window), true, "on its last tick");
+  for (let i = 0; i < REGISTER.markWindow + 1; i++) m.step();
+  assert.equal(m.register.canMark(Team.Player, 0, at + REGISTER.markWindow + 1), false);
+  assert.equal(m.register.makeMark(Team.Player, 0, at + REGISTER.markWindow + 1), false, "after the window");
+  assert.equal(m.register.makeMark(Team.Player, 0, at + REGISTER.markWindow), true, "on its last tick");
   m.free();
 });
 

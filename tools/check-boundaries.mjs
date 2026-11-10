@@ -25,8 +25,7 @@ workspaces.push({ dir: join(root, "lab"), group: "lab" });
 const RANK = { "@keepfall/core": 0, "@keepfall/content": 1, "@keepfall/sim": 2, "@keepfall/rules": 3, "@keepfall/ai": 4 };
 const DETERMINISTIC = new Set(["@keepfall/core", "@keepfall/content", "@keepfall/sim", "@keepfall/rules", "@keepfall/ai"]);
 const BANNED_MATHS = /\bMath\.(sin|cos|tan|asin|acos|atan|atan2|sinh|cosh|tanh|exp|expm1|log|log2|log10|log1p|pow|sqrt|cbrt|hypot|random)\b|\bDate\b|\bperformance\b/;
-// `window` as a property name (REGISTER.window, `window: n`) is data, not the DOM global.
-const DOM = /(?<!\.)\b(window(?!\s*:)|document|navigator|requestAnimationFrame|localStorage|sessionStorage|HTMLElement|HTMLCanvasElement)\b/;
+const DOM = /\b(window|document|navigator|requestAnimationFrame|localStorage|sessionStorage|HTMLElement|HTMLCanvasElement)\b/;
 const IMPORT = /(?:import|export)\s[^'"]*?from\s*["']([^"']+)["']|import\s*\(\s*["']([^"']+)["']\s*\)|import\s+["']([^"']+)["']/g;
 const builtins = new Set(builtinModules);
 
