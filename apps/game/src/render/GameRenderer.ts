@@ -12,6 +12,8 @@ import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@kee
 import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
+import { Haze } from "./haze";
+import { GroundMarks } from "./groundMarks";
 import { ClearView } from "./clearview";
 import { Decals } from "./decals";
 import { Effects } from "./effects";
@@ -130,6 +132,11 @@ export class GameRenderer implements GameRendererApi {
   private wind = uniform(new THREE.Vector2(0, 0));
   /** L3: the game's wind over the land, with the coming gust's front (everything that sways reads it). */
   readonly windField: WindField;
+  /** L2.5: dust that stays after a great collapse; L2.3 and L3.4: scorch, dust and trodden paths on the ground. */
+  haze!: Haze;
+  groundMarks!: GroundMarks;
+  /** Called once per haze when it starts (x, y, z at the ground, radius, dust amount 0..1): the page wires it to the stone wear's dustAround. */
+  onHazeSettle: ((x: number, y: number, z: number, radius: number, amount: number) => void) | null = null;
   private now = 0;
   private gore = true;
   private tier: QualityTier = "high";
@@ -167,6 +174,7 @@ export class GameRenderer implements GameRendererApi {
     this.scene.fogNode = this.sky.fogNode();
     this.terrain = new Terrain(this.noise, this.sky, this.time);
     this.scene.add(this.terrain.ground, this.terrain.field, this.terrain.mountains, this.terrain.water);
+    this.groundMarks = new GroundMarks(this.terrain);
     this.views = new Views(canvas, (x, z) => this.terrain.heightAt(x, z));
     this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir);
     this.scene.add(this.scatter.root);
@@ -211,6 +219,12 @@ export class GameRenderer implements GameRendererApi {
       chimney: mk({ name: "chimney", slots: 40, per: 3, life: [3.5, 6], color: 0x2a2826, colorEnd: 0x56524c, additive: false, glow: 1, speed: [0.2, 0.6], size: [0.35, 1.8], grow: 0.7, gravity: 0, rise: 1.4, drag: 1.2, windScale: 0.9, spread: 0.5, opacity: 0.55, floor: true, lighting: 0.4, clearAim: true }),
       spark: mk({ name: "spark", slots: 32, per: 4, life: [0.12, 0.32], color: 0xffd28a, colorEnd: 0xff6a20, additive: true, glow: 3, speed: [0.8, 2.2], size: [0.03, 0.07], grow: 1, gravity: 4, rise: 0, drag: 2, windScale: 0, spread: 1.2, opacity: 1, floor: true }),
     };
+    this.haze = new Haze(this.noise, this.sky.sunDir, this.clear);
+    this.haze.onSettle = (x, y, z, r, a) => {
+      this.groundMarks.dust(x, z, r, a * 0.6);
+      this.onHazeSettle?.(x, y, z, r, a);
+    };
+    this.scene.add(this.haze.mesh);
     this.scene.add(this.estate.root);
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
@@ -393,6 +407,9 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Cracked) this.spawnImpact(y, z, v, 0.45, 0.35);
       // EventKind.Landed: the page handles the landing marker.
     }
+    // L2/L3: scorch, dust and trodden paths on the ground, and the haze of a great collapse.
+    this.groundMarks.frame(frame, this.groundHeight);
+    this.haze.frame(frame, this.layout, this.now, this.groundHeight);
   }
 
   /** M3: a building's piece rose into its place (it eases up the last half metre and settles in a puff); id -1: rubble carried off. */
@@ -456,6 +473,8 @@ export class GameRenderer implements GameRendererApi {
     this.prevTick.fill(-1);
     this.lastTrickle.fill(-100);
     this.terrain.resetHeights();
+    this.groundMarks.clear();
+    this.haze.clear();
     this.decals.clear();
     this.minions.clear();
     this.splashes.clear();
@@ -938,6 +957,8 @@ export class GameRenderer implements GameRendererApi {
     }
     this.storm.update(real, this.now);
     this.terrain.flush();
+    this.groundMarks.update(dt);
+    this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.guns.update(dt);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
@@ -1077,6 +1098,7 @@ export class GameRenderer implements GameRendererApi {
     this.stones?.dispose();
     this.flags?.dispose();
     this.terrain.dispose();
+    this.haze.dispose();
     this.scatter.dispose();
     this.effects.dispose();
     this.projectiles.dispose();
