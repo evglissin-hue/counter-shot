@@ -115,4 +115,13 @@ L0 first. L1 with track S's impact cam. L2 and L3 at any time. L4 with 3.7 and 3
 
 ## Status
 
-Not started.
+L0 built on November 10 (branch `claude/festive-keller-mgdjup`), by an executor in the build and review loop, to `minimap-mock.svg`. Page only: no pinned hash moved.
+- The worker counts 30 sections a castle (2 bytes each, see `protocol.ts`): the four walls in six cells each (the front's three left of the gate and three right of it, the sides front to back, the back across), the gate, four towers and the keep.
+- Thresholds (named at the top of `minimap.ts`): sound at 94% standing or more, amber under 60%, a breach where under 60% of a cell's foot stands; the gate is sound at 96%.
+- Buildings as tiles with a sign (crossed pikes, a wheel, a flame), rising with a dashed brass edge, a ruin with a dashed red edge; guns as brass studs (a white ring for the one you ride, a red struck ring when out, a hollow dot for an empty slot); a bridge down as two stubs and a red stroke; men as rimmed dots with a plate for a group of six or more; each side's count by a pennant; a cell flashes for 0.7 s when hit; dots glide; a storm draws a ring with its hold so far.
+- Hover or hold G: twice the size over the scene, drawn at device pixels.
+- Cost: 0.26 ms a draw at real size, 0.41 ms at twice the size (the ground, glow and panel are cached per size).
+- Ridges are four soft shades placed by eye, not traced from `map.ts`. The threat strip above it still has three equal cells, which sit a little off the new flank roads.
+- Tools: `tools/minimap-shots.mjs` (stills at both sizes in the mock's states); `tools/hud-check.mjs` checks the hover and G.
+
+L1 to L8: not started.

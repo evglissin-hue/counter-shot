@@ -101,4 +101,21 @@ Fire the long gun and watch the hit in the inset. Win a match and watch its last
 
 ## Status
 
-Not started.
+S1 and S2 built on November 10 (branch `claude/festive-keller-mgdjup`, with milestone 3.1's tools), through the build and review loop: two executors in parallel, merged and wired by the master. No pinned hash moved (the session, keep, wave, estate, AI and guided hashes and the lab's all hold, in Node and in Chromium).
+
+S1, moments and the book of feats:
+- The sim adds two page events without touching a match's state: Down `[16, man, cause, shot, speed]` (his body's fastest part just after the blow) and Fell `[17, castle, repair section, count, 0]` (pieces that came loose this tick). They are drained from logs in `minions.ts` and `castleSim.ts` at each step; nothing reads them in a match.
+- `moments.ts` finds 19 kinds from what the page is told: the 15 of S1.3, plus a tower down (40 stones or more and 30% of a tower), a keg sent back among its own men, a floor caved (each floor lost while the banner stands) and the banner on the ground. A shot's knockdowns close into one moment 90 ticks after the last; masonry closes after 150 quiet ticks; a man thrown is measured from where he fell to where his body settles (bodies leaving at 9 m/s or more). Scores come from one table at the top of the file (`SCORE`).
+- `feats.ts`: 22 feats ("Skittles", "Domino", "Timber", "Mountain of rubble", "Skipping stone", "Return to sender" and more), only the player's own doing, stored per viewer (`keepfall.feats.v1`, the date of the first and the best). A first feat shows a toast at the left under the gun tabs; the Book of feats opens from the menu (start and pause).
+- On the test clock against the Knight, 100 s of shots gave guns silenced, multi-kills of two to eight, a man buried, the gate broken, a breach of 82 stones and a tower of 189 (`tools/moments-check.mjs`). Kinds not met in those runs (a ricochet, a man thrown, kegs, a storm, a floor, a bridge) are covered by the unit tests only. In the Practice range there is no earned feed, so a ricochet there counts as a multi-kill.
+
+S2, the impact cam:
+- The inset (a quarter of the screen's width, 16 by 9, under the top bar on the right, a brass frame marked IMPACT and K) opens about a second before a shot you fired by hand lands: the long gun and the chain shot, and the mortar with its shell ride off. The page predicts each shot's landing from its own state (spin included) with the walls in the way; a shot that lands early opens it at once. It holds 3 s past the landing, then fades out.
+- Its camera stands 30 to 40 m to the side of the landing and 6 to 12 m up, on the first bearing whose sight line is clear of stone and ground (the renderer's ray test), and pushes in 15% while open.
+- A big moment (score 150 or more: a tower, a breach, the gate, a floor) in your own castle that is not on your screen opens it too. Moments close once their stones settle, so it shows the ruin and its dust; replays (S3, S4) will show the fall itself.
+- K turns it off and on (remembered per viewer). It is skipped while the shot camera (V) follows the shot, and while the frame pacer is at its lowest resolution.
+- Drawn as a second scene pass into a render target a third of the drawing buffer's size, with the main view's tone mapping and grade but no ambient occlusion, bloom or edge smoothing, sharing the sun's shadow map. In headless software rendering it adds about 40% to 50% to a frame while open (no GPU timing here); measure it on the laptops.
+- Gap: a click on the inset swaps it with the main view, but while the pointer is locked to the gun a click fires instead, so the swap works only with the mouse free (Esc) or in the overview.
+- Tools: `tools/show-shots.mjs` (stills before, at and after a landing for each gun), `tools/impact-cost.mjs` (the inset's cost); `tools/hud-check.mjs` checks K and the inset opening and closing.
+
+S3 to S6: not started.
