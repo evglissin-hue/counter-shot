@@ -86,8 +86,9 @@ try {
   const treeStats = await page.evaluate(() => {
     const r = { treeTris: 0, treeInst: 0, cardTris: 0, cardInst: 0, meshes: 0 };
     window.__test.r.scene.traverse((o) => {
-      if (!o.isInstancedMesh || !o.parent || o.parent.name !== "scatter") return;
+      if (!o.parent || o.parent.name !== "scatter" || !(o.isInstancedMesh || o.geometry.isInstancedBufferGeometry)) return;
       const g = o.geometry, tris = (g.index ? g.index.count : g.attributes.position.count) / 3;
+      if (!o.isInstancedMesh) o = { name: o.name, count: g.instanceCount, geometry: g };
       if (o.name.startsWith("trees-")) { r.treeTris += tris * o.count; r.treeInst += o.count; r.meshes++; }
       if (o.name.startsWith("cards-")) { r.cardTris += tris * o.count; r.cardInst += o.count; r.meshes++; }
     });
