@@ -159,6 +159,7 @@ const CASES: Case[] = [
   // M6: waves, marching, fighting, building, repairs and alarms.
   { name: "long gun at its own gun", seconds: 3, run: (s) => s.fire("longGun", 0, 9.7, -133.6, true) },
   { name: "wave sets out: drums", seconds: 3, run: (s) => s.drumFlourish(0, 3, -25) },
+  { name: "fire for effect: drum roll", seconds: 3, run: (s) => s.salvoRoll(0, 3, -25) },
   { name: "wave sets out: enemy horn", seconds: 5, run: (s) => s.hornCall(0, 8, -150, 0.3) },
   {
     name: "marching drum",

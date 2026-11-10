@@ -45,8 +45,36 @@ export type ToWorker =
   | { t: "manual" }
   | { t: "advance"; seconds: number };
 
+/** 3.2: one of the page's own team's marks (never the other side's). */
+export interface MarkInfo {
+  /** Its place, 1 to 6. */
+  n: number;
+  x: number;
+  y: number;
+  z: number;
+  /** The tick it was made (the newest has the largest). */
+  made: number;
+  /** Ticks left before it fades, and its whole life. */
+  left: number;
+  life: number;
+  /** From where it lies, as this page's player sees it ("Left bridge", "Their gate", "Field"). */
+  place: string;
+  /** How many of your guns would fire in a salvo at it now: without the mortar, and with it. */
+  bear: number;
+  bearM: number;
+}
+
+/** 3.2: the page's own team's register: its marks, when the next salvo may be ordered, and which emplacements' last landings may be marked now. */
+export interface RegisterInfo {
+  marks: MarkInfo[];
+  /** Ticks until the team's next salvo may be ordered (0: now). */
+  salvoReady: number;
+  /** The match ids of the guns whose last shot by hand may be marked now. */
+  canMark: number[];
+}
+
 /** A match's state for the HUD. Pairs are by team (castle): the page's own is `team`. */
-export interface MatchInfo {
+export interface MatchInfo extends RegisterInfo {
   /** The team this page plays. */
   team: 0 | 1;
   tick: number;
@@ -158,6 +186,8 @@ export type FromWorker = { gen?: number } & (
       standing: number;
       awake: number;
       match: MatchInfo | null;
+      /** 3.2: the Practice range's register (a match carries its own in `match`); null in a match. */
+      reg: RegisterInfo | null;
       /** Can each bridge still be crossed (layout order), when it changed. */
       bridges: boolean[] | null;
       /**

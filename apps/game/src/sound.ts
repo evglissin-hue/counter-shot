@@ -1388,6 +1388,14 @@ export class Sound {
     this.skin(c.input, c.t0 + 0.9, 0.55, true);
   }
 
+  /** 3.2: fire for effect is ordered: a drum roll that swells over the salvo's 1.5 s, ending on one heavy stroke, at your own castle. */
+  salvoRoll(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 45), 0.6, 3);
+    for (let i = 0; i < 14; i++) this.skin(c.input, c.t0 + i * 0.07, 0.16 + 0.025 * i);
+    this.skin(c.input, c.t0 + 1.05, 0.5, true);
+  }
+
   /** The enemy's horn call from their gate: it keeps a floor of loudness so it carries to your walls. */
   hornCall(x: number, y: number, z: number, floor: number) {
     if (!this.ctx) return;

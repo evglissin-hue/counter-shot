@@ -152,6 +152,8 @@ export interface MinimapState {
   stormOn: [boolean, boolean];
   /** In a match (labels and the plots; the Practice range has its target castle). */
   match: boolean;
+  /** 3.2: your team's marks (world x, z and number): a small cross in your colour with its number. Never the other side's. */
+  marks?: Array<{ n: number; x: number; z: number }>;
 }
 
 interface Plate {
@@ -413,6 +415,7 @@ export class Minimap {
     for (const c of [0, 1] as const) this.stormRing(st, c, now);
     this.guns(st);
     const counts = this.men(st, dt);
+    this.marks(st);
     this.totals(st, counts);
     ctx.restore();
     // The frame: a brass hairline and a faint inner light.
@@ -846,6 +849,36 @@ export class Minimap {
         ctx.fillStyle = kind === Gun.Ride ? "#f0c56a" : BRASS;
         circle(ctx, x, y, 3.1);
       }
+    }
+  }
+
+  /** 3.2: your marks, each a small cross in your team's colour with its number beside it (a dark outline under both, so they hold on the field and on the walls). */
+  private marks(st: MinimapState) {
+    if (!st.marks || st.marks.length === 0) return;
+    const ctx = this.ctx!;
+    const tmp = [0, 0];
+    ctx.font = "700 11px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    for (const m of st.marks) {
+      Minimap.px(st.me, m.x, m.z, tmp);
+      const x = tmp[0], y = tmp[1], a = 4.6;
+      ctx.beginPath();
+      ctx.moveTo(x - a, y - a);
+      ctx.lineTo(x + a, y + a);
+      ctx.moveTo(x + a, y - a);
+      ctx.lineTo(x - a, y + a);
+      ctx.strokeStyle = EDGE;
+      ctx.lineWidth = 4.2;
+      ctx.stroke();
+      ctx.strokeStyle = TEAM_CSS[st.me];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = EDGE;
+      ctx.strokeText(String(m.n), x + a + 2, y);
+      ctx.fillStyle = TEAM_CSS[st.me];
+      ctx.fillText(String(m.n), x + a + 2, y);
     }
   }
 

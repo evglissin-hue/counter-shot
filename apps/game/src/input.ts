@@ -30,6 +30,10 @@ export interface Pressed {
   pause: boolean;
   back: boolean;
   esc: boolean;
+  /** 3.2: T marks where your shot landed; F starts fire for effect (a mark's number follows); `other` is any key but F and the gun numbers (it cancels a half-typed salvo). */
+  mark: boolean;
+  salvo: boolean;
+  other: boolean;
 }
 
 export class Input {
@@ -177,6 +181,9 @@ export class Input {
       pause: e.has("KeyP"),
       back: e.has("Backspace"),
       esc: e.has("Escape"),
+      mark: e.has("KeyT"),
+      salvo: e.has("KeyF"),
+      other: [...e].some((k) => k !== "KeyF" && !/^Digit[1-8]$/.test(k)),
     };
     this.padPrev = b;
     e.clear();

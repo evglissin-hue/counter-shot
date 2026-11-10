@@ -20,6 +20,7 @@ import { Flags } from "./flags";
 import { Guns } from "./guns";
 import { Ladders } from "./ladders";
 import { Markers } from "./markers";
+import { Chalk, type ChalkMark } from "./chalk";
 import { Minions } from "./minions";
 import { MortarAim } from "./mortarAim";
 import { NavOverlay } from "./navOverlay";
@@ -70,6 +71,8 @@ export class GameRenderer implements GameRendererApi {
   private guns: Guns;
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
+  /** 3.2: your team's marks, as chalk crosses with their numbers. */
+  private chalk = new Chalk();
   /** Ladders carried, raised and fallen (M4). */
   private ladders = new Ladders();
   /** Masons' hoists and the stones they put back (M4; built with the layout). */
@@ -210,6 +213,7 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.mortarAim.root);
     this.scene.add(this.navOverlay.mesh);
     this.scene.add(this.markers.root);
+    this.scene.add(this.chalk.root);
     this.scene.add(this.ladders.root, this.storm.root);
   }
 
@@ -248,6 +252,11 @@ export class GameRenderer implements GameRendererApi {
   /** M3: where an upright sapper or musketeer stood in the last frame (for a musket's report), or null. */
   minionAt(id: number): [number, number, number, number] | null {
     return this.minions.positionOf(id);
+  }
+
+  /** 3.2: draw your team's marks (none: clear them). */
+  setChalk(marks: ChalkMark[]): void {
+    this.chalk.set(marks, (x, z) => this.terrain.heightAt(x, z));
   }
 
   /** Show the midfield markers (a match). */
@@ -865,6 +874,7 @@ export class GameRenderer implements GameRendererApi {
     cam.updateMatrixWorld();
     this.clear.update(cam);
     this.mortarAim.update(cam);
+    this.chalk.face(cam);
     this.minions.step(dt, (x, z) => this.terrain.heightAt(x, z), cam);
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
@@ -977,6 +987,7 @@ export class GameRenderer implements GameRendererApi {
     this.minions.dispose();
     this.guns.dispose();
     this.markers.dispose();
+    this.chalk.dispose();
     this.ladders.dispose();
     this.works?.dispose();
     this.storm.dispose();

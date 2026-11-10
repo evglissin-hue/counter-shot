@@ -117,6 +117,8 @@ export interface GameRendererApi {
   showEmplacements(n: number): void;
   /** Show the midfield markers, where each team's waves hold (a match). */
   setMarkers(on: boolean): void;
+  /** 3.2: your team's marks, drawn as chalk crosses with their numbers (none: clear them). */
+  setChalk(marks: Array<{ n: number; x: number; y: number; z: number; life: number }>): void;
   /** M3: what each emplacement holds now (a gun bought for an empty slot appears; an empty one shows nothing). */
   setArms(emplacements: Emplacement[]): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */

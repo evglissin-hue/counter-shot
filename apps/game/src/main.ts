@@ -16,6 +16,7 @@ import {
   GAME_LAYOUT,
   KEEP_STOREYS,
   MATCH_EMPLACEMENTS,
+  REGISTER,
   REMOUNT,
   REPAIR_KINDS,
   repairSections,
@@ -60,7 +61,8 @@ import {
 import { Input } from "./input";
 import { Feats, bestText, type FeatDef } from "./feats";
 import { Moments } from "./moments";
-import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, ToWorker } from "./protocol";
+import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, RegisterInfo, ToWorker } from "./protocol";
+import { MarkChips, newestMark, SalvoKeys } from "./marks";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
@@ -89,6 +91,20 @@ const minimap = new Minimap($<HTMLCanvasElement>("minimap"));
 /** M6: the threat strip over the minimap, and the group marks in the overview. */
 const threat = new ThreatStrip($("threat"));
 const groupMarks = new OverviewMarks($("ovmarks"));
+/**
+ * 3.2: your team's marks (chips on the command card, chalk in the sight and the overview, crosses on the minimap) and fire for effect.
+ * A match carries the register in its report; the Practice range's comes with the frame.
+ */
+const markChips = new MarkChips($("marks-row"), $("chips"), (n) => orderSalvo(n));
+const salvoKeys = new SalvoKeys();
+const mortarBox = $<HTMLInputElement>("mortar-salvo");
+const markHint = $<HTMLButtonElement>("markhint");
+let practiceReg: RegisterInfo | null = null;
+/** The marks last seen (made ticks by number), to say when a new one is made. */
+let marksSeen = new Map<number, number>();
+/** Until when (ms) the gun tabs flash as guns fire on their own: a salvo was ordered. */
+let salvoWatch = 0;
+const regInfo = (): RegisterInfo | null => (isMatch() ? matchInfo : practiceReg);
 /** The castles' sections as the worker last counted them (twice a second). */
 let sectionShares: Uint8Array | null = null;
 let mapFrame = 0;
@@ -383,6 +399,8 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
     timeline.push(m.frame);
     if (m.match) onMatch(matchPatch ? { ...m.match, ...matchPatch } : m.match);
+    practiceReg = m.reg;
+    syncRegister();
     if (m.bridges) onBridges(m.bridges);
     if (m.sections) sectionShares = m.sections;
     if (m.nav) renderer.updateNav(m.nav.kind, m.nav.floor);
@@ -410,6 +428,8 @@ function onFrame(f: FrameData) {
       const slot = emp - BASE;
       const yours = slot >= 0 && slot < EMP.length;
       if (e) sound.fire(e.weapon, e.x, e.y, e.z, yours && slot === current && !auto);
+      // A salvo: each gun's tab flashes as its gun fires.
+      if (auto && yours && now < salvoWatch) flashTab(slot);
       if (!auto && yours && e) {
         guide.mark(e.weapon === "longGun" ? "fire" : e.weapon === "mortar" ? "mortar" : "others");
         recording.set(id, { emp: slot, pts: [] });
@@ -1044,6 +1064,7 @@ function drawMap() {
     storm: [stormOf(0), stormOf(1)],
     stormOn: info ? [info.attackers[0] > info.defenders[0] && info.attackers[0] >= 2, info.attackers[1] > info.defenders[1] && info.attackers[1] >= 2] : [false, false],
     match,
+    marks: regInfo()?.marks.map((m) => ({ n: m.n, x: m.x, z: m.z })),
     ...mapPatch,
   });
 }
@@ -1101,6 +1122,7 @@ function select(i: number) {
   spot.primed = false;
   keyVel.yaw = keyVel.pitch = 0;
   if (isMatch() && (current !== prev || !wasSight)) man(current, wasSight ? prev : -1);
+  else if (mode === "practice") rangeMan();
   updateHud(true);
 }
 
@@ -1115,6 +1137,11 @@ function man(e: number, left: number) {
   const id = e >= 0 ? gid(e) : -1;
   if (e >= 0 && g && g.length >= (id + 1) * 2) aims[e] = clampAim({ yaw: g[id * 2], pitch: g[id * 2 + 1] }, EMP[e], weaponOf(EMP[e]));
   send({ t: "input", input: { kind: "man", emplacement: id, left: left >= 0 ? { emplacement: gid(left), yaw: aims[left].yaw, pitch: aims[left].pitch } : undefined } });
+}
+
+/** The Practice range's register needs to know which gun you ride (its salvo leaves that one's aim alone). */
+function rangeMan() {
+  send({ t: "input", input: { kind: "man", emplacement: view === "sight" ? gid(current) : -1 } });
 }
 
 /**
@@ -1751,6 +1778,9 @@ function startMode(m: Mode, net?: OnlineStart) {
   const match = m === "versus" || m === "online" || m === "guided";
   $("matchbar").hidden = !match;
   $("command").hidden = !match;
+  // The Practice range's command card holds only the marks row (it shows once there is a mark).
+  $("command").classList.toggle("range", !match);
+  resetRegister();
   threat.setVisible(match);
   threat.setSide(ME);
   groupMarks.reset();
@@ -1813,6 +1843,7 @@ function startMode(m: Mode, net?: OnlineStart) {
   sectionShares = null;
   showKeeps([3, 3], [1, 1], false);
   advice = { lastBuild: 0, at: -1e9, count: 0, built: 0 };
+  if (!match) rangeMan();
   if (match) {
     send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
     const goal = guide.open ? "" : ": bring down its keep or storm its courtyard";
@@ -2600,12 +2631,137 @@ canvas.addEventListener("pointerdown", (e) => {
 canvas.addEventListener("pointerup", (e) => {
   const d = downAtPx;
   downAtPx = null;
-  if (!d || view !== "overview" || !isMatch() || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+  if (!d || view !== "overview" || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
+  // 3.2: a click on one of your marks orders the salvo at it.
+  const n = markAt(e.clientX, e.clientY);
+  if (n > 0) {
+    orderSalvo(n);
+    return;
+  }
+  if (!isMatch()) return;
   const p = renderer.pick(e.clientX, e.clientY);
   const plot = p ? estate.plotAt(p.x, p.z) : -1;
   if (plot >= 0) estate.openPlot(plot);
 });
 $("overview-btn").addEventListener("click", () => toggleOverview());
+
+// ---- 3.2 range and register ---------------------------------------------------------
+/** A tab flashes as its gun fires in a salvo. */
+function flashTab(slot: number) {
+  const b = tabs[slot];
+  if (!b) return;
+  b.classList.remove("firing");
+  void b.offsetWidth; // restart the animation
+  b.classList.add("firing");
+  setTimeout(() => b.classList.remove("firing"), 600);
+}
+
+/** Forget every mark (a new world). */
+function resetRegister() {
+  practiceReg = null;
+  marksSeen = new Map();
+  salvoWatch = 0;
+  salvoKeys.cancel();
+  mortarBox.checked = false;
+  markChips.update([], 0, false);
+  renderer.setChalk([]);
+  markHint.hidden = true;
+}
+
+/** The register as the worker last said it, onto the chips, the chalk and the notes (every frame message). */
+function syncRegister() {
+  const reg = regInfo();
+  const marks = reg?.marks ?? [];
+  markChips.update(marks, reg?.salvoReady ?? 0, mortarBox.checked);
+  if (!isMatch()) $("command").hidden = marks.length === 0;
+  renderer.setChalk(marks.map((m) => ({ n: m.n, x: m.x, y: m.y, z: m.z, life: m.left / m.life })));
+  $("salvo-line").textContent = salvoKeys.armed ? "Which mark? 1 to 6" : "";
+  // A new mark: a note (and the guide's tick). A refreshed one keeps its tick.
+  const now = new Map<number, number>();
+  for (const m of marks) {
+    now.set(m.n, m.made);
+    if (marksSeen.get(m.n) !== m.made && mode !== null) {
+      showNote(`Marked: ${m.place}`, 2200);
+      guide.mark("mark");
+    }
+  }
+  marksSeen = now;
+}
+
+/** T: mark where the last shot of the gun you ride landed, while it may be marked (5 s). */
+function markHere() {
+  const reg = regInfo();
+  if (!reg || !ready || userPause || matchInfo?.result || view !== "sight") return;
+  const id = gid(current);
+  if (!reg.canMark.includes(id)) {
+    showNote("Nothing to mark: fire a shot first", 2200);
+    return;
+  }
+  send({ t: "input", input: { kind: "mark", emplacement: id } });
+  sound.ui("click");
+  reg.canMark = reg.canMark.filter((k) => k !== id);
+}
+
+/** Fire for effect at a mark (0: the newest): every gun that bears fires, one after another. */
+function orderSalvo(n: number) {
+  const reg = regInfo();
+  if (!reg || !ready || userPause || matchInfo?.result) return;
+  const num = n === 0 ? newestMark(reg.marks) : n;
+  const m = reg.marks.find((k) => k.n === num);
+  if (!m) return;
+  if (reg.salvoReady > 0) {
+    showNote(`Salvo ready in ${Math.ceil(reg.salvoReady / 60)} s`, 2200);
+    return;
+  }
+  if ((mortarBox.checked ? m.bearM : m.bear) === 0) {
+    showNote("No gun bears", 2200);
+    return;
+  }
+  send({ t: "input", input: mortarBox.checked ? { kind: "salvo", mark: num, mortar: true } : { kind: "salvo", mark: num } });
+  reg.salvoReady = REGISTER.salvoEvery;
+  salvoWatch = clock() + 4000;
+  const e = EMP[current];
+  sound.salvoRoll(e.x, e.y, e.z);
+  showNote(`Fire for effect: mark ${num}, ${m.place}`, 2600);
+}
+
+/** The number of your mark under a click in the overview (the nearest within a few pixels), or 0. */
+function markAt(clientX: number, clientY: number): number {
+  const reg = regInfo();
+  if (!reg) return 0;
+  const r = canvas.getBoundingClientRect();
+  let best = 0, bd = 30 * 30;
+  for (const m of reg.marks) {
+    const p = renderer.project(m.x, m.y + 0.5, m.z);
+    if (!p) continue;
+    const d = (p.x + r.left - clientX) ** 2 + (p.y + r.top - clientY) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = m.n;
+    }
+  }
+  return best;
+}
+
+/** The "T mark" label sits on your last landing while it may be marked; a click on it marks it too (with the mouse free). */
+function placeMarkHint() {
+  const reg = regInfo();
+  const l = landing[current];
+  const show = !!reg && !!l && view === "sight" && !follow && !ride && !EMP[current].empty && reg.canMark.includes(gid(current)) && !blockedNow();
+  const p = show && l ? renderer.project(l.x, l.y + 1.2, l.z) : null;
+  if (!p) {
+    if (!markHint.hidden) markHint.hidden = true;
+    return;
+  }
+  if (markHint.hidden) markHint.hidden = false;
+  markHint.style.transform = `translate(${(p.x + 10).toFixed(1)}px, ${(p.y - 26).toFixed(1)}px)`;
+}
+const blockedNow = () => !$("menu").hidden || !$("end").hidden || !$("gone").hidden;
+markHint.addEventListener("click", () => {
+  markHint.blur();
+  markHere();
+});
+mortarBox.addEventListener("change", () => syncRegister());
 
 function toggleShotCam(on = !shotCam[current]) {
   shotCam[current] = on;
@@ -2681,6 +2837,7 @@ function toggleOverview() {
     guide.mark("overview");
   }
   if (isMatch()) man(view === "sight" ? current : -1, view === "sight" ? -1 : current);
+  else if (mode === "practice") rangeMan();
 }
 
 function showError(msg: string) {
@@ -2740,6 +2897,12 @@ function frame(wall: number) {
     keyVel.yaw = keyVel.pitch = 0;
   }
   // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
+  // 3.2: F then a mark's number orders fire for effect (F twice: the newest mark); T marks where your shot landed. The number is the salvo's, not a gun's.
+  const reg = regInfo();
+  const sk = salvoKeys.step(now, p.salvo && !estate.wheelOpen && !!reg && reg.marks.length > 0 && !blocked, estate.wheelOpen || blocked ? -1 : p.weapon, p.other);
+  if (sk.eat) p.weapon = -1;
+  if (sk.order >= 0) orderSalvo(sk.order);
+  if (p.mark && !estate.wheelOpen && !blocked && mode !== null) markHere();
   const wheelKeys = estate.keys(p, isMatch());
   if (!wheelKeys && p.weapon >= 0) select(p.weapon);
   if (p.next) step(1);
@@ -2838,6 +3001,8 @@ function frame(wall: number) {
   updateAimHelp();
   updateHud();
   updateCharge(now);
+  placeMarkHint();
+  if (salvoKeys.armed !== ($("salvo-line").textContent !== "")) syncRegister();
   coach.render(now, { marksOn: !ride && !follow && blocked === false, weapon: current, charging: !!charging });
   setMapBig(mapHover || input.down("KeyG"));
   if (mode !== null && (mapFrame++ % 3 === 0 || FIXED)) drawMap();
@@ -3015,6 +3180,21 @@ else {
   get matchLog() {
     return matchLog.slice();
   },
+  /** 3.2: the register as the page holds it (the marks, the salvo's wait, the guns that may mark now), the chips' words, and the keys' state. */
+  get register() {
+    return regInfo();
+  },
+  get chips() {
+    return markChips.shown;
+  },
+  get salvoArmed() {
+    return salvoKeys.armed;
+  },
+  get markHintShown() {
+    return !markHint.hidden;
+  },
+  markHere,
+  orderSalvo,
   /** Upright figures [id, x, y, z, yaw, phase, team, action, act, unit] and ladders [id, team, state, foot xyz, top xyz, t] of the last frame drawn. */
   get frame() {
     const f = lastApplied;
