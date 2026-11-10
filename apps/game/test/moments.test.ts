@@ -46,7 +46,7 @@ function rig() {
   let now = 1000;
   const m = new Moments({
     layout,
-    me: 1,
+    me: () => 1,
     clock: () => now++,
     gun: (emp) => (emp === 0 ? { team: 1, name: "long gun", x: 0, y: 5, z: 0 } : emp === 8 ? { team: 0, name: "long gun", x: 0, y: 5, z: 100 } : null),
   });

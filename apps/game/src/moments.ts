@@ -125,7 +125,7 @@ export interface MomentsOptions {
   /** A gun (match emplacement id) as the page knows it: its team and a name, or null. */
   gun: (emp: number) => { team: number; name: string; x: number; y: number; z: number } | null;
   /** The team this page plays (for "Your" and "Enemy" in words). */
-  me: number;
+  me: () => number;
 }
 
 /** The part of a MatchInfo that moments read. */
@@ -397,7 +397,7 @@ export class Moments {
     const castle = g.team;
     const col = this.collapses[castle];
     if (col && shot < 0) col.guns++;
-    const text = g.team === this.o.me ? `Your ${g.name} knocked out` : `Enemy ${g.name} silenced`;
+    const text = g.team === this.o.me() ? `Your ${g.name} knocked out` : `Enemy ${g.name} silenced`;
     this.emit({ tick: this.tick, x: g.x, y: g.y, z: g.z, kind: "gunSilenced", team: doer, size: 1, guns: 1, text, shot: shot >= 0 ? shot : undefined });
   }
 
