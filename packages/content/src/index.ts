@@ -8,3 +8,4 @@ export * from "./arsenal";
 export * from "./siege";
 export * from "./ai";
 export * from "./tuning";
+export * from "./register";

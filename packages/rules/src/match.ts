@@ -24,6 +24,7 @@ import {
   MIX_NAMES,
   MUSTER,
   PLOTS,
+  REGISTER,
   REPAIR_KINDS,
   ROUTE_NAMES,
   START_BUILDINGS,
@@ -49,6 +50,7 @@ import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepf
 import { clearOfCastle, MinionState, Order, Role, SandboxSim, SapperTask, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
 import { Economy } from "./economy";
 import { Estate, firstSlot } from "./estate";
+import { Register } from "./register";
 
 export const enum Team {
   Enemy = 0,
@@ -90,7 +92,11 @@ export type MatchInput =
    * side sees it turn: the AI, and a player online). Only for drawing it; a
    * fire carries its own aim.
    */
-  | { kind: "aim"; emplacement: number; yaw: number; pitch: number };
+  | { kind: "aim"; emplacement: number; yaw: number; pitch: number }
+  /** 3.2: mark where the last shot by hand from this emplacement of the team came down (within REGISTER.window ticks; Register). */
+  | { kind: "mark"; emplacement: number }
+  /** 3.2: fire for effect at the team's mark n (1 to 6): every gun that bears, the mortar only with `mortar` (Register). */
+  | { kind: "salvo"; mark: number; mortar?: boolean };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
@@ -239,6 +245,10 @@ function wellFormed(input: MatchInput): boolean {
       return int(input.emplacement, 0, slots) && one(UPGRADE_KINDS, input.upgrade);
     case "barracks":
       return int(input.plot, 0, plots) && (input.mix === undefined || one(MIX_NAMES, input.mix)) && (input.route === undefined || one(ROUTE_NAMES, input.route));
+    case "mark":
+      return int(input.emplacement, 0, slots);
+    case "salvo":
+      return int(input.mark, 1, REGISTER.max) && (input.mortar === undefined || typeof input.mortar === "boolean");
     default:
       return false;
   }
@@ -293,6 +303,8 @@ export class Match {
   private rotate: boolean;
   /** Waves the enemy's first barracks has sent (its route turns with them). */
   private enemyWaves = 0;
+  /** 3.2: each team's marks and fire for effect (marks are the team's alone: show a page only its own). */
+  readonly register: Register;
   /** Waves each barracks plot has sent (every other one from the second carries a ladder). */
   private plotWaves: [number[], number[]] = [PLOTS.map(() => 0), PLOTS.map(() => 0)];
 
@@ -334,6 +346,10 @@ export class Match {
     if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
     // After M5: a knocked-out gun's crew puts it back for gold, through the same books as everything else.
     this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
+    this.register = new Register(
+      { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale() },
+      opts.seed,
+    );
   }
 
   /** Gold each team earned (income included) and spent: the economy's books. */
@@ -415,8 +431,10 @@ export class Match {
         this.sendWaves(Team.Enemy);
       }
       if (this.autoFire[0] || this.autoFire[1]) this.gunnery(tick);
+      this.register.beforeStep(tick);
     }
     this.world.step();
+    this.register.afterStep(tick);
     if (this.result) return;
     // M3: bounties, masonry and trick shots from this step; then income, through the one income function.
     this.economy.step(tick);
@@ -524,6 +542,12 @@ export class Match {
         this.setGun(e.id, input.yaw, input.pitch);
         return;
       }
+      case "mark":
+        this.register.makeMark(team, input.emplacement, tick);
+        return;
+      case "salvo":
+        this.register.salvo(team, input.mark, input.mortar === true, tick);
+        return;
     }
   }
 
@@ -729,6 +753,7 @@ export class Match {
     this.estate.hashInto(nums);
     nums.push(this.enemyWaves);
     for (const p of this.plotWaves) nums.push(...p);
+    this.register.hashInto(nums);
     const f = new Float64Array(nums);
     return { state: hex8(hashBytes(new Uint8Array(f.buffer))), world: w.world };
   }

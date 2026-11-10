@@ -25,6 +25,7 @@ import { BUILDINGS } from "./buildings";
 import { KEG, MUSKET, UNITS, UNMANNED, WAVE_MIXES, WAVES } from "./army";
 import { GARRISON, LADDER, REPAIR, STORM } from "./siege";
 import { WEAPONS } from "./weapons";
+import { REGISTER } from "./register";
 
 /** The content objects a path can start from. */
 export const TUNING_ROOTS: Record<string, unknown> = {
@@ -49,6 +50,7 @@ export const TUNING_ROOTS: Record<string, unknown> = {
   AI_LEVELS,
   AI_PLANS,
   TUTOR,
+  REGISTER,
 };
 
 type Bag = Record<string, unknown>;

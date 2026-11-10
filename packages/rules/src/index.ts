@@ -3,3 +3,4 @@ export * from "./session";
 export * from "./economy";
 export * from "./estate";
 export * from "./guided";
+export * from "./register";
