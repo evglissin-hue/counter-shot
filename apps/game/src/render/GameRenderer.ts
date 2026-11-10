@@ -34,6 +34,8 @@ import { Splashes } from "./splashes";
 import { fitShadowCamera, makeSoftShadowFilter } from "./shadows";
 import { Sky } from "./sky";
 import { SHADOW_LAYER, StoneSet } from "./stones";
+import { StoneWear } from "./wear";
+import { setWearChips } from "./wearShading";
 import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
@@ -116,6 +118,8 @@ export class GameRenderer implements GameRendererApi {
   private marker: THREE.Group;
   private markerOn = false;
   private stones: StoneSet | null = null;
+  /** L2: per-stone wear (fresh breaks, new stone, soot, cracks, dust). */
+  private wear: StoneWear | null = null;
   private flags: Flags | null = null;
   private layout: CastleLayout | null = null;
   private post: Post | null = null;
@@ -317,7 +321,9 @@ export class GameRenderer implements GameRendererApi {
       this.flags.dispose();
     }
     this.layout = layout;
+    this.wear?.dispose();
     this.stones = new StoneSet(layout, this.noise);
+    this.wear = new StoneWear(layout, this.stones);
     const n = layout.stones.length;
     this.prevPos = new Float32Array(n * 3);
     this.prevTick = new Int32Array(n).fill(-1);
@@ -368,6 +374,7 @@ export class GameRenderer implements GameRendererApi {
     // M3: the plots and the kegs at the walls.
     if (frame.plots && frame.plotCount) this.estate.setPlots(frame.plots, frame.plotCount);
     if (frame.kegs) this.estate.setKegs(frame.kegs, frame.kegCount);
+    this.wear?.setKegs(frame.kegs, frame.kegCount);
     if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
@@ -378,6 +385,7 @@ export class GameRenderer implements GameRendererApi {
       const o = i * EVENT_STRIDE;
       const kind = ev[o];
       const x = ev[o + 1], y = ev[o + 2], z = ev[o + 3], v = ev[o + 4];
+      this.wear?.event(kind, x, y, z, v);
       if (kind === EventKind.Impact) this.spawnImpact(x, y, z, v);
       else if (kind === EventKind.Explosion) this.spawnExplosion(x, y, z, v);
       else if (kind === EventKind.Muzzle) this.spawnMuzzle(x | 0);
@@ -453,6 +461,7 @@ export class GameRenderer implements GameRendererApi {
     this.estate.clear();
     this.raising.clear();
     this.stones?.resetStones();
+    this.wear?.clear();
     this.prevTick.fill(-1);
     this.lastTrickle.fill(-100);
     this.terrain.resetHeights();
@@ -535,6 +544,7 @@ export class GameRenderer implements GameRendererApi {
   private spawnMuzzle(em: number) {
     const p = this.tmpA, d = this.tmpB;
     if (!this.guns.muzzle(em, p, d)) return;
+    this.wear?.muzzle(p.x, p.y, p.z, d.x, d.y, d.z);
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
     this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070, 14);
@@ -933,6 +943,7 @@ export class GameRenderer implements GameRendererApi {
         for (let k = 0; k + 3 < p.length; k += 4) this.bursts.dust.spawn(this.now, p[k], p[k + 1], p[k + 2], p[k + 3], 0, 0.6, 0);
         p.length = 0;
       }
+      this.wear?.update(this.now, dt);
       this.stones.flush();
       this.flags?.update(this.stones, dt);
     }
@@ -1074,6 +1085,7 @@ export class GameRenderer implements GameRendererApi {
   dispose(): void {
     this.post?.dispose();
     this.inset?.dispose();
+    this.wear?.dispose();
     this.stones?.dispose();
     this.flags?.dispose();
     this.terrain.dispose();
@@ -1139,6 +1151,7 @@ export class GameRenderer implements GameRendererApi {
       this.scene.add(l.target);
     }
     this.scatter.setHalfDensity(t.halfTrees);
+    setWearChips(t.chips);
     this.postDirty = true;
   }
 
