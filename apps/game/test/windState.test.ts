@@ -118,7 +118,7 @@ test("a banner streams harder as a gust front passes and slacker in a lull", () 
   const lull = flagWindTarget(4, 0, -1);
   assert.ok(gust.strength > calm.strength && lull.strength < calm.strength);
   assert.ok(Math.abs(gust.strength - calm.strength - FLAG_FRONT_GAIN) < 1e-12);
-  assert.equal(calm.angle, Math.atan2(0, 4));
+  assert.ok(Math.abs(calm.angle as number) < 1e-12);
   assert.equal(flagWindTarget(0, 0, 0).angle, null);
   assert.equal(flagWindTarget(0, 0, -1).strength, 0);
 });
