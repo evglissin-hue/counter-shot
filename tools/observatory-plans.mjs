@@ -9,6 +9,7 @@
 // into node_modules/.scratch/content.mjs, so they follow content.
 
 import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "rolldown";
@@ -202,6 +203,74 @@ export function makeChild(parent, rng, { stocks = LEVELS.map(stockSteps), seen =
     return steps;
   }
   return null;
+}
+
+// ---------------------------------------------------------------- the panel
+
+/** The plan every candidate is measured against: the stock Knight plan, as explicit steps. */
+export const PANEL_PLAN = { name: "stock-knight", steps: stockSteps("knight") };
+
+/**
+ * The matches that score one candidate plan: it as castle 0, then as castle 1,
+ * on each seed, against the stock Knight plan; every plan played by the Knight
+ * level. Ids carry both plan names (and the seconds when shortened), so a plan
+ * that was scored in another run in the same directory is not played again.
+ */
+export function panelSetups(candidate, seeds, secs) {
+  const out = [];
+  for (const seed of seeds) {
+    for (const castle of [0, 1]) {
+      const plans = castle === 0 ? [candidate, PANEL_PLAN] : [PANEL_PLAN, candidate];
+      const setup = {
+        id: `${plans[0].name}-${plans[1].name}-s${seed}${secs ? `-t${secs}` : ""}-base`,
+        seed,
+        sides: ["knight", "knight"],
+        plans: [plans[0].name, plans[1].name],
+        steps: [plans[0].steps, plans[1].steps],
+        variant: "base",
+        tuning: {},
+      };
+      if (secs) setup.secs = secs;
+      out.push(setup);
+    }
+  }
+  return out;
+}
+
+/**
+ * A candidate's score from the match lines (a Map by id) for the setups
+ * panelSetups() made (even positions: the candidate is castle 0, odd: castle
+ * 1): wins plus half the draws over every match played (no result counts as a
+ * draw), in points of 100.
+ */
+export function scorePlan(setups, lines) {
+  let wins = 0, draws = 0, matches = 0;
+  setups.forEach((setup, i) => {
+    const line = lines.get(setup.id);
+    if (!line) return;
+    const w = line.result?.winner;
+    matches++;
+    if (w === i % 2) wins++;
+    else if (w === null || w === undefined || w === -1) draws++;
+  });
+  return { wins, draws, matches, score: matches ? ((wins + draws / 2) / matches) * 100 : null };
+}
+
+/** Every line in dir/matches.jsonl by setup id (a later line wins). */
+export function readLines(dir) {
+  const out = new Map();
+  const file = join(dir, "matches.jsonl");
+  if (!existsSync(file)) return out;
+  for (const l of readFileSync(file, "utf8").split("\n")) {
+    if (!l) continue;
+    try {
+      const line = JSON.parse(l);
+      out.set(line.setup.id, line);
+    } catch {
+      // a torn line
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- self check

@@ -20,7 +20,9 @@
     "game:build": "npm run build -w @keepfall/game",
     "check:browser": "node tools/browser-hash.mjs",
     "observe": "node tools/observatory.mjs",
-    "observe:quick": "node tools/observatory.mjs preset=quick"
+    "observe:quick": "node tools/observatory.mjs preset=quick",
+    "observe:openings": "node tools/observatory-openings.mjs",
+    "observe:prices": "node tools/observatory-prices.mjs"
   },
   "engines": {
     "node": ">=22"
