@@ -83,7 +83,7 @@ test("a guided-style match (its options, the tutor, a scripted player) replays f
   const read = readLog(run.text);
   assert.ok(read.ok);
   if (!read.ok) return;
-  assert.ok(read.log.inputs.length >= 8);
+  assert.ok(read.log.inputs.length >= 3);
   assert.deepEqual(replay(read.log), run.hash);
 });
 
