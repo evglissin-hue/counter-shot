@@ -1,7 +1,9 @@
 // The price list (phase 3, 3.1, spec rule 7): what each thing gold buys is
 // worth, as win rate per 100 gold.
 //
-//   node tools/observatory-prices.mjs [run=name] [seeds=1-4] [items=mill,heavyShot,...] [secs=N] [jobs=N]
+//   node tools/observatory-prices.mjs [run=name] [seeds=1-4] [items=mill,heavyShot,...] [secs=N] [jobs=N] [dry=1]
+//
+// dry=1 prints the pairs and the match count and plays nothing.
 //
 // Items: every building kind (mill, barracks, foundry), every gun kind
 // (longGun, mortar, chainShot, swivel) and every upgrade (heavyShot, rifled,
@@ -145,6 +147,10 @@ async function main() {
   const have = doneIds(dir);
   const toPlay = setups.filter((s) => !have.has(s.id)).length;
   console.log(`${run}: ${pairs.length} items, ${plans.size} distinct plans x ${seeds.length * 2} matches = ${setups.length} matches (${toPlay} to play on ${jobs} workers)`);
+  if (args.dry === "1") {
+    for (const p of pairs) console.log(`${p.item.padEnd(12)} cost ${String(p.cost).padStart(3)}  ${p.how}  with ${p.with.name}  without ${p.without.name}`);
+    return;
+  }
   writeRunInfo(dir, { run, jobs, args, matrix: { kind: "prices", seeds: args.seeds ?? "1-4", items, secs: secs ?? null }, expected: setups.length, setups: setups.map((s) => s.id) });
 
   await runPool({ dir, setups, jobs });
