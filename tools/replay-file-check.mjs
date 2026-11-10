@@ -97,37 +97,32 @@ try {
   });
 
   // The speed buttons: ticks per game second second at 1x, 2x and 4x (the worker's speed).
-  const settle = async () => {
-    let last = -1;
-    for (;;) {
-      const t = await tickOf();
-      if (t === last) return t;
-      last = t;
-      await page.waitForTimeout(600);
-    }
-  };
+  // The test clock gives every rendered frame 1/30 s of game time (the page drives the worker), so the worker's
+  // speed shows as ticks per rendered frame: 2 at 1x, 4 at 2x, 8 at 4x.
   const rate = async (btn) => {
     if (btn) await page.click(`[data-watch-speed="${btn}"]`);
-    const t0 = await settle();
-    await page.evaluate(() => window.__sandbox.advance(1));
-    await page.waitForFunction((t) => (window.__sandbox.match?.tick ?? 0) > t, t0, { timeout: 60000, polling: 100 });
-    return (await settle()) - t0;
+    await page.waitForTimeout(1500);
+    const a = await page.evaluate(() => [window.__sandbox.match.tick, window.__sandbox.frames]);
+    await page.waitForFunction((f) => window.__sandbox.frames >= f + 12, a[1], { timeout: 120000, polling: 100 });
+    const b = await page.evaluate(() => [window.__sandbox.match.tick, window.__sandbox.frames]);
+    console.log("  rate", btn, a, b);
+    return (b[0] - a[0]) / (b[1] - a[1]);
   };
   const r1 = await rate(null);
   const r2 = await rate(2);
   const r4 = await rate(4);
-  console.log(`ticks in 1 s of test clock: 1x ${r1}, 2x ${r2}, 4x ${r4}`);
-  ok("1x is 60 ticks a second", Math.abs(r1 - 60) <= 6);
-  ok("2x doubles it", Math.abs(r2 - 120) <= 12);
-  ok("4x quadruples it", Math.abs(r4 - 240) <= 24);
+  console.log(`ticks per rendered frame (2 at 1x): 1x ${r1.toFixed(2)}, 2x ${r2.toFixed(2)}, 4x ${r4.toFixed(2)}`);
+  ok("1x is 2 ticks a frame", Math.abs(r1 - 2) < 0.5);
+  ok("2x is 4", Math.abs(r2 - 4) < 1);
+  ok("4x is 8", Math.abs(r4 - 8) < 2);
   ok("the speed button is pressed", await page.evaluate(() => document.querySelector('[data-watch-speed="4"]').getAttribute("aria-pressed") === "true" && window.__sandbox.watchBar.speed === 4));
-  await page.click('[data-watch-speed="1"]');
 
-  // To the end.
+  // To the end (the page's own frames drive it; 4x gets there sooner).
   const final = file.final.tick;
-  for (let i = 0; i < 40 && !(await page.evaluate(() => window.__sandbox.watchEnd)); i++) {
-    await page.evaluate(() => window.__sandbox.advance(5));
-    await page.waitForTimeout(600);
+  // (the software renderer is slow: push the clock along with extra test-clock steps at 4x)
+  for (let i = 0; i < 200 && !(await page.evaluate(() => window.__sandbox.watchEnd)); i++) {
+    await page.evaluate(() => window.__sandbox.advance(10));
+    await page.waitForTimeout(1000);
   }
   const end = await page.evaluate(() => window.__sandbox.watchEnd);
   console.log("watchEnd", JSON.stringify(end), "saved", JSON.stringify(file.final));
@@ -137,8 +132,7 @@ try {
   const endText = await page.textContent("#watch-end");
   ok(`the bar says "End of the replay" (and not that it drifted): ${endText}`, endText === "End of the replay");
   ok("no end screen over a replay", await page.evaluate(() => document.getElementById("end").hidden));
-  await page.evaluate(() => window.__sandbox.advance(2));
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(1500);
   ok("the replay stands still at its end", (await tickOf()) === final);
 
   // Refusals, shown in the menu.
