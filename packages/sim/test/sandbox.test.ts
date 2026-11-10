@@ -51,6 +51,27 @@ test("wind follows its seed, gusts, and stays in range", () => {
   assert.deepEqual([a.x, a.z], [b.x, b.z], "the same seed blows the same");
 });
 
+test("the wind's lead says where a gust ends, and reading it changes nothing", () => {
+  const a = new Wind(new Rng(5).fork("wind")), b = new Wind(new Rng(5).fork("wind"));
+  const due = new Map<number, { x: number; z: number; change: number }>();
+  let checked = 0;
+  for (let t = 0; t < 60 * 240; t++) {
+    a.step(t);
+    b.step(t);
+    const want = due.get(t);
+    // Unless the base wind started a new turn meanwhile, the wind reaches the lead exactly when it said.
+    if (want && want.change === a.nextChangeIn(t) + t) {
+      assert.ok(Math.abs(a.x - want.x) < 1e-9 && Math.abs(a.z - want.z) < 1e-9, `tick ${t}: ${a.x},${a.z} vs ${want.x},${want.z}`);
+      checked++;
+    }
+    const l = a.lead(t);
+    assert.ok(l.ticks >= 0 && l.ticks <= 5 * 60);
+    if (!due.has(t + l.ticks)) due.set(t + l.ticks, { x: l.x, z: l.z, change: a.nextChangeIn(t) + t });
+    assert.deepEqual([a.x, a.z], [b.x, b.z], "reading the lead leaves the wind alone");
+  }
+  assert.ok(checked > 30, `checked ${checked} gusts`);
+});
+
 test("shots scatter a little: the same aim lands nearby but never on the same spot twice", () => {
   const land = (seed: number, shots: number) => {
     const sim = new SandboxSim(R, buildLayout(1, GAME_LAYOUT), { seed, minions: 0 });

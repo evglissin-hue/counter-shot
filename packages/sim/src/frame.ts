@@ -139,6 +139,10 @@ export interface FrameData {
   /** Wind in m/s along x and z. */
   windX: number;
   windZ: number;
+  /** Where the wind is heading (m/s along x and z) and the ticks until it gets there (the gust easing in now; for the page only, see Wind.lead). */
+  gustX?: number;
+  gustZ?: number;
+  gustIn?: number;
   /** Every plot's building (M3, PLOT_STRIDE each; empty without plots). */
   plots: Float32Array;
   plotCount: number;

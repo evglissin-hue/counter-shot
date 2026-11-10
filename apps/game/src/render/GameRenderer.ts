@@ -38,6 +38,7 @@ import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
+import { WindField } from "./windField";
 import { Works } from "./works";
 
 export type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
@@ -126,6 +127,8 @@ export class GameRenderer implements GameRendererApi {
   private noise: THREE.Texture;
   private time = uniform(0);
   private wind = uniform(new THREE.Vector2(0, 0));
+  /** L3: the game's wind over the land, with the coming gust's front (everything that sways reads it). */
+  readonly windField: WindField;
   private now = 0;
   private gore = true;
   private tier: QualityTier = "high";
@@ -151,6 +154,7 @@ export class GameRenderer implements GameRendererApi {
     // Everything that does not need the GPU is built here, so every API call
     // is safe before init() resolves.
     this.noise = getNoiseTexture();
+    this.windField = new WindField(this.time, this.noise);
     this.sky = new Sky(this.noise);
     this.scene.add(this.sky.mesh);
     this.scene.add(this.hemi);
@@ -366,6 +370,7 @@ export class GameRenderer implements GameRendererApi {
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.flags?.setWind(frame.windX || 0, frame.windZ || 0);
+    this.windField.setFrame(frame.windX, frame.windZ, frame.gustX, frame.gustZ, frame.gustIn);
     const ev = frame.events;
     for (let i = 0; i < frame.eventCount; i++) {
       const o = i * EVENT_STRIDE;
@@ -600,6 +605,8 @@ export class GameRenderer implements GameRendererApi {
 
   setWeaponPose(emplacement: number, yaw: number, pitch: number, active: boolean): void {
     this.guns.setPose(emplacement, yaw, pitch, active);
+    const em = active ? this.emplacementList.find((x) => x.id === emplacement) : undefined;
+    if (em) this.windField.setAnchor(em.x, em.z);
   }
 
   setCamera(pose: CameraPose): void {
@@ -884,6 +891,7 @@ export class GameRenderer implements GameRendererApi {
     this.time.value = this.now;
     this.sky.time.value = this.now;
     this.effects.setTime(this.now);
+    this.windField.update(dt);
     this.shock.update(this.now);
     this.views.update(real);
     const cam = this.views.camera;
