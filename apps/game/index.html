@@ -125,6 +125,12 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .storm.theirs .meter > i { background: var(--bad); }
 .storm.theirs .title b { color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .storm .meter > i { transition: none; } }
+.watchbar { position: absolute; left: 50%; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 8px 12px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
+.watchbar .mono { min-width: 92px; text-align: center; }
+.watchbar button { border: 1px solid var(--line); }
+.watchbar button:disabled { opacity: 0.4; cursor: default; }
+.watchbar #watch-end { flex-basis: 100%; text-align: center; font: 600 14px/1.2 var(--ui); color: var(--brass); }
+#replay-why { margin: 0; color: #f0a08c; }
 .bridges { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
 .bridges b { font-weight: 600; }
 .bridges .down { color: var(--bad); }
@@ -524,6 +530,13 @@ body.title-screen .side > * { display: none !important; }
       <div class="meter"><i id="storm-fill"></i></div>
     </div>
   </div>
+  <div id="watch-bar" class="watchbar glass" hidden role="group" aria-label="Replay controls">
+    <span class="mono" id="watch-clock">0:00 / 0:00</span>
+    <button id="watch-pause" aria-pressed="false">Pause</button>
+    <button data-watch-speed="1" aria-pressed="true">1x</button><button data-watch-speed="2" aria-pressed="false">2x</button><button data-watch-speed="4" aria-pressed="false">4x</button>
+    <button id="watch-back">Back to the menu</button>
+    <span id="watch-end" role="status" hidden></span>
+  </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
   <div class="weapon glass">
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
@@ -637,6 +650,9 @@ body.title-screen .side > * { display: none !important; }
             <span class="small" id="level-blurb"></span>
           </div>
         </div>
+        <button class="choice" id="replay-go"><b>Watch a replay</b><span>Open a saved match file and watch it again, from either castle or the overview, at up to four times speed.</span></button>
+        <p class="small" id="replay-why" role="alert" hidden></p>
+        <input type="file" id="replay-file" accept=".json,application/json" hidden>
         <button class="choice" id="online-go"><b>Play a friend</b><span>The same match against a friend on their own laptop: one hosts, the other joins.</span></button>
       </div>
       <div id="online" class="online" hidden>
@@ -646,7 +662,7 @@ body.title-screen .side > * { display: none !important; }
         <div class="actions"><button class="primary" id="online-host">Host a match</button><button id="online-cancel">Cancel</button><button id="online-back">Back</button></div>
         <p class="small">The host plays the oxblood castle, the friend who joins the green one. Both of you open this game's claude.ai link, signed in: share it with your friend from the artifact's Share menu.</p>
       </div>
-      <div class="actions"><button id="book-open">Book of feats</button><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
+      <div class="actions"><button id="book-open">Book of feats</button><button id="menu-save" hidden>Save the replay</button><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
     </div>
   </div>
@@ -671,6 +687,7 @@ body.title-screen .side > * { display: none !important; }
         <button class="primary" id="end-again">Play again</button>
         <button id="end-guided" hidden>Play the guided match again</button>
         <button id="end-practice">Practice range</button>
+        <button id="end-save">Save the replay</button>
         <button id="end-look">Look around</button>
       </div>
     </div>

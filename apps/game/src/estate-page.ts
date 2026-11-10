@@ -90,7 +90,7 @@ export class Estate {
 
   /** In a match (against the AI or a friend)? */
   private get inMatch(): boolean {
-    return this.mode === "versus" || this.mode === "online" || this.mode === "guided";
+    return this.mode === "versus" || this.mode === "online" || this.mode === "guided" || this.mode === "watch";
   }
 
   /** A new world: nothing built yet, the wheel shut, no numbers in the air. */
@@ -118,21 +118,21 @@ export class Estate {
 
   /** Open the build menu on one of your gun slots (an empty slot's tab or its fire button). */
   openFor(slot: number) {
-    if (!this.inMatch) return;
+    if (!this.inMatch || this.mode === "watch") return; // a replay is looked at, never played
     document.exitPointerLock?.();
     this.wheel.open(10 + slot);
   }
 
   /** Open the build menu on its list (the Build button). */
   openList() {
-    if (!this.inMatch) return;
+    if (!this.inMatch || this.mode === "watch") return; // a replay is looked at, never played
     document.exitPointerLock?.();
     this.wheel.open();
   }
 
   /** Open the wheel on one of the player's plots (a click in the overview). */
   openPlot(plot: number) {
-    if (!this.inMatch) return;
+    if (!this.inMatch || this.mode === "watch") return; // a replay is looked at, never played
     document.exitPointerLock?.();
     this.wheel.open(plot);
   }
