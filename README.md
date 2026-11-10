@@ -27,4 +27,7 @@ node tools/guided-check.mjs  # M6: the guided match step by step (the coach, its
 node tools/overview-shots.mjs  # M6: the threat strip and the overview's pennants in a Versus AI match
 npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs enemy=knight player=knight seed=21  # the dead-end hunt: an AI match that flags guns stuck out, slots that cannot be bought, idle gunners, hoarded gold
 npx rolldown packages/ai/scripts/guided.ts --format esm --platform node -o node_modules/.scratch/guided.mjs && node node_modules/.scratch/guided.mjs player=newcomer seed=31  # M6: a guided match with a stand-in player (idle, newcomer, waves, squire): the tutor's stages and the result
+npm run observe:quick  # 3.1: the observatory's quick run (24 AI matches in worker threads, one JSON line each into tools/.observatory/<run>/matches.jsonl; started again, a run skips the matches it has)
+node tools/observatory.mjs pairs=warlord:knight seeds=1-12 swap=1 secs=300 jobs=4 run=mine variants=variants.json  # a custom matrix; presets: quick, review (the design review's 15), side (400 Knight mirrors)
+node node_modules/.scratch/observe.mjs seed=11 sides=knight,knight secs=120 tuning='{"WEAPONS.mortar.reload":600}'  # one match to one JSON line (bundle packages/ai/scripts/observe.ts with rolldown first)
 ```
