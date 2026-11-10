@@ -318,7 +318,7 @@ function tick(advanceMs = -1) {
   }
   let steps = 0;
   // A replay being watched has no wall to keep to but the page's speed (4x needs up to eight steps an interval).
-  const most = manual ? 12 : net ? 4 : watching ? 8 : 2;
+  const most = manual ? (watching ? 48 : 12) : net ? 4 : watching ? 8 : 2;
   while (acc >= DT && steps < most) {
     if (net && !net.canStep()) break; // waiting for the friend's inputs for this tick
     if (watching && match!.tick >= watching.final.tick) break; // the saved match's last tick: stop here
