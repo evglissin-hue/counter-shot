@@ -110,7 +110,10 @@ const runFile = join(dir, "run.json");
 const cpus = os.cpus();
 const info = {
   run,
+  name: run,
+  jobs,
   args,
+  matrix: { preset: args.preset ?? null, pairs: args.pairs ?? null, seeds: args.seeds ?? null, swap: args.swap === "1", variants: variants.map((v) => v.name), secs: secs ?? null },
   expected: setups.length,
   setups: setups.map((s) => s.id),
   variants,
@@ -118,6 +121,7 @@ const info = {
   startedAt: new Date().toISOString(),
 };
 if (existsSync(runFile)) info.resumedAt = info.startedAt, info.startedAt = JSON.parse(readFileSync(runFile, "utf8")).startedAt ?? info.startedAt;
+info.started = info.startedAt;
 writeFileSync(runFile, JSON.stringify(info, null, 2) + "\n");
 
 const todo = setups.filter((s) => !done.has(s.id));
