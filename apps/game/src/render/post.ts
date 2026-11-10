@@ -47,13 +47,17 @@ export interface TierSettings {
   bloom: boolean;
   aa: "fxaa" | "smaa";
   halfTrees: boolean;
+  /** L3: grass in tufts near the camera. */
+  tufts: boolean;
+  /** L2: chipped edges on every block. */
+  chips: boolean;
 }
 
 export const TIERS: Record<QualityTier, TierSettings> = {
-  low: { pixelRatioCap: 1, pixelRatioScale: 0.75, shadowMap: 1024, shadowTaps: 4, softShadows: false, ao: "off", bloom: false, aa: "fxaa", halfTrees: true },
-  medium: { pixelRatioCap: 1, pixelRatioScale: 1, shadowMap: 2048, shadowTaps: 8, softShadows: true, ao: "off", bloom: true, aa: "fxaa", halfTrees: false },
-  high: { pixelRatioCap: 1.5, pixelRatioScale: 1, shadowMap: 2048, shadowTaps: 12, softShadows: true, ao: "half", bloom: true, aa: "smaa", halfTrees: false },
-  ultra: { pixelRatioCap: 2, pixelRatioScale: 1, shadowMap: 4096, shadowTaps: 16, softShadows: true, ao: "full", bloom: true, aa: "smaa", halfTrees: false },
+  low: { pixelRatioCap: 1, pixelRatioScale: 0.75, shadowMap: 1024, shadowTaps: 4, softShadows: false, ao: "off", bloom: false, aa: "fxaa", halfTrees: true, tufts: false, chips: false },
+  medium: { pixelRatioCap: 1, pixelRatioScale: 1, shadowMap: 2048, shadowTaps: 8, softShadows: true, ao: "off", bloom: true, aa: "fxaa", halfTrees: false, tufts: false, chips: false },
+  high: { pixelRatioCap: 1.5, pixelRatioScale: 1, shadowMap: 2048, shadowTaps: 12, softShadows: true, ao: "half", bloom: true, aa: "smaa", halfTrees: false, tufts: true, chips: true },
+  ultra: { pixelRatioCap: 2, pixelRatioScale: 1, shadowMap: 4096, shadowTaps: 16, softShadows: true, ao: "full", bloom: true, aa: "smaa", halfTrees: false, tufts: true, chips: true },
 };
 
 /**
