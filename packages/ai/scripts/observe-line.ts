@@ -1,0 +1,98 @@
+// The observatory's contract (phase 3 milestone 3.1): one JSON line per match
+// in tools/.observatory/<run>/matches.jsonl. observe.ts writes these lines;
+// tools/observatory.mjs collects them; tools/observatory-report.mjs reads
+// them. Pairs are by castle: [castle 0, castle 1]. Castle 0 is the castle at
+// the origin (Team.Enemy in the rules), castle 1 the one at z = -DIST.
+// Times are in seconds of match time unless a name says otherwise.
+
+/** Bump when a field changes meaning or goes away (adding a field does not need it). */
+export const LINE_VERSION = 1;
+
+/** Who commands a castle: an AI level, or nobody. */
+export type Side = "squire" | "knight" | "warlord" | "idle";
+
+/** What a shot by hand was for (the gunner's Aim keys, grouped: every raid is "raid", every gun is "gun"). */
+export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun";
+export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun"];
+
+/** How a match is set up. Everything needed to play it again. */
+export interface MatchSetup {
+  /** Unique within its run (the pool's resume key), e.g. "knight-knight-s11-base". */
+  id: string;
+  seed: number;
+  sides: [Side, Side];
+  /** Each castle's build plan: "stock" (AI_PLANS of its level) or a name for `steps`. */
+  plans: [string, string];
+  /** A plan that is not stock, as AiStep lists (null: stock). */
+  steps?: [unknown[] | null, unknown[] | null];
+  /** The variant's name ("base": no changes) and its changes by content path, e.g. { "WEAPONS.mortar.reload": 600 }. */
+  variant: string;
+  tuning: Record<string, unknown>;
+  /** Longest the match may run (s); it stops earlier at its result. Default: the match's own time limit (25:00). */
+  secs: number;
+}
+
+/** Every 30 s of match time (t = 30, 60, ...), and once more at the end. */
+export interface Sample {
+  t: number;
+  gold: [number, number];
+  /** Gold spent so far (Match.spent). */
+  spent: [number, number];
+  /** Each castle's six plots, one letter each: "." empty, b/m/f a barracks, mill or foundry rising, B/M/F working, x a ruin. */
+  plots: [string, string];
+  /** Keep storeys still under each banner (Match.floorsUnder: 3 on the roof, 0 down). */
+  floors: [number, number];
+  /** Pieces of each castle down (Match.masonryDown). */
+  down: [number, number];
+  /** Fighting men standing and fallen, by team (Match.armyCounts). */
+  standing: [number, number];
+  fallen: [number, number];
+  /** Storm meters, by castle stormed (Match.storm, ticks). */
+  storm: [number, number];
+  /** Each castle's guns knocked out now. */
+  out: [number, number];
+  /** Stones moving now (CastleSim.awakeCount), the most seen in this window, and the slowest Match.step in this window (ms, wall clock). */
+  moving: number;
+  movingMax: number;
+  worstMs: number;
+}
+
+/** One applied build step: [tick, castle, what], what as "build mill 1" (plot), "buy mortar 7" (slot 0 to 7), "upgrade heavyShot 0". */
+export type BuildEntry = [number, 0 | 1, string];
+
+export interface Totals {
+  /** Shots by hand by what they were for (the AI gunner's counts). */
+  byHand: [Record<AimKind, number>, Record<AimKind, number>];
+  /** Shots by hand (Match.shots) and by guns nobody mans (Match.autoShots). */
+  shots: [number, number];
+  auto: [number, number];
+  /** The build order as it happened (every build, buy and upgrade the match applied, rebuilt ruins included). */
+  build: BuildEntry[];
+  /** Seconds each side held more than 400 unspent gold. */
+  richSecs: [number, number];
+  /** Trick shots each side made (ricochet, collapse, multi-kill, keep hit: their sum). */
+  tricks: [number, number];
+  /** Match.stats for each team: gold, masons, ladders, storms, guns silenced and lost. */
+  stats: [Record<string, number>, Record<string, number>];
+  /** The most stones moving at once and the slowest step (ms) over the whole match. */
+  movingMax: number;
+  worstMs: number;
+}
+
+export interface MatchLine {
+  v: typeof LINE_VERSION;
+  setup: MatchSetup;
+  /** Both rules versions the match ran under (sim RULES_VERSION, rules MATCH_RULES_VERSION). */
+  rules: { sim: number; match: number };
+  /**
+   * How it ended. winner: the castle that won, -1 a draw, null no result
+   * (stopped at setup.secs before the match's own end). tick: the last tick
+   * played. hash: Match.hash() at the end, so any line can be checked by
+   * playing its setup again.
+   */
+  result: { winner: 0 | 1 | -1 | null; reason: "keep" | "storm" | "surrender" | "time" | null; tick: number; hash: { state: string; world: string } };
+  samples: Sample[];
+  totals: Totals;
+  /** Wall-clock cost: ms for the whole match, and match seconds per wall second. */
+  wall: { ms: number; speed: number };
+}
