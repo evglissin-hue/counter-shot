@@ -149,3 +149,18 @@ export function changeOf(ax: number, az: number, bx: number, bz: number): number
   const a = Math.hypot(ax, az), b = Math.hypot(bx, bz);
   return Math.max(-1, Math.min(1, (a - b) / Math.max(b, 2)));
 }
+
+/** How much a gust front passing a banner adds to its stream (on the 0..1 strength the cloth uses). */
+export const FLAG_FRONT_GAIN = 0.4;
+
+/**
+ * What a banner does in the wind at its own place: the heading about its pole
+ * (radians, null when the air is still enough to keep the last) and the 0..1+
+ * strength of its stream. A gust front passing (band > 0) streams it harder, a
+ * lull slackens it.
+ */
+export function flagWindTarget(wx: number, wz: number, band: number): { angle: number | null; strength: number } {
+  const s = Math.hypot(wx, wz);
+  const strength = Math.max(0, Math.min(1.4, s / 10 + band * FLAG_FRONT_GAIN));
+  return { angle: s > 0.05 ? Math.atan2(-wz, wx) : null, strength };
+}

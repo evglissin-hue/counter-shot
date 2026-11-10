@@ -46,6 +46,7 @@ import {
   hash01,
   type FigureSink,
 } from "./minionRig";
+import { applyCloudShadow } from "./clouds";
 
 /** Figures drawn at once: upright, falling and the fallen (the sim keeps at most 240 bodies). */
 const MAX_FIGURES = 640;
@@ -212,6 +213,7 @@ export class Minions implements FigureSink {
   constructor() {
     this.root.name = "minions";
     const mat = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(mat);
     mat.name = "minion-cloth";
     mat.roughness = 0.92;
     mat.metalness = 0;
@@ -237,6 +239,7 @@ export class Minions implements FigureSink {
     brim.deleteAttribute("uv");
     brim.translate(0, 0.02, 0);
     const iron = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(iron);
     iron.name = "minion-iron";
     iron.color = new THREE.Color(IRON);
     iron.metalness = 0.55;
@@ -255,6 +258,7 @@ export class Minions implements FigureSink {
     head.translate(0, 4.36, 0);
     const pikeGeo = mergeGeometries([shaft, head]);
     const pm = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(pm);
     pm.name = "minion-pike";
     pm.color = new THREE.Color(POLE);
     pm.roughness = 0.8;
@@ -265,6 +269,7 @@ export class Minions implements FigureSink {
     this.pike.castShadow = true;
     // Stump caps: dark, wet discs where a limb came off.
     const sm = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(sm);
     sm.name = "minion-stump";
     sm.color = new THREE.Color(STUMP);
     sm.roughness = 0.4;
@@ -321,6 +326,7 @@ export class Minions implements FigureSink {
     const kegGeo = mergeGeometries([staves, bulge, hoopA, hoopB]);
     kegGeo.rotateZ(Math.PI / 2);
     const kegMat = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(kegMat);
     kegMat.name = "minion-keg";
     kegMat.color = new THREE.Color(0x231c15);
     kegMat.roughness = 0.75;
@@ -341,6 +347,7 @@ export class Minions implements FigureSink {
     lock.translate(0.03, 0.04, 0.52);
     const musketGeo = mergeGeometries([tube, stock, lock]);
     const musketMat = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(musketMat);
     musketMat.name = "minion-musket";
     musketMat.color = new THREE.Color(0x3a2f26);
     musketMat.roughness = 0.6;

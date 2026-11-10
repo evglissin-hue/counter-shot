@@ -165,7 +165,7 @@ export class GameRenderer implements GameRendererApi {
     this.flash.castShadow = false;
     this.scene.add(this.flash);
     this.scene.fogNode = this.sky.fogNode();
-    this.terrain = new Terrain(this.noise, this.sky, this.time);
+    this.terrain = new Terrain(this.noise, this.sky, this.time, this.windField);
     this.scene.add(this.terrain.ground, this.terrain.field, this.terrain.mountains, this.terrain.water);
     this.views = new Views(canvas, (x, z) => this.terrain.heightAt(x, z));
     this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir);
@@ -326,6 +326,7 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.stones.root, this.flags.mesh);
     this.stones.setStyle(STYLE);
     this.flags.setStyle(STYLE);
+    this.flags.setWindField(this.windField);
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
     this.emplacementList = emplacements;
@@ -895,6 +896,7 @@ export class GameRenderer implements GameRendererApi {
     this.effects.setTime(this.now);
     this.windField.update(dt);
     updateClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
+    this.sky.driftClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
     this.shock.update(this.now);
     this.views.update(real);
     const cam = this.views.camera;

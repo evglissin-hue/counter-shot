@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BAND, FRONT_SPEED, PASS_FADE, WindState } from "../src/render/windState";
+import { BAND, FLAG_FRONT_GAIN, FRONT_SPEED, PASS_FADE, WindState, flagWindTarget } from "../src/render/windState";
 
 /** A wind state with the wind now at (4, 0), a gust to (8, 0) due in `secs` seconds, anchored at (0, -150). */
 function gusty(secs: number): WindState {
@@ -110,4 +110,15 @@ test("the drift follows the wind and stays small", () => {
   v.update(3);
   assert.equal(v.driftX, 6);
   assert.equal(v.driftZ, 3);
+});
+
+test("a banner streams harder as a gust front passes and slacker in a lull", () => {
+  const calm = flagWindTarget(4, 0, 0);
+  const gust = flagWindTarget(4, 0, 1);
+  const lull = flagWindTarget(4, 0, -1);
+  assert.ok(gust.strength > calm.strength && lull.strength < calm.strength);
+  assert.ok(Math.abs(gust.strength - calm.strength - FLAG_FRONT_GAIN) < 1e-12);
+  assert.equal(calm.angle, Math.atan2(0, 4));
+  assert.equal(flagWindTarget(0, 0, 0).angle, null);
+  assert.equal(flagWindTarget(0, 0, -1).strength, 0);
 });
