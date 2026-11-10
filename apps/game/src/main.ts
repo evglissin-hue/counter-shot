@@ -3099,6 +3099,10 @@ else {
   apply(k: RenderKeyframe) {
     renderer.apply(k);
   },
+  /** S3: the parts whose state now differs from a keyframe (none: the renderer is exactly where it was taken). */
+  diff(k: RenderKeyframe) {
+    return keyframeDiff(k, renderer.capture());
+  },
   roundTrip() {
     const a = renderer.capture();
     renderer.apply(a);
