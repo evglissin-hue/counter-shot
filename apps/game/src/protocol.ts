@@ -160,7 +160,10 @@ export type FromWorker = { gen?: number } & (
       match: MatchInfo | null;
       /** Can each bridge still be crossed (layout order), when it changed. */
       bridges: boolean[] | null;
-      /** For the minimap, twice a second: per castle and section (minimap.ts), the share standing and the share of its foot standing (0 to 100). */
+      /**
+       * For the minimap, twice a second: per castle SECTION_COUNT (30) sections (minimap.ts: the four walls in six cells each, the gate, the four
+       * towers, the keep), two bytes each: the share standing and the share of its foot standing (0 to 100). Index: (castle * SECTION_COUNT + section) * 2.
+       */
       sections: Uint8Array | null;
       nav: NavInfo | null;
     }
