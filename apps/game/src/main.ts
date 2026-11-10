@@ -60,6 +60,8 @@ import {
 import { Input } from "./input";
 import { Feats, bestText, type FeatDef } from "./feats";
 import { Moments } from "./moments";
+import { Recorder, type FrameExtras } from "./recorder";
+import { keyframeDiff, type RenderKeyframe } from "./render/keyframe";
 import {
   bindImpactFrame,
   closeImpactCam,
@@ -136,6 +138,12 @@ const moments = new Moments({
 });
 const feats = new Feats({ me: 1, onFirsts: (list) => showFeatToast(list) });
 moments.onMoment((m) => feats.observe(m));
+/**
+ * Track S3: the last 40 s of frames with a keyframe of the renderer's world every 10 s, and the best moments copied out as clips
+ * into a reel (see recorder.ts). It records in every mode; what plays where is S4's.
+ */
+const recorder = new Recorder({ capture: () => renderer.capture() });
+moments.onMoment((m) => recorder.moment(m));
 /**
  * Track S2: a big moment in your own castle (a tower down, a breach, the gate
  * broken, a floor caved in, a shell among many of your men) that you are not
@@ -424,6 +432,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
     downAt.set(m.frame.tick, m.down);
     if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
+    recorder.note(m.frame, frameExtras(m));
     timeline.push(m.frame);
     if (m.match) onMatch(matchPatch ? { ...m.match, ...matchPatch } : m.match);
     if (m.bridges) onBridges(m.bridges);
@@ -432,6 +441,17 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   }
 };
 worker.onerror = (e) => showError(e.message || "The simulation worker failed to start.");
+
+/** What the page knows with a frame that the frame does not carry (for the recorder): barrels, guns out, the storm rings, bridges, arms. */
+function frameExtras(m: Extract<FromWorker, { t: "frame" }>): FrameExtras {
+  const info = m.match;
+  let storm: FrameExtras["storm"] = null;
+  if (info) {
+    const live = (c: number) => (info.attackers[c] > info.defenders[c] && info.attackers[c] >= 2 ? 1 : 0);
+    storm = [info.storm[0] / info.stormHold, live(0), info.storm[1] / info.stormHold, live(1)];
+  }
+  return { guns: info ? info.guns : null, out: m.out, storm, bridges: m.bridges, arms: info ? info.arms : null };
+}
 
 function onFrame(f: FrameData) {
   const now = clock();
@@ -643,6 +663,7 @@ function onFrame(f: FrameData) {
   for (let k = 0; k < f.eventCount; k++) if (f.events[k * EVENT_STRIDE] === EventKind.Keg) groupMarks.kegSet(f.events[k * EVENT_STRIDE + 1] | 0);
   groupMarks.update(f.minions, f.minionCount, f.tick);
   renderer.applyFrame(f);
+  recorder.frame(f);
 }
 /** The last frame applied (the screenshot tools read figures and ladders from it). */
 let lastApplied: FrameData | null = null;
@@ -1817,6 +1838,7 @@ function startMode(m: Mode, net?: OnlineStart) {
   clearTimeout(endTimer);
   bridgesOpen = layout.bridges.map(() => true);
   moments.reset();
+  recorder.reset();
   feats.me = ME;
   updateBridges();
   view = "sight";
@@ -1962,6 +1984,7 @@ function resetLocal() {
   for (let i = 0; i < ALL_EMP.length; i++) renderer.setGunOut(i, false);
   tabs.forEach((b) => b.classList.remove("out"));
   renderer.resetWorld();
+  recorder.reset();
   timeline.reset();
   downAt.clear();
   foesAt.clear();
@@ -3058,6 +3081,30 @@ else {
     return moments.log.slice();
   },
   feats,
+  /** S3: the recorder's numbers and the reel (kind, score, window, bytes, frames, the keyframe's tick). */
+  get recorder() {
+    return {
+      stats: recorder.stats(),
+      reel: recorder.reel.map((c) => ({ kind: c.moment.kind, score: c.moment.score, tick: c.moment.tick, from: c.from, to: c.to, bytes: c.bytes, entries: c.entries.length, keyTick: c.keyframe.tick })),
+    };
+  },
+  /** S3: close the clips still waiting for their frames. */
+  flushRecorder() {
+    recorder.flush();
+  },
+  /** S3: the renderer's keyframe now; put one back; and capture, apply and capture again (which parts differ, if any). */
+  capture() {
+    return renderer.capture();
+  },
+  apply(k: RenderKeyframe) {
+    renderer.apply(k);
+  },
+  roundTrip() {
+    const a = renderer.capture();
+    renderer.apply(a);
+    const parts = keyframeDiff(a, renderer.capture());
+    return { equal: parts.length === 0, parts, bytes: a.bytes, tick: a.tick };
+  },
   /** Test hook: how long a feat's toast stays (ms), so a slow software-rendered screenshot can catch it. */
   setFeatToastMs(ms: number) {
     featToastMs = ms;

@@ -634,6 +634,29 @@ export class Terrain {
     this.refresh(0, 0, TG.nx - 1, TG.nz - 1);
   }
 
+  /** Keyframe (S3): the cells whose height is not the original, as their grid index and height. */
+  captureHeights(): { idx: Int32Array; h: Float32Array } {
+    const H = this.heights, B = this.base;
+    let n = 0;
+    for (let k = 0; k < H.length; k++) if (H[k] !== B[k]) n++;
+    const idx = new Int32Array(n), h = new Float32Array(n);
+    let m = 0;
+    for (let k = 0; k < H.length; k++) {
+      if (H[k] === B[k]) continue;
+      idx[m] = k;
+      h[m] = H[k];
+      m++;
+    }
+    return { idx, h };
+  }
+
+  /** Keyframe (S3): the original ground, then the captured cells; normals and crater shading as applyPatches makes them. */
+  restoreHeights(idx: Int32Array, h: Float32Array) {
+    this.heights.set(this.base);
+    for (let m = 0; m < idx.length; m++) this.heights[idx[m]] = h[m];
+    this.refresh(0, 0, TG.nx - 1, TG.nz - 1);
+  }
+
   private refresh(i0: number, j0: number, i1: number, j1: number) {
     const p = this.pos.array as Float32Array;
     const nrm = this.nor.array as Float32Array;

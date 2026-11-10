@@ -13,6 +13,17 @@ const MAX = 160;
 const FADE_START = 40;
 const FADE_END = 60;
 
+/** What the blood decals remember, for a keyframe. */
+export interface DecalState {
+  a: Float32Array;
+  b: Float32Array;
+  n: Float32Array;
+  stoneOf: Int32Array;
+  local: Float32Array;
+  age: Float64Array;
+  next: number;
+}
+
 export class Decals {
   readonly mesh: THREE.Mesh;
   private a = new Float32Array(MAX * 4);
@@ -174,6 +185,45 @@ export class Decals {
       this.attrA.needsUpdate = true;
       this.attrN.needsUpdate = true;
     }
+  }
+
+  /** Keyframe (S3): every splat laid (the ring's first `used` slots), its age, and where the ring stands. */
+  captureState(now: number): DecalState {
+    const n = this.used;
+    const age = new Float64Array(n);
+    for (let k = 0; k < n; k++) age[k] = now - this.born[k];
+    // The born time rides in a's fourth column; the age carries it instead.
+    const a = this.a.slice(0, n * 4);
+    for (let k = 0; k < n; k++) a[k * 4 + 3] = 0;
+    return {
+      a,
+      b: this.b.slice(0, n * 4),
+      n: this.n.slice(0, n * 3),
+      stoneOf: this.stoneOf.slice(0, n),
+      local: this.local.slice(0, n * 6),
+      age,
+      next: this.next,
+    };
+  }
+
+  /** Keyframe (S3): the splats as captured, born at `now` minus their age. `show`: whether the page draws gore. */
+  restoreState(st: DecalState, now: number, show: boolean) {
+    this.clear();
+    const n = st.age.length;
+    this.a.set(st.a);
+    this.b.set(st.b);
+    this.n.set(st.n);
+    this.stoneOf.set(st.stoneOf);
+    this.local.set(st.local);
+    for (let k = 0; k < n; k++) {
+      this.born[k] = now - st.age[k];
+      this.a[k * 4 + 3] = this.born[k];
+    }
+    this.used = n;
+    this.next = st.next;
+    (this.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount = n;
+    this.mesh.visible = show && n > 0;
+    this.attrA.needsUpdate = this.attrB.needsUpdate = this.attrN.needsUpdate = true;
   }
 
   clear() {

@@ -13,15 +13,16 @@ import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
-import { Decals } from "./decals";
+import { Decals, type DecalState } from "./decals";
 import { Effects } from "./effects";
-import { EstateView } from "./estate";
+import { EstateView, type EstateState } from "./estate";
 import { Flags } from "./flags";
-import { Guns } from "./guns";
+import { Guns, type GunState } from "./guns";
 import { Inset } from "./inset";
+import { eventChance, frameBytes, roughBytes, type KeyframePart, type RenderKeyframe } from "./keyframe";
 import { Ladders } from "./ladders";
 import { Markers } from "./markers";
-import { Minions } from "./minions";
+import { Minions, type MinionsState } from "./minions";
 import { MortarAim } from "./mortarAim";
 import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
@@ -38,9 +39,10 @@ import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
-import { Works } from "./works";
+import { Works, type WorksState } from "./works";
 
 export type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
+export type { KeyframePart, RenderKeyframe } from "./keyframe";
 
 const STYLE = GRITTY;
 
@@ -142,7 +144,11 @@ export class GameRenderer implements GameRendererApi {
   private ndc = new THREE.Vector2();
   private tmpA = new THREE.Vector3();
   private tmpB = new THREE.Vector3();
-  private seed = 1;
+  /** S3: the parts a keyframe is made of (registration order), and the last frame applied (a keyframe re-applies it). */
+  private keyParts = new Map<string, KeyframePart>();
+  private lastFrame: FrameData | null = null;
+  /** The tick of the frame being applied (what chance drawn from an event is keyed by). */
+  private frameTick = 0;
 
   onDeviceLost: ((message: string) => void) | null = null;
 
@@ -218,6 +224,137 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.navOverlay.mesh);
     this.scene.add(this.markers.root);
     this.scene.add(this.ladders.root, this.storm.root);
+    this.registerBuiltInParts();
+  }
+
+  // --- keyframes (S3) ----------------------------------------------------------
+
+  /** Another module's share of a keyframe (registered once; the order of registration is the order of apply). */
+  registerKeyframePart(name: string, part: KeyframePart): void {
+    this.keyParts.set(name, part);
+  }
+
+  /** A picture of the renderer's world: every part's state, and the last frame applied. */
+  capture(): RenderKeyframe {
+    const parts = new Map<string, unknown>();
+    let bytes = this.lastFrame ? frameBytes(this.lastFrame) : 0;
+    for (const [name, part] of this.keyParts) {
+      const state = part.capture(this.now);
+      parts.set(name, state);
+      bytes += part.bytes(state);
+    }
+    return { tick: this.lastFrame ? this.lastFrame.tick : -1, parts, last: this.lastFrame, bytes };
+  }
+
+  /** Put the renderer exactly where a keyframe was taken: every part, then the last frame again (no events, no ground patches). */
+  apply(k: RenderKeyframe): void {
+    for (const [name, part] of this.keyParts) {
+      if (k.parts.has(name)) part.apply(k.parts.get(name), this.now);
+    }
+    this.lastFrame = null;
+    if (k.last) this.applyFrame({ ...k.last, eventCount: 0, terrain: [] });
+    this.lastFrame = k.last;
+  }
+
+  private registerBuiltInParts() {
+    const part = <S,>(p: KeyframePart<S>) => p as KeyframePart;
+    this.registerKeyframePart(
+      "stones",
+      part<{ moved: Float32Array; raising: Float64Array }>({
+        capture: (now) => {
+          const raising = new Float64Array(this.raising.size * 2);
+          let i = 0;
+          for (const [id, t0] of this.raising) raising.set([id, now - t0], i++ * 2);
+          return { moved: this.stones ? this.stones.captureMoved() : new Float32Array(0), raising };
+        },
+        apply: (st, now) => {
+          this.stones?.restoreMoved(st.moved);
+          // The trickle memory starts again: the same frames from here shed the same dust.
+          this.prevTick.fill(-1);
+          this.prevPos.fill(0);
+          this.lastTrickle.fill(-100);
+          this.raising.clear();
+          for (let i = 0; i < st.raising.length; i += 2) this.raising.set(st.raising[i], now - st.raising[i + 1]);
+        },
+        bytes: (st) => st.moved.byteLength + st.raising.byteLength + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "terrain",
+      part<{ idx: Int32Array; h: Float32Array }>({
+        capture: () => this.terrain.captureHeights(),
+        apply: (st) => this.terrain.restoreHeights(st.idx, st.h),
+        bytes: (st) => st.idx.byteLength + st.h.byteLength + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "minions",
+      part<MinionsState>({
+        capture: () => this.minions.captureState(),
+        apply: (st) => this.minions.restoreState(st),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    this.registerKeyframePart(
+      "guns",
+      part<GunState[]>({
+        capture: () => this.guns.captureState(),
+        apply: (st) => this.guns.restoreState(st),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    this.registerKeyframePart(
+      "estate",
+      part<EstateState>({
+        capture: (now) => this.estate.captureState(now),
+        apply: (st, now) => this.estate.restoreState(st, now),
+        bytes: (st) => st.views.byteLength + st.kegs.byteLength + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "works",
+      part<WorksState | null>({
+        capture: (now) => (this.works ? this.works.captureState(now) : null),
+        apply: (st, now) => {
+          if (st && this.works) this.works.restoreState(st, now);
+        },
+        bytes: (st) => (st ? roughBytes(st) : 0),
+      }),
+    );
+    this.registerKeyframePart(
+      "decals",
+      part<DecalState>({
+        capture: (now) => this.decals.captureState(now),
+        apply: (st, now) => this.decals.restoreState(st, now, this.gore),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    this.registerKeyframePart(
+      "storm",
+      part<Float64Array>({
+        capture: () => this.storm.captureState(),
+        apply: (st) => this.storm.restoreState(st),
+        bytes: (st) => st.byteLength + 16,
+      }),
+    );
+    // What is in the air only: nothing is captured. Cleared, with every ring back at its first slot, so the frames that follow lay the same particles in the same slots.
+    this.registerKeyframePart(
+      "transient",
+      part<null>({
+        capture: () => null,
+        apply: () => {
+          for (const b of Object.values(this.bursts)) b.reset();
+          this.effects.reset();
+          this.shock.reset();
+          this.splashes.reset();
+          this.marks.clear();
+          this.flashLevel = 0;
+          this.flash.intensity = 0;
+          this.flashGlow.value = 0;
+        },
+        bytes: () => 0,
+      }),
+    );
   }
 
   /** How far a courtyard's storm has gone (0..1, castle 0 the enemy's) and whether its attackers outnumber its defenders now. */
@@ -350,6 +487,8 @@ export class GameRenderer implements GameRendererApi {
   // --- per frame data ---------------------------------------------------------
 
   applyFrame(frame: FrameData): void {
+    this.lastFrame = frame;
+    this.frameTick = frame.tick;
     if (this.stones && frame.stoneCount > 0) {
       this.stones.updateBodies(frame.stones, frame.stoneCount);
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
@@ -541,8 +680,8 @@ export class GameRenderer implements GameRendererApi {
       return;
     }
     this.bursts.spray.spawn(this.now, x, y, z, 0.6 + s * 0.8, 0, 0.6, 0);
-    this.seed = (this.seed * 16807) % 2147483647;
-    const r = this.seed / 2147483647;
+    // Chance from the event's own tick and place, so a replay lays the same splat as the match did.
+    const r = eventChance(this.frameTick, x, y, z);
     // Heavy hits on a ragdoll can take a limb off (cosmetic only).
     if (strength >= 0.8) this.minions.sever(x, y, z);
     // Masonry within reach takes a spray: the nearest stone face around the hit.
