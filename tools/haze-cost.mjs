@@ -51,7 +51,7 @@ async function cost(n = 5) {
 try {
   for (let i = 0; i < 3; i++) {
     try {
-      await page.goto(`http://127.0.0.1:${PORT}/index.html#webgl-fixed`, { waitUntil: "load" });
+      await page.goto(`http://127.0.0.1:${PORT}/index.html#webgl-fixed`, { waitUntil: "load", timeout: 240000 });
       await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 180000 });
       break;
     } catch (e) {
