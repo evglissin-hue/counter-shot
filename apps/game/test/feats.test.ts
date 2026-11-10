@@ -14,7 +14,7 @@ test("the book has about twenty feats with plain names, hints and no dashes", ()
   const names = FEATS.map((f) => f.name);
   for (const n of ["Timber", "Domino", "Skipping stone", "Return to sender"]) assert.ok(names.includes(n), n);
   assert.equal(new Set(FEATS.map((f) => f.id)).size, FEATS.length);
-  for (const f of FEATS) assert.ok(!/[–—]/.test(f.name + f.hint), f.id);
+  for (const f of FEATS) assert.ok(!/[\u2013\u2014]/.test(f.name + f.hint), f.id);
 });
 
 test("a threshold met unlocks once, with the first date; the best then updates", () => {
