@@ -232,7 +232,7 @@ export class Steward {
   private startGang(tick: number, plots: number[], open: boolean[]): { plot: number; route: RouteName; waves: number } | null {
     if (!this.L.gangs || this.gold < REGISTER.gangCost + this.L.reserve) return null;
     const working = this.m.world.gangs?.status() ?? [];
-    const down = [0, 1, 2].filter((r) => !open[r] && tick - this.gangSent[r] >= 60 * 60 && !working.some((g) => g.bridge === r));
+    const down = [0, 1, 2].filter((r) => !open[r] && tick - this.gangSent[r] >= 60 * 60 && !working.some((g) => g.route === r));
     if (!down.length) return null;
     down.sort((a, b) => Number(this.used.has(b)) - Number(this.used.has(a)) || a - b);
     this.gangSent[down[0]] = tick;
