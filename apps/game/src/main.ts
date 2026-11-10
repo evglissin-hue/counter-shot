@@ -32,7 +32,7 @@ import {
 import { Estate } from "./estate-page";
 import { Guide } from "./guide";
 import { Coach } from "./coach";
-import { Minimap } from "./minimap";
+import { GUN_STRIDE, Gun, Minimap, type MinimapState } from "./minimap";
 import {
   aimDir,
   castleHeightAt,
@@ -989,22 +989,72 @@ function updateCharge(now: number) {
   chargeBox.classList.toggle("on", needle >= 0);
 }
 
+/** Every gun for the minimap: world x, z and its mark (armed, the one you ride, knocked out, an empty slot). */
+const mapGuns = new Float32Array(ALL_EMP.length * GUN_STRIDE);
+/** Test only: fields laid over what the minimap draws from (a still of a state the match is slow to reach). */
+let mapPatch: Partial<MinimapState> | null = null;
+
 /** The minimap from what the page last heard. */
 function drawMap() {
   const f = lastApplied, pf = estate.plotFrame;
+  const match = isMatch();
+  let guns = 0;
+  for (let i = 0; i < ALL_EMP.length; i++) {
+    const e = ALL_EMP[i];
+    // The Practice range has no empty slots to show; a match shows all sixteen.
+    if (e.empty && !match) continue;
+    const slot = i - BASE;
+    const kind = e.empty ? Gun.Empty : (gunOut[e.id * 2] ?? 0) > 0 ? Gun.Out : slot === current && slot >= 0 && slot < EMP.length ? Gun.Ride : Gun.Armed;
+    mapGuns[guns * GUN_STRIDE] = e.x;
+    mapGuns[guns * GUN_STRIDE + 1] = e.z;
+    mapGuns[guns * GUN_STRIDE + 2] = kind;
+    guns++;
+  }
+  const info = matchInfo;
+  const stormOf = (c: 0 | 1) => (info && info.stormHold ? info.storm[c] / info.stormHold : 0);
   minimap.draw({
     me: ME,
     sections: sectionShares,
-    keeps: isMatch() ? keepsShown : [3, 3],
-    gateOpen: matchInfo ? matchInfo.gateOpen : [false, false],
+    keeps: match ? keepsShown : [3, 3],
+    gateOpen: info ? info.gateOpen : [false, false],
     bridges: bridgesOpen,
     minions: f ? f.minions : null,
     minionCount: f ? f.minionCount : 0,
     plots: pf.data,
     plotCount: pf.count,
-    match: isMatch(),
+    guns: mapGuns,
+    gunCount: guns,
+    storm: [stormOf(0), stormOf(1)],
+    stormOn: info ? [info.attackers[0] > info.defenders[0] && info.attackers[0] >= 2, info.attackers[1] > info.defenders[1] && info.attackers[1] >= 2] : [false, false],
+    match,
+    ...mapPatch,
   });
 }
+
+/** The minimap grows to twice its size over the scene while it is pointed at or G is held. */
+const mapbox = $("mapbox");
+let mapHover = false, mapBig = false;
+function setMapBig(on: boolean) {
+  if (on === mapBig) return;
+  mapBig = on;
+  if (on) {
+    // Twice the size, as far as the screen allows (it grows up and to the left from its corner).
+    const r = mapbox.getBoundingClientRect();
+    const f = Math.max(1, Math.min(2, (r.right - 12) / r.width, (r.bottom - 12) / r.height));
+    mapbox.style.setProperty("--mw", `${(r.width * f).toFixed(1)}px`);
+    mapbox.style.setProperty("--mh", `${(r.height * f).toFixed(1)}px`);
+  }
+  mapbox.classList.toggle("big", on);
+  if (mode !== null) drawMap();
+}
+mapbox.addEventListener("pointerenter", () => {
+  mapHover = true;
+  setMapBig(true);
+});
+mapbox.addEventListener("pointerleave", () => {
+  mapHover = false;
+  if (!input.down("KeyG")) setMapBig(false);
+});
 
 /** Can the gun you ride fire now? */
 function canFire(): boolean {
@@ -2724,6 +2774,7 @@ function frame(wall: number) {
   updateHud();
   updateCharge(now);
   coach.render(now, { marksOn: !ride && !follow && blocked === false, weapon: current, charging: !!charging });
+  setMapBig(mapHover || input.down("KeyG"));
   if (mode !== null && (mapFrame++ % 3 === 0 || FIXED)) drawMap();
   placeWanted();
   {
@@ -2831,6 +2882,32 @@ else {
   },
   get match() {
     return matchInfo;
+  },
+  /** L0 test hook: lay fields over what the minimap draws from (null: none), and read its draw times. */
+  patchMap(p: Partial<MinimapState> | null) {
+    mapPatch = p;
+  },
+  /** L0: draw the minimap now (a still wants the very frame), and time n draws of it (ms each). */
+  redrawMap() {
+    drawMap();
+  },
+  benchMinimap(n: number) {
+    const t0 = performance.now();
+    for (let i = 0; i < n; i++) drawMap();
+    return (performance.now() - t0) / n;
+  },
+  get minimapMs() {
+    return { last: minimap.lastMs, avg: minimap.avgMs, draws: minimap.draws };
+  },
+  /** L0: the worker's last section shares for the minimap (SECTION_COUNT per castle, two bytes each), and where each gun stands. */
+  get mapShares() {
+    return sectionShares ? Array.from(sectionShares) : null;
+  },
+  get guns() {
+    return ALL_EMP.map((e) => ({ x: e.x, z: e.z }));
+  },
+  get mapBig() {
+    return mapBig;
   },
   /** M6 test hook: lay fields over every match report the page gets (null: none). */
   patchMatch(p: Partial<MatchInfo> | null) {

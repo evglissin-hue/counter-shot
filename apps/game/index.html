@@ -283,8 +283,12 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
 .charge.on { border-color: rgba(201, 154, 70, 0.6); }
 .charge.on #charge-text { color: var(--ink); }
 /* The minimap: both castles and both armies at a glance, above the wind gauge. */
-.mapbox { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 176px; height: min(290px, calc(100% - 330px)); min-height: 180px; padding: 5px; }
-.mapbox canvas { width: 100%; height: 100%; display: block; }
+.mapbox { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 176px; height: min(290px, calc(100% - 330px)); min-height: 180px; }
+/* The map draws its own panel (a plan, L0). It grows from its corner, up and to the left, to twice its size over the scene (pointed at, or G held). */
+.mapzoom { position: absolute; right: 0; bottom: 0; width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32); }
+.mapzoom canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
+.mapbox.big .mapzoom { width: var(--mw); height: var(--mh); z-index: 30; border-radius: 16px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); }
+.mapbox.big .mapzoom canvas { border-radius: 16px; }
 body.title-screen .mapbox { display: none !important; }
 /* What the minimap shows, the match bar need not say. */
 #army-count { display: none; }
@@ -343,7 +347,7 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 /* The right-hand column: the map, your waves' and masons' commands, the wind. */
 .side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > * { pointer-events: auto; }
-.mapbox { position: static; width: auto; height: min(260px, calc(100vh - 480px)); min-height: 150px; }
+.mapbox { position: relative; inset: auto; width: auto; height: min(250px, calc(100vh - 480px)); min-height: 150px; }
 .command { padding: 9px 9px 10px; display: grid; gap: 6px; }
 .cmd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px; font: 600 10.5px/1.1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
 .cmd-head + .seg { margin-top: -1px; }
@@ -511,7 +515,7 @@ body.title-screen .side > * { display: none !important; }
   </div>
   <div class="side">
     <div id="threat" class="threat glass" hidden></div>
-    <div id="mapbox" class="mapbox glass" title="Both castles and both armies: walls pale when sound, amber when hit, red when breached; the keep's bars are its floors left; a dot is a man standing"><canvas id="minimap" aria-label="Map of the valley: both castles, the bridges and every man standing"></canvas></div>
+    <div id="mapbox" class="mapbox" title="A plan of the valley: walls pale when sound, hatched when hit (amber when half gone), a gap and a red arrow where a wall is breached; a dot is a man standing, a number beside a group of six or more. Point at it, or hold G, to see it twice the size"><div class="mapzoom"><canvas id="minimap" aria-label="Plan of the valley: both castles, the bridges and every man standing"></canvas></div></div>
     <div id="command" class="command glass" hidden>
       <div class="cmd-head"><span>Waves</span><span id="next-wave"></span></div>
       <div class="seg" role="group" aria-label="Route of your next waves (L)"><button data-route="left" title="Next waves take your left flank (L)">Left</button><button data-route="centre" title="Next waves take the centre road (L)">Centre</button><button data-route="right" title="Next waves take your right flank (L)">Right</button></div>
@@ -539,6 +543,7 @@ body.title-screen .side > * { display: none !important; }
       <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
       <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
+      <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
       <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
       <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
