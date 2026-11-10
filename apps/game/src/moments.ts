@@ -569,7 +569,7 @@ export class Moments {
     }
     if (c.men >= 1) {
       const [x, y, z] = this.yardAt[c.castle];
-      this.emit({ tick: c.last, x, y, z, kind: "collapseKill", team, size: c.men, men: c.men, stones, text: c.men === 1 ? "A man buried under his own wall" : `${word(c.men)} men buried under falling masonry` });
+      this.emit({ tick: c.last, x, y, z, kind: "collapseKill", team, size: c.men, men: c.men, stones, text: c.men === 1 ? "A man buried under falling masonry" : `${word(c.men)} men buried under falling masonry` });
     }
   }
 
