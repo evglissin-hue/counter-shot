@@ -137,15 +137,16 @@ const moments = new Moments({
 const feats = new Feats({ me: 1, onFirsts: (list) => showFeatToast(list) });
 moments.onMoment((m) => feats.observe(m));
 /**
- * Track S2: a big moment in your own castle (a tower down, a breach, the gate,
- * a floor caved in) that you are not looking at opens the impact cam on it, so
+ * Track S2: a big moment in your own castle (a tower down, a breach, the gate
+ * broken, a floor caved in, a shell among many of your men) that you are not
+ * looking at opens the impact cam on it, so
  * you see what the enemy did while your eye is on the sight. The moment closes
  * once its stones settle, so the inset shows the ruin and its dust (replays,
  * S3 and S4, will show the fall itself).
  */
 const MOMENT_CAM = { score: 150, reach: 34 };
 moments.onMoment((m) => {
-  if (m.score < MOMENT_CAM.score) return;
+  if (m.score < MOMENT_CAM.score && m.kind !== "gateDown") return; // your gate broken is always worth seeing
   const home = ME === 0 ? 0 : -DIST;
   if (Math.abs(m.x) > MOMENT_CAM.reach || Math.abs(m.z - home) > MOMENT_CAM.reach) return;
   const p = renderer.project(m.x, m.y, m.z);

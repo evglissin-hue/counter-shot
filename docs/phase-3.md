@@ -124,6 +124,6 @@ Goal, Why, Rules (numbered, with starting numbers), Data and code (where it live
 | 3.11 The arsenal | Not started | | |
 | 3.12 Sieges for one | Not started | | |
 | 3.13 Two seats | Not started | | |
-| S The shot as a show | Not started | | |
+| S The shot as a show | S1 moments and feats, S2 the impact cam: built (November 10); S3 to S6 not started | unchanged (page only) | 17 |
 | V The steward's ear | Not started | | |
-| L The look | Not started | | |
+| L The look | L0 the minimap: built (November 10); L1 to L8 not started | unchanged (page only) | 17 |
