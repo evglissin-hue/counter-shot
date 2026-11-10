@@ -125,5 +125,5 @@ Goal, Why, Rules (numbered, with starting numbers), Data and code (where it live
 | 3.12 Sieges for one | Not started | | |
 | 3.13 Two seats | Not started | | |
 | S The shot as a show | S1 moments and feats, S2 the impact cam: built (November 10); S3 to S6 not started | unchanged (page only) | 17 |
-| V The steward's ear | V1 the order line, V2 voice, V3 standing orders: built (November 10); the game link must declare `dictation` and `tts` | unchanged (page only) | |
+| V The steward's ear | V1 the order line, V2 voice, V3 standing orders: built (November 10); the game link declares `dictation` and `tts` since version 18 | unchanged (page only) | 18 |
 | L The look | L0 the minimap: built (November 10); L1 to L8 not started | unchanged (page only) | 17 |
