@@ -296,7 +296,7 @@ export function parse(text: string, view: OrdersView): ParseResult {
       steps.push(s);
     }
   }
-  return { ok: true, steps, say: steps.length ? steps.map((s) => s.say).join("; ") : "Already so" };
+  return { ok: true, steps, say: steps.length ? steps.map((s, i) => (i ? s.say.charAt(0).toLowerCase() + s.say.slice(1) : s.say)).join("; ") : "Already so" };
 }
 
 function parsePart(p: Part, w: OrdersView): Res {
@@ -356,7 +356,7 @@ function build(t: Tokens, w: OrdersView, nope: () => Res): Res {
   const named = plotNum !== undefined || words.length > 0;
   const tokensOf = (i: number) => new Set(lean(plotName(w.team, i)));
   const matches = (plotNum !== undefined ? [plotNum - 1] : PLOT_ORDER).filter((i) => words.every((x) => tokensOf(i).has(x)));
-  const plotSay = (i: number) => `the ${plotName(w.team, i)} plot`;
+  const plotSay = (i: number) => `plot ${i + 1}, ${plotName(w.team, i)}`;
 
   if (rebuild) {
     const ruins = [...matches].sort((a, b) => a - b).filter((i) => w.plots[i].state === "ruined" && w.plots[i].kind !== null && (!kind || w.plots[i].kind === kind));
@@ -602,7 +602,7 @@ function barracksSetting(t: Tokens, w: OrdersView, nope: () => Res): Res {
       if (mix) inp.mix = mix;
       if (matchDir) inp.route = matchDir;
       const bits = [mix ? WAVE_MIXES[mix].name : "", dir ? routeLabel(dir) : ""].filter(Boolean).join(", ");
-      return input(inp, `Barracks on the ${plotName(w.team, i)} plot: ${bits}`);
+      return input(inp, `Barracks on plot ${i + 1}, ${plotName(w.team, i)}: ${bits}`);
     }),
   );
 }

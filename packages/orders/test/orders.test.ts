@@ -90,7 +90,7 @@ test("build: a building goes on the first free plot, or the plot named", () => {
 test("build: the answer says what and where and the cost", () => {
   const r = parse("mill", fixture());
   assert.ok(r.ok);
-  assert.equal(r.say, "Powder Mill on the back right plot: 160 gold");
+  assert.equal(r.say, "Powder Mill on plot 5, back right: 160 gold");
   const s = r.steps[0];
   assert.equal(s.kind === "input" && s.cost, 160);
 });
@@ -106,7 +106,7 @@ test("build: a ruin of the same kind is rebuilt at half price", () => {
   ]);
   const r = parse("rebuild the mill", ruined);
   assert.ok(r.ok && r.steps[0].kind === "input" && r.steps[0].cost === 80);
-  assert.equal(r.ok && r.say, "Rebuild the Powder Mill on the left, by the keep plot: 80 gold");
+  assert.equal(r.ok && r.say, "Rebuild the Powder Mill on plot 4, left, by the keep: 80 gold");
   refuses(ruined, [
     ["rebuild the barracks", "Nothing ruined to rebuild"],
     ["foundry on plot 4", "Plot 4 is taken"],
@@ -327,7 +327,7 @@ test("barracks: the nth barracks, its mix and its road", () => {
   const zero = viewWith((v) => void 0, { team: 0 });
   accepts(zero, [["first barracks volley, left", [bar(0, "volley", "right")]]]);
   const say = parse("second barracks: volley, right", two);
-  assert.equal(say.ok && say.say, "Barracks on the left, by the keep plot: Volley, right flank");
+  assert.equal(say.ok && say.say, "Barracks on plot 4, left, by the keep: Volley, right flank");
   refuses(two, [
     ["barracks volley", "Which barracks? Say first, second or all"],
     ["third barracks volley", "No third barracks"],
@@ -478,7 +478,7 @@ test("several orders in one line, in order", () => {
   const r = parse("mill, then waves left", fixture());
   assert.ok(r.ok);
   assert.deepEqual(inputs(r), [build(4, "mill"), { kind: "route", route: "left" }]);
-  assert.equal(r.say, "Powder Mill on the back right plot: 160 gold; Next waves: left flank");
+  assert.equal(r.say, "Powder Mill on plot 5, back right: 160 gold; next waves: left flank");
   const r2 = parse("mill and advance; hold. waves right", fixture());
   assert.deepEqual(inputs(r2), [build(4, "mill"), { kind: "order", order: 0 as never }, { kind: "order", order: 1 as never }, { kind: "route", route: "right" }]);
   // Each part sees what the ones before it did: a plot just taken, a gun just bought.
