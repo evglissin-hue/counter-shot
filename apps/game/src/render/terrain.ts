@@ -517,10 +517,12 @@ export function makeTerrainMaterial({ style, noise, sky, wind }: TerrainCtx): TH
     c.assign(mix(c, color(0x15120f).mul(fine.g.mul(0.3).add(0.85)), wetC.mul(0.9)));
     // L3 wind and clouds: the game's wind bends the grass (a pale sheen in streaks) and a gust's front crosses the land.
     if (wind) {
-      // Grass areas only: not rock, worn earth, roads, paths, craters, and (by their brown or grey cast) mud, gravel and puddles.
+      // Grass areas only: not rock, worn earth, roads, paths, craters, the churned mud of the battlefield, or the stream's banks.
       const earth: N = max(max(worn, road), max(path, smoothstep(0.02, 0.1, crater.abs())));
-      const green: N = smoothstep(-0.015, 0.03, c.g.sub(c.r.mul(0.93)));
-      const grass: N = float(1).sub(max(rockMask, earth)).mul(green);
+      const field: N = float(1).sub(smoothstep(30.0, 60.0, abs(x))).mul(smoothstep(-160.0, -125.0, z)).mul(float(1).sub(smoothstep(-25.0, 10.0, z)));
+      const mudy: N = smoothstep(0.5, 0.64, big.g.mul(0.65).add(mid.r.mul(0.35))).mul(field);
+      const bank: N = float(1).sub(smoothstep(1.5, 5.0, streamEdge)).mul(float(1).sub(smoothstep(0.3, 1.4, y.sub(STREAM.level))));
+      const grass: N = float(1).sub(max(max(rockMask, earth), max(mudy, bank)));
       c.assign(applyWindSheen(c, noise, wind, vec2(x, z), dist, grass));
     }
     return c;

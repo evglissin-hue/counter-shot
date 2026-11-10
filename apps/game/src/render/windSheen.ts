@@ -16,11 +16,11 @@ const BROAD = 3.2;
 /** The streaks: metres per noise tile, stretch along the wind (m, each side), and how strongly they pale the grass. */
 const STREAK_TILE = 128;
 const STREAK_REACH = 15;
-const STREAK_PALE = 0.42;
+const STREAK_PALE = 0.75;
 const FINE_TILE = 30;
 const FINE_REACH = 4;
 /** How much the front tints the grass (gust brighter, lull darker). */
-const FRONT_PALE = 0.3;
+const FRONT_PALE = 0.55;
 const LULL_DARK = 0.16;
 
 /**
@@ -45,7 +45,7 @@ export function applyWindSheen(c: N, noise: THREE.Texture, wf: WindField, xz: N,
   const fineFade: N = float(1).sub(smoothstep(35.0, 130.0, dist));
   const farFade: N = float(1).sub(smoothstep(280.0, 650.0, dist));
   // Streak amount: a band of the averaged noise (long ones), roughened by the fine ones near the camera.
-  const streak: N = smoothstep(0.47, 0.6, long.add(f1.add(f2).sub(1.0).mul(0.25).mul(fineFade))).mul(farFade.mul(0.75).add(0.25));
+  const streak: N = smoothstep(0.43, 0.56, long.add(f1.add(f2).sub(1.0).mul(0.25).mul(fineFade))).mul(farFade.mul(0.75).add(0.25));
   const sharp: N = wf.band(xz);
   const lean: N = norm.mul(0.65).add(0.35).add(sharp.max(0.0).mul(0.6));
   // Broad band of the fronts (coming and passing), wider than the sharp one.
@@ -54,7 +54,7 @@ export function applyWindSheen(c: N, noise: THREE.Texture, wf: WindField, xz: N,
   const broad: N = exp(a.mul(a).negate()).mul(wf.change.x).add(exp(b.mul(b).negate()).mul(wf.change.y));
   const gustBand: N = broad.max(0.0);
   const lullBand: N = broad.negate().max(0.0);
-  const sheen: N = clamp(streak.mul(lean).mul(STREAK_PALE).add(gustBand.mul(FRONT_PALE)), 0, 0.7).mul(grass);
+  const sheen: N = clamp(streak.mul(lean).mul(STREAK_PALE).add(gustBand.mul(FRONT_PALE)), 0, 0.85).mul(grass);
   // Grass bent over shows its pale undersides: lighter and greyer, with a cool silvery cast.
   const lum: N = dot(c, vec3(0.3, 0.59, 0.11));
   const silver: N = mix(c, vec3(lum.mul(1.08), lum.mul(1.18), lum.mul(1.02)), 0.55).mul(1.32).add(vec3(0.012, 0.016, 0.014));
