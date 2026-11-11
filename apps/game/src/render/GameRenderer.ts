@@ -172,7 +172,7 @@ export class GameRenderer implements GameRendererApi {
     this.terrain = new Terrain(this.noise, this.sky, this.time, this.windField);
     this.scene.add(this.terrain.ground, this.terrain.field, this.terrain.mountains, this.terrain.water);
     this.views = new Views(canvas, (x, z) => this.terrain.heightAt(x, z));
-    this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir);
+    this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir, this.windField);
     this.scene.add(this.scatter.root);
     const glow: FlashLight = {
       at: (p) => {

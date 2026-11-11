@@ -34,6 +34,8 @@ const VIEWS = {
   observer: [6, 62, -112, 0, 0, -42],
   "valley-side": [30, 14, -146, 82, 8, -70],
   "enemy-side": [-40, 18, 30, -10, 2, -40],
+  // Low eye, looking up the valley side: trees against the sky (look round L3).
+  treeline: [20, 2.2, -100, 82, 24, -60],
   "stream-top": [14, 22, -84, 14, -1, -74],
   // The render test's staged pikemen: two pairs fighting, three battering the target gate.
   fight: [-0.5, 2.4, -36.5, -4.6, 1.1, -31],
@@ -80,6 +82,19 @@ try {
       if (i === 2) throw e;
     }
   }
+  // Tree geometry in the scene (instances x triangles per tree, all meshes named trees-* and cards-*), once.
+  const treeStats = await page.evaluate(() => {
+    const r = { treeTris: 0, treeInst: 0, cardTris: 0, cardInst: 0, meshes: 0 };
+    window.__test.r.scene.traverse((o) => {
+      if (!o.parent || o.parent.name !== "scatter" || !(o.isInstancedMesh || o.geometry.isInstancedBufferGeometry)) return;
+      const g = o.geometry, tris = (g.index ? g.index.count : g.attributes.position.count) / 3;
+      if (!o.isInstancedMesh) o = { name: o.name, count: g.instanceCount, geometry: g };
+      if (o.name.startsWith("trees-")) { r.treeTris += tris * o.count; r.treeInst += o.count; r.meshes++; }
+      if (o.name.startsWith("cards-")) { r.cardTris += tris * o.count; r.cardInst += o.count; r.meshes++; }
+    });
+    return r;
+  });
+  console.log(`tree stats (${quality}): ${JSON.stringify(treeStats)}`);
   console.log(`loaded in ${((Date.now() - t0) / 1000).toFixed(0)} s (${quality})`);
   for (const [name, v] of Object.entries(VIEWS)) {
     if (only.length && !only.some((o) => name.includes(o))) continue;

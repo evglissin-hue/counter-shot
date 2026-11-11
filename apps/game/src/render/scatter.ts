@@ -14,6 +14,11 @@
 // Each plant type merges its parts into one geometry (an `aPart` attribute
 // tells wood from foliage) so a type is one instanced draw. Things near the
 // battlefield cast shadows; far ones do not. Low quality draws half of each.
+// Trees (look round L3.5) are the shapes in treeShapes: inside the battlefield
+// box full models, beyond it flat cards painted from the same models
+// (treeCards), the model fading into its card by a dither over TREE_FADE
+// metres. Every plant leans in the match's wind (plantWind, WindField.bend)
+// and takes the clouds' shade.
 
 import * as THREE from "three/webgpu";
 import {
@@ -29,13 +34,18 @@ import {
   texture,
   varying,
   vec2,
-  vec3,
 } from "three/tsl";
 import { BRIDGES, MID_Z, STREAM, streamOffset, streamSlope, streamWidth, valleyHeight } from "@keepfall/content";
 import { Rng } from "@keepfall/core";
 import { mergeByPosition, mergeGeometries, rockGeometry } from "./geometry";
 import type { StyleName, StylePreset } from "./styles";
 import type { N } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
+import { plantLean } from "./plantWind";
+import { cardGeometry, cardMaterial, cardTexture, modelVisible, type CardSpot } from "./treeCards";
+import { rasterCard } from "./treeRaster";
+import { TREE_KINDS, drawsAsCard, drawsAsModel, soupNormals, treeEdgeDistance, type Soup, type TreeKind } from "./treeShapes";
+import type { WindField } from "./windField";
 import { bridgeDistance, castleDistance, inFiringLane, routeEdge, streamEdge } from "./valleyNodes";
 
 interface Spot {
@@ -246,54 +256,6 @@ function withPart(g: THREE.BufferGeometry, part: number, shadeFn?: (x: number, y
   return ng;
 }
 
-function conifer(seed: number, tiers: number, sides = 10): THREE.BufferGeometry {
-  const rng = new Rng(seed);
-  const trunk = new THREE.CylinderGeometry(0.1, 0.24, 3.4, 6, 1);
-  trunk.translate(0, 1.7, 0);
-  const parts: THREE.BufferGeometry[] = [withPart(trunk, 0, () => 0.6)];
-  let y = 1.6;
-  let r = 2.1;
-  for (let i = 0; i < tiers; i++) {
-    const h = 3.0 - i * 0.35;
-    // Far trees (few sides) get one segment per tier.
-    const cone = new THREE.ConeGeometry(r, h, sides, sides <= 6 ? 1 : 2, true);
-    // Ragged lower rim.
-    const pos = cone.attributes.position as THREE.BufferAttribute;
-    for (let k = 0; k < pos.count; k++) {
-      const py = pos.getY(k);
-      if (py < -h / 2 + 0.01) {
-        const j = 0.75 + rng.next() * 0.5;
-        pos.setXYZ(k, pos.getX(k) * j, py - rng.next() * 0.35, pos.getZ(k) * j);
-      }
-    }
-    cone.computeVertexNormals();
-    cone.rotateY(rng.next() * Math.PI);
-    cone.translate(0, y + h / 2, 0);
-    const base = y;
-    parts.push(withPart(cone, 1, (_x, yy) => 0.45 + Math.min(1, (yy - base) / h) * 0.55 + i * 0.08));
-    y += h * 0.55;
-    r *= 0.74;
-  }
-  return mergeGeometries(parts);
-}
-
-function deadTree(seed: number): THREE.BufferGeometry {
-  const rng = new Rng(seed);
-  const parts: THREE.BufferGeometry[] = [];
-  const trunk = new THREE.CylinderGeometry(0.08, 0.24, 5.2, 6, 1);
-  trunk.translate(0, 2.6, 0);
-  parts.push(withPart(trunk, 0, () => 0.6));
-  for (let i = 0; i < 4; i++) {
-    const br = new THREE.CylinderGeometry(0.03, 0.08, 1.8, 4, 1);
-    br.translate(0, 0.9, 0);
-    br.rotateZ(0.7 + rng.next() * 0.4);
-    br.rotateY(rng.next() * Math.PI * 2);
-    br.translate(0, 2.2 + i * 0.8, 0);
-    parts.push(withPart(br, 0, () => 0.6));
-  }
-  return mergeGeometries(parts);
-}
-
 /** A lumpy blob: an icosphere with seeded radial jitter (closed and smooth). */
 function blob(seed: number, detail: number, rx: number, ry: number, rz: number, rough = 0.28): THREE.BufferGeometry {
   // A low sphere (detail 0: 6 by 4 segments, about 40 triangles; 1: 9 by 6, about 100), closed at its seam,
@@ -313,41 +275,16 @@ function blob(seed: number, detail: number, rx: number, ry: number, rz: number, 
   return g;
 }
 
-/**
- * A broadleaf tree late in the year: a short, stout trunk forking into limbs
- * under a broad, uneven crown of overlapping masses that comes down low.
- */
-function broadleaf(seed: number, lobes: number, detail: number): THREE.BufferGeometry {
-  const rng = new Rng(seed);
-  const parts: THREE.BufferGeometry[] = [];
-  const far = detail <= 0;
-  const trunk = new THREE.CylinderGeometry(0.22, 0.36, 3.2, far ? 5 : 7, 1);
-  trunk.translate(0, 1.6, 0);
-  parts.push(withPart(trunk, 0, () => 0.6));
-  // Far away the limbs are hidden by the crown anyway.
-  for (let i = 0; i < (far ? 0 : 3); i++) {
-    const limb = new THREE.CylinderGeometry(0.07, 0.17, 2.6, 5, 1);
-    limb.translate(0, 1.3, 0);
-    limb.rotateZ(0.55 + rng.next() * 0.35);
-    limb.rotateY((i / 3) * Math.PI * 2 + rng.next() * 0.6);
-    limb.translate(0, 2.6, 0);
-    parts.push(withPart(limb, 0, () => 0.6));
-  }
-  const shade = (_x: number, yy: number) => 0.3 + Math.min(1, Math.max(0, (yy - 2.6) / 5.4)) * 0.7;
-  // The crown: a ragged central mass and masses of different sizes round it, at different heights.
-  // Far away a single broad, low crown reads as a tree; close up a taller, ragged one.
-  const top = far ? blob(seed * 7, detail, 3.1, 2.3, 3.0, 0.45) : blob(seed * 7, detail, 2.3, 2.6, 2.2, 0.5);
-  top.translate(rng.next() - 0.5, far ? 4.6 : 6.1, rng.next() - 0.5);
-  parts.push(withPart(top, 1, shade));
-  for (let i = 1; i <= lobes; i++) {
-    const a = (i / lobes) * Math.PI * 2 + rng.next() * 0.9;
-    const rr = 1.4 + rng.next() * 1.1;
-    const r = 1.1 + rng.next() * 1.0;
-    const b = blob(seed * 7 + i, 0, r * (0.9 + rng.next() * 0.3), r * (0.75 + rng.next() * 0.35), r, 0.5);
-    b.translate(Math.cos(a) * rr, 3.8 + rng.next() * 2.8, Math.sin(a) * rr);
-    parts.push(withPart(b, 1, shade));
-  }
-  return mergeGeometries(parts);
+/** A tree soup (treeShapes) as an indexed geometry with the plant attributes. */
+function soupGeometry(soup: Soup): THREE.BufferGeometry {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(soup.pos, 3));
+  g.setAttribute("normal", new THREE.BufferAttribute(soupNormals(soup), 3));
+  g.setAttribute("aPart", new THREE.Float32BufferAttribute(soup.part, 1));
+  g.setAttribute("aShade", new THREE.Float32BufferAttribute(soup.shade, 1));
+  g.setIndex(soup.idx);
+  g.computeBoundingSphere();
+  return g;
 }
 
 /** A round shrub: a few squat lumps. */
@@ -446,7 +383,16 @@ interface Palette {
   trunk: number;
 }
 
-function plantMaterial(name: string, id: string, P: Palette, time: N, swayAmount: number, swayFrom: number, swayTo: number, doubleSided = false): THREE.MeshStandardNodeMaterial {
+interface PlantWind {
+  /** The plant's height (model units) that counts as 1 up the stem. */
+  height: number;
+  /** Lean of the top per unit of the wind's bend (m). */
+  amp: number;
+  /** Trees fade into their cards beyond the battlefield (a dither on the model). */
+  fade?: boolean;
+}
+
+function plantMaterial(name: string, id: string, P: Palette, time: N, wind: WindField, W: PlantWind, doubleSided = false): THREE.MeshStandardNodeMaterial {
   const mat = new THREE.MeshStandardNodeMaterial();
   mat.name = name;
   mat.metalness = 0;
@@ -456,17 +402,21 @@ function plantMaterial(name: string, id: string, P: Palette, time: N, swayAmount
   const shade: N = attribute("aShade", "float");
   const vPart: N = varying(part, `v${id}Part`);
   const vShade: N = varying(shade, `v${id}Shade`);
-  // Sway in the wind, phase from the instance's position.
+  // Lean in the match's wind, the same as the flags'; the stem leans more the higher the point.
   const lp: N = positionLocal;
-  const sway: N = smoothstep(swayFrom, swayTo, positionGeometry.y).mul(part).mul(swayAmount);
-  const ph: N = lp.x.mul(0.13).add(lp.z.mul(0.11));
-  mat.positionNode = lp.add(vec3(sin(time.mul(1.3).add(ph)), 0.0, sin(time.mul(1.1).add(ph.mul(1.7)))).mul(sway));
+  const h: N = positionGeometry.y.div(W.height);
+  mat.positionNode = lp.add(plantLean(wind, time, vec2(lp.x, lp.z), h, W.amp, part));
   mat.colorNode = Fn(() => {
     const leaf = mix(color(P.leafDark), color(P.leaf), smoothstep(0.25, 0.75, vShade)).toVar();
     leaf.assign(mix(leaf, color(P.leafLight), smoothstep(0.75, 1.1, vShade)));
     const trunk = color(P.trunk).mul(vShade.mul(0.5).add(0.6));
     return mix(trunk, leaf, vPart);
   })();
+  if (W.fade) {
+    mat.alphaTest = 0.5;
+    mat.opacityNode = Fn(() => modelVisible())();
+  }
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -487,6 +437,7 @@ function rockMaterial(style: StylePreset, noise: THREE.Texture): THREE.MeshStand
   mat.colorNode = mix(base, color(style.ground.lichen), lichen);
   // Light bounced from the ground: a backlit boulder reads as dark stone, not a hole.
   mat.emissiveNode = base.mul(0.07);
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -503,6 +454,7 @@ function logMaterial(style: StylePreset, noise: THREE.Texture): THREE.MeshStanda
   const ring: N = sin(p.y.mul(p.y).add(p.z.mul(p.z)).sqrt().mul(60.0)).mul(0.5).add(0.5);
   const end: N = mix(color(0x8a7a62), color(0x6b5c47), ring.mul(0.6));
   mat.colorNode = mix(bark, end, part);
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -510,6 +462,10 @@ interface StyleScatter {
   meshes: THREE.InstancedMesh[];
   fullCounts: number[];
   materials: THREE.Material[];
+  /** The far trees' cards: one mesh per kind, drawn from an instanced geometry. */
+  cards: THREE.Mesh[];
+  cardCounts: number[];
+  textures: THREE.Texture[];
 }
 
 const _m = new THREE.Matrix4();
@@ -534,11 +490,13 @@ export class Scatter {
   private noise: THREE.Texture;
   private time: N;
   private sunDir: N;
+  private wind: WindField;
 
-  constructor(noise: THREE.Texture, time: N, sunDir: N) {
+  constructor(noise: THREE.Texture, time: N, sunDir: N, wind: WindField) {
     this.noise = noise;
     this.time = time;
     this.sunDir = sunDir;
+    this.wind = wind;
     this.trees = placeTrees(3400);
     this.bushes = placeBushes(1600);
     this.reeds = placeReeds();
@@ -569,15 +527,16 @@ export class Scatter {
   }
 
   private build(style: StylePreset): StyleScatter {
-    const out: StyleScatter = { meshes: [], fullCounts: [], materials: [] };
+    const out: StyleScatter = { meshes: [], fullCounts: [], materials: [], cards: [], cardCounts: [], textures: [] };
     const T = style.trees;
-    const conMat = plantMaterial(`${style.name}-conifers`, "Conifer", T, this.time, 0.08, 1.5, 7.0);
-    const leafMat = plantMaterial(`${style.name}-broadleaf`, "Broadleaf", style.broadleaf, this.time, 0.1, 2.5, 7.5);
-    const bushMat = plantMaterial(`${style.name}-bushes`, "Bush", style.bushes, this.time, 0.05, 0.2, 1.4);
-    const reedMat = plantMaterial(`${style.name}-reeds`, "Reed", style.reeds, this.time, 0.12, 0.2, 1.8, true);
+    const conMat = plantMaterial(`${style.name}-conifers`, "Conifer", T, this.time, this.wind, { height: 9.6, amp: 0.6, fade: true }, true);
+    const leafMat = plantMaterial(`${style.name}-broadleaf`, "Broadleaf", style.broadleaf, this.time, this.wind, { height: 8.5, amp: 0.7, fade: true });
+    const deadMat = plantMaterial(`${style.name}-dead`, "Dead", T, this.time, this.wind, { height: 6.4, amp: 0.3, fade: true });
+    const bushMat = plantMaterial(`${style.name}-bushes`, "Bush", style.bushes, this.time, this.wind, { height: 1.4, amp: 0.25 });
+    const reedMat = plantMaterial(`${style.name}-reeds`, "Reed", style.reeds, this.time, this.wind, { height: 1.8, amp: 0.7 }, true);
     const rmat = rockMaterial(style, this.noise);
     const lmat = logMaterial(style, this.noise);
-    out.materials.push(conMat, leafMat, bushMat, reedMat, rmat, lmat);
+    out.materials.push(conMat, leafMat, deadMat, bushMat, reedMat, rmat, lmat);
 
     const tree: Placer = (s, m, c) => {
       _p.set(s.x, s.y, s.z);
@@ -588,18 +547,21 @@ export class Scatter {
       c.offsetHSL((s.tint - 0.5) * 0.06, (s.variant - 0.5) * 0.1, 0);
       c.multiplyScalar(0.82 + s.tint * 0.3);
     };
-    // Trees: conifers (variant < 0.6), broadleaf (0.6 to 0.95), dead (0.95 and up).
+    // Trees: conifers (variant < 0.6), broadleaf (0.6 to 0.95), dead (0.95 and up); two variants of the first two kinds by turns.
     const con = this.trees.filter((s) => s.variant < 0.6);
     const leaf = this.trees.filter((s) => s.variant >= 0.6 && s.variant < 0.95);
     const dead = this.trees.filter((s) => s.variant >= 0.95);
-    const conA = con.filter((_, i) => i % 2 === 0), conB = con.filter((_, i) => i % 2 === 1);
-    // Far away (beyond the valley) the same trees in fewer pieces: two tiers, or a crown of three masses.
-    this.instance(`trees-${style.name}-conifer-a`, conifer(31, 4, 9), conMat, conA, tree, out, conifer(31, 3, 5));
-    this.instance(`trees-${style.name}-conifer-b`, conifer(47, 5, 8), conMat, conB, tree, out, conifer(47, 3, 5));
-    const leafA = leaf.filter((_, i) => i % 2 === 0), leafB = leaf.filter((_, i) => i % 2 === 1);
-    this.instance(`trees-${style.name}-broadleaf-a`, broadleaf(12, 5, 1), leafMat, leafA, tree, out, broadleaf(12, 1, 0));
-    this.instance(`trees-${style.name}-broadleaf-b`, broadleaf(29, 4, 1), leafMat, leafB, tree, out, broadleaf(29, 1, 0));
-    this.instance(`trees-${style.name}-dead`, deadTree(5), conMat, dead, tree, out);
+    const lists: Record<string, Spot[]> = {
+      "spruce-a": con.filter((_, i) => i % 2 === 0),
+      "spruce-b": con.filter((_, i) => i % 2 === 1),
+      "oak-a": leaf.filter((_, i) => i % 2 === 0),
+      "oak-b": leaf.filter((_, i) => i % 2 === 1),
+      dead,
+    };
+    const mats: Record<TreeKind["species"], THREE.Material> = { conifer: conMat, broadleaf: leafMat, dead: deadMat };
+    const pals: Record<TreeKind["species"], Palette> = { conifer: T, broadleaf: style.broadleaf, dead: T };
+    const amps: Record<TreeKind["species"], number> = { conifer: 0.6, broadleaf: 0.7, dead: 0.3 };
+    for (const kind of TREE_KINDS) this.treeKind(style, kind, lists[kind.id], mats[kind.species], pals[kind.species], amps[kind.species], tree, out);
 
     const bush: Placer = (s, m, c) => {
       _p.set(s.x, s.y, s.z);
@@ -648,15 +610,60 @@ export class Scatter {
     return out;
   }
 
+  /**
+   * One tree kind: a model mesh for the trees inside the fade (it casts shadows,
+   * and the shadow map reaches only the battlefield), and a card mesh for the
+   * trees beyond the battlefield's edge, painted from the same shape.
+   */
+  private treeKind(style: StylePreset, kind: TreeKind, spots: Spot[], mat: THREE.Material, pal: Palette, amp: number, place: Placer, out: StyleScatter) {
+    const soup = kind.build();
+    const models = spots.filter((s) => drawsAsModel(treeEdgeDistance(s.x, s.z)));
+    if (models.length) {
+      const mesh = new THREE.InstancedMesh(soupGeometry(soup), mat, models.length);
+      mesh.name = `trees-${style.name}-${kind.id}`;
+      models.forEach((s, i) => {
+        _c.setRGB(1, 1, 1);
+        place(s, _m, _c);
+        mesh.setMatrixAt(i, _m);
+        mesh.setColorAt(i, _c);
+      });
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.computeBoundingSphere();
+      out.meshes.push(mesh);
+      out.fullCounts.push(models.length);
+    }
+    const far = spots.filter((s) => drawsAsCard(treeEdgeDistance(s.x, s.z)));
+    if (!far.length) return;
+    const img = rasterCard(soup, pal, 160);
+    const tex = cardTexture(img);
+    const cards: CardSpot[] = far.map((s) => {
+      _c.setRGB(1, 1, 1);
+      place(s, _m, _c);
+      const ss = s.s * 1.1;
+      return { x: s.x, y: s.y, z: s.z, sx: s.yaw > Math.PI ? -ss : ss, sy: ss * (0.9 + s.tint * 0.25), r: _c.r, g: _c.g, b: _c.b };
+    });
+    const geo = cardGeometry(img, cards);
+    const cmat = cardMaterial(`${style.name}-card-${kind.id}`, tex, this.wind, this.time, amp);
+    const mesh = new THREE.Mesh(geo, cmat);
+    mesh.name = `cards-${style.name}-${kind.id}`;
+    mesh.frustumCulled = false;
+    mesh.receiveShadow = true;
+    out.cards.push(mesh);
+    out.cardCounts.push(cards.length);
+    out.materials.push(cmat);
+    out.textures.push(tex);
+  }
+
   setStyle(style: StylePreset) {
     let s = this.styles.get(style.name);
     if (!s) {
       s = this.build(style);
       this.styles.set(style.name, s);
     }
-    if (this.current) for (const m of this.current.meshes) this.root.remove(m);
+    if (this.current) for (const m of [...this.current.meshes, ...this.current.cards]) this.root.remove(m);
     this.current = s;
-    for (const m of s.meshes) this.root.add(m);
+    for (const m of [...s.meshes, ...s.cards]) this.root.add(m);
     this.applyDensity();
   }
 
@@ -674,12 +681,16 @@ export class Scatter {
       // On Low only the trees cast shadows; bushes, reeds, stones and logs do not.
       if (m.name.endsWith("-near") && !m.name.startsWith("trees-")) m.castShadow = !this.half;
     });
+    s.cards.forEach((c, i) => {
+      (c.geometry as THREE.InstancedBufferGeometry).instanceCount = this.half ? Math.ceil(s.cardCounts[i] / 2) : s.cardCounts[i];
+    });
   }
 
   dispose() {
     for (const s of this.styles.values()) {
-      for (const m of s.meshes) m.geometry.dispose();
+      for (const m of [...s.meshes, ...s.cards]) m.geometry.dispose();
       for (const m of s.materials) m.dispose();
+      for (const t of s.textures) t.dispose();
     }
   }
 }
