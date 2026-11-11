@@ -111,7 +111,7 @@ Goal, Why, Rules (numbered, with starting numbers), Data and code (where it live
 
 | | State | Rules versions after | Game link version |
 |---|---|---|---|
-| 3.1 The observatory | Not started | | |
+| 3.1 The observatory | Done (November 11): T4 passes; T1, T2, T6, T7, T8, T9 fail; no side bias (castle 0 47.3% of 400) | sim 11, match 8 (unchanged) | none (no page change) |
 | 3.2 Range and register | Not started | | |
 | 3.3 Powder | Not started | | |
 | 3.4 The keep | Not started | | |

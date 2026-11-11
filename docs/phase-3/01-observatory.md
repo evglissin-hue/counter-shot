@@ -59,4 +59,44 @@ Open the first report. Read T1 to T9 for today's game. Change one number in a va
 
 ## Status
 
-Not started.
+Done (November 11). Branch `claude/phase3-observatory-runs`; the runs below are on the 3.1 code (commit fdcd7a1), on the cloud session's machine (Intel Xeon 2.1 GHz, 4 cpus, Node 22.23.4).
+
+**What was built.** `applyTuning()` with path checks (`packages/content/src/tuning.ts`); one match to one JSON line (`packages/ai/scripts/observe.ts`, line format in `observe-line.ts`) with samples every 30 s, shots by hand by `Aim` key, shots by guns nobody mans, the build order as applied, unspent gold, stones moving and the worst step; the worker pool with presets and resume by setup id (`tools/observatory.mjs`, `npm run observe`, `observe:quick`); the report (`tools/observatory-report.mjs`: `report.html`, `summary.json`, `summary.md`, targets T1 to T9, lines expected against lines found); the opening search (`tools/observatory-openings.mjs`, `observe:openings`) and the price list (`tools/observatory-prices.mjs`, `observe:prices`). Read-only hooks only: no rules version and no pinned hash moved in 3.1 (session, keep, wave, estate, AI match and guided pins as they were; the lab's 35a7603f / 054e5eb0 kept).
+
+**Matches an hour.** About 85 an hour on 4 workers for the quick run (each match about 1.7 times real time on its worker); 46 an hour on 3 workers for Knight mirrors.
+
+**The quick run** (`quick-main`, 24 of 24):
+
+| Target | Value | Pass |
+| --- | --- | --- |
+| T1 Length | median 5.2 min; 8% between 6 and 16; 0.0% by time (n 12) | FAIL |
+| T2 Endings | keep 100% (n 12) | FAIL |
+| T3 Sides | castle 0 won 7 of 12; too few to call | n/a |
+| T4 Skill | Warlord beats Knight 83% (n 12) | PASS |
+| T5 Spending | median unspent-gold time 38.0 s (48 sides) | n/a |
+| T6 Openings | see below | FAIL |
+| T7 Targets | keep takes 72% of 916 shots by hand | FAIL |
+| T8 Comebacks | the side behind won 2 of 12 (17%) | FAIL |
+| T9 Budget | p99 of most stones moving 768; worst step 225.7 ms; steps over 33 ms a match: median 50, most 271 (this machine, not the M3 reference) | FAIL |
+
+**Side bias (T3), rule 8** (`side-main`): 400 Knight mirrors, 200 seeds from both castles. Castle 0 won 189, castle 1 won 211: 47.3% for castle 0, give or take 4.9 points. Inside 46% to 54%, so no rules change. Per side differences of the same matches (stones down, floors, men fallen, gold spent at 1 to 4 minutes, shots, gold earned, stones rebuilt) are all noise; castle 0 aims about one hand shot a match less at the keep (t = -3.1 among about 40 tests). The structural asymmetries found while tracing (route names in castle 1's frame, plots at the same world x for both castles, castle 1's waves and slots stepped first) are listed in `docs/plan.md` as the first suspects should a later run fall outside the band.
+
+**Openings (T6)** (`openings-main`, 3 generations, 8 matches a plan against the stock Knight): FAIL. One plan within 5 points of the best (100.0), median 50, best minus median 50. The best is the Warlord's own build order with its second mill a minute later (mills, barracks left at 1:10, Foundry at 2:00 with the quick loader, mortar at 3:00): 8 of 8; the stock Warlord plan 7 of 8; the next 75.0 and 62.5. The early economy and Foundry beat the Knight's slower plan clearly; 3.3 (the economy) is where this is answered.
+
+**Prices** (`prices-main`, 124 matches, the stock Knight plan with and without each item on 4 seeds from both castles):
+
+| Item | Cost | With | Without | Diff | Per 100 gold |
+| --- | --- | --- | --- | --- | --- |
+| rifled | 140 | 62.5 | 25.0 | 37.5 | 26.8 |
+| heavyShot | 140 | 50.0 | 25.0 | 25.0 | 17.9 |
+| heavyShell | 140 | 50.0 | 37.5 | 12.5 | 8.9 |
+| quickLoader | 140 | 50.0 | 37.5 | 12.5 | 8.9 |
+| longBarrel | 140 | 62.5 | 50.0 | 12.5 | 8.9 |
+| longGun | 220 | 50.0 | 37.5 | 12.5 | 5.7 |
+| mill, foundry, mortar, longChain, heavyBalls | | 50.0 | 50.0 | 0 | 0 |
+| barracks | 220 | 50.0 | 62.5 | -12.5 | -5.7 |
+| chainShot | 160 | 50.0 | 62.5 | -12.5 | -7.8 |
+| canister | 140 | 37.5 | 50.0 | -12.5 | -8.9 |
+| swivel | 120 | 50.0 | 62.5 | -12.5 | -10.4 |
+
+Eight matches a side make one match 12.5 points, so only the gun upgrades at the top (rifled, heavy shot) stand out; the rest is within one or two matches. A longer prices run (more seeds) is worth it before 3.3 prices anything.

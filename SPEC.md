@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.5)
+# Keepfall: Game Spec (draft 0.6)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Draft 0.5 adds the direction the owner approved after phase 2 (November 10): a sixth pillar (section 1) and phase 3 in the build phases (section 15). Sections 2 to 14 still describe the game as phase 2 left it; each phase 3 milestone folds its rules into them as it ships (`docs/phase-3.md` and the specs under `docs/phase-3/` say what is coming). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Draft 0.5 adds the direction the owner approved after phase 2 (November 10): a sixth pillar (section 1) and phase 3 in the build phases (section 15). Draft 0.6 records phase 3's first measurements (3.1, the observatory: sections 15 and 16); no rule changed. Sections 2 to 14 still describe the game as phase 2 left it; each phase 3 milestone folds its rules into them as it ships (`docs/phase-3.md` and the specs under `docs/phase-3/` say what is coming). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -367,7 +367,7 @@ Each phase ends with a playable, deployed version.
    - Both win conditions, the AI castle, and the guided first match.
    - Online 1v1 in lockstep, brought forward: it runs over the claude.ai artifact's room. Cloudflare rooms and invite links are still to come.
 3. **One game** (`docs/phase-3.md`; each milestone has its spec under `docs/phase-3/`): the parts of a match made to depend on each other, in this order:
-   - the observatory (AI matches by the thousand, measured against targets);
+   - the observatory (AI matches by the thousand, measured against targets; done in 3.1: `npm run observe`, `observe:quick`, `observe:openings`, `observe:prices`);
    - range and register; powder; the keep that falls by engineering;
    - machines; the household;
    - elements (fire, smoke, water, mud); the day (weather as the match's clock);
@@ -381,6 +381,6 @@ Each phase ends with a playable, deployed version.
 ## 16. Open questions
 
 - How lockstep feels over a real connection (needs Cloudflare).
-- Castle distance and match pacing: phase 3's targets (`docs/phase-3.md`) now say what pacing to aim for, and its observatory measures it.
+- Castle distance and match pacing: phase 3's targets (`docs/phase-3.md`) now say what pacing to aim for, and its observatory measures it. The first measures (3.1): Knight mirrors last a median 5.2 minutes and all end by keep; castle 0 wins 47.3% of 400 mirrors (no side bias); one opening (an early economy and Foundry) beats the stock Knight 8 of 8.
 - The final name: Keepfall is the working title, and the repo's name counter-shot is to go. Candidates are under Name in `docs/plan.md`.
 - Each phase 3 spec ends with a short "For the owner" list of choices that are the owner's.
