@@ -44,6 +44,9 @@ import { Terrain } from "./terrain";
 import { Views } from "./views";
 import { setCloudNoise, updateClouds } from "./clouds";
 import { WindField } from "./windField";
+import { GrassTufts } from "./grass";
+import { Birds } from "./birds";
+import { Braziers } from "./braziers";
 import { Works } from "./works";
 
 export type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
@@ -84,9 +87,13 @@ export class GameRenderer implements GameRendererApi {
   /** The ring on a courtyard being stormed (M4). */
   private storm = new Storm();
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark", Burst>;
+  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
   /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
   private estate = new EstateView();
+  /** L3: grass tufts near the camera (High and up), crows, and braziers on the castles. */
+  private grass!: GrassTufts;
+  private birds!: Birds;
+  private braziers!: Braziers;
   private raising = new Map<number, number>();
   private raiseBuf = new Float32Array(8);
   private shock: Shock;
@@ -222,6 +229,8 @@ export class GameRenderer implements GameRendererApi {
       // M3: a Foundry's chimney smoke, and the sparks off a burning fuse.
       chimney: mk({ name: "chimney", slots: 40, per: 3, life: [3.5, 6], color: 0x2a2826, colorEnd: 0x56524c, additive: false, glow: 1, speed: [0.2, 0.6], size: [0.35, 1.8], grow: 0.7, gravity: 0, rise: 1.4, drag: 1.2, windScale: 0.9, spread: 0.5, opacity: 0.55, floor: true, lighting: 0.4, clearAim: true }),
       spark: mk({ name: "spark", slots: 32, per: 4, life: [0.12, 0.32], color: 0xffd28a, colorEnd: 0xff6a20, additive: true, glow: 3, speed: [0.8, 2.2], size: [0.03, 0.07], grow: 1, gravity: 4, rise: 0, drag: 2, windScale: 0, spread: 1.2, opacity: 1, floor: true }),
+      // L3: a brazier's thin thread of smoke.
+      brazier: mk({ name: "brazier", slots: 24, per: 2, life: [3, 5], color: 0x3a3836, colorEnd: 0x6a665f, additive: false, glow: 1, speed: [0.1, 0.3], size: [0.1, 0.9], grow: 0.6, gravity: 0, rise: 1.2, drag: 1.2, windScale: 0.9, spread: 0.3, opacity: 0.4, floor: true, lighting: 0.4, clearAim: true }),
     };
     this.haze = new Haze(this.noise, this.sky.sunDir, this.clear);
     this.haze.onSettle = (x, y, z, r, a) => {
@@ -231,6 +240,10 @@ export class GameRenderer implements GameRendererApi {
     };
     this.scene.add(this.haze.mesh);
     this.scene.add(this.estate.root);
+    this.grass = new GrassTufts(this.windField, (x, z) => this.terrain.heightAt(x, z));
+    this.birds = new Birds(this.time, this.clear);
+    this.braziers = new Braziers(this.time);
+    this.scene.add(this.grass.root, this.birds.root, this.braziers.root);
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
     this.splashes = new Splashes(this.time, this.wind, this.sky.sunDir, this.noise, this.clear, glow);
@@ -347,6 +360,7 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.stones.root, this.flags.mesh);
     this.stones.setStyle(STYLE);
     this.flags.setStyle(STYLE);
+    this.braziers.build(layout);
     this.flags.setWindField(this.windField);
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
@@ -380,6 +394,7 @@ export class GameRenderer implements GameRendererApi {
   applyFrame(frame: FrameData): void {
     if (this.stones && frame.stoneCount > 0) {
       this.stones.updateBodies(frame.stones, frame.stoneCount);
+      this.braziers.bodies(frame.stones, frame.stoneCount);
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
     this.minions.update(frame);
@@ -390,8 +405,11 @@ export class GameRenderer implements GameRendererApi {
     // M3: the plots and the kegs at the walls.
     if (frame.plots && frame.plotCount) this.estate.setPlots(frame.plots, frame.plotCount);
     if (frame.kegs) this.estate.setKegs(frame.kegs, frame.kegCount);
+    if (frame.terrain && frame.terrain.length > 0) {
+      this.terrain.applyPatches(frame.terrain);
+      this.grass.invalidate();
+    }
     this.wear?.setKegs(frame.kegs, frame.kegCount);
-    if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.flags?.setWind(frame.windX || 0, frame.windZ || 0);
@@ -474,10 +492,14 @@ export class GameRenderer implements GameRendererApi {
 
   applyTerrain(patches: TerrainPatch[]): void {
     this.terrain.applyPatches(patches);
+    this.grass.invalidate();
   }
 
   resetWorld(): void {
     this.estate.clear();
+    this.braziers.reset();
+    this.birds.reset();
+    this.grass.invalidate();
     this.raising.clear();
     this.stones?.resetStones();
     this.wear?.clear();
@@ -543,6 +565,7 @@ export class GameRenderer implements GameRendererApi {
   /** A powder burst: fireball, a fountain of chips, dust thrown along the ground, a shock, a smoke column. */
   private spawnExplosion(x: number, y: number, z: number, radius: number) {
     const r = Math.max(0.5, radius || 3);
+    this.birds.noise(x, y, z, this.now);
     const g = this.terrain.heightAt(x, z);
     const nearGround = y - g < 4;
     // A shell bursting in the stream throws up a column of water.
@@ -565,6 +588,7 @@ export class GameRenderer implements GameRendererApi {
   private spawnMuzzle(em: number) {
     const p = this.tmpA, d = this.tmpB;
     if (!this.guns.muzzle(em, p, d)) return;
+    this.birds.noise(p.x, p.y, p.z, this.now);
     this.wear?.muzzle(p.x, p.y, p.z, d.x, d.y, d.z);
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
@@ -946,6 +970,9 @@ export class GameRenderer implements GameRendererApi {
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
     // M3: plots' trades at work, and building pieces easing into place.
+    this.grass.update(cam.position.x, cam.position.z, this.now);
+    this.birds.update(this.now, (x, z, out) => this.windField.sampleAt(x, z, out));
+    this.braziers.update(dt, (x, y, z) => this.bursts.brazier.spawn(this.now, x, y, z, 0.4, 0, 0.6, 0));
     this.estate.update(dt, this.now, (kind, x, y, z, s) => this.bursts[kind === "smoke" ? "chimney" : kind === "spark" ? "spark" : "dust"].spawn(this.now, x, y, z, s, 0, 0.6, 0));
     if (this.raising.size && this.stones && this.layout) {
       for (const [id, t0] of this.raising) {
@@ -1124,6 +1151,9 @@ export class GameRenderer implements GameRendererApi {
     this.works?.dispose();
     this.storm.dispose();
     this.estate.dispose();
+    this.grass.dispose();
+    this.birds.dispose();
+    this.braziers.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();
@@ -1176,6 +1206,7 @@ export class GameRenderer implements GameRendererApi {
       this.scene.add(l.target);
     }
     this.scatter.setHalfDensity(t.halfTrees);
+    this.grass.setEnabled(t.tufts);
     setWearChips(t.chips);
     this.postDirty = true;
   }
@@ -1207,6 +1238,7 @@ export class GameRenderer implements GameRendererApi {
     this.sky.setStyle(style);
     this.terrain.setStyle(style);
     this.scatter.setStyle(style);
+    this.grass.setStyle(style);
     this.effects.setStyle(style);
     this.stones?.setStyle(style);
     this.flags?.setStyle(style);
