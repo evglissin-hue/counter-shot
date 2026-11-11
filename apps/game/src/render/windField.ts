@@ -58,8 +58,13 @@ export class WindField {
 
   /** Once per rendered frame (cosmetic dt). */
   update(dt: number) {
+    this.state.update(dt);
+    this.sync();
+  }
+
+  /** Copy the CPU state to the uniforms without stepping it (after a keyframe puts the state back). */
+  sync() {
     const s = this.state;
-    s.update(dt);
     this.drift.value.set(s.driftX, s.driftZ);
     this.now.value.set(s.nowX, s.nowZ);
     this.next.value.set(s.nextX, s.nextZ);

@@ -434,6 +434,14 @@ export class GameRenderer implements GameRendererApi {
         bytes: (st) => st.byteLength + 16,
       }),
     );
+    this.registerKeyframePart(
+      "birds",
+      part<ReturnType<Birds["capture"]>>({
+        capture: (now) => this.birds.capture(now),
+        apply: (st, now) => this.birds.apply(st, now),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
     // The wind's fronts and drift and the clouds' place build up frame by frame: kept, so a clip draws the same sky and grass each play.
     this.registerKeyframePart(
       "wind",
@@ -444,7 +452,7 @@ export class GameRenderer implements GameRendererApi {
         },
         apply: (st) => {
           this.windField.state.apply(st.state);
-          this.windField.update(0);
+          this.windField.sync();
           CLOUDS.offset.value.set(st.clouds[0], st.clouds[1]);
           this.sky.cloudDrift.value.set(st.clouds[2], st.clouds[3]);
         },

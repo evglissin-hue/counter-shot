@@ -8,7 +8,7 @@
 import * as THREE from "three/webgpu";
 import { attribute, cameraPosition, float, length, positionGeometry, select, sin, smoothstep, vec3 } from "three/tsl";
 import type { ClearView } from "./clearview";
-import { Flock, makeFlocks } from "./flocks";
+import { Flock, makeFlocks, type FlockSaved } from "./flocks";
 import type { N } from "./tslUtils";
 
 /** Wingspan scale: a crow is about a metre across; drawn a little larger so it reads as a speck at 100 m. */
@@ -74,6 +74,17 @@ export class Birds {
     this.mesh.receiveShadow = false;
     this.mesh.visible = false;
     this.root.add(this.mesh);
+  }
+
+  /** The flocks for a replay's keyframe (S3); times as ages before `now`. */
+  capture(now: number): { flocks: FlockSaved[]; since: number } {
+    return { flocks: this.flocks.map((f) => f.capture(now)), since: this.last < 0 ? -1 : now - this.last };
+  }
+
+  apply(saved: { flocks: FlockSaved[]; since: number }, now: number) {
+    this.flocks.forEach((f, i) => f.apply(saved.flocks[i], now));
+    this.last = saved.since < 0 ? -1 : now - saved.since;
+    this.dirty = true;
   }
 
   /** A shot or a burst at (x, y, z): flocks near it rise. */

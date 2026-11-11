@@ -51,6 +51,14 @@ function ease(t: number): number {
   return c * c * (3 - 2 * c);
 }
 
+/** A flock as a keyframe keeps it. */
+export interface FlockSaved {
+  rest: Record<string, number | string>;
+  age: number;
+  rng: Record<string, number>;
+  birds: number[];
+}
+
 export class Flock {
   readonly birds: Bird[] = [];
   state: FlockState = "perched";
@@ -132,6 +140,25 @@ export class Flock {
       b.a0 = r.next() * Math.PI * 2;
     }
     return true;
+  }
+
+  /** Everything that changes, for a replay's keyframe (S3): times as ages before `now`. */
+  capture(now: number): FlockSaved {
+    const { birds, sites, rng, t0, ...rest } = this as unknown as Record<string, unknown> & { birds: Bird[]; rng: Rng; t0: number };
+    void sites;
+    return { rest: { ...rest } as Record<string, number | string>, age: now - t0, rng: { ...rng } as unknown as Record<string, number>, birds: birds.flatMap((b) => [b.delay, b.a0]) };
+  }
+
+  apply(saved: FlockSaved, now: number) {
+    Object.assign(this, saved.rest);
+    this.t0 = now - saved.age;
+    Object.assign(this.rng, saved.rng);
+    this.birds.forEach((b, i) => {
+      b.delay = saved.birds[i * 2];
+      b.a0 = saved.birds[i * 2 + 1];
+    });
+    if (this.state === "perched") this.pose(0, 0);
+    else this.pose(now - this.t0, 0);
   }
 
   /** Advance to game time `now` (dt since the last call); `wind` is the wind (m/s) over the flock. */
