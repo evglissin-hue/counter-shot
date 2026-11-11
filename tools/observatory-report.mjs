@@ -507,10 +507,11 @@ function registerRows(all) {
     for (const c of [0, 1]) {
       const tw = m.setup.levels?.[c];
       const key = `${m.setup.sides[c]}${tw ? " " + JSON.stringify(tw) : ""}`;
-      const g = groups.get(key) ?? { n: 0, marks: 0, salvos: 0, auto: 0, onMark: 0, range: 0, up: 0 };
+      const g = groups.get(key) ?? { n: 0, marks: 0, salvos: 0, salvoGuns: 0, auto: 0, onMark: 0, range: 0, up: 0 };
       g.n++;
       g.marks += m.totals.marks?.[c] ?? 0;
       g.salvos += m.totals.salvos?.[c] ?? 0;
+      g.salvoGuns += m.totals.salvoGuns?.[c] ?? 0;
       g.auto += m.totals.auto?.[c] ?? 0;
       g.onMark += m.totals.autoOnMark?.[c] ?? 0;
       g.range += m.totals.byHand?.[c]?.range ?? 0;
@@ -520,7 +521,7 @@ function registerRows(all) {
   }
   const f = (v, n) => Math.round((v / n) * 10) / 10;
   return [...groups.entries()].map(([side, g]) => ({
-    side, sides: g.n, "ranging shots": f(g.range, g.n), marks: f(g.marks, g.n), salvos: f(g.salvos, g.n), "auto shots": f(g.auto, g.n), "shots on marks": f(g.onMark, g.n), "bridges standing": f(g.up, g.n),
+    side, sides: g.n, "ranging shots": f(g.range, g.n), marks: f(g.marks, g.n), salvos: f(g.salvos, g.n), "salvo guns": f(g.salvoGuns, g.n), "auto shots": f(g.auto, g.n), "shots on marks": f(g.onMark, g.n), "bridges standing": f(g.up, g.n),
   }));
 }
 

@@ -8,7 +8,7 @@
 //   node tools/observatory.mjs pairs=knight:knight,warlord:knight seeds=1-12 [swap=1] [variants=file.json] [run=name] [jobs=N] [secs=N]
 //
 // pairs are castle 0 : castle 1. swap=1 plays each pairing also with the
-// castles exchanged. variants is a JSON array of { name, tuning }; every setup
+// castles exchanged (and tweak0/tweak1 exchanged with them). variants is a JSON array of { name, tuning }; every setup
 // is played under each (none: one variant "base" with no changes).
 // tweak0='{"marks":0,"salvo":false}' tweak1=... merge those fields over a
 // side's AiLevel in every setup (castle 0, castle 1); they go into the setup
@@ -182,8 +182,9 @@ function customCases(args) {
     const [a, b] = p.split(":");
     if (!LEVELS.has(a) || !LEVELS.has(b)) throw new Error(`bad pair "${p}"`);
     for (const s of seeds) {
-      cases.push([a, b, s]);
-      if (args.swap === "1" && a !== b) cases.push([b, a, s]);
+      cases.push([a, b, s, false]);
+      // swap=1: the castles exchanged, and the tweaks with them (tweak0 follows the level that was castle 0).
+      if (args.swap === "1" && (a !== b || args.tweak0 || args.tweak1)) cases.push([b, a, s, true]);
     }
   }
   return cases;
@@ -198,8 +199,8 @@ async function main() {
 
   const setups = [];
   for (const v of variants) {
-    for (const [a, b, seed] of cases) {
-      const tw = [args.tweak0, args.tweak1];
+    for (const [a, b, seed, swapped] of cases) {
+      const tw = swapped ? [args.tweak1, args.tweak0] : [args.tweak0, args.tweak1];
       const suffix = `${tw[0] ? `-t0=${tw[0]}` : ""}${tw[1] ? `-t1=${tw[1]}` : ""}`;
       const setup = { id: `${a}-${b}-s${seed}-${v.name}${suffix}`, seed, sides: [a, b], plans: ["stock", "stock"], variant: v.name, tuning: v.tuning ?? {} };
       if (tw[0] || tw[1]) setup.levels = tw.map((t) => (t ? JSON.parse(t) : null));
