@@ -225,7 +225,7 @@ function sidePicks(rng: Rng, sign: number, z0: number, z1: number, n: number): S
   const out: Site[] = [];
   let guard = 0;
   while (out.length < n && guard++ < n * 60) {
-    const x = sign * (74 + rng.next() * 70);
+    const x = sign * (72 + rng.next() * 45);
     const z = z0 + rng.next() * (z1 - z0);
     const y = valleyHeight(x, z);
     // Up a tree or on a crag: a few metres above the ground; keep to gentle ground (trees stand there).
@@ -242,9 +242,9 @@ export function makeFlocks(seed = 6502): Flock[] {
   const flocks: Flock[] = [];
   // Left side and right side, and one over the far end of the right side; each has places along its stretch to hop between.
   const plan: Array<[number, number, number]> = [
-    [-1, MID_Z - 100, MID_Z + 10],
-    [1, MID_Z - 20, MID_Z + 100],
-    [-1, MID_Z + 10, MID_Z + 110],
+    [-1, MID_Z - 90, MID_Z + 5],
+    [1, MID_Z - 45, MID_Z + 60],
+    [-1, MID_Z - 10, MID_Z + 80],
   ];
   for (const [sign, z0, z1] of plan) {
     const sites = sidePicks(r, sign, z0, z1, 5);

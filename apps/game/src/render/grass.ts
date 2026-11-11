@@ -11,7 +11,7 @@
 // stand 0.15 to 0.45 m high: never tall enough to hide a man or a shot.
 
 import * as THREE from "three/webgpu";
-import { attribute, cos, float, length, positionGeometry, sin, smoothstep, uniform, varying, vec3 } from "three/tsl";
+import { attribute, cos, float, length, positionGeometry, sin, smoothstep, transformNormalToView, uniform, varying, vec3 } from "three/tsl";
 import { valleyHeight } from "@keepfall/content";
 import { applyCloudShadow } from "./clouds";
 import { BLADES_PER_CLUMP, CLUMPS_PER_TILE, MAX_TILES, RANGE, TileRing, placeTile, tileKey } from "./grassLogic";
@@ -139,8 +139,10 @@ export class GrassTufts {
     const vShade: N = varying(attribute("aShade", "float"), "vTuftShade");
     // The ground's grass palette: dark at the root, paler at the tip, a little variety from clump to clump.
     const body: N = (this.cGrass as N).add((this.cGrass2 as N).sub(this.cGrass as N).mul(vTint));
-    const root: N = (this.cDark as N).add(body.sub(this.cDark as N).mul(smoothstep(0.0, 0.7, vT)));
-    m.colorNode = root.mul(float(0.88).add(vShade.mul(0.2)).add(vT.mul(0.14)));
+    const root: N = (this.cDark as N).add(body.sub(this.cDark as N).mul(smoothstep(0.0, 0.45, vT)));
+    m.colorNode = root.mul(float(1.05).add(vShade.mul(0.3)).add(vT.mul(0.35)));
+    // Blades take the light as the ground does (up), from either face: a back face would otherwise light as a wall facing down and go black.
+    m.normalNode = transformNormalToView(vec3(0, 1, 0));
     applyCloudShadow(m);
     this.mat = m;
 

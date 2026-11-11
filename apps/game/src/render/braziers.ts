@@ -138,8 +138,8 @@ export class Braziers {
       const uv: N = vec2(qp.x.mul(2.0), qp.y.mul(2.0));
       const r2: N = dot(uv, uv);
       const core: N = float(1).sub(smoothstep(0.0, 0.55, r2));
-      const c: N = mix(vec3(1.0, 0.36, 0.08), vec3(1.0, 0.78, 0.38), core);
-      return vec4(c.mul(flick.mul(1.9)), 1.0);
+      const c: N = mix(vec3(1.0, 0.3, 0.05), vec3(1.0, 0.68, 0.28), core.mul(core));
+      return vec4(c.mul(flick.mul(1.35)), 1.0);
     })();
     gm.opacityNode = Fn(() => {
       const uv: N = vec2(qp.x.mul(2.0), qp.y.mul(2.0));

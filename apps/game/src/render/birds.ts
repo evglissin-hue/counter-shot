@@ -12,7 +12,7 @@ import { Flock, makeFlocks } from "./flocks";
 import type { N } from "./tslUtils";
 
 /** Wingspan scale: a crow is about a metre across; drawn a little larger so it reads as a speck at 100 m. */
-const SPAN = 1.5;
+const SPAN = 2.4;
 
 export class Birds {
   readonly root = new THREE.Group();
