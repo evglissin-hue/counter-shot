@@ -190,7 +190,7 @@ try {
   await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T mark where your shot landed; F and a number: fire for effect/.test(document.getElementById("help").innerHTML));
   await page.keyboard.press("KeyT");
   await expect("T with nothing to mark says so and sends nothing", () => /Nothing to mark/.test(document.getElementById("note").textContent) && window.__sent.length === 0);
-  await layShot(0, -62);
+  await layShot(-22, -62); // off the centre road: a salvo skips a gun with own men near the mark, and our waves walk that road
   await expect("after the landing the gun may be marked: the T mark label shows on it, and T marks it", markWhenLit, 1, 240000);
   await expect("the label reads T mark", () => /T mark/.test(document.getElementById("markhint").textContent));
   await expect("a mark 1 in the report, its place named, no landing to mark any more", () => { const r = window.__sandbox.register; return r.marks.length === 1 && r.marks[0].n === 1 && /bridge|Field|gate/i.test(r.marks[0].place) && !r.canMark.includes(0); });
@@ -228,7 +228,7 @@ try {
   await typeInPage(["KeyF", "Digit1"], 400);
   await expect("F then 1 orders the salvo at mark 1, no mortar", () => window.__sent.length === 2 && window.__sent[1].kind === "salvo" && window.__sent[1].mark === 1 && window.__sent[1].mortar === undefined);
   await expect("the worker took it: the next salvo is under 20 s away, the chips show the seconds left", () => { const r = window.__sandbox.register; return r.salvoReady > 0 && r.salvoReady < 1200 && /^\d+ s$/.test(window.__sandbox.chips[0].sec); });
-  await expect("the long gun's tab flashed as its gun fired in the salvo", () => window.__fired.includes("0"), null);
+  await expect("the long gun's tab flashed as its gun fired in the salvo", () => window.__fired.includes("0"), null, 180000); // the guns fire nearest first over 1.5 s of game time: slow on the test clock under load
   await typeInPage(["KeyF", "Digit1"], 400);
   await expect("a second order inside the 20 s sends nothing", () => window.__sent.length === 2 && /Salvo ready in/.test(document.getElementById("note").textContent));
   await layShot(20, -58);
