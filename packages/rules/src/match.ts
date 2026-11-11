@@ -352,7 +352,13 @@ export class Match {
     this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
     this.world.gangs!.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
     this.register = new Register(
-      { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale(), aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
+      { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale(),
+        ownNear: (team, x, z, r) => this.ownNear(team as Team, x, z, r),
+        bridgeAtRisk: (e, x, z, errScale) => {
+          const dx = x - e.x, dz = z - e.z;
+          return bridgeAtRisk(e, x, z, UNMANNED[e.weapon] ?? UNMANNED.longGun!, dsqrt(dx * dx + dz * dz), false, errScale);
+        },
+        aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
       opts.seed,
     );
   }
