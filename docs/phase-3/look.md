@@ -124,4 +124,41 @@ L0 built on November 10 (branch `claude/festive-keller-mgdjup`), by an executor 
 - Ridges are four soft shades placed by eye, not traced from `map.ts`. The threat strip above it still has three equal cells, which sit a little off the new flank roads.
 - Tools: `tools/minimap-shots.mjs` (stills at both sizes in the mock's states); `tools/hud-check.mjs` checks the hover and G.
 
-L1 to L8: not started.
+L2 and L3 built on November 11 (branch `claude/keepfall-look-l2-l3`), by five executors in the build and review loop. Page only: nothing in a match changed and no pinned hash moved (`npm run check:browser` matches Node on every hash).
+
+L2, stone that remembers:
+- Per-stone wear lives in one place, `apps/game/src/render/wear.ts` (StoneWear; the rules in `wearLogic.ts`, tested in Node; the shading in `wearShading.ts`). It owns a vec4 per stone (fresh face, scorch, crack, dust) fed to the stone shader as `iWear`. For replays (S3) it has `capture()` (a Float32Array, 4 per stone) and `apply(state)`, and `clear()` on a reset.
+- A face bared when its neighbour goes is paler and warmer; stone the masons lay stays a shade paler. Scorch where shells burst, above a gun that fires, by a burning keg. Hairline cracks across a course, drawn by pixel width so they still read at 150 m in the sight. Chipped edges at High and Ultra (`tier.chips`).
+- Cracks today follow damage and near misses: 3.4's crushing report does not exist yet. When it lands, call `wear.setCrack(id, v)` from it.
+- Dust that stays (`haze.ts`, rules in `hazeLogic.ts`): 25 or more pieces of one section falling within 1.5 s raise a low haze for 30 to 60 s that drifts with the match's wind, thins near the aim line (ClearView) and fades softly where it meets a wall (against the depth buffer). It settles a pale wash on nearby stone (`wear.dustAround`) and ground. `capture(now)` and `apply(saved, now)` for S3.
+- Ground marks (`groundMarks.ts`, rules in `groundMarksLogic.ts`): char and ash where shells burst low and kegs burn, and paths worn darker where waves march (two to three minutes of marching; one man leaves nothing). `capture()` and `apply()` for S3.
+- Not done: trodden ground only darkens (no wetness in hollows, grass not thinned there).
+
+L3, a living valley:
+- One wind (`windField.ts`, CPU half in `windState.ts`): trees, reeds, bushes, grass, tufts, flags, smoke, haze and birds all read the match's `windX`, `windZ`. A gust shows as a front crossing the land before it reaches the gun you ride and rolls on downwind for 5 s after (30 m/s, band 9 m). To know the coming wind, the sim's frame now carries `gustX`, `gustZ`, `gustIn` from a new `Wind.lead(tick)` in `packages/sim/src/wind.ts`: a pure read, not in the hash, no Rng draw (a test in `sandbox.test.ts` holds the session hash). The front shows as pale streaks and a broad bright band on the grass (`windSheen.ts`): it reads, but softly.
+- Cloud shadows (`clouds.ts`): drift with the wind at 1.6 times its speed; they dim only the sun's light (receivedShadowNode) on terrain, stone, guns, men and the rest.
+- Grass tufts near the camera at High and Ultra (`grass.ts`, `grassLogic.ts`): 8 m tiles in a ring, about 8,000 to 9,000 blades, none on roads, water, castle pads or craters, gone by 35 m.
+- Life: crows (`birds.ts`, `flocks.ts`) rise from three perches when a gun fires or a shell bursts within 120 m and settle elsewhere after 20 to 40 s; braziers (`braziers.ts`, `brazierLogic.ts`), three a castle on merlons, with a thread of smoke, go out when their stone falls; chimney smoke was already there (M3); worn paths as above.
+- Trees with shapes (`treeShapes.ts`, `treeRaster.ts`, `treeCards.ts`): two spruces, two oaks and a dead tree as real models on the battlefield, fading over 12 m into flat cards painted from the same shape beyond it. Tree triangles 243,626 before, 311,306 after.
+
+Cost (tools/burst-cost.mjs, calm frame, software WebGL2 in headless Chromium on a shared machine, so only ratios mean anything; each pair run back to back against the branch before L2):
+
+| Tier | Before | After | Ratio |
+|---|---|---|---|
+| Low | 867 ms | 1133 ms | 1.31x |
+| Medium | 1341 ms | 1815 ms | 1.35x |
+| High | 1442 ms | 1895 ms | 1.31x |
+| Ultra | 1636 ms | 2013 ms | 1.23x |
+
+Earlier pairs gave 1.21x to 1.39x. Taking parts out at Medium: the grass sheen about 7%, cloud shadows about 3%, stone wear about 2%, the trees the largest part (the wind's bend on every tree vertex, drawn twice with the shadow pass; software rendering pays vertex work in full). Bursts cost the same as before (1.0x to 1.08x). Three hazes at once add about 7%. Trees inside the battlefield draw without the fade's alpha test, which a tile GPU such as the M3 rewards and software rendering does not show. Not measured on Kat's M3: please try High there. Levers if it misses 60 fps: the sheen's fine streaks, tree shadows at Low and Medium, a shorter tree fade.
+
+Stills (written to `tools/.shots/`, made again by the tools):
+- `node tools/valley-shots.mjs --quality=low|high --tag=l23-after-low|l23-after overview sight treeline valley-side`; before: the same views from the branch before L2 (`valley-l23-before-low-*`, `valley-l23-before-*`).
+- `node tools/gust-shots.mjs --quality=low|high`: `gust-<tier>-0..5.png`, a front crossing the meadow.
+- `node tools/wear-shots.mjs low|high after`: `wear-after-<tier>-near|far|sight.png` (fresh faces, soot, cracks, at 150 m in the sight).
+- `node tools/look-marks-shots.mjs --tier low|high`: `look-scorch|haze|paths-<tier>-before|after.png`.
+- Tufts, crows and braziers (executor E's): from a free camera at ground level, a gatehouse close-up, and the sky 8 s after a mortar burst.
+
+Tests: `apps/game/test/wear.test.ts`, `haze.test.ts`, `windState.test.ts`, `treeShapes.test.ts`, `lookLife.test.ts`, and the sim's lead test. Seen in the player's chair: the valley overview, the sight, a gust front, haze at a gate, soot and cracks; not yet seen by a person: the impact cam inset with haze, tree lean against the flags in motion.
+
+L1, L4 to L8: not started.
