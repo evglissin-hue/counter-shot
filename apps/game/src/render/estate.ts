@@ -12,6 +12,7 @@ import { PLOTS, plotCentre } from "@keepfall/content";
 import { KEG_STRIDE, PLOT_STRIDE } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
 import { TEAM_COLORS } from "./minions";
+import { applyCloudShadow } from "./clouds";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2;
@@ -82,6 +83,7 @@ export class EstateView {
         this.add(barracks, this.box(0.95, 1.9, 0.06), doorMat, at(-out * 0.6, 0.95, -d / 2 - 0.04));
         this.add(barracks, this.box(0.08, 4.6, 0.08), wood, at(-out * (w / 2 - 0.4), 2.3, -d / 2 - 0.65));
         const cloth = new THREE.MeshStandardNodeMaterial();
+        applyCloudShadow(cloth);
         cloth.color = new THREE.Color(TEAM_COLORS[castle]);
         cloth.roughness = 0.9;
         cloth.side = THREE.DoubleSide;
@@ -181,6 +183,7 @@ export class EstateView {
 
   private mat(hex: number, roughness: number, metalness = 0): THREE.MeshStandardNodeMaterial {
     const m = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(m);
     m.color = new THREE.Color(hex);
     m.roughness = roughness;
     m.metalness = metalness;

@@ -9,6 +9,7 @@ import { cameraPosition, color, float, mix, normalWorld, positionWorld, pow, smo
 import type { CastleLayout, Emplacement, WeaponKind } from "@keepfall/content";
 import { stoneBounds } from "@keepfall/content";
 import type { N } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
 
 interface Gun {
   em: Emplacement;
@@ -41,6 +42,7 @@ interface Gun {
 
 function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMaterial {
   const m = new THREE.MeshStandardNodeMaterial();
+  applyCloudShadow(m);
   m.name = "gun-iron";
   const n: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z), positionWorld.y).mul(0.9)).r;
   m.colorNode = mix(color(0x262524), color(0x4b3123), smoothstep(0.55, 0.85, n).mul(0.6));
@@ -55,6 +57,7 @@ function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMa
 
 function woodMaterial(noise: THREE.Texture): THREE.MeshStandardNodeMaterial {
   const m = new THREE.MeshStandardNodeMaterial();
+  applyCloudShadow(m);
   m.name = "gun-wood";
   const g: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z).mul(2.5), positionWorld.y.mul(0.4))).g;
   m.colorNode = mix(color(0x2b2824), color(0x4d4841), g.mul(0.8).add(0.1));

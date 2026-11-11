@@ -6,6 +6,7 @@
 import * as THREE from "three/webgpu";
 import { holdMarker, ROUTE_HALF, ROUTE_NAMES, valleyHeight } from "@keepfall/content";
 import { TEAM_COLORS } from "./minions";
+import { applyCloudShadow } from "./clouds";
 
 export class Markers {
   readonly root = new THREE.Group();
@@ -24,11 +25,13 @@ export class Markers {
     flag.computeVertexNormals();
     this.geos.push(pole, flag);
     const wood = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(wood);
     wood.color = new THREE.Color(0x4f4840);
     wood.roughness = 0.85;
     this.mats.push(wood);
     for (const team of [0, 1] as const) {
       const cloth = new THREE.MeshStandardNodeMaterial();
+      applyCloudShadow(cloth);
       cloth.color = new THREE.Color(TEAM_COLORS[team]);
       cloth.roughness = 0.9;
       cloth.side = THREE.DoubleSide;

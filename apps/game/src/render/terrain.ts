@@ -44,11 +44,14 @@ import {
 import { DIST, MID_Z, STREAM, valleyGrid, valleyHeight } from "@keepfall/content";
 import { Rng } from "@keepfall/core";
 import { TERRAIN_GRID, type TerrainPatch } from "@keepfall/sim";
+import { applyCloudShadow } from "./clouds";
 import type { Sky } from "./sky";
 import { buildStreamGeometry, makeStreamMaterial } from "./stream";
 import type { StylePreset } from "./styles";
 import { N, aaLine, bumpNormal } from "./tslUtils";
 import { routeDistanceNodes, streamEdgeNode, wallDistanceNode } from "./valleyNodes";
+import { applyWindSheen } from "./windSheen";
+import type { WindField } from "./windField";
 
 /** Render height everywhere: the valley's own ground. */
 export function groundHeight(x: number, z: number): number {
@@ -354,9 +357,11 @@ interface TerrainCtx {
   style: StylePreset;
   noise: THREE.Texture;
   sky: Sky;
+  /** The game's wind (look round L3): moves a sheen over the grass. */
+  wind?: WindField;
 }
 
-export function makeTerrainMaterial({ style, noise, sky }: TerrainCtx): THREE.MeshStandardNodeMaterial {
+export function makeTerrainMaterial({ style, noise, sky, wind }: TerrainCtx): THREE.MeshStandardNodeMaterial {
   const G = style.ground;
   const mat = new THREE.MeshStandardNodeMaterial();
   mat.name = `${style.name}-terrain`;
@@ -529,9 +534,21 @@ export function makeTerrainMaterial({ style, noise, sky }: TerrainCtx): THREE.Me
       const burnt: N = mix(color(0x1d1712), color(0x6a655d), ash.mul(0.7)).mul(grain.mul(0.35).add(0.8));
       c.assign(mix(c, burnt, char.mul(0.92)));
     }
+    // L3 wind and clouds: the game's wind bends the grass (a pale sheen in streaks) and a gust's front crosses the land.
+    if (wind) {
+      // Grass areas only: not rock, worn earth, roads, paths, craters, the churned mud of the battlefield, or the stream's banks.
+      const earth: N = max(max(worn, road), max(path, smoothstep(0.02, 0.1, crater.abs())));
+      const field: N = float(1).sub(smoothstep(30.0, 60.0, abs(x))).mul(smoothstep(-160.0, -125.0, z)).mul(float(1).sub(smoothstep(-25.0, 10.0, z)));
+      const mudy: N = smoothstep(0.5, 0.64, big.g.mul(0.65).add(mid.r.mul(0.35))).mul(field);
+      const bank: N = float(1).sub(smoothstep(1.5, 5.0, streamEdge)).mul(float(1).sub(smoothstep(0.3, 1.4, y.sub(STREAM.level))));
+      const grass: N = float(1).sub(max(max(rockMask, earth), max(mudy, bank)));
+      c.assign(applyWindSheen(c, noise, wind, vec2(x, z), dist, grass));
+    }
     return c;
   });
   mat.colorNode = colorFn();
+  // L3 wind and clouds: the clouds' shade drifts over the ground.
+  applyCloudShadow(mat);
   // Wet mud and the banks are shinier, rock and straw rougher, crater bottoms the shiniest.
   {
     const { edge } = streamEdgeNode(x, z);
@@ -581,6 +598,7 @@ export class Terrain {
   private noise: THREE.Texture;
   private sky: Sky;
   private time: N;
+  private wind?: WindField;
   private built = false;
   private nx: number;
   private gi0: number;
@@ -596,7 +614,8 @@ export class Terrain {
   private rowMin = Infinity;
   private rowMax = -Infinity;
 
-  constructor(noise: THREE.Texture, sky: Sky, time: N) {
+  constructor(noise: THREE.Texture, sky: Sky, time: N, wind?: WindField) {
+    this.wind = wind;
     this.noise = noise;
     this.sky = sky;
     this.time = time;
@@ -629,7 +648,7 @@ export class Terrain {
   setStyle(style: StylePreset) {
     if (this.built) return;
     this.built = true;
-    this.ground.material = makeTerrainMaterial({ style, noise: this.noise, sky: this.sky });
+    this.ground.material = makeTerrainMaterial({ style, noise: this.noise, sky: this.sky, wind: this.wind });
     this.field.material = this.ground.material;
     this.mountains.material = makeMountainMaterial(style, this.sky);
     this.water.material = makeStreamMaterial(style, this.sky, this.noise, this.time);

@@ -11,6 +11,7 @@ import * as THREE from "three/webgpu";
 import { CASTLE_SHAPE, mirrorZ, type CastleLayout } from "@keepfall/content";
 import { WORKS_STRIDE } from "@keepfall/sim";
 import type { StoneSet } from "./stones";
+import { applyCloudShadow } from "./clouds";
 
 /** Seconds a stone takes from the hoist's foot to its place (the page times its sound to this). */
 export const LAY_SECONDS = 1.15;
@@ -73,10 +74,12 @@ export class Works {
     rope.translate(0, -0.5, 0);
     this.geos.push(leg, bar, rope);
     const wood = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(wood);
     wood.name = "hoist-wood";
     wood.color = new THREE.Color(0x5d554b);
     wood.roughness = 0.9;
     const hemp = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(hemp);
     hemp.name = "hoist-rope";
     hemp.color = new THREE.Color(0x8a7a5c);
     hemp.roughness = 0.95;
