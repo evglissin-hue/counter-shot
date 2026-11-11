@@ -29,7 +29,8 @@ export function placeName(me: 0 | 1, x: number, y: number, z: number, ground: nu
     const side = me === 0 && b.name !== "centre" ? (b.name === "left" ? "right" : "left") : b.name;
     return `${side === "left" ? "Left" : side === "right" ? "Right" : "Centre"} bridge`;
   }
-  return "Field";
+  // Open ground: its range from your keep tells one mark from another ("Field 85 m").
+  return `Field ${Math.round(Math.hypot(x, z - centreZ(me)))} m`;
 }
 
 /**
@@ -40,7 +41,23 @@ export function bearWhy(m: MarkInfo, mortar: boolean): string | null {
   if ((mortar ? m.bearM : m.bear) > 0) return null;
   if (!mortar && m.bearM > 0) return "Only the mortar bears: tick Mortar in the salvo";
   if ((mortar ? m.reachM : m.reach) > 0) return `Guns loading (${Math.max(1, mortar ? m.loadMS : m.loadS)} s)`;
-  return "No gun bears";
+  return m.why === "own" ? "Our men near" : m.why === "bridge" ? "Bridge too near" : "No gun bears";
+}
+
+/** The right side of the Marks header: a half typed order asks for its number (up to the highest held), a wait shows once, else the keys. */
+export function salvoLine(armed: boolean, marks: MarkInfo[], salvoReady: number): string {
+  if (armed) {
+    const hi = marks.reduce((top, m) => Math.max(top, m.n), 1);
+    return hi > 1 ? `Which mark? 1 to ${hi}` : "Which mark? 1";
+  }
+  if (salvoReady > 0) return `Salvo in ${Math.ceil(salvoReady / 60)} s`;
+  return "F + number";
+}
+
+/** "2:40": a time left, in minutes and seconds. */
+export function fadeClock(ticks: number): string {
+  const s = Math.max(0, Math.ceil(ticks / 60));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
 /** Seconds a half-typed fire for effect waits for its number. */
@@ -93,7 +110,7 @@ export function newestMark(marks: MarkInfo[]): number {
 
 /** The command card's row of marks: a chip for each, its ring draining as the mark fades, and the mortar toggle at the row's end. */
 export class MarkChips {
-  private chips = new Map<number, { el: HTMLButtonElement; place: HTMLElement; sec: HTMLElement; key: string }>();
+  private chips = new Map<number, { el: HTMLButtonElement; ring: HTMLElement; place: HTMLElement; key: string; fade: string }>();
 
   constructor(
     private row: HTMLElement,
@@ -120,12 +137,12 @@ export class MarkChips {
         const el = document.createElement("button");
         el.className = "chip";
         el.dataset.n = String(m.n);
-        el.innerHTML = `<i class="ring"><b>${m.n}</b></i><span class="pl"></span><span class="sec"></span>`;
+        el.innerHTML = `<i class="ring"><b>${m.n}</b></i><span class="pl"></span>`;
         el.addEventListener("click", () => {
           this.onOrder(m.n);
           el.blur();
         });
-        c = { el, place: el.querySelector(".pl")!, sec: el.querySelector(".sec")!, key: "" };
+        c = { el, ring: el.querySelector(".ring")!, place: el.querySelector(".pl")!, key: "", fade: "" };
         this.chips.set(m.n, c);
         added = true;
       }
@@ -137,9 +154,14 @@ export class MarkChips {
       if (key !== c.key) {
         c.key = key;
         c.el.classList.toggle("dim", !bears);
-        c.sec.textContent = wait;
         c.el.title = bears ? `Fire for effect at mark ${m.n} (F, ${m.n})` : why;
-        c.el.setAttribute("aria-label", `Mark ${m.n}, ${m.place}${bears ? "" : `, ${why!.toLowerCase()}`}${wait ? `, ready in ${wait}` : ""}`);
+        c.el.setAttribute("aria-label", `Mark ${m.n}, ${m.place}${bears ? "" : `, ${why!.toLowerCase()}`}${wait ? `, salvo in ${wait}` : ""}`);
+      }
+      // The ring says when this mark fades (the salvo's wait is the header's, one for all).
+      const fade = `fades in ${fadeClock(m.left)}`;
+      if (fade !== c.fade) {
+        c.fade = fade;
+        c.ring.title = fade;
       }
       const p = Math.max(0, Math.min(1, m.left / m.life));
       c.el.style.setProperty("--p", p.toFixed(3));
@@ -150,9 +172,9 @@ export class MarkChips {
   }
 
   /** Test hook: what the chips read. */
-  get shown(): Array<{ n: number; place: string; dim: boolean; sec: string; title: string }> {
+  get shown(): Array<{ n: number; place: string; dim: boolean; fade: string; title: string }> {
     return [...this.chips.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([n, c]) => ({ n, place: c.place.textContent ?? "", dim: c.el.classList.contains("dim"), sec: c.sec.textContent ?? "", title: c.el.title }));
+      .map(([n, c]) => ({ n, place: c.place.textContent ?? "", dim: c.el.classList.contains("dim"), fade: c.ring.title, title: c.el.title }));
   }
 }

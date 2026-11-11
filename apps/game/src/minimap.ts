@@ -117,6 +117,8 @@ const MINE_Y = 396, THEIRS_Y = MINE_Y - 2 * 62 - 168;
 
 /** UI team colours (the mock's): team 0 the attackers' yellow-green, team 1 oxblood. */
 const TEAM_CSS = ["#cdd842", "#e2525a"];
+/** The chalk of your marks (the sight draws the same white). */
+const CHALK_CSS = "#f3eedb";
 const TEAM_INK = ["#14160a", "#1a0d0e"];
 const TEAM_RGB = ["205, 216, 66", "226, 82, 90"];
 
@@ -152,7 +154,7 @@ export interface MinimapState {
   stormOn: [boolean, boolean];
   /** In a match (labels and the plots; the Practice range has its target castle). */
   match: boolean;
-  /** 3.2: your team's marks (world x, z and number): a small cross in your colour with its number. Never the other side's. */
+  /** 3.2: your team's marks (world x, z and number): a chalk-white circled number. Never the other side's. */
   marks?: Array<{ n: number; x: number; z: number }>;
 }
 
@@ -852,33 +854,30 @@ export class Minimap {
     }
   }
 
-  /** 3.2: your marks, each a small cross in your team's colour with its number beside it (a dark outline under both, so they hold on the field and on the walls). */
+  /** 3.2: your marks, each a chalk-white circle (about 14 px across) with its number in it: the same chalk as the sight's, not a team colour. */
   private marks(st: MinimapState) {
     if (!st.marks || st.marks.length === 0) return;
     const ctx = this.ctx!;
     const tmp = [0, 0];
-    ctx.font = "700 11px system-ui, sans-serif";
-    ctx.textAlign = "left";
+    ctx.font = "700 10px system-ui, sans-serif";
+    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const m of st.marks) {
       Minimap.px(st.me, m.x, m.z, tmp);
-      const x = tmp[0], y = tmp[1], a = 4.6;
+      const x = tmp[0], y = tmp[1], r = 7;
       ctx.beginPath();
-      ctx.moveTo(x - a, y - a);
-      ctx.lineTo(x + a, y + a);
-      ctx.moveTo(x + a, y - a);
-      ctx.lineTo(x - a, y + a);
-      ctx.strokeStyle = EDGE;
-      ctx.lineWidth = 4.2;
+      ctx.arc(x, y, r + 1, 0, Math.PI * 2);
+      ctx.fillStyle = EDGE;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, r - 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(20, 18, 14, 0.9)";
+      ctx.fill();
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = CHALK_CSS;
       ctx.stroke();
-      ctx.strokeStyle = TEAM_CSS[st.me];
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = EDGE;
-      ctx.strokeText(String(m.n), x + a + 2, y);
-      ctx.fillStyle = TEAM_CSS[st.me];
-      ctx.fillText(String(m.n), x + a + 2, y);
+      ctx.fillStyle = CHALK_CSS;
+      ctx.fillText(String(m.n), x, y + 0.5);
     }
   }
 

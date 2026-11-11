@@ -187,7 +187,7 @@ try {
     await page.waitForFunction(() => window.__sandbox.reload[0] === 0, null, { timeout: 60000, polling: 100 });
     await page.evaluate(() => window.__sandbox.fire());
   };
-  await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T mark where your shot landed; F and a number: fire for effect/.test(document.getElementById("help").innerHTML));
+  await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T: mark where your shot landed\. Guns nobody mans shoot true on marked ground\. F then its number: every gun that bears fires there\./.test(document.getElementById("help").innerHTML));
   await page.keyboard.press("KeyT");
   await expect("T with nothing to mark says so and sends nothing", () => /Nothing to mark/.test(document.getElementById("note").textContent) && window.__sent.length === 0);
   await layShot(-22, -62); // off the centre road: a salvo skips a gun with own men near the mark, and our waves walk that road
@@ -211,14 +211,38 @@ try {
   await expect("ordering it says so and sends nothing", () => /Only the mortar bears: tick Mortar in the salvo/.test(document.getElementById("note").textContent) && window.__sent.length === 1);
   // Bridge gangs: the command card's line.
   await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })), gangs: [{ bridge: 0, state: 2, men: 2, progress: 0.4 }] }));
-  await expect("a gang at work shows its road and its progress in the card", () => /^Relaying the (left|right|centre) bridge: 40%$/.test(window.__sandbox.gangsLine), null);
+  await expect("a gang at work shows its road and its progress in the card", () => /^(Left|Right|Centre) bridge: gang at work 40%$/.test(window.__sandbox.gangsLine), null);
   await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })), gangs: [{ bridge: 0, state: 1, men: 2, progress: 0 }], gold: [0, 0] }));
-  await expect("a gang held with no gold says waiting for gold", () => /waiting: 60 gold$/.test(window.__sandbox.gangsLine), null);
+  await expect("a gang held with no gold says waiting for gold", () => /gang waiting \(60 gold\)$/.test(window.__sandbox.gangsLine), null);
   await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })), gangs: [] }));
   await expect("no gangs: the line is gone", () => window.__sandbox.gangsLine === "", null);
+  // The right-hand column with six marks and two gang lines (patched in): it fits under the top bar, the impact inset (shown by force) covers neither it nor the Controls panel.
+  const keep = await page.evaluate(() => window.__sandbox.register.marks.map((m) => ({ ...m })));
+  await page.evaluate(() => {
+    const t = window.__sandbox.match.tick;
+    const marks = [0, 1, 2, 3, 4, 5].map((i) => ({ n: i + 1, x: i * 9 - 20, y: 0, z: -60 - i * 12, made: t + i, left: 3000 - i * 300, life: 3600, place: ["Centre bridge", "Field 85 m", "Their gate", "Our gate", "Right bridge", "Field 120 m"][i], bear: i % 2, bearM: 1, reach: i % 2, reachM: 1, loadS: 0, loadMS: 0, why: "" }));
+    window.__sandbox.patchMatch({ marks, gangs: [{ bridge: 0, state: 1, men: 2, progress: 0 }, { bridge: 2, state: 2, men: 2, progress: 0.4 }] });
+    const st = document.createElement("style");
+    st.id = "force-impact";
+    st.textContent = ".impact { display: block !important; }";
+    document.head.append(st);
+  });
+  await expect("six marks and two gang lines: six chips, two gang lines", () => document.querySelectorAll("#chips .chip").length === 6 && window.__sandbox.gangsLine.split("\n").length === 2);
+  const lay = () => page.evaluate(() => {
+    const r = (s) => { const b = document.querySelector(s).getBoundingClientRect(); return { l: b.left, t: b.top, r: b.right, b: b.bottom }; };
+    const hit = (a, b) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+    const side = r(".side"), top = r(".top"), im = r(".impact"), map = r("#mapbox"), cmd = r("#command"), chips = r("#chips");
+    return { fits: side.t >= top.b && side.b <= innerHeight, chipsShown: chips.b <= cmd.b && chips.t >= cmd.t, mapOk: !hit(im, map) && !hit(im, cmd) && !hit(im, side)};
+  });
+  const l1 = await lay();
+  check("the column fits under the top bar with all six chips inside the card", l1.fits && l1.chipsShown);
+  check("the impact inset covers neither the minimap nor the command card", l1.mapOk);
+  await page.evaluate(() => { document.getElementById("help").hidden = false; });
+  await expect("with the Controls panel open the inset steps left of it", () => { const i = document.querySelector(".impact").getBoundingClientRect(), h = document.getElementById("help").getBoundingClientRect(); return i.right <= h.left; });
+  await page.evaluate((keep) => { document.getElementById("help").hidden = true; document.getElementById("force-impact").remove(); window.__sandbox.patchMatch({ marks: keep, gangs: [] }); }, keep);
   const typed = await typeInPage(["KeyF", "Digit1"]);
-  check("F starts a salvo order and the card asks which mark", typed[0].armed && /Which mark/.test(typed[0].line));
-  check("a number for a mark no gun bears on sends nothing, says so, and did not switch the gun", !typed[1].armed && typed[1].line === "" && (await page.evaluate(() => window.__sent.length === 1 && /No gun bears/.test(document.getElementById("note").textContent) && document.getElementById("w-name").textContent === "Long gun")));
+  check("F starts a salvo order and the card asks which mark, up to the highest held", typed[0].armed && /^Which mark\? 1( to \d)?$/.test(typed[0].line));
+  check("a number for a mark no gun bears on sends nothing, says so, and did not switch the gun", !typed[1].armed && typed[1].line === "F + number" && (await page.evaluate(() => window.__sent.length === 1 && /No gun bears/.test(document.getElementById("note").textContent) && document.getElementById("w-name").textContent === "Long gun")));
   await page.evaluate(() => window.__sandbox.patchMatch(null));
   await adv(6);
   await expect("with the real report back, once the long gun is loaded again the chip bears", () => { const c = window.__sandbox.chips[0]; return !c.dim && /Fire for effect at mark 1/.test(c.title); }, null);
@@ -227,7 +251,7 @@ try {
   check("F then anything else cancels, and sends nothing", typed2[0].armed && !typed2[1].armed && (await page.evaluate(() => window.__sent.length === 1)));
   await typeInPage(["KeyF", "Digit1"], 400);
   await expect("F then 1 orders the salvo at mark 1, no mortar", () => window.__sent.length === 2 && window.__sent[1].kind === "salvo" && window.__sent[1].mark === 1 && window.__sent[1].mortar === undefined);
-  await expect("the worker took it: the next salvo is under 20 s away, the chips show the seconds left", () => { const r = window.__sandbox.register; return r.salvoReady > 0 && r.salvoReady < 1200 && /^\d+ s$/.test(window.__sandbox.chips[0].sec); });
+  await expect("the worker took it: the next salvo is under 20 s away, the Marks header shows the wait once and no chip carries it", () => { const r = window.__sandbox.register; return r.salvoReady > 0 && r.salvoReady < 1200 && /^Salvo in \d+ s$/.test(document.getElementById("salvo-line").textContent) && window.__sandbox.chips.every((c) => /^fades in \d+:\d\d$/.test(c.fade)); });
   await expect("the long gun's tab flashed as its gun fired in the salvo", () => window.__fired.includes("0"), null, 180000); // the guns fire nearest first over 1.5 s of game time: slow on the test clock under load
   await typeInPage(["KeyF", "Digit1"], 400);
   await expect("a second order inside the 20 s sends nothing", () => window.__sent.length === 2 && /Salvo ready in/.test(document.getElementById("note").textContent));
@@ -238,7 +262,7 @@ try {
   await page.click("#mortar-salvo");
   await expect("the Mortar in the salvo toggle turns on", () => document.getElementById("mortar-salvo").checked === true);
   await adv(22);
-  await expect("when the 20 s are up the chips drop the seconds", () => window.__sandbox.register.salvoReady === 0 && window.__sandbox.chips.every((c) => c.sec === ""), null);
+  await expect("when the 20 s are up the header goes back to the keys", () => window.__sandbox.register.salvoReady === 0 && document.getElementById("salvo-line").textContent === "F + number", null);
   await expect("the long gun is loaded again", () => window.__sandbox.reload[0] === 0);
   await page.click('#chips .chip[data-n="2"]');
   await expect("a click on chip 2 orders the salvo at mark 2 with the mortar in it", () => { const l = window.__sent[window.__sent.length - 1]; return l.kind === "salvo" && l.mark === 2 && l.mortar === true; });

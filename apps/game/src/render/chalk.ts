@@ -9,6 +9,9 @@ const MAX = 6;
 /** Chalk white, and how long (m) a cross's arms are and how wide. */
 const CHALK = 0xf3eedb;
 const ARM = 3.4, WIDTH = 0.42;
+/** How high the number stands over its cross (in the cross's scale: the crosshair sits on the cross, so the number is lifted clear of it), and its size (m). */
+const TAG_LIFT = 4.4, TAG_SIZE = 1.8;
+const _v = new THREE.Vector3();
 /** Turns a cross lying flat (its face up) to face along +z: with the camera's turn, it faces the camera. */
 const FACE = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
 
@@ -31,7 +34,7 @@ export class Chalk {
     this.root.name = "chalk-marks";
     const arm = new THREE.PlaneGeometry(2 * ARM, WIDTH);
     arm.rotateX(-Math.PI / 2);
-    const tagGeo = new THREE.PlaneGeometry(1.8, 1.8);
+    const tagGeo = new THREE.PlaneGeometry(TAG_SIZE, TAG_SIZE);
     this.geos.push(arm, tagGeo);
     for (let i = 0; i < MAX; i++) {
       const g = new THREE.Group();
@@ -72,7 +75,7 @@ export class Chalk {
       this.textures.push(tex);
       const tag = new THREE.Mesh(tagGeo, make(0xffffff, tex));
       tag.renderOrder = 24;
-      tag.position.y = 2.6;
+      tag.position.y = TAG_LIFT;
       g.add(tag);
       this.root.add(g);
       this.slots.push({ g, cross, tag, mats, shown: false, wall: false });
@@ -127,16 +130,38 @@ export class Chalk {
     }
   }
 
-  /** Every frame: the numbers face the camera, and everything grows a little with distance so it reads from the overview. */
+  /**
+   * Every frame: the numbers face the camera, and everything grows a little with distance so it reads from the overview.
+   * Numbers that would overlap on screen are nudged apart (the later number rises over the earlier).
+   */
   face(cam: THREE.Camera) {
+    cam.updateMatrixWorld();
+    const placed: Array<{ ax: number; ay: number; sa: number }> = [];
     for (const s of this.slots) {
       if (!s.shown) continue;
       const d = cam.position.distanceTo(s.g.position);
       const k = Math.max(1, Math.min(4.5, d / 70));
       s.cross.scale.setScalar(k);
       s.tag.scale.setScalar(k);
-      s.tag.position.y = 2.6 * k;
       s.tag.quaternion.copy(cam.quaternion);
+      const size = TAG_SIZE * k;
+      let lift = TAG_LIFT * k;
+      // Where the badge stands as seen from the camera (angles, so near and far compare): two overlap when they are within about a badge's size across and up.
+      let ax = 0, ay = 0, sa = 0;
+      for (let tries = 0; tries < 8; tries++) {
+        _v.copy(s.g.position);
+        _v.y += lift;
+        _v.applyMatrix4(cam.matrixWorldInverse);
+        const depth = Math.max(0.1, -_v.z);
+        ax = _v.x / depth;
+        ay = _v.y / depth;
+        sa = size / depth;
+        const hit = placed.some((q) => Math.abs(q.ax - ax) < (q.sa + sa) * 0.55 && Math.abs(q.ay - ay) < (q.sa + sa) * 0.55);
+        if (!hit) break;
+        lift += size * 1.1;
+      }
+      placed.push({ ax, ay, sa });
+      s.tag.position.y = lift;
       // A mark on masonry (a wall face stands upright): its cross faces the camera instead of lying flat.
       if (s.wall) s.cross.quaternion.copy(cam.quaternion).multiply(FACE);
     }

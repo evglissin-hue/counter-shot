@@ -62,7 +62,7 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 #wind-arrow::after { content: ""; position: absolute; left: 50%; top: -2px; border: 6px solid transparent; border-bottom: 9px solid var(--aim); border-top: 0; margin-left: -6px; }
 .reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
 /* The impact cam: an inset on where your shot lands, under the top bar on the right, in a thin brass frame. The renderer draws into the rectangle this element covers; the shade fades it in and out. */
-.impact { position: absolute; top: calc(68px + env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); width: max(25%, 200px); aspect-ratio: 16 / 9; box-sizing: border-box; box-shadow: 0 0 0 2px var(--brass), 0 0 0 3px rgba(0, 0, 0, 0.7), 0 8px 22px rgba(0, 0, 0, 0.5); border-radius: 2px; cursor: pointer; z-index: 5; }
+.impact { position: absolute; top: calc(var(--mb-bottom, 62px) + 8px); right: calc(max(16px, env(safe-area-inset-right, 0px)) + 208px); width: max(20%, 200px); aspect-ratio: 16 / 9; box-sizing: border-box; box-shadow: 0 0 0 2px var(--brass), 0 0 0 3px rgba(0, 0, 0, 0.7), 0 8px 22px rgba(0, 0, 0, 0.5); border-radius: 2px; cursor: pointer; z-index: 5; }
 .impact .shade { position: absolute; inset: 0; background: #000; opacity: var(--shade, 0); pointer-events: none; }
 .impact .cap { position: absolute; left: 6px; top: 5px; font: 500 11px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
 .impact .cap kbd { font: 500 10px/1 var(--mono); color: var(--brass); }
@@ -374,9 +374,10 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 .buildbtn { padding: 4px 6px 4px 10px; gap: 7px; }
 .buildbtn kbd { height: 16px; min-width: 16px; font-size: 10px; color: var(--ink-dim); }
 /* The right-hand column: the map, your waves' and masons' commands, the wind. */
-.side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; max-height: calc(100% - 78px - env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > * { pointer-events: auto; }
-.mapbox { position: relative; inset: auto; width: auto; height: min(250px, calc(100vh - 480px)); min-height: 150px; }
+.side > :not(.mapbox) { flex: none; }
+.mapbox { position: relative; inset: auto; width: auto; height: auto; flex: 1 1 min(250px, calc(100vh - 480px)); min-height: 110px; }
 .command { padding: 9px 9px 10px; display: grid; gap: 6px; }
 .cmd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px; font: 600 10.5px/1.1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
 .gangs { padding: 0 2px; font: 500 11px/1.35 var(--ui); color: var(--brass); white-space: pre-line; }
@@ -493,16 +494,16 @@ body.title-screen .side > * { display: none !important; }
 .marks-row[hidden] { display: none; }
 .marks-row .cmd-head { margin-top: 4px; }
 .command.range .marks-row .cmd-head { margin-top: 0; }
-.chips { display: grid; gap: 3px; }
-.chip { display: flex; align-items: center; gap: 8px; width: 100%; padding: 3px 8px 3px 4px; border-radius: 7px; font: 500 13px/1.1 var(--ui); text-align: left; min-width: 0; }
-.chip .ring { position: relative; flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: conic-gradient(var(--c, #f0cd86) calc(var(--p, 1) * 1turn), rgba(236, 228, 210, 0.16) 0); font-style: normal; }
+.chips { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; max-height: 86px; overflow-y: auto; scrollbar-width: thin; }
+.chip { display: flex; align-items: center; gap: 5px; width: 100%; height: 26px; padding: 1px 4px 1px 2px; border-radius: 7px; font: 500 12px/1.05 var(--ui); text-align: left; min-width: 0; }
+.chip .ring { position: relative; flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--c, #f0cd86) calc(var(--p, 1) * 1turn), rgba(236, 228, 210, 0.16) 0); font-style: normal; }
 .chip .ring::before { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: #1d1a15; }
 .chip .ring b { position: relative; font: 600 12px/1 var(--mono); color: var(--ink); }
-.chip .pl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chip .sec { flex: none; font: 500 11.5px/1 var(--mono); color: var(--ink-dim); }
-.chip .sec:empty { display: none; }
+.chip .pl { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
 .chip.dim { opacity: 0.5; }
 .chip.low .ring { --c: var(--bad); }
+/* The impact cam sits beside the right-hand column, and steps left of the Controls panel while that is open: it never covers either. */
+body:has(#help:not([hidden])) .impact { right: calc(max(16px, env(safe-area-inset-right, 0px)) + 442px); }
 .mortarbox { font-size: 12.5px; color: var(--ink-dim); padding: 2px 2px; }
 #markhint { position: absolute; left: 0; top: 0; z-index: 5; padding: 2px 7px; font: 600 12px/1.3 var(--ui); color: #f3eedb; background: rgba(11, 13, 16, 0.8); border: 1px solid rgba(243, 238, 219, 0.7); border-radius: 5px; cursor: pointer; white-space: nowrap; will-change: transform; }
 #markhint[hidden] { display: none; }
@@ -606,12 +607,12 @@ body.title-screen .side > * { display: none !important; }
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
       <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
       <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
-      <dt>T, F</dt><dd>T mark where your shot landed; F and a number: fire for effect</dd>
+      <dt>T, F</dt><dd>T: mark where your shot landed. Guns nobody mans shoot true on marked ground. F then its number: every gun that bears fires there.</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
       <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
       <dt>Enter</dt><dd>Order line: type orders in plain words ("mill, then waves left"), Enter sends, Esc closes. Aiming goes on behind it</dd>
       <dt id="steward-voice-dt" hidden>Y (hold)</dt><dd id="steward-voice-dd" hidden>Speak an order; let go to send it</dd>
-      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
+      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom; click a mark: fire for effect)</dd>
       <dt>N</dt><dd>Where minions can walk: green open, amber cut off, red blocked</dd>
       <dt>M, P</dt><dd>Sound on or off; pause (not against a friend)</dd>
       <dt>Gamepad</dt><dd>Left stick aim, right stick fine aim, RT fire, LT zoom, bumpers switch gun, D-pad fuse (up, down), orders (left), route (right), X spin, Y shot camera, B back, View overview</dd>
