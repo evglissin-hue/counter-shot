@@ -156,6 +156,8 @@ export interface MinionsState {
   limbs: Float64Array[];
   nextLimb: number;
   lastParts: Float32Array;
+  /** The figures' own clock (seconds): their idle sway, breath and a fallen man's last pose go by it. */
+  time: number;
 }
 
 /** A piece of kit lying where it fell (a two-point stick, verlet). */
@@ -1109,6 +1111,7 @@ export class Minions implements FigureSink {
       limbs,
       nextLimb: this.nextLimb,
       lastParts: this.lastParts.slice(0, this.lastPartCount * PART_STRIDE),
+      time,
     };
   }
 
@@ -1120,6 +1123,9 @@ export class Minions implements FigureSink {
     for (const [id, u] of st.unitOf) this.unitOf.set(id, u);
     for (const [id, [limb, sign]] of st.severed) this.severed.set(id, { limb, sign });
     for (const id of st.kegless) this.rig.kegless.add(id);
+    // The figures' clock goes back too, so a man knocked down after a restore leaves the same pose each time (S4).
+    this.rig.time = st.time;
+    this.rig.since = 0;
     const time = this.rig.time;
     for (const r of st.drops) {
       const d = this.drops[r[0]];
