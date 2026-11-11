@@ -482,6 +482,10 @@ export class FilmRecorder {
   readonly type: { mime: string; ext: "webm" | "mp4" };
   /** Wall time spent drawing between slots, for the report (ms). */
   drawMs = 0;
+  /** Pauses made (one per frame), and fields the tools read (a sound trim and a lateness count are kept at 0: see the Status). */
+  pauses = 0;
+  lateMs = 0;
+  audioTrimMs = 0;
   private lastSlotEnd = 0;
 
   constructor(
@@ -553,6 +557,7 @@ export class FilmRecorder {
     }
     this.running += performance.now() - start;
     if (this.rec.state === "recording") this.rec.pause();
+    this.pauses++;
     if (audio && this.audioOn) {
       this.audioOn = false;
       await audio.ctx.suspend().catch(() => {});

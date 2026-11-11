@@ -311,6 +311,7 @@ async function saveRun(label, file) {
   const len = p.vspan + 1 / 25;
   check(`${label}: its length is within 10 percent of the film's own clock`, Math.abs(len - r.seconds) <= 0.1 * r.seconds, `(file ${len.toFixed(2)} s, film ${r.seconds.toFixed(2)} s, ${(((len - r.seconds) / r.seconds) * 100).toFixed(1)} percent)`);
   check(`${label}: the sound runs as long as the picture, within 10 percent`, !p.a || Math.abs(p.aspan - p.vspan) <= 0.1 * p.vspan + 0.1, `(sound ${p.aspan.toFixed(2)} s, picture ${p.vspan.toFixed(2)} s)`);
+  console.log(`ROW ${label}: planned ${(await S(() => window.__sandbox.film.planned)).toFixed(2)} s, film clock ${r.seconds.toFixed(2)} s, picture ${(p.vspan + 0.04).toFixed(2)} s, sound ${p.aspan.toFixed(2)} s (${(((p.aspan - p.vspan) / p.vspan) * 100).toFixed(1)} percent over the picture), ${r.pauses} pauses over ${r.frames} frames, ${Math.round(r.late)} ms late`);
   const planned = await S(() => window.__sandbox.film.planned);
   check(`${label}: the film ran no longer than its plan`, r.seconds <= planned + 0.5, `(${r.seconds.toFixed(2)} s of ${planned.toFixed(2)} s planned)`);
   return { r, p, wall };
@@ -319,15 +320,25 @@ async function saveRun(label, file) {
 if (want("save")) {
   console.log("Save the film");
   await S(() => window.__sandbox.slowFrames(0));
+  await S((ms) => window.__sandbox.audioTrim(ms), Number(process.env.TRIM) || 0);
   await saveRun("save", `${out}S5-film.webm`);
   check("the end screen is back after saving", await S(() => window.__sandbox.endShown));
 }
 if (want("slow")) {
+  await S((ms) => window.__sandbox.audioTrim(ms), Number(process.env.TRIM) || 0);
   console.log(`Save the film on a machine too slow to draw it (${SLOW} ms added to every page frame)`);
   await S((ms) => window.__sandbox.slowFrames(ms), SLOW);
   const res = await saveRun("slow", `${out}S5-film-slow.webm`);
   await S(() => window.__sandbox.slowFrames(0));
   if (res) console.log(`   slow: wall time per film frame ${(res.wall / res.r.frames).toFixed(2)} s, the file's per frame ${(res.p.decoded / res.r.frames).toFixed(4)} s (a film frame is ${(1 / 25).toFixed(4)} s)`);
+}
+
+if (want("fast")) {
+  console.log("Save the film on the fast path (the renderer's draw skipped: the picture is junk, the timing is real)");
+  await S(() => window.__sandbox.slowFrames(0));
+  await S(() => window.__sandbox.skipRender(true));
+  await saveRun("fast", `${out}S5-film-fast.webm`);
+  await S(() => window.__sandbox.skipRender(false));
 }
 
 if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));

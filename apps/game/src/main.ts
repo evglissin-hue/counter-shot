@@ -254,6 +254,9 @@ let replayCheck = false;
 /** S5 test hooks: a busy wait at the start of every page frame (ms), and freeze the test clock once the film has run this many seconds. */
 let slowMs = 0;
 let filmFreezeAt: number | null = null;
+/** S5 test hooks: skip the renderer's draw while a clip plays (the picture is junk, the timing of the fast path is real), and a trim for the film's sound (ms). */
+let skipRender = false;
+let audioTrim = 0;
 /** Can each bridge still be crossed (layout order), and is the walk overlay on. */
 let bridgesOpen: boolean[] = layout.bridges.map(() => true);
 let navOn = false;
@@ -2971,6 +2974,8 @@ interface FilmResult {
   frames: number;
   wallMs: number;
   name: string;
+  pauses?: number;
+  late?: number;
   why?: string;
 }
 let filmResolve: ((r: FilmResult) => void) | null = null;
@@ -3037,7 +3042,7 @@ function filmEnded(completed: boolean) {
   send({ t: "pause", paused: paused || userPause });
   const quiet = filmQuiet;
   filmQuiet = false;
-  const base = { seconds: film.elapsed, frames: film.frames, wallMs: performance.now() - filmStarted, size: 0, type: "", name: "" };
+  const base = { seconds: film.elapsed, frames: film.frames, wallMs: performance.now() - filmStarted, size: 0, type: "", name: "", pauses: rec?.pauses, late: rec?.lateMs };
   if (!quiet && $("menu").hidden && matchInfo?.result) {
     $("end").hidden = false;
     setFilmStatus(completed ? "The film is over." : "Film stopped.");
@@ -3102,6 +3107,7 @@ function startFilm(saving: boolean, scale = 1): boolean {
       if (!g) throw new Error("no 2D canvas");
       composite = { canvas: cv, g };
       filmRec = new FilmRecorder(cv, sound.recordFeed());
+      filmRec.audioTrimMs = audioTrim;
     } catch (err) {
       composite = null;
       filmRec = null;
@@ -3269,7 +3275,7 @@ const player = new ReplayPlayer(
     setStones: (s, n) => renderer.setStones(s, n),
     setCamera: (pose) => renderer.setCamera(pose),
     render: (dt) => {
-      renderer.render(dt);
+      if (!skipRender) renderer.render(dt);
       film.afterRender();
     },
     // 1 means the page's own pace (slow motion at an impact may be on when a replay is asked for).
@@ -3731,6 +3737,13 @@ else {
       for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000));
       return { type: b.type, base64: btoa(bin) };
     });
+  },
+  /** S5 tests: skip drawing while a clip plays; trim the film's sound by this many ms in a slow slot. */
+  skipRender(on: boolean) {
+    skipRender = on;
+  },
+  audioTrim(ms: number) {
+    audioTrim = ms;
   },
   /** S5: slow every page frame by a busy wait of this many ms (0: off). */
   slowFrames(ms: number) {
