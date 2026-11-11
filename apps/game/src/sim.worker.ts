@@ -61,7 +61,7 @@ let netDirty = true;
 let practiceReg: Register | null = null;
 let practiceManned = -1;
 /** The bearing counts of the marks as last worked out (they cost a solve per gun, so a few times a second): by mark and the tick it was made. */
-const bearCache = new Map<string, [number, number]>();
+const bearCache = new Map<string, number[]>();
 let bearAt = -1e9;
 
 async function load(): Promise<Rapier> {
@@ -216,12 +216,24 @@ function registerInfo(reg: Register, world: SandboxSim, tick: number, mine: (e: 
   const marks: MarkInfo[] = reg.list(me).map((m) => {
     const key = `${m.n}:${m.made}`;
     let bear = bearCache.get(key);
-    if (!bear) bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length]));
-    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1] };
+    if (!bear) {
+      const soonest = (ids: number[]) => {
+        let t = 0;
+        for (const id of ids) {
+          const r = world.reload[id];
+          if (r > 0 && (t === 0 || r < t)) t = r;
+        }
+        return Math.ceil(t / 60);
+      };
+      const reach = reg.bearing(me, m.n, false, false), reachM = reg.bearing(me, m.n, true, false);
+      bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length, reach.length, reachM.length, soonest(reach), soonest(reachM)]));
+    }
+    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1], reach: bear[2], reachM: bear[3], loadS: bear[4], loadMS: bear[5] };
   });
   const canMark: number[] = [];
   for (const e of world.emplacements) if (!e.empty && mine(e) && reg.canMark(me, e.id, tick)) canMark.push(e.id);
-  return { marks, salvoReady: Math.max(0, REGISTER.salvoEvery - (tick - reg.salvoAt[me])), canMark };
+  const gangs = (world.gangs?.status() ?? []).filter((g) => g.team === me).map((g) => ({ bridge: g.bridge, state: g.state as number, men: g.men, progress: g.progress }));
+  return { marks, salvoReady: Math.max(0, REGISTER.salvoEvery - (tick - reg.salvoAt[me])), canMark, gangs };
 }
 
 /** The tops of a keep's timber storeys (m), lowest first: the roof is the last. */

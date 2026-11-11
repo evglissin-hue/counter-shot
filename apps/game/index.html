@@ -379,6 +379,7 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 .mapbox { position: relative; inset: auto; width: auto; height: min(250px, calc(100vh - 480px)); min-height: 150px; }
 .command { padding: 9px 9px 10px; display: grid; gap: 6px; }
 .cmd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px; font: 600 10.5px/1.1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+.gangs { padding: 0 2px; font: 500 11px/1.35 var(--ui); color: var(--brass); white-space: pre-line; }
 .cmd-head + .seg { margin-top: -1px; }
 .seg + .cmd-head { margin-top: 4px; }
 .cmd-head > span + span { font: 500 12px/1.1 var(--ui); letter-spacing: 0; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -572,6 +573,7 @@ body.title-screen .side > * { display: none !important; }
     <div id="command" class="command glass" hidden>
       <div class="cmd-head"><span>Waves</span><span id="next-wave"></span></div>
       <div class="seg" role="group" aria-label="Route of your next waves (L)"><button data-route="left" title="Next waves take your left flank (L)">Left</button><button data-route="centre" title="Next waves take the centre road (L)">Centre</button><button data-route="right" title="Next waves take your right flank (L)">Right</button></div>
+      <div class="gangs" id="gangs" hidden></div>
       <div class="seg" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><button data-order="0" title="Advance on the enemy gate (Ctrl+1)">Advance</button><button data-order="1" title="Hold at the midfield markers (Ctrl+2)">Hold</button><button data-order="2" title="Push through the nearest breach (Ctrl+3)">Push</button></div>
       <div class="cmd-head"><span>Repairs</span><span class="masons" id="masons"></span></div>
       <div class="seg toggles" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><button data-repair="gate" aria-pressed="true" title="Masons repair the gate (Alt+1)">Gate</button><button data-repair="walls" aria-pressed="true" title="Masons repair the walls (Alt+2)">Walls</button><button data-repair="towers" aria-pressed="true" title="Masons repair the towers (Alt+3)">Towers</button><button data-repair="keep" aria-pressed="true" title="Masons repair the keep (Alt+4)">Keep</button></div>

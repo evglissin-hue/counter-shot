@@ -32,6 +32,17 @@ export function placeName(me: 0 | 1, x: number, y: number, z: number, ground: nu
   return "Field";
 }
 
+/**
+ * Why a mark can or cannot be ordered now: the words of its chip's title and of the refusal note.
+ * `mortar`: the mortar is in the salvo. null `why` means some gun bears.
+ */
+export function bearWhy(m: MarkInfo, mortar: boolean): string | null {
+  if ((mortar ? m.bearM : m.bear) > 0) return null;
+  if (!mortar && m.bearM > 0) return "Only the mortar bears: tick Mortar in the salvo";
+  if ((mortar ? m.reachM : m.reach) > 0) return `Guns loading (${Math.max(1, mortar ? m.loadMS : m.loadS)} s)`;
+  return "No gun bears";
+}
+
 /** Seconds a half-typed fire for effect waits for its number. */
 export const SALVO_WAIT_MS = 2000;
 
@@ -119,15 +130,16 @@ export class MarkChips {
         added = true;
       }
       if (c.place.textContent !== m.place) c.place.textContent = m.place;
-      const bears = (mortar ? m.bearM : m.bear) > 0;
+      const why = bearWhy(m, mortar);
+      const bears = why === null;
       const wait = salvoReady > 0 ? `${Math.ceil(salvoReady / 60)} s` : "";
-      const key = `${bears}|${wait}`;
+      const key = `${why}|${wait}`;
       if (key !== c.key) {
         c.key = key;
         c.el.classList.toggle("dim", !bears);
         c.sec.textContent = wait;
-        c.el.title = bears ? `Fire for effect at mark ${m.n} (F, ${m.n})` : "No gun bears";
-        c.el.setAttribute("aria-label", `Mark ${m.n}, ${m.place}${bears ? "" : ", no gun bears"}${wait ? `, ready in ${wait}` : ""}`);
+        c.el.title = bears ? `Fire for effect at mark ${m.n} (F, ${m.n})` : why;
+        c.el.setAttribute("aria-label", `Mark ${m.n}, ${m.place}${bears ? "" : `, ${why!.toLowerCase()}`}${wait ? `, ready in ${wait}` : ""}`);
       }
       const p = Math.max(0, Math.min(1, m.left / m.life));
       c.el.style.setProperty("--p", p.toFixed(3));
