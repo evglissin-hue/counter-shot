@@ -254,9 +254,12 @@ export class GameRenderer implements GameRendererApi {
     this.lastFrame = null;
     if (k.last) this.applyFrame({ ...k.last, eventCount: 0, terrain: [] });
     this.lastFrame = k.last;
-    // The frame places the masons' hoists afresh (their ropes are drawn in render): put the works back as they were taken.
-    const works = this.keyParts.get("works");
-    if (works && k.parts.has("works")) works.apply(k.parts.get("works"), this.now);
+    // The frame lays its own stones (exact, where the page had drawn them between frames) and places the masons' hoists
+    // afresh (their ropes are drawn in render): put both back as they were taken, so capture() gives the keyframe again.
+    for (const name of ["stones", "works"]) {
+      const part = this.keyParts.get(name);
+      if (part && k.parts.has(name)) part.apply(k.parts.get(name), this.now);
+    }
   }
 
   /** The renderer's clock in seconds (what sky, water, flags and every effect's age are measured against). */
