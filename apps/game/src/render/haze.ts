@@ -49,7 +49,7 @@ import type { N } from "./tslUtils";
 /** Puffs in one haze. */
 const PUFFS = 9;
 /** The haze's opacity at its thickest. */
-const OPACITY = 0.3;
+const OPACITY = 0.2;
 /** How high the puffs reach above the ground (m). */
 const HEIGHT = 8;
 
@@ -119,11 +119,11 @@ export class Haze {
     const vAlpha: N = varying(env.mul(mix(0.6, 1.0, r2)).mul(OPACITY).mul(clearFade), "vHazeA");
     const vSeed: N = varying(r1.add(salt), "vHazeSeed");
     const sunView: N = normalize(cameraViewMatrix.mul(vec4(sunDir, 0.0)).xyz);
-    const base = color(0xa69d88);
+    const base = color(0x938a77);
     m.colorNode = Fn(() => {
       const nz = sqrt(max(float(1).sub(dot(vuv, vuv)), 0.0));
       const lit = clamp(dot(vec3(vuv.x, vuv.y, nz), sunView).mul(0.5).add(0.5), 0.0, 1.0);
-      return vec4(base.mul(mix(0.8, 1.05, lit)), 1.0);
+      return vec4(base.mul(mix(0.78, 0.98, lit)), 1.0);
     })();
     m.opacityNode = Fn(() => {
       const r2d = dot(vuv, vuv);
