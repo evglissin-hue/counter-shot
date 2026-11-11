@@ -154,10 +154,12 @@ Earlier pairs gave 1.21x to 1.39x. Taking parts out at Medium: the grass sheen a
 
 Stills (written to `tools/.shots/`, made again by the tools):
 - `node tools/valley-shots.mjs --quality=low|high --tag=l23-after-low|l23-after overview sight treeline valley-side`; before: the same views from the branch before L2 (`valley-l23-before-low-*`, `valley-l23-before-*`).
-- `node tools/gust-shots.mjs --quality=low|high`: `gust-<tier>-0..5.png`, a front crossing the meadow.
+- `node tools/gust-shots.mjs --quality=low|high`: `gust-<tier>-0..5.png`, six stills half a second apart, a front crossing the meadow.
 - `node tools/wear-shots.mjs low|high after`: `wear-after-<tier>-near|far|sight.png` (fresh faces, soot, cracks, at 150 m in the sight).
 - `node tools/look-marks-shots.mjs --tier low|high`: `look-scorch|haze|paths-<tier>-before|after.png`.
 - Tufts, crows and braziers (executor E's): from a free camera at ground level, a gatehouse close-up, and the sky 8 s after a mortar burst.
+
+Replays (S3 to S6, merged in): L2 and L3 register keyframe parts with the renderer (`GameRenderer.registerBuiltInParts`): `wear`, `groundMarks`, `haze`, `braziers`, `birds` and `wind` (the wind's fronts and drift and the clouds' place). Ground dust fades by sim ticks and the wind takes each sim frame once, so a clip draws the same picture each play. `node tools/replay-check.mjs` passes.
 
 Tests: `apps/game/test/wear.test.ts`, `haze.test.ts`, `windState.test.ts`, `treeShapes.test.ts`, `lookLife.test.ts`, and the sim's lead test. Seen in the player's chair: the valley overview, the sight, a gust front, haze at a gate, soot and cracks; not yet seen by a person: the impact cam inset with haze, tree lean against the flags in motion.
 
