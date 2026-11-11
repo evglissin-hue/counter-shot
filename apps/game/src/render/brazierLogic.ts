@@ -50,8 +50,9 @@ export function pickBraziers(layout: CastleLayout): BrazierSpot[] {
     // The gate wall's merlons within a few metres of the gate (the towers stand 15 m off), one nearest each side of it.
     const gateWall = merlons.filter((s) => Math.abs(s.z - gz) < 1.6 && Math.hypot(s.x - gx, s.z - gz) < 8);
     const near = (a: Stone, b: Stone) => Math.hypot(a.x - gx, a.z - gz) - Math.hypot(b.x - gx, b.z - gz) || a.id - b.id;
-    const left = gateWall.filter((s) => s.x < gx).sort(near);
-    const right = gateWall.filter((s) => s.x >= gx).sort(near);
+    // Clear of the gateway itself (it is 4 m wide): the first merlons past its jambs.
+    const left = gateWall.filter((s) => s.x < gx - 3).sort(near);
+    const right = gateWall.filter((s) => s.x > gx + 3).sort(near);
     for (const side of [left, right]) {
       const s = side[0];
       if (s) out.push({ stone: s.id, castle, x: s.x, y: top(s), z: s.z, where: "gate" });
