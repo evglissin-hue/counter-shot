@@ -482,6 +482,21 @@ body.title-screen .side > * { display: none !important; }
 .cmark .arrow::after { content: ""; position: absolute; left: 20px; top: 0; border-left: 10px solid var(--brass); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
 .cmark.edge .arrow { display: block; }
 @media (prefers-reduced-motion: reduce) { .coach, .coach-hl, .cmark .ring { animation: none; } .coach-hl { box-shadow: 0 0 10px 2px rgba(201, 154, 70, 0.6); } }
+/* The replay (S4): the HUD steps aside, two black bars close in, a caption sits above the lower bar. */
+body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden !important; }
+#replay { position: absolute; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+#replay[hidden] { display: none; }
+#replay .rbar { position: absolute; left: 0; right: 0; height: 10%; background: #000; transform: scaleY(0); }
+#replay-top { top: 0; transform-origin: top; }
+#replay-bot { bottom: 0; transform-origin: bottom; }
+#replay-cover { position: absolute; inset: 0; background: #000; opacity: 1; }
+#replay-cap { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); bottom: calc(10% + 18px); max-width: 60%; color: var(--ink); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+#replay-name { display: inline-block; font: 600 12px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass); }
+#replay-text { display: block; margin-top: 6px; font: 400 15px/1.3 var(--ui); }
+#replay-speed { display: inline-block; margin-left: 10px; font: 600 12px/1 var(--mono); letter-spacing: 0.04em; color: var(--ink); }
+#replay-speed[hidden] { display: none; }
+#replay-skip { position: absolute; right: max(24px, env(safe-area-inset-right, 0px)); bottom: calc(10% + 18px); pointer-events: auto; padding: 5px 12px; font: 500 12px/1 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.6); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+#replay-skip:hover { color: var(--ink); }
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -574,6 +589,7 @@ body.title-screen .side > * { display: none !important; }
       <dt>Guns</dt><dd>Knock one out: bring down the masonry under it, hit it square, sweep its crew with chain shot, or shell it. It is out 30 s, or until masons rebuild under it (20 gold to whoever does it)</dd>
       <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
       <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
+      <dt>X</dt><dd>Replay the last big moment while the match waits (not against a friend). Esc skips</dd>
       <dt>K</dt><dd>Impact cam: a small view of where your shot lands, a second before it does. Click it to swap views</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
       <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
@@ -700,6 +716,13 @@ body.title-screen .side > * { display: none !important; }
     </div>
   </div>
   <div id="error" hidden role="alert"></div>
+  <div id="replay" hidden aria-live="off">
+    <div id="replay-cover"></div>
+    <div id="replay-top" class="rbar"></div>
+    <div id="replay-bot" class="rbar"></div>
+    <div id="replay-cap"><span><b id="replay-name"></b><span id="replay-speed" hidden></span></span><span id="replay-text"></span></div>
+    <button id="replay-skip" type="button">Skip (Esc)</button>
+  </div>
 </div>
 <!-- artifact-body-end -->
 <script type="module" src="./src/main.ts"></script>

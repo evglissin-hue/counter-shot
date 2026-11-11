@@ -10,6 +10,8 @@ export interface Pressed {
   shotCam: boolean;
   /** The impact cam (K): an inset on where your shot lands, on or off. */
   impact: boolean;
+  /** Replay the last big moment while the match waits (X). */
+  replay: boolean;
   spin: boolean;
   fuseUp: boolean;
   fuseDown: boolean;
@@ -165,6 +167,7 @@ export class Input {
       overview: e.has("Tab") || edge(8),
       shotCam: e.has("KeyV") || edge(3),
       impact: e.has("KeyK"),
+      replay: e.has("KeyX"),
       spin: e.has("KeyR") || edge(2),
       fuseUp: e.has("BracketRight") || edge(12),
       fuseDown: e.has("BracketLeft") || edge(13),
