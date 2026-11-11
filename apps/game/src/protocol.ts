@@ -62,6 +62,19 @@ export interface MarkInfo {
   /** How many of your guns would fire in a salvo at it now: without the mortar, and with it. */
   bear: number;
   bearM: number;
+  /** The same counts if loading did not matter (guns that reach it but may be reloading), and the soonest reload among them in seconds (0: none reloading). */
+  reach: number;
+  reachM: number;
+  loadS: number;
+  loadMS: number;
+}
+
+/** 3.2: one of the page's own team's bridge gangs (state: GangState; bridge: index into the layout's bridges). */
+export interface GangInfo {
+  bridge: number;
+  state: number;
+  men: number;
+  progress: number;
 }
 
 /** 3.2: the page's own team's register: its marks, when the next salvo may be ordered, and which emplacements' last landings may be marked now. */
@@ -71,6 +84,8 @@ export interface RegisterInfo {
   salvoReady: number;
   /** The match ids of the guns whose last shot by hand may be marked now. */
   canMark: number[];
+  /** The team's bridge gangs at work or on their way. */
+  gangs: GangInfo[];
 }
 
 /** A match's state for the HUD. Pairs are by team (castle): the page's own is `team`. */

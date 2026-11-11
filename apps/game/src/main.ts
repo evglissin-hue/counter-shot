@@ -81,7 +81,7 @@ import {
   updateImpactCam,
 } from "./impactCam";
 import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, RegisterInfo, ToWorker } from "./protocol";
-import { MarkChips, newestMark, SalvoKeys } from "./marks";
+import { bearWhy, MarkChips, newestMark, SalvoKeys } from "./marks";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
@@ -308,7 +308,7 @@ let ready = false;
 let paused = false;
 const trails: Array<Float32Array | null> = ASHWRIGHT_SLOTS.map(() => null);
 const recording = new Map<number, { emp: number; pts: number[] }>(); // shot id -> trail
-const landing: Array<{ x: number; y: number; z: number } | null> = ASHWRIGHT_SLOTS.map(() => null);
+const landing: Array<{ x: number; y: number; z: number; tick: number } | null> = ASHWRIGHT_SLOTS.map(() => null);
 let follow: { id: number; lastX: number; lastY: number; lastZ: number; vx: number; vy: number; vz: number; until: number } | null = null;
 let slowUntil = 0;
 /** Sim and effects speed (slow motion around impacts). */
@@ -532,7 +532,7 @@ function onFrame(f: FrameData) {
     } else if (kind === EventKind.Landed) {
       if (a >= 0) shotLanded(a, b, c, d);
       if (a >= 0 && a - BASE >= 0 && a - BASE < EMP.length) {
-        landing[a - BASE] = { x: b, y: c, z: d }; // (an unmanned shot's is -(id + 1))
+        landing[a - BASE] = { x: b, y: c, z: d, tick: f.tick }; // (an unmanned shot's is -(id + 1))
         // Your ball, chain or grapeshot came down: its tally closes a moment later, counting the stones around here.
         if (tally && !tally.landed && tally.emp === a) Object.assign(tally, { x: b, y: c, z: d, landed: true, until: clock() + 2600 });
       }
@@ -547,6 +547,17 @@ function onFrame(f: FrameData) {
       if (s) {
         everMoved[s.id] = 0;
         if (laidSounds++ < 3) sound.stoneSet(s.x, s.y, s.z, s.part === "gate" ? 2 : s.part === "storey" ? 1 : 0, LAY_SECONDS);
+      }
+    } else if (kind === EventKind.GangStart || kind === EventKind.Relaid) {
+      // Bridge gangs: a is the layout's bridge, b the team. Yours start (and pay) and finish; the enemy's finishing is worth knowing too.
+      if (a >= 0 && a < layout.bridges.length && mode !== null) {
+        const mine = b === ME;
+        if (kind === EventKind.GangStart) {
+          if (mine) showNote(`Bridge gang at the ${roadName(a).toLowerCase()} bridge: ${REGISTER.gangCost} gold`, 3000);
+        } else {
+          showNote(mine ? `${roadName(a)} bridge relaid` : `They relaid the ${roadName(a).toLowerCase()} bridge`, 3500);
+          logMoment(mine ? `Your gang relaid the ${roadName(a).toLowerCase()} bridge` : `The enemy relaid the ${roadName(a).toLowerCase()} bridge`, !mine);
+        }
       }
     } else if (kind === EventKind.Cleared) {
       if (clearSounds++ < 2) sound.scrape(b, Math.max(0.3, c), d);
@@ -2305,6 +2316,7 @@ function onMatch(info: MatchInfo) {
   matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
   threat.update(info.lanes, ME);
   updateWaves();
+  updateGangs(info);
   soundscape.match(info, ME, FOE);
   updateRepairs();
   updateStorm();
@@ -2601,6 +2613,25 @@ function showEnd() {
   document.exitPointerLock?.();
 }
 
+/** A bridge's road as the player sees it ("Left", "Centre", "Right"; k indexes the layout's bridges). */
+const roadName = (k: number): string => {
+  const n = ownSide(layout.bridges[k].site.name);
+  return n === "left" ? "Left" : n === "right" ? "Right" : "Centre";
+};
+
+/** The command card's line for your bridge gangs: where each is, and what holds it. */
+function updateGangs(info: MatchInfo) {
+  const lines = info.gangs.map((g) => {
+    const road = roadName(g.bridge).toLowerCase();
+    const what = g.state === 0 ? "walking" : g.state === 1 ? (info.gold[ME] < REGISTER.gangCost ? `waiting: ${REGISTER.gangCost} gold` : "waiting: enemy near") : `${Math.round(g.progress * 100)}%`;
+    return `Relaying the ${road} bridge: ${what}`;
+  });
+  const el = $("gangs");
+  const t = lines.join("\n");
+  el.hidden = lines.length === 0;
+  if (el.textContent !== t) el.textContent = t;
+}
+
 /** The bridges from the player's left to right, as the overlay's status line shows them. */
 function updateBridges() {
   // Castle 1's left is +x, castle 0's is -x.
@@ -2618,7 +2649,7 @@ function onBridges(open: boolean[]) {
   moments.bridges(was, open);
   updateBridges();
   for (let k = 0; k < open.length; k++) {
-    if (was[k] && !open[k]) showNote(`The ${ownSide(layout.bridges[k].site.name)} bridge is down: that route is closed`, 4500);
+    if (was[k] && !open[k]) showNote(`${roadName(k)} bridge down: send a wave down that road to relay it`, 4500);
   }
 }
 
@@ -2766,10 +2797,19 @@ function syncRegister() {
 function markHere() {
   const reg = regInfo();
   if (!reg || !ready || userPause || matchInfo?.result || view !== "sight") return;
-  const id = gid(current);
+  let id = gid(current);
   if (!reg.canMark.includes(id)) {
-    showNote("Nothing to mark: fire a shot first", 2200);
-    return;
+    // The gun you ride has nothing to mark: the newest landing of any of your guns will do.
+    let best = -1, bt = -2;
+    for (const k of reg.canMark) {
+      const t = landing[k - BASE]?.tick ?? -1;
+      if (t > bt) (best = k), (bt = t);
+    }
+    if (best < 0) {
+      showNote("Nothing to mark: fire a shot first", 2200);
+      return;
+    }
+    id = best;
   }
   send({ t: "input", input: { kind: "mark", emplacement: id } });
   sound.ui("click");
@@ -2787,8 +2827,9 @@ function orderSalvo(n: number) {
     showNote(`Salvo ready in ${Math.ceil(reg.salvoReady / 60)} s`, 2200);
     return;
   }
-  if ((mortarBox.checked ? m.bearM : m.bear) === 0) {
-    showNote("No gun bears", 2200);
+  const why = bearWhy(m, mortarBox.checked);
+  if (why) {
+    showNote(why, 2200);
     return;
   }
   send({ t: "input", input: mortarBox.checked ? { kind: "salvo", mark: num, mortar: true } : { kind: "salvo", mark: num } });
@@ -3286,6 +3327,10 @@ else {
   },
   get salvoArmed() {
     return salvoKeys.armed;
+  },
+  get gangsLine() {
+    const el = $("gangs");
+    return el.hidden ? "" : el.textContent ?? "";
   },
   get markHintShown() {
     return !markHint.hidden;

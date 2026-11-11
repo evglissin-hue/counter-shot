@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { BRIDGES, CASTLE_SHAPE, DIST } from "@keepfall/content";
-import { newestMark, placeName, SALVO_WAIT_MS, SalvoKeys } from "../src/marks";
+import { bearWhy, newestMark, placeName, SALVO_WAIT_MS, SalvoKeys } from "../src/marks";
 import type { MarkInfo } from "../src/protocol";
 
 const bridge = (name: string) => BRIDGES.find((b) => b.name === name)!;
@@ -67,4 +67,15 @@ test("the newest mark is the one made last", () => {
   assert.equal(newestMark([]), 0);
   assert.equal(newestMark([m(1, 100), m(2, 900), m(3, 400)]), 2);
   assert.equal(newestMark([m(4, 500), m(2, 500)]), 4);
+});
+
+test("why a mark cannot be ordered: loading, only the mortar, or nothing bears", () => {
+  const mk = (p: Partial<MarkInfo>) => ({ bear: 0, bearM: 0, reach: 0, reachM: 0, loadS: 0, loadMS: 0, ...p }) as MarkInfo;
+  assert.equal(bearWhy(mk({ bear: 1, bearM: 1 }), false), null);
+  assert.equal(bearWhy(mk({}), false), "No gun bears");
+  assert.equal(bearWhy(mk({ reach: 2, reachM: 2, loadS: 4, loadMS: 4 }), false), "Guns loading (4 s)");
+  assert.equal(bearWhy(mk({ reach: 2, reachM: 3, loadS: 4, loadMS: 2 }), true), "Guns loading (2 s)");
+  assert.equal(bearWhy(mk({ bearM: 1, reachM: 1 }), false), "Only the mortar bears: tick Mortar in the salvo");
+  assert.equal(bearWhy(mk({ bearM: 1, reachM: 1 }), true), null);
+  assert.equal(bearWhy(mk({ reachM: 1 }), false), "No gun bears");
 });
