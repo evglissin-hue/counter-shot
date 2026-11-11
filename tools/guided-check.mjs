@@ -27,6 +27,7 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 let failed = 0;
+const check = (name, ok) => { console.log(`${ok ? "ok  " : "FAIL"} ${name}`); if (!ok) failed++; };
 /** Wait (up to 40 s) for fn() in the page to be true. */
 async function expect(name, fn, arg, ms = 40000) {
   let ok = true;
@@ -146,7 +147,21 @@ try {
   await expect("step 7 asks for a landing on their road and the T key", () => /their waves take/.test(document.getElementById("coach-how").textContent) && /<kbd>T<\/kbd>/.test(document.getElementById("coach-how").innerHTML));
   await shot("guided-step7");
   await patch({ marks: [{ n: 1, x: 0, y: 0, z: -95, made: 0, left: 10800, life: 10800, place: "Centre bridge", bear: 1, bearM: 2 }] });
-  await expect("holding a mark ticks step 7: its follow-up says F and the number, the marks row is ringed", () => window.__sandbox.coach.state.phase === "after" && /fire/.test(document.getElementById("coach-how").textContent) && /<kbd>F<\/kbd>/.test(document.getElementById("coach-how").innerHTML) && document.getElementById("marks-row").classList.contains("coach-hl"));
+  // Watched from inside the page (a follow-up is on show a few seconds, and a round trip here can be slow on a busy machine).
+  const seen = await page.evaluate(() => new Promise((done) => {
+    const got = { after: false, f: false, ring: false };
+    const t0 = performance.now();
+    const t = setInterval(() => {
+      const c = window.__sandbox.coach.state;
+      if (c.phase === "after" && c.step === 6 && /fire/.test(document.getElementById("coach-how").textContent)) got.after = true;
+      if (/<kbd>F<\/kbd>/.test(document.getElementById("coach-how").innerHTML)) got.f = true;
+      if (document.getElementById("marks-row").classList.contains("coach-hl")) got.ring = true;
+      if ((got.after && got.f && got.ring) || performance.now() - t0 > 30000) { clearInterval(t); done(got); }
+    }, 50);
+  }));
+  check("holding a mark ticks step 7: its follow-up shows", seen.after);
+  check("the follow-up names the F key", seen.f);
+  check("the marks row is ringed", seen.ring);
   await expect("the mark shows as a chip", () => window.__sandbox.chips.length === 1 && window.__sandbox.chips[0].place === "Centre bridge");
   await expect(...stepIs(8));
   await patch({ marks: undefined });
