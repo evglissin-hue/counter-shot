@@ -11,12 +11,15 @@
 // pictures must be the same), the live view equal before and after a replay (played out and skipped half way), X in a
 // match (the match waits while it plays), X with nothing to replay, the end of a match by a blow (result, the field, the
 // last blow's replay, the end screen) and a surrender (no replay).
-// Usage: PORT=5184 node tools/replay-check.mjs [match seconds]
+// Usage: PORT=5184 node tools/replay-check.mjs [match seconds]   (SKIP_PRACTICE=1 leaves out the Practice range, STOP_AFTER_PICS=1 stops once the two plays are compared, DUMP=1 saves the two pictures of a differing pair to tools/.shots/S4-same-*)
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 const PORT = Number(process.env.PORT) || 5184;
+const shotDir = fileURLToPath(new URL("./.shots/", import.meta.url));
+mkdirSync(shotDir, { recursive: true });
 const matchSeconds = process.argv[2] === undefined ? 24 : Number(process.argv[2]);
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
@@ -110,6 +113,7 @@ async function putBack(label, moveOn) {
 
 try {
   // ---- 1. the Practice range ----------------------------------------------------
+  if (!process.env.SKIP_PRACTICE) {
   console.log("Practice range");
   await load("webgl-low-fixed");
   console.log("   loaded");
@@ -171,6 +175,7 @@ try {
   });
   void practice;
 
+  }
   // ---- 2. a Versus AI match ------------------------------------------------------
   console.log("Versus AI match");
   await load("versus=knight-webgl-low-fixed");
@@ -298,9 +303,14 @@ try {
         const same = shots[0][k].equals(shots[1][k]);
         const frac = same ? 0 : await diffPng(shots[0][k], shots[1][k]);
         check(`the same picture at clip tick ${k + 1} of 3 on both plays`, same || frac < 0.005, same ? "(byte-identical)" : `(${(frac * 100).toFixed(3)}% of pixels differ)`);
+        if (!same && process.env.DUMP) {
+          writeFileSync(`${shotDir}S4-same-${k + 1}-a.png`, shots[0][k]);
+          writeFileSync(`${shotDir}S4-same-${k + 1}-b.png`, shots[1][k]);
+        }
       }
     }
 
+    if (process.env.STOP_AFTER_PICS) throw new Error("stopped after the pictures (STOP_AFTER_PICS)");
     // A skip half way: the live view is back all the same.
     await page.evaluate(() => window.__sandbox.replayCheck(true));
     const b4 = await live();
