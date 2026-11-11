@@ -22,7 +22,7 @@ mkdirSync(out, { recursive: true });
 const args = process.argv.slice(2);
 const tierArg = args.indexOf("--tier");
 const tiers = tierArg >= 0 ? [args[tierArg + 1]] : ["low", "high"];
-const scenes = args.filter((a, i) => !a.startsWith("--") && i !== tierArg + 1);
+const scenes = args.filter((a, i) => !a.startsWith("--") && (tierArg < 0 || i !== tierArg + 1));
 const want = (s) => !scenes.length || scenes.includes(s);
 const server = await createServer({ root, configFile: `${root}/vite.config.ts`, server: { port: PORT, host: "127.0.0.1" }, logLevel: "error" });
 await server.listen();
@@ -50,6 +50,7 @@ async function open(hash) {
       if (i === 2) throw e;
     }
   }
+  console.log("loaded", hash);
   return page;
 }
 const frames = async (page, n) => {
@@ -57,13 +58,25 @@ const frames = async (page, n) => {
   await page.waitForFunction((t) => window.__sandbox.frames >= t, start + n, { timeout: 900000, polling: 50 });
 };
 
+/** n rendered frames (game time is frozen for stills, so the page's frame counter stands still). */
+const rafs = (page, n) =>
+  page.evaluate(
+    (k) =>
+      new Promise((res) => {
+        let i = 0;
+        const f = () => (++i >= k ? res(0) : requestAnimationFrame(f));
+        requestAnimationFrame(f);
+      }),
+    n,
+  );
+
 /** A still of the current scene with the new effects, then without them. tier: low or high. */
 async function pair(page, name, tier, cam) {
   await page.evaluate((t) => window.__sandbox.renderer.setQuality(t), tier);
   await page.evaluate((c) => window.__sandbox.look(c), cam);
-  const n = tier === "high" ? 3 : 8;
-  await frames(page, n);
-  await page.screenshot({ path: `${out}look-${name}-${tier}-after.png` });
+  const n = tier === "high" ? 2 : 4;
+  await rafs(page, n);
+  await page.screenshot({ path: `${out}look-${name}-${tier}-after.png`, timeout: 600000 });
   console.log(`${out}look-${name}-${tier}-after.png`);
   await page.evaluate(() => {
     const r = window.__sandbox.renderer;
@@ -71,8 +84,8 @@ async function pair(page, name, tier, cam) {
     r.groundMarks.clear();
     r.haze.clear();
   });
-  await frames(page, n);
-  await page.screenshot({ path: `${out}look-${name}-${tier}-before.png` });
+  await rafs(page, n);
+  await page.screenshot({ path: `${out}look-${name}-${tier}-before.png`, timeout: 600000 });
   console.log(`${out}look-${name}-${tier}-before.png`);
   // Put them back for the next tier.
   await page.evaluate(() => {
@@ -85,17 +98,16 @@ async function pair(page, name, tier, cam) {
 try {
   if (want("scorch")) {
     const page = await open("webgl-fixed");
-    await page.evaluate(() => window.__sandbox.select(1));
-    await frames(page, 40);
-    for (const level of [0.88, 0.9, 0.92]) {
-      await page.waitForFunction(() => window.__sandbox.reload[1] === 0, null, { timeout: 900000, polling: 100 }).catch(() => {});
-      await page.evaluate((l) => {
-        window.__sandbox.holdCharge(l);
-        window.__sandbox.holdCharge(null);
-      }, level);
-      await page.waitForFunction(() => window.__sandbox.ride && window.__sandbox.ride.boom, null, { timeout: 900000, polling: 50 });
-      await frames(page, 12);
-    }
+    await frames(page, 20);
+    // Shells staged through the real path (GroundMarks.frame reads Explosion events): three bursts on the open ground
+    // and one keg burning, as the sim would report them. Real mortar shells need game minutes in software rendering.
+    await page.evaluate(() => {
+      const r = window.__sandbox.renderer;
+      const ev = [[3, -40], [5, -37], [4, -43.5]].map(([rad, z]) => [1, 6 + (z + 40) * 0.4, r.terrain.heightAt(6, z) + 0.3, z, rad]);
+      const f = { tick: 600, events: new Float32Array(ev.flat()), eventCount: ev.length, kegs: new Float32Array([-2, r.terrain.heightAt(-2, -38), -38, 200]), kegCount: 1, minions: new Float32Array(0), minionCount: 0 };
+      r.groundMarks.frame(f, (x, z) => r.terrain.heightAt(x, z));
+      for (let k = 0; k < 6; k++) r.groundMarks.data.kegs(f.kegs, 1);
+    });
     const c = await page.evaluate(() => {
       const d = window.__sandbox.renderer.groundMarks.data;
       let best = 0, bi = 0, bj = 0;

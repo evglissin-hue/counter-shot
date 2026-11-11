@@ -525,7 +525,7 @@ export function makeTerrainMaterial({ style, noise, sky }: TerrainCtx): THREE.Me
       const wash: N = smoothstep(0.03, 0.5, mk.y.add(grain.sub(0.5).mul(0.2)));
       c.assign(mix(c, color(0xb5ac99).mul(grain.mul(0.2).add(0.9)), wash.mul(0.6)));
       const char: N = smoothstep(0.1, 0.55, mk.x.add(grain.sub(0.5).mul(0.45)));
-      const ash: N = smoothstep(0.55, 0.95, mk.x.add(fine.b.sub(0.5).mul(0.5)));
+      const ash: N = smoothstep(0.55, 0.95, mk.x.add(mid.r.sub(0.5).mul(0.5)));
       const burnt: N = mix(color(0x1d1712), color(0x6a655d), ash.mul(0.7)).mul(grain.mul(0.35).add(0.8));
       c.assign(mix(c, burnt, char.mul(0.92)));
     }
