@@ -21,6 +21,8 @@ export class GroundMarks {
   private terrain: Terrain;
   private lastKeg = -1e9;
   private lastWalk = -1e9;
+  /** The last sim tick seen: the dust fades by sim time, so a replay or a keyframe draws the same ground. */
+  private lastTick = -1;
 
   constructor(terrain: Terrain) {
     this.terrain = terrain;
@@ -30,6 +32,8 @@ export class GroundMarks {
   /** Each sim frame: shells that burst near the ground, burning kegs (4 Hz) and the men's feet (2 Hz). */
   frame(frame: FrameData, groundAt: (x: number, z: number) => number) {
     const tick = frame.tick;
+    if (this.lastTick >= 0 && tick > this.lastTick) this.data.update(Math.min(tick - this.lastTick, 60) / 60);
+    this.lastTick = tick;
     // A tick that went back (restart, replay seek): sample again at once.
     if (tick < this.lastKeg) this.lastKeg = -1e9;
     if (tick < this.lastWalk) this.lastWalk = -1e9;
@@ -53,9 +57,8 @@ export class GroundMarks {
     this.data.dust(x, z, radius, amount);
   }
 
-  /** Once per rendered frame: the dust fades, and what changed goes to the GPU. */
-  update(dt: number) {
-    this.data.update(dt);
+  /** Once per rendered frame: what changed goes to the GPU (the dust fades in frame(), by sim ticks). */
+  update() {
     const rows = this.data.takeDirty();
     if (rows) this.terrain.flushMarks(rows[0], rows[1]);
   }
@@ -63,13 +66,24 @@ export class GroundMarks {
   clear() {
     this.data.clear();
     this.lastKeg = this.lastWalk = -1e9;
+    this.lastTick = -1;
   }
 
+  /** The marks, then four numbers: the dust's saved-up fading, the last keg and walk samples, the last tick. */
   capture(): Float32Array {
-    return this.data.capture();
+    const d = this.data.capture();
+    const out = new Float32Array(d.length + 4);
+    out.set(d);
+    out.set([this.data.dustTimer, this.lastKeg, this.lastWalk, this.lastTick], d.length);
+    return out;
   }
 
   apply(saved: ArrayLike<number>) {
     this.data.apply(saved);
+    const n = saved.length - 4;
+    this.data.dustTimer = saved[n];
+    this.lastKeg = saved[n + 1];
+    this.lastWalk = saved[n + 2];
+    this.lastTick = saved[n + 3];
   }
 }

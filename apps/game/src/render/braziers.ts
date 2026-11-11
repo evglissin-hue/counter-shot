@@ -185,18 +185,28 @@ export class Braziers {
     if (this.glowPos) this.glowPos.needsUpdate = true;
   }
 
-  /** Which braziers burn (S3 keyframes): one flag each, in spot order. */
-  capture(): Uint8Array {
-    return Uint8Array.from(this.fires ? this.fires.lit.map((l) => (l ? 1 : 0)) : []);
+  /** Which braziers burn and their smoke timers (S3 keyframes): n flags, then n timers, in spot order. */
+  capture(): Float32Array {
+    const f = this.fires;
+    if (!f) return new Float32Array(0);
+    const n = f.lit.length;
+    const out = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      out[i] = f.lit[i] ? 1 : 0;
+      out[n + i] = this.timers[i] ?? 0;
+    }
+    return out;
   }
 
-  /** Put captured flags back: every brazier burns, then those that were out go out again. */
-  apply(lit: ArrayLike<number>) {
+  /** Put captured flags and timers back: every brazier burns, then those that were out go out again. */
+  apply(saved: ArrayLike<number>) {
     this.reset();
     const f = this.fires;
-    if (!f) return;
-    for (let i = 0; i < f.lit.length && i < lit.length; i++) {
-      if (lit[i]) continue;
+    if (!f || saved.length < f.lit.length * 2) return;
+    const n = f.lit.length;
+    for (let i = 0; i < n; i++) {
+      this.timers[i] = saved[n + i];
+      if (saved[i]) continue;
       f.lit[i] = false;
       this.hide(i);
     }

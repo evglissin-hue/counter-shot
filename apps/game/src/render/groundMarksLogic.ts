@@ -71,7 +71,8 @@ export class GroundMarksData {
   private dMaxI = -Infinity;
   private dMinJ = Infinity;
   private dMaxJ = -Infinity;
-  private dustTimer = 0;
+  /** Seconds of fading saved up towards the next step (a keyframe keeps it). */
+  dustTimer = 0;
 
   constructor(grid: MarkGrid = VALLEY_GRID, store?: Float32Array) {
     this.grid = grid;

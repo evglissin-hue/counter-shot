@@ -43,7 +43,7 @@ import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
-import { setCloudNoise, updateClouds } from "./clouds";
+import { CLOUDS, setCloudNoise, updateClouds } from "./clouds";
 import { WindField } from "./windField";
 import { GrassTufts } from "./grass";
 import { Birds } from "./birds";
@@ -428,10 +428,27 @@ export class GameRenderer implements GameRendererApi {
     );
     this.registerKeyframePart(
       "braziers",
-      part<Uint8Array>({
+      part<Float32Array>({
         capture: () => this.braziers.capture(),
         apply: (st) => this.braziers.apply(st),
         bytes: (st) => st.byteLength + 16,
+      }),
+    );
+    // The wind's fronts and drift and the clouds' place build up frame by frame: kept, so a clip draws the same sky and grass each play.
+    this.registerKeyframePart(
+      "wind",
+      part<{ state: Record<string, number | boolean>; clouds: [number, number, number, number] }>({
+        capture: () => {
+          const c = CLOUDS.offset.value, d = this.sky.cloudDrift.value;
+          return { state: this.windField.state.capture(), clouds: [c.x, c.y, d.x, d.y] };
+        },
+        apply: (st) => {
+          this.windField.state.apply(st.state);
+          this.windField.update(0);
+          CLOUDS.offset.value.set(st.clouds[0], st.clouds[1]);
+          this.sky.cloudDrift.value.set(st.clouds[2], st.clouds[3]);
+        },
+        bytes: (st) => roughBytes(st),
       }),
     );
     // What is in the air only: nothing is captured. Cleared, with every ring back at its first slot, so the frames that follow lay the same particles in the same slots.
@@ -1206,7 +1223,7 @@ export class GameRenderer implements GameRendererApi {
     }
     this.storm.update(real, this.now);
     this.terrain.flush();
-    this.groundMarks.update(dt);
+    this.groundMarks.update();
     this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.guns.update(dt);
     // Flash light decays fast.

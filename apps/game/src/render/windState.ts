@@ -143,6 +143,15 @@ export class WindState {
     const b = ((x - this.pastX) * this.pastDirX + (z - this.pastZ) * this.pastDirZ) / BAND;
     return Math.exp(-a * a) * this.changeNext + Math.exp(-b * b) * this.changePast;
   }
+
+  /** Every field, for a replay's keyframe (S3): the fronts and the drift build up frame by frame. */
+  capture(): Record<string, number | boolean> {
+    return { ...this } as unknown as Record<string, number | boolean>;
+  }
+
+  apply(saved: Record<string, number | boolean>) {
+    Object.assign(this, saved);
+  }
 }
 
 export function changeOf(ax: number, az: number, bx: number, bz: number): number {
