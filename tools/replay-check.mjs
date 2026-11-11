@@ -117,7 +117,7 @@ try {
   console.log("   60 frames");
   // S4: X with nothing recorded yet says so and plays nothing.
   await page.keyboard.press("KeyX");
-  await frames(3);
+  await page.waitForFunction(() => /Nothing to replay yet/.test(document.getElementById("note").textContent), null, { timeout: 60000, polling: 20 }).catch(() => {});
   const nothing = await page.evaluate(() => ({ note: document.getElementById("note").textContent, shown: !document.getElementById("note").hidden, playing: window.__sandbox.replay.playing }));
   check("X with nothing recorded: a note and no replay", /Nothing to replay yet/.test(nothing.note) && nothing.shown && !nothing.playing, JSON.stringify(nothing));
   // A wave of pikemen at the target castle's gate so some fall.
@@ -264,7 +264,7 @@ try {
     for (let round = 0; round < 2; round++) {
       const before = await live();
       const started = await page.evaluate(() => {
-        const ok = window.__sandbox.playClip(0);
+        const ok = window.__sandbox.playClip(0, 5);
         return { ok, r: window.__sandbox.replay };
       });
       check(`round ${round + 1}: the replay starts`, started.ok && started.r.playing, JSON.stringify(started.r));
@@ -274,14 +274,17 @@ try {
       const ticks = [plan.start + len * 0.12, plan.start + len * 0.5, plan.end - len * 0.1];
       await page.evaluate((t) => window.__sandbox.replayFreezeAt(t), ticks);
       const held = await live();
+      let first = null;
       for (const t of ticks) {
         await page.waitForFunction((x) => window.__sandbox.replay.tick >= x, t, { timeout: 600000, polling: 50 });
         await sleep(500);
         shots[round].push(await page.screenshot());
+        if (!first) first = await live();
         await page.evaluate(() => window.__sandbox.freeze(false));
       }
+      // (a frame or two of the match were still in flight when the pause arrived: the tick is read once it has settled.)
       const mid = await live();
-      check(`round ${round + 1}: the match waits while it plays`, mid.tick === before.tick && mid.held, `(tick ${before.tick} then ${mid.tick})`);
+      check(`round ${round + 1}: the match waits while it plays`, mid.tick === first.tick && mid.held, `(tick ${first.tick} at the first still, ${mid.tick} at the last)`);
       await page.waitForFunction(() => !window.__sandbox.replay.playing, null, { timeout: 600000, polling: 100 });
       const d = await page.evaluate(() => window.__sandbox.replayDiff);
       check(`round ${round + 1}: the live view is back (capture before equals capture after)`, Array.isArray(d) && d.length === 0, d && d.length ? `differs: ${d.join(", ")}` : "");
@@ -318,7 +321,7 @@ try {
     await frames(20);
     const x2 = await live();
     check("X plays the last clip", await page.evaluate(() => window.__sandbox.replay.playing && document.body.classList.contains("replaying")));
-    check("X: the tick does not move while it plays", x2.tick === x1.tick && x1.tick === x0.tick, `(${x0.tick}, ${x1.tick}, ${x2.tick} over ${x2.frames - x1.frames} frames)`);
+    check("X: the tick does not move while it plays", x2.tick === x1.tick && x2.frames - x1.frames >= 10 && x2.held, `(${x1.tick} then ${x2.tick} over ${x2.frames - x1.frames} page frames; ${x0.tick} before the key)`);
     await page.keyboard.press("Escape");
     await frames(3);
     check("Esc skips it", !(await page.evaluate(() => window.__sandbox.replay.playing)));

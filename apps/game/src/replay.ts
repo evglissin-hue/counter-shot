@@ -24,6 +24,9 @@ export interface ReplayHost {
   layout: CastleLayout;
   capture(): RenderKeyframe;
   apply(k: RenderKeyframe): void;
+  /** The renderer's clock (seconds); a replay sets it from the clip so the same clip draws the same picture each time, and puts it back. */
+  clock(): number;
+  setClock(seconds: number): void;
   applyFrame(f: FrameData): void;
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void;
   setStones(stones: Float32Array, count: number): void;
@@ -80,6 +83,8 @@ export const MOMENT_NAMES: Record<MomentKind, string> = {
   lastBlow: "The last blow",
 };
 
+/** A replay's clock starts here (seconds) plus the clip's keyframe tick. */
+export const CLOCK_BASE = 1000;
 /** Ticks run at real speed under the cover before the take begins (a third of a second). */
 export const LEAD_TICKS = 20;
 /** Seconds the bars take to close, and the cover to clear. */
@@ -132,6 +137,7 @@ export class ReplayPlayer {
   private cover = 1;
   private onEnd: (() => void) | undefined;
   private lastSpeed = 1;
+  private liveClock = 0;
   /** Seconds since play(), for the bars. */
   private age = 0;
 
@@ -167,6 +173,7 @@ export class ReplayPlayer {
     const host = this.host;
     this.onEnd = opts.onEnd;
     this.live = host.capture();
+    this.liveClock = host.clock();
     this.clip = clip;
     try {
       host.closeInset();
@@ -177,6 +184,8 @@ export class ReplayPlayer {
       this.bars = 0;
       this.cover = 1;
       this.age = 0;
+      // The clock goes by the clip (before the keyframe, whose ages are measured against it).
+      host.setClock(CLOCK_BASE + clip.keyframe.tick / 60);
       host.apply(clip.keyframe.render);
       host.extras(clip.keyframe.extras, true);
       this.take = this.plan(
@@ -302,7 +311,10 @@ export class ReplayPlayer {
     this.onEnd = undefined;
     this.entryOf.clear();
     try {
-      if (live) this.host.apply(live);
+      if (live) {
+        this.host.setClock(this.liveClock);
+        this.host.apply(live);
+      }
     } catch (err) {
       console.error("replay could not put the live view back", err);
     }

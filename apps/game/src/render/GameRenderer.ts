@@ -254,6 +254,23 @@ export class GameRenderer implements GameRendererApi {
     this.lastFrame = null;
     if (k.last) this.applyFrame({ ...k.last, eventCount: 0, terrain: [] });
     this.lastFrame = k.last;
+    // The frame places the masons' hoists afresh (their ropes are drawn in render): put the works back as they were taken.
+    const works = this.keyParts.get("works");
+    if (works && k.parts.has("works")) works.apply(k.parts.get("works"), this.now);
+  }
+
+  /** The renderer's clock in seconds (what sky, water, flags and every effect's age are measured against). */
+  get clock(): number {
+    return this.now;
+  }
+
+  /**
+   * Set the clock (S4): a replay sets it before it applies its keyframe, so the same clip draws the same picture each
+   * time (sky, water and flags depend on it), and puts it back before it gives the live keyframe back.
+   */
+  setClock(seconds: number): void {
+    this.now = seconds;
+    this.time.value = seconds;
   }
 
   private registerBuiltInParts() {

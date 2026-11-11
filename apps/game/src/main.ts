@@ -2943,6 +2943,8 @@ const player = new ReplayPlayer(
     layout,
     capture: () => renderer.capture(),
     apply: (k) => renderer.apply(k),
+    clock: () => renderer.clock,
+    setClock: (t) => renderer.setClock(t),
     applyFrame: (f) => renderer.applyFrame(f),
     setProjectiles: (p, n, c, nc) => renderer.setProjectiles(p, n, c, nc),
     setStones: (s, n) => renderer.setStones(s, n),
@@ -3346,10 +3348,10 @@ else {
     const t = player.current;
     return { playing: player.playing, tick: player.at, recipe: t ? t.recipe : null, start: t ? t.start : -1, end: t ? t.end : -1, speed: player.speed };
   },
-  playClip(i: number) {
+  playClip(i: number, budget?: number) {
     const c = i < 0 ? recorder.lastClip() : (recorder.reel[i] ?? null);
     if (!c || player.playing) return false;
-    playReplay(c, { hold: true });
+    playReplay(c, { hold: true, budget });
     return true;
   },
   skipReplay() {

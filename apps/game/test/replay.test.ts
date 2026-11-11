@@ -6,7 +6,7 @@ import type { Take } from "../src/director";
 import type { Moment, MomentKind } from "../src/moments";
 import type { Clip, FrameExtras, RecEntry } from "../src/recorder";
 import type { RenderKeyframe } from "../src/render/keyframe";
-import { LEAD_TICKS, MOMENT_NAMES, ReplayPlayer, quiet, speedLabel, type ReplayHost, type ReplayView } from "../src/replay";
+import { CLOCK_BASE, LEAD_TICKS, MOMENT_NAMES, ReplayPlayer, quiet, speedLabel, type ReplayHost, type ReplayView } from "../src/replay";
 
 const layout = buildLayout(1, GAME_LAYOUT);
 const empty = new Float32Array(0);
@@ -71,6 +71,8 @@ function rig(opts: { failRender?: number; failPlan?: boolean } = {}) {
       return live;
     },
     apply: (k) => log.calls.push(`apply:${k.parts.get("tag")}`),
+    clock: () => 5.5,
+    setClock: (t) => log.calls.push(`clock:${t}`),
     applyFrame: (f) => {
       log.calls.push("frame");
       log.applied.push(f.tick);
@@ -137,7 +139,7 @@ test("play: live keyframe first, then the clip's, the unseen roll forward, the l
   const clip = clipOf();
   let ended = 0;
   player.play(clip, { onEnd: () => ended++ });
-  assert.deepEqual(log.calls.slice(0, 3), ["capture", "closeInset", "apply:clip"]);
+  assert.deepEqual(log.calls.slice(0, 4), ["capture", "closeInset", `clock:${CLOCK_BASE + 100 / 60}`, "apply:clip"]);
   assert.ok(log.calls.includes("caption:Tower down|A tower of 90 stones"));
   assert.equal(shown[0], true);
   assert.ok(player.playing);
@@ -150,6 +152,7 @@ test("play: live keyframe first, then the clip's, the unseen roll forward, the l
   assert.equal(ended, 1);
   assert.equal(shown[shown.length - 1], false);
   assert.equal(log.calls[log.calls.length - 1], "apply:live", "the live keyframe is the last thing put in the renderer");
+  assert.equal(log.calls[log.calls.length - 2], "clock:5.5", "after the live clock is put back");
   // The lead ran silent; the take's frames were heard.
   const silent = log.heard.filter((h) => !h.audible), loud = log.heard.filter((h) => h.audible);
   assert.ok(silent.length > 0 && silent.every((h) => h.tick <= 140));
@@ -248,7 +251,7 @@ test("playing again after an end works and starts from the clip again", () => {
   for (let round = 0; round < 2; round++) {
     log.calls.length = 0;
     player.play(clip);
-    assert.deepEqual(log.calls.slice(0, 3), ["capture", "closeInset", "apply:clip"]);
+    assert.deepEqual(log.calls.slice(0, 4), ["capture", "closeInset", `clock:${CLOCK_BASE + 100 / 60}`, "apply:clip"]);
     while (player.playing) player.update(DT);
     assert.equal(log.calls[log.calls.length - 1], "apply:live");
   }
