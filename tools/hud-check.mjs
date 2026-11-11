@@ -197,7 +197,7 @@ try {
   await expect("the order that went out is a mark input from gun 0", () => window.__sent.length === 1 && window.__sent[0].kind === "mark" && window.__sent[0].emplacement === 0);
   await expect("a chip appears in the command card with the number and the place, a ring that drains", () => { const c = document.querySelector("#chips .chip"); return !document.getElementById("marks-row").hidden && !!c && c.querySelector("b").textContent === "1" && c.querySelector(".pl").textContent.length > 3 && Number(c.style.getPropertyValue("--p")) > 0.9; });
   // A mark no gun bears on (whether the long gun is loaded again yet depends on the machine's speed, so the report is laid over).
-  await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0 })) }));
+  await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })) }));
   await expect("a mark no gun bears on: its chip is dimmed and says so", () => { const c = window.__sandbox.chips[0]; return c.dim && c.title === "No gun bears"; });
   // Guns that reach the mark but are reloading: "Guns loading", not "No gun bears" (the chip and the refusal note).
   await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 2, reachM: 2, loadS: 7, loadMS: 7 })) }));
@@ -212,9 +212,9 @@ try {
   // Bridge gangs: the command card's line.
   await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })), gangs: [{ bridge: 0, state: 2, men: 2, progress: 0.4 }] }));
   await expect("a gang at work shows its road and its progress in the card", () => /^Relaying the (left|right|centre) bridge: 40%$/.test(window.__sandbox.gangsLine), null);
-  await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0 })), gangs: [{ bridge: 0, state: 1, men: 2, progress: 0 }], gold: [0, 0] }));
+  await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })), gangs: [{ bridge: 0, state: 1, men: 2, progress: 0 }], gold: [0, 0] }));
   await expect("a gang held with no gold says waiting for gold", () => /waiting: 60 gold$/.test(window.__sandbox.gangsLine), null);
-  await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0 })), gangs: [] }));
+  await page.evaluate(() => window.__sandbox.patchMatch({ marks: window.__sandbox.register.marks.map((m) => ({ ...m, bear: 0, bearM: 0, reach: 0, reachM: 0 })), gangs: [] }));
   await expect("no gangs: the line is gone", () => window.__sandbox.gangsLine === "", null);
   const typed = await typeInPage(["KeyF", "Digit1"]);
   check("F starts a salvo order and the card asks which mark", typed[0].armed && /Which mark/.test(typed[0].line));
