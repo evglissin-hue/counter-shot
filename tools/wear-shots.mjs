@@ -39,7 +39,7 @@ async function shot(name) {
   await page.evaluate(() => window.__sandbox.freeze(true));
   await sleep(500);
   const path = `${out}wear-${label}-${tier}-${name}.png`;
-  await page.screenshot({ path });
+  await page.screenshot({ path, timeout: 600000 });
   await page.evaluate(() => window.__sandbox.freeze(false));
   console.log(`shot ${path}`);
 }
@@ -65,8 +65,15 @@ try {
       if (i === 2) throw e;
     }
   }
-  await frames(30);
-  // The long gun breaches the enemy's front wall: five shots along it, low and high.
+  console.log("loaded");
+  await frames(5);
+  // Game time is stepped by the test clock (a worker message per 0.2 s), so the slow software
+  // renderer is not what the siege waits on.
+  const sim = async (seconds) => {
+    await page.evaluate((t) => window.__sandbox.advance(t), seconds);
+    await frames(3);
+  };
+  // The long gun breaches the enemy's front wall: shots along it, low and high.
   await page.evaluate(() => window.__sandbox.select(0));
   const aims = [
     [-4, 3.2],
@@ -77,32 +84,33 @@ try {
     [1, 6.0],
   ];
   for (const [x, y] of aims) {
-    await waitFor(() => window.__sandbox.reload[0] === 0, 600);
     await page.evaluate(([ax, ay]) => window.__sandbox.aimAtPoint(0, ax, ay, -16.4), [x, y]);
-    await frames(10);
+    await sim(2);
     await page.evaluate(() => window.__sandbox.fire());
-    await frames(70);
+    await sim(6);
+    console.log("fired", x, y);
   }
   // A mortar shell on the keep, for scorch.
   await page.evaluate(() => {
     window.__sandbox.select(1);
     window.__sandbox.lookAt(1, 150);
   });
-  await frames(40);
+  await sim(3);
   await page.evaluate(() => {
     window.__sandbox.holdCharge(0.5);
     window.__sandbox.holdCharge(null);
   });
-  await waitFor(() => !window.__sandbox.ride, 900);
-  await frames(60);
-  await page.evaluate(() => window.__sandbox.look({ x: 7, y: 6, z: -4, tx: 0, ty: 4, tz: -16.4, fov: 40 }));
-  await frames(20);
+  await sim(14);
+  console.log("mortar done");
+  await sim(30);
+  await page.evaluate(() => window.__sandbox.look({ x: 5, y: 3.5, z: -10, tx: 0, ty: 4, tz: -16.4, fov: 55 }));
+  await frames(3);
   await shot("near");
-  await page.evaluate(() => window.__sandbox.look({ x: 3, y: 5.5, z: 8, tx: 0, ty: 4.5, tz: -16.4, fov: 18 }));
-  await frames(20);
+  await page.evaluate(() => window.__sandbox.look({ x: 0, y: 6, z: -8, tx: 0, ty: 4.5, tz: -16.4, fov: 22 }));
+  await frames(3);
   await shot("far");
-  await page.evaluate(() => window.__sandbox.look({ x: 0, y: 5, z: -9, tx: -1, ty: 4, tz: -16.4, fov: 55 }));
-  await frames(20);
+  await page.evaluate(() => window.__sandbox.look({ x: -6, y: 4, z: -11, tx: 2, ty: 4, tz: -16.4, fov: 60 }));
+  await frames(3);
   await shot("sight");
 } finally {
   if (errors.length) console.log("page errors:\n  " + [...new Set(errors)].slice(0, 20).join("\n  "));
