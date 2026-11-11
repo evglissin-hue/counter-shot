@@ -44,7 +44,7 @@ import { applyCloudShadow } from "./clouds";
 import { plantLean } from "./plantWind";
 import { cardGeometry, cardMaterial, cardTexture, modelVisible, type CardSpot } from "./treeCards";
 import { rasterCard } from "./treeRaster";
-import { TREE_KINDS, drawsAsCard, drawsAsModel, soupNormals, treeEdgeDistance, type Soup, type TreeKind } from "./treeShapes";
+import { TREE_KINDS, TREE_FADE, drawsAsCard, drawsAsModel, soupNormals, treeEdgeDistance, type Soup, type TreeKind } from "./treeShapes";
 import type { WindField } from "./windField";
 import { bridgeDistance, castleDistance, inFiringLane, routeEdge, streamEdge } from "./valleyNodes";
 
@@ -468,6 +468,8 @@ interface StyleScatter {
   textures: THREE.Texture[];
 }
 
+/** Trees whose foot is less than this far outside the box draw without the fade (the card's share there is under 0.5%). */
+const NEAR_FADE = TREE_FADE / 24;
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
@@ -532,11 +534,15 @@ export class Scatter {
     const conMat = plantMaterial(`${style.name}-conifers`, "Conifer", T, this.time, this.wind, { height: 9.6, amp: 0.6, fade: true }, true);
     const leafMat = plantMaterial(`${style.name}-broadleaf`, "Broadleaf", style.broadleaf, this.time, this.wind, { height: 8.5, amp: 0.7, fade: true });
     const deadMat = plantMaterial(`${style.name}-dead`, "Dead", T, this.time, this.wind, { height: 6.4, amp: 0.3, fade: true });
+    // The same trees inside the battlefield, where none fades: no alpha test, so the depth test can skip hidden leaves early.
+    const conSolid = plantMaterial(`${style.name}-conifers-near`, "Conifer", T, this.time, this.wind, { height: 9.6, amp: 0.6 }, true);
+    const leafSolid = plantMaterial(`${style.name}-broadleaf-near`, "Broadleaf", style.broadleaf, this.time, this.wind, { height: 8.5, amp: 0.7 });
+    const deadSolid = plantMaterial(`${style.name}-dead-near`, "Dead", T, this.time, this.wind, { height: 6.4, amp: 0.3 });
     const bushMat = plantMaterial(`${style.name}-bushes`, "Bush", style.bushes, this.time, this.wind, { height: 1.4, amp: 0.25 });
     const reedMat = plantMaterial(`${style.name}-reeds`, "Reed", style.reeds, this.time, this.wind, { height: 1.8, amp: 0.7 }, true);
     const rmat = rockMaterial(style, this.noise);
     const lmat = logMaterial(style, this.noise);
-    out.materials.push(conMat, leafMat, deadMat, bushMat, reedMat, rmat, lmat);
+    out.materials.push(conMat, leafMat, deadMat, conSolid, leafSolid, deadSolid, bushMat, reedMat, rmat, lmat);
 
     const tree: Placer = (s, m, c) => {
       _p.set(s.x, s.y, s.z);
@@ -559,9 +565,10 @@ export class Scatter {
       dead,
     };
     const mats: Record<TreeKind["species"], THREE.Material> = { conifer: conMat, broadleaf: leafMat, dead: deadMat };
+    const solids: Record<TreeKind["species"], THREE.Material> = { conifer: conSolid, broadleaf: leafSolid, dead: deadSolid };
     const pals: Record<TreeKind["species"], Palette> = { conifer: T, broadleaf: style.broadleaf, dead: T };
     const amps: Record<TreeKind["species"], number> = { conifer: 0.6, broadleaf: 0.7, dead: 0.3 };
-    for (const kind of TREE_KINDS) this.treeKind(style, kind, lists[kind.id], mats[kind.species], pals[kind.species], amps[kind.species], tree, out);
+    for (const kind of TREE_KINDS) this.treeKind(style, kind, lists[kind.id], mats[kind.species], solids[kind.species], pals[kind.species], amps[kind.species], tree, out);
 
     const bush: Placer = (s, m, c) => {
       _p.set(s.x, s.y, s.z);
@@ -615,12 +622,16 @@ export class Scatter {
    * and the shadow map reaches only the battlefield), and a card mesh for the
    * trees beyond the battlefield's edge, painted from the same shape.
    */
-  private treeKind(style: StylePreset, kind: TreeKind, spots: Spot[], mat: THREE.Material, pal: Palette, amp: number, place: Placer, out: StyleScatter) {
+  private treeKind(style: StylePreset, kind: TreeKind, spots: Spot[], mat: THREE.Material, solid: THREE.Material, pal: Palette, amp: number, place: Placer, out: StyleScatter) {
     const soup = kind.build();
-    const models = spots.filter((s) => drawsAsModel(treeEdgeDistance(s.x, s.z)));
-    if (models.length) {
-      const mesh = new THREE.InstancedMesh(soupGeometry(soup), mat, models.length);
-      mesh.name = `trees-${style.name}-${kind.id}`;
+    const modelGeo = soupGeometry(soup);
+    // Trees well inside the box never fade (a crown reaching NEAR_FADE out is still all model), so they draw without the dither's alpha test.
+    const inside = spots.filter((s) => treeEdgeDistance(s.x, s.z) < NEAR_FADE);
+    const fading = spots.filter((s) => treeEdgeDistance(s.x, s.z) >= NEAR_FADE && drawsAsModel(treeEdgeDistance(s.x, s.z)));
+    for (const [models, m, tag] of [[inside, solid, ""], [fading, mat, "-fade"]] as const) {
+      if (!models.length) continue;
+      const mesh = new THREE.InstancedMesh(modelGeo, m, models.length);
+      mesh.name = `trees-${style.name}-${kind.id}${tag}`;
       models.forEach((s, i) => {
         _c.setRGB(1, 1, 1);
         place(s, _m, _c);
