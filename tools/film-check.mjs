@@ -147,8 +147,8 @@ if (want("photo")) {
   await page.keyboard.up("KeyE");
   const moved = await S(() => window.__sandbox.photoState);
   check("WASD, Q and E move the free camera", Math.hypot(moved.x - before.x, moved.z - before.z) > 0.5 && moved.y > before.y + 0.3, `(${before.x.toFixed(1)},${before.y.toFixed(1)},${before.z.toFixed(1)} to ${moved.x.toFixed(1)},${moved.y.toFixed(1)},${moved.z.toFixed(1)})`);
-  await page.mouse.move(FW / 2, FH / 2);
-  await page.mouse.wheel(0, 300);
+  // (The photo panel wraps over the middle of a window this small: send the wheel to the canvas itself.)
+  await S(() => document.getElementById("scene").dispatchEvent(new WheelEvent("wheel", { deltaY: 300, cancelable: true })));
   await frames(2);
   const wide = (await S(() => window.__sandbox.photoState)).fov;
   check("the wheel changes the field of view", Math.abs(wide - before.fov) > 1, `(${before.fov.toFixed(1)} to ${wide.toFixed(1)})`);
@@ -286,9 +286,13 @@ function probe(file) {
   const f = spawnSync("ffmpeg", ["-v", "info", "-i", file, "-af", "volumedetect", "-f", "null", "-"], { encoding: "utf8" });
   const times = [...f.stderr.matchAll(/time=(\d+):(\d+):(\d+\.\d+)/g)].map((m) => Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]));
   const mean = /mean_volume: (-?[\d.]+|-inf) dB/.exec(f.stderr);
-  const pk = spawnSync("ffprobe", ["-v", "error", "-select_streams", "v", "-show_entries", "packet=pts_time", "-of", "csv=p=0", file], { encoding: "utf8" });
-  const pts = pk.stdout.split("\n").map(Number).filter((n) => Number.isFinite(n) && n >= 0);
-  return { v, a, decoded: times.length ? times[times.length - 1] : 0, mean: mean ? mean[1] : null, vspan: pts.length ? Math.max(...pts) - Math.min(...pts) : 0, vframes: pts.length };
+  const span = (sel) => {
+    const pk = spawnSync("ffprobe", ["-v", "error", "-select_streams", sel, "-show_entries", "packet=pts_time", "-of", "csv=p=0", file], { encoding: "utf8" });
+    const pts = pk.stdout.split("\n").map((l) => Number(l.split(",")[0])).filter((n) => Number.isFinite(n));
+    return { span: pts.length ? Math.max(...pts) - Math.min(...pts) : 0, n: pts.length };
+  };
+  const vs = span("v"), as = span("a");
+  return { v, a, decoded: times.length ? times[times.length - 1] : 0, mean: mean ? mean[1] : null, vspan: vs.span, vframes: vs.n, aspan: as.span };
 }
 
 async function saveRun(label, file) {
@@ -301,11 +305,12 @@ async function saveRun(label, file) {
   writeFileSync(file, Buffer.from(b.base64, "base64"));
   const p = probe(file);
   console.log(`   ${label}: ${r.size} bytes ${b.type}, ${r.frames} film frames = ${r.seconds.toFixed(2)} s of game time, took ${wall.toFixed(1)} s of wall time`);
-  console.log(`   ${label}: ffprobe video ${p.v ? `${p.v.codec_name} ${p.v.width}x${p.v.height}, ${p.v.nb_read_frames} frames` : "none"}, audio ${p.a ? p.a.codec_name : "none"}, decoded length ${p.decoded.toFixed(2)} s, video packets span ${p.vspan.toFixed(2)} s (${p.vframes}), mean volume ${p.mean} dB`);
+  console.log(`   ${label}: ffprobe video ${p.v ? `${p.v.codec_name} ${p.v.width}x${p.v.height}, ${p.v.nb_read_frames} frames` : "none"}, audio ${p.a ? p.a.codec_name : "none"}, decoded length ${p.decoded.toFixed(2)} s, video packets span ${p.vspan.toFixed(2)} s (${p.vframes}), audio packets span ${p.aspan.toFixed(2)} s, mean volume ${p.mean} dB`);
   check(`${label}: a real file with a video stream`, !!p.v && Number(p.v.nb_read_frames) > 5);
   check(`${label}: it has a sound stream, and the sound is not silence`, !!p.a && p.mean !== null && p.mean !== "-inf", `(mean ${p.mean} dB)`);
-  const len = Math.max(p.decoded, p.vspan);
+  const len = p.vspan + 1 / 25;
   check(`${label}: its length is within 10 percent of the film's own clock`, Math.abs(len - r.seconds) <= 0.1 * r.seconds, `(file ${len.toFixed(2)} s, film ${r.seconds.toFixed(2)} s, ${(((len - r.seconds) / r.seconds) * 100).toFixed(1)} percent)`);
+  check(`${label}: the sound runs as long as the picture, within 10 percent`, !p.a || Math.abs(p.aspan - p.vspan) <= 0.1 * p.vspan + 0.1, `(sound ${p.aspan.toFixed(2)} s, picture ${p.vspan.toFixed(2)} s)`);
   const planned = await S(() => window.__sandbox.film.planned);
   check(`${label}: the film ran no longer than its plan`, r.seconds <= planned + 0.5, `(${r.seconds.toFixed(2)} s of ${planned.toFixed(2)} s planned)`);
   return { r, p, wall };
@@ -322,7 +327,7 @@ if (want("slow")) {
   await S((ms) => window.__sandbox.slowFrames(ms), SLOW);
   const res = await saveRun("slow", `${out}S5-film-slow.webm`);
   await S(() => window.__sandbox.slowFrames(0));
-  if (res) console.log(`   slow: wall time per film frame ${(res.wall / res.r.frames).toFixed(2)} s, the file's per frame ${(res.p.decoded / res.r.frames).toFixed(4)} s (a film frame is ${(1 / 30).toFixed(4)} s)`);
+  if (res) console.log(`   slow: wall time per film frame ${(res.wall / res.r.frames).toFixed(2)} s, the file's per frame ${(res.p.decoded / res.r.frames).toFixed(4)} s (a film frame is ${(1 / 25).toFixed(4)} s)`);
 }
 
 if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));

@@ -5,7 +5,7 @@
 // function, `drawOverlay`, used both on the page and for the recording, so the saved file shows what the
 // screen showed. Saving records a 2D composite (the game canvas drawn right after the renderer drew it, plus
 // the overlay) and the game's sound with the browser's MediaRecorder, and follows the GAME's clock: a film
-// frame is a fixed 1/30 s of game time however long it took to draw, and the recorder only runs for 1/30 s of
+// frame is a fixed 1/25 s of game time however long it took to draw, and the recorder only runs for 1/30 s of
 // wall time per frame (paused while the next frame is drawn).
 //
 // Photo mode: a free camera over a paused replay or a waiting match (`PhotoCam`, pure).
@@ -31,8 +31,8 @@ export const FILM = {
   perClipMax: 9,
   /** Seconds each clip spends under the cover before its take (the replay player's lead: LEAD_TICKS at 60 a second). */
   lead: 20 / 60,
-  /** Game seconds one film frame advances while saving. */
-  frame: 1 / 30,
+  /** Game seconds one film frame advances while saving: 25 a second, so a frame's slot is two whole Opus frames of sound (the recorder rounds each paused-and-resumed stretch of sound up to 20 ms). */
+  frame: 1 / 25,
   /** The title card fades out over this many seconds at its end. */
   fadeOut: 0.5,
 } as const;
@@ -59,10 +59,11 @@ export interface FilmPlan {
 export function planFilm(n: number, scale = 1): FilmPlan {
   const count = Math.max(0, Math.min(FILM.clips, Math.floor(n)));
   const per = count ? Math.min(FILM.perClipMax, (FILM.target - FILM.title) / count) : 0;
-  const budget = Math.max(0.5, (per - FILM.lead) * scale);
+  // The lead under the cover is the player's own and does not shrink with the scale.
+  const budget = Math.max(0.5, per * scale - FILM.lead);
   const budgets = Array.from({ length: count }, () => budget);
   const title = FILM.title * scale;
-  return { clips: count, title, budgets, total: title + budgets.reduce((s, b) => s + b + FILM.lead * scale, 0) };
+  return { clips: count, title, budgets, total: title + budgets.reduce((s, b) => s + b + FILM.lead, 0) };
 }
 
 /** What the Status says about the film on offer. */
@@ -466,7 +467,7 @@ export interface FilmAudio {
  * Records a composite canvas and the game's sound, frame by frame on the game's clock.
  *
  * `frame()` is called once per film frame, right after the composite was drawn: it runs the recorder for exactly one film
- * frame of wall time (1/30 s) around `requestFrame()`, then pauses the recorder and suspends the audio, so however long the
+ * frame of wall time (1/25 s) around `requestFrame()`, then pauses the recorder and suspends the audio, so however long the
  * next frame takes to draw, the file gets only the one slot per frame. The slot lengths are balanced against a running total
  * so timer jitter does not add up.
  */
@@ -521,25 +522,40 @@ export class FilmRecorder {
 
   private pending: Promise<void> = Promise.resolve();
 
+  /** The audio context's own clock (it stands still while suspended) when the first slot began. */
+  private audioT0 = -1;
+
   private async slot(): Promise<void> {
+    const audio = this.audio;
+    if (audio && this.audioT0 < 0) {
+      // The audio clock only counts while the context runs: find where it stands once it has been stopped.
+      await audio.ctx.suspend().catch(() => {});
+      this.audioT0 = audio.ctx.currentTime;
+    }
     const start = performance.now();
     this.drawMs += start - this.lastSlotEnd;
     if (this.rec.state === "paused") this.rec.resume();
-    if (this.audio && !this.audioOn) {
+    if (audio && !this.audioOn) {
       this.audioOn = true;
-      void this.audio.ctx.resume();
+      await audio.ctx.resume().catch(() => {});
     }
     this.track.requestFrame();
     this.framesDone++;
-    // Run until the running total reaches this frame's share of the clock.
-    const want = this.framesDone * this.slotMs - this.running;
-    if (want > 0) await new Promise((r) => setTimeout(r, want));
-    const ranFor = performance.now() - start;
-    this.running += ranFor;
+    // Run until the running total of wall time, and the audio clock, each reach this frame's share of the film's clock.
+    // (Resuming and suspending the audio take a moment each, so its clock, not the timer, says when its slot is full.)
+    const wall = this.framesDone * this.slotMs - this.running;
+    // The recorder rounds each stretch of sound up to whole 20 ms Opus frames: aim a little under the slot so it never spills into one more.
+    const audioTarget = (audio ? audio.ctx.currentTime : 0) + this.slotMs / 1000 - 0.008;
+    for (;;) {
+      const waited = performance.now() - start;
+      if (waited >= wall && (!audio || audio.ctx.currentTime >= audioTarget)) break;
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    this.running += performance.now() - start;
     if (this.rec.state === "recording") this.rec.pause();
-    if (this.audio && this.audioOn) {
+    if (audio && this.audioOn) {
       this.audioOn = false;
-      await this.audio.ctx.suspend().catch(() => {});
+      await audio.ctx.suspend().catch(() => {});
     }
     this.lastSlotEnd = performance.now();
   }
@@ -547,13 +563,12 @@ export class FilmRecorder {
   /** Stop and give the file. */
   async finish(): Promise<Blob> {
     await this.pending;
-    if (this.rec.state === "paused") this.rec.resume();
-    if (this.audio) void this.audio.ctx.resume();
     // Let the last frame reach the encoder before the stop.
+    if (this.rec.state === "paused") this.rec.resume();
     await new Promise((r) => setTimeout(r, 120));
     if (this.rec.state !== "inactive") this.rec.stop();
     const blob = await this.stopped;
-    for (const t of this.rec.stream.getTracks()) t.stop();
+    this.release();
     return blob;
   }
 
@@ -562,7 +577,12 @@ export class FilmRecorder {
     try {
       if (this.rec.state !== "inactive") this.rec.stop();
     } catch {}
-    for (const t of this.rec.stream.getTracks()) t.stop();
+    this.release();
+  }
+
+  /** Stop the video track, and let the game's sound run again (its audio track is the game's own, kept for the next film). */
+  private release() {
+    this.track.stop();
     if (this.audio) void this.audio.ctx.resume();
   }
 }
