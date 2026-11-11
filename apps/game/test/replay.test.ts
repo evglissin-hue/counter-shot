@@ -88,6 +88,7 @@ function rig(opts: { failRender?: number; failPlan?: boolean } = {}) {
     sightBlocked: () => false,
     groundAt: () => 0,
     closeInset: () => log.calls.push("closeInset"),
+    hideAids: () => log.calls.push("hideAids"),
     extras: (_e, full) => log.extras.push({ full }),
     frame: (f, speed, audible) => log.heard.push({ tick: f.tick, speed, audible }),
   };
@@ -139,7 +140,7 @@ test("play: live keyframe first, then the clip's, the unseen roll forward, the l
   const clip = clipOf();
   let ended = 0;
   player.play(clip, { onEnd: () => ended++ });
-  assert.deepEqual(log.calls.slice(0, 4), ["capture", "closeInset", `clock:${CLOCK_BASE + 100 / 60}`, "apply:clip"]);
+  assert.deepEqual(log.calls.slice(0, 5), ["capture", "closeInset", "hideAids", `clock:${CLOCK_BASE + 100 / 60}`, "apply:clip"]);
   assert.ok(log.calls.includes("caption:Tower down|A tower of 90 stones"));
   assert.equal(shown[0], true);
   assert.ok(player.playing);
@@ -251,7 +252,7 @@ test("playing again after an end works and starts from the clip again", () => {
   for (let round = 0; round < 2; round++) {
     log.calls.length = 0;
     player.play(clip);
-    assert.deepEqual(log.calls.slice(0, 4), ["capture", "closeInset", `clock:${CLOCK_BASE + 100 / 60}`, "apply:clip"]);
+    assert.deepEqual(log.calls.slice(0, 5), ["capture", "closeInset", "hideAids", `clock:${CLOCK_BASE + 100 / 60}`, "apply:clip"]);
     while (player.playing) player.update(DT);
     assert.equal(log.calls[log.calls.length - 1], "apply:live");
   }

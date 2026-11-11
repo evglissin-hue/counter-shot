@@ -2959,6 +2959,13 @@ const player = new ReplayPlayer(
       renderer.setInset(null, { x: 0, y: 0, w: 0, h: 0 }, false);
       $("impact").hidden = true;
     },
+    // The live loop lays them again each frame once the replay is over.
+    hideAids: () => {
+      renderer.setAimArc(null);
+      renderer.setGhostTrail(null);
+      renderer.setLandingMarker(null);
+      renderer.setMortarAim(null, null, 0, true);
+    },
     extras: replayExtras,
     frame: replaySounds,
   },

@@ -37,6 +37,8 @@ export interface ReplayHost {
   groundAt: Sight["ground"];
   /** Close the impact cam's inset. */
   closeInset(): void;
+  /** Take the live view's aim aids (the arc, the ghost trail, the landing marks) off the field: they are the gun's, not the clip's. */
+  hideAids(): void;
   /** Put what the page tells the renderer with a frame (barrels, the storm rings, and with `full` which guns are out) in place. */
   extras(e: FrameExtras, full: boolean): void;
   /** A frame of the clip is being shown: what its events do to the renderer beyond applyFrame (guns out), and, when `audible`, its sounds at `speed`. */
@@ -177,6 +179,7 @@ export class ReplayPlayer {
     this.clip = clip;
     try {
       host.closeInset();
+      host.hideAids();
       this.view.show(true);
       this.view.bars(0);
       this.view.cover(1);
