@@ -497,6 +497,18 @@ body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden
 #replay-speed[hidden] { display: none; }
 #replay-skip { position: absolute; right: max(24px, env(safe-area-inset-right, 0px)); bottom: calc(10% + 18px); pointer-events: auto; padding: 5px 12px; font: 500 12px/1 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.6); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 #replay-skip:hover { color: var(--ink); }
+/* The film (S5): the bars, caption and title card are drawn on one canvas (the same drawing as in the saved file). */
+#film-view { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+body.filming #replay > :not(#replay-skip):not(#film-view) { display: none; }
+body.filming #replay-skip { bottom: auto; top: 14px; }
+/* Photo mode (S5): the HUD is off; a small panel at the bottom says the keys. */
+body.photoing #app > :not(#scene):not(#photo):not(#error) { visibility: hidden !important; }
+body.photoing #replay { visibility: hidden; }
+#photo { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 60; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; max-width: min(960px, 94vw); padding: 8px 12px; font: 400 13px/1.35 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.72); border: 1px solid var(--line); border-radius: 8px; }
+#photo[hidden] { display: none; }
+#photo kbd { font: 600 11px var(--mono); color: var(--ink); }
+#photo button { padding: 5px 10px; font-size: 12px; border: 1px solid var(--line); }
+#photo-fov { font: 600 12px var(--mono); color: var(--ink); }
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -699,11 +711,14 @@ body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden
         <tbody id="end-table"></tbody>
       </table>
       <ul class="log" id="end-log" aria-label="What happened"></ul>
+      <p class="small" id="film-status" role="status" hidden></p>
       <div class="actions">
         <button class="primary" id="end-again">Play again</button>
         <button id="end-guided" hidden>Play the guided match again</button>
         <button id="end-practice">Practice range</button>
         <button id="end-save">Save the replay</button>
+        <button id="end-film" hidden>Watch the film</button>
+        <button id="end-film-save" hidden>Save the film</button>
         <button id="end-look">Look around</button>
       </div>
     </div>
@@ -717,6 +732,7 @@ body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden
   </div>
   <div id="error" hidden role="alert"></div>
   <div id="replay" hidden aria-live="off">
+    <canvas id="film-view" hidden></canvas>
     <div id="replay-cover"></div>
     <div id="replay-top" class="rbar"></div>
     <div id="replay-bot" class="rbar"></div>
@@ -724,6 +740,12 @@ body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden
     <button id="replay-skip" type="button">Skip (Esc)</button>
   </div>
 </div>
+<div id="photo" hidden>
+    <span id="photo-hint">Photo: <kbd>WASD</kbd> move, <kbd>Q</kbd> <kbd>E</kbd> down and up, <kbd>Shift</kbd> faster, mouse looks, wheel for the view<span id="photo-step-hint">, <kbd>,</kbd> <kbd>.</kbd> step the clip</span>, <kbd>C</kbd> or <kbd>Space</kbd> saves a picture, <kbd>O</kbd> or <kbd>Esc</kbd> leaves</span>
+    <span id="photo-fov"></span>
+    <button id="photo-back" type="button">Step back</button><button id="photo-fwd" type="button">Step on</button>
+    <button id="photo-save" type="button">Save picture</button><button id="photo-leave" type="button">Leave</button>
+  </div>
 <!-- artifact-body-end -->
 <script type="module" src="./src/main.ts"></script>
 </body>

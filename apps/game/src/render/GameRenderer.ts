@@ -915,6 +915,16 @@ export class GameRenderer implements GameRendererApi {
     this.timeScale = Math.max(0.02, Math.min(1, scale));
   }
 
+  /** The camera's field of view now (degrees), for photo mode to start from. */
+  fov(): number {
+    return this.views.camera.fov;
+  }
+
+  /** The canvas the game draws on (the film's composite and the photo read it right after a render). */
+  get surface(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
   listener(): Listener {
     const cam = this.views.camera;
     const e = cam.matrixWorld.elements;

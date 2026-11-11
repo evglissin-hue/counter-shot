@@ -237,6 +237,51 @@ export class ReplayPlayer {
     }
   }
 
+  /**
+   * Photo mode (S5): put the replay at clip tick `tick` (kept inside the take) without playing it, forwards or back: the clip's
+   * keyframe goes in again and the frames roll forward to it (the last 12 ticks with their particles, unheard). Draws nothing:
+   * the caller renders. The replay goes on from here when `update` runs again.
+   */
+  scrub(tick: number): void {
+    const clip = this.clip, take = this.take, host = this.host, tl = this.tl;
+    if (this.phase === "idle" || !clip || !take) return;
+    const at = Math.max(take.start, Math.min(take.end, tick));
+    try {
+      host.setClock(CLOCK_BASE + clip.keyframe.tick / 60);
+      host.apply(clip.keyframe.render);
+      host.extras(clip.keyframe.extras, true);
+      tl.reset();
+      const stones = clip.keyframe.render.parts.get("stones") as { moved?: Float32Array } | undefined;
+      if (stones?.moved) tl.seed(stones.moved);
+      for (const e of clip.entries) tl.push(e.frame);
+      let lastExtras: FrameExtras = clip.keyframe.extras;
+      const cut = at - 12;
+      for (const f of tl.seek(cut - 0.5)) {
+        host.applyFrame(quiet(f));
+        lastExtras = this.entryOf.get(f)?.extras ?? lastExtras;
+      }
+      host.extras(lastExtras, true);
+      for (const f of tl.seek(at)) {
+        host.applyFrame(f);
+        const e = this.entryOf.get(f);
+        if (e) host.extras(e.extras, false);
+        host.frame(f, 1, false);
+      }
+      tl.interpolate();
+      host.setProjectiles(tl.proj, tl.projCount, tl.chains, tl.chainCount);
+      if (tl.stoneCount) host.setStones(tl.stones, tl.stoneCount);
+      this.tick = at;
+      if (this.phase === "lead") this.phase = "play";
+      this.age = Math.max(this.age, BARS_SECONDS);
+      this.cover = 0;
+      this.view.cover(0);
+      this.poseCamera(at);
+    } catch (err) {
+      console.error("replay could not step", err);
+      this.finish();
+    }
+  }
+
   /** Stop at once for good (a new world): the live view is put back, `onEnd` is not called. */
   cancel(): void {
     this.onEnd = undefined;
