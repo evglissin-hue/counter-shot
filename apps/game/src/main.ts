@@ -245,8 +245,11 @@ let endTimer: ReturnType<typeof setTimeout> | undefined;
 let endFlow: { tick: number; at: number; clip: Clip | null } | null = null;
 /** S4: the worker is held for a replay (X): the match waits, then goes on. */
 let replayHold = false;
-/** Test clock: freeze game time once a replay's clip tick reaches this. */
-let replayFreezeAt: number | null = null;
+/** Test clock: freeze game time as a replay's clip tick reaches each of these (ascending). */
+let replayFreezeAt: number[] = [];
+/** Test only: after each replay, which renderer parts differ between the world as it stood before it and right after it (null: not checked). */
+let replayDiff: string[] | null = null;
+let replayCheck = false;
 /** Can each bridge still be crossed (layout order), and is the walk overlay on. */
 let bridgesOpen: boolean[] = layout.bridges.map(() => true);
 let navOn = false;
@@ -2971,14 +2974,16 @@ function playReplay(clip: Clip, opts: { hold: boolean; budget?: number; onEnd?: 
     replayHold = true;
     send({ t: "pause", paused: true });
   }
+  const before = replayCheck ? renderer.capture() : null;
   player.play(clip, {
     budget: opts.budget,
     onEnd: () => {
+      if (before) replayDiff = keyframeDiff(before, renderer.capture());
       if (opts.hold) {
         replayHold = false;
         send({ t: "pause", paused: paused || userPause });
       }
-      replayFreezeAt = null;
+      replayFreezeAt = [];
       opts.onEnd?.();
     },
   });
@@ -3019,9 +3024,9 @@ function replayLoop(dt: number, mute: boolean) {
     updateHud(true);
   }
   if (!paused) player.update(dt);
-  if (replayFreezeAt !== null && player.at >= replayFreezeAt) {
+  if (replayFreezeAt.length && player.at >= replayFreezeAt[0]) {
     frozen = true;
-    replayFreezeAt = null;
+    replayFreezeAt.shift();
   }
   sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: player.speed });
   soundscape.update(dt, renderer.listener());
@@ -3350,8 +3355,16 @@ else {
   skipReplay() {
     player.skip();
   },
-  replayFreezeAt(t: number | null) {
-    replayFreezeAt = t;
+  replayFreezeAt(t: number | number[] | null) {
+    replayFreezeAt = t === null ? [] : Array.isArray(t) ? t.slice() : [t];
+  },
+  /** S4: have every replay compare the world before it with the world right after it; the parts that differ (empty: none). */
+  replayCheck(on: boolean) {
+    replayCheck = on;
+    replayDiff = null;
+  },
+  get replayDiff() {
+    return replayDiff;
   },
   /** S4: the end of a match by a blow (waiting for its clip) as it stands. */
   get endFlow() {

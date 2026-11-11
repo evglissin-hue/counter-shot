@@ -267,7 +267,7 @@ export class ReplayPlayer {
     tl.interpolate();
     host.setProjectiles(tl.proj, tl.projCount, tl.chains, tl.chainCount);
     if (tl.stoneCount) host.setStones(tl.stones, tl.stoneCount);
-    this.poseCamera(Math.min(this.tick, take.end));
+    this.poseCamera(Math.max(take.start, Math.min(this.tick, take.end)));
     if (this.phase === "play") {
       this.bars = Math.min(1, this.age / BARS_SECONDS);
       this.view.bars(this.bars * this.bars * (3 - 2 * this.bars));
