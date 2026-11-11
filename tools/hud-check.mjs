@@ -163,6 +163,27 @@ try {
   await expect("the inset opens after a long gun shot", () => !document.getElementById("impact").hidden && window.__sandbox.impact.shown, null, 120000);
   await expect("and closes after the landing", () => document.getElementById("impact").hidden && !window.__sandbox.impact.open, null, 120000);
 
+  // Track V: the order line. Enter opens it (focused), "mill" builds a mill, "surrender" is refused, Esc closes it.
+  await page.goto("about:blank");
+  await load("versus=knight-webgl-low");
+  await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60, null, { timeout: 180000, polling: 200 });
+  await expect("the order line is closed at first", () => document.getElementById("steward-row").hidden);
+  await page.keyboard.press("Enter");
+  await expect("Enter opens the order line, focused", () => !document.getElementById("steward-row").hidden && document.activeElement?.id === "steward-input");
+  const taken0 = await page.evaluate(() => window.__sandbox.ownPlots.filter((p) => p.state !== 0).length);
+  await page.keyboard.type("mill");
+  await page.keyboard.press("Enter");
+  await expect("the line closes after an order is sent, the answer shows", () => document.getElementById("steward-row").hidden && !document.getElementById("steward-answer").hidden);
+  await expect("'mill' raises a building on a free plot of the player's", (n) => window.__sandbox.ownPlots.filter((p) => p.state !== 0).length > n, taken0, 20000);
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("surrender");
+  await page.keyboard.press("Enter");
+  await expect("'surrender' is refused in words, the line stays open", () => /Not by words/.test(document.getElementById("steward-answer").textContent) && !document.getElementById("steward-row").hidden);
+  await expect("and the match is not over", () => !window.__sandbox.match.result);
+  await page.keyboard.press("Escape");
+  await expect("Esc closes the line", () => document.getElementById("steward-row").hidden);
+  await expect("the Controls panel lists Enter and the refused lines", () => [...document.querySelectorAll("#help dt")].some((d) => d.textContent === "Enter") && !document.getElementById("steward-refused-head").hidden);
+
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   console.log(failed ? `${failed} failed` : "all passed");

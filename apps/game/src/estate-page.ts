@@ -111,6 +111,11 @@ export class Estate {
     return { data: this.lastPlots, count: this.lastPlotCount };
   }
 
+  /** The player's plots as last seen (kind index, -1 none; state), for the steward. */
+  ownPlots(): Array<{ kind: number; state: number }> {
+    return this.plots[this.team];
+  }
+
   /** The player's plots with nothing on them (a ruin counts as taken: it is rebuilt from the wheel too). */
   emptyPlots(): number {
     return this.plots[this.team].filter((p) => p.state === EMPTY).length;
