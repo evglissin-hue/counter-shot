@@ -47,6 +47,7 @@ import type { StyleName, StylePreset } from "./styles";
 import type { ClearView } from "./clearview";
 import { screenCap, type FlashLight } from "./bursts";
 import { N, qrot } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
 
 const SLOTS = 16;
 const CHIPS_PER = 64;
@@ -170,6 +171,7 @@ export class Effects {
 
   private chipMaterial(style: StylePreset): THREE.Material {
     const m = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(m);
     m.name = `${style.name}-chips`;
     m.flatShading = true;
     m.roughness = 0.9;
