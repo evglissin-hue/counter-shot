@@ -38,7 +38,7 @@ export function triangleCount(s: Soup): number {
 export const TREE_NEAR_X = 112;
 export const TREE_NEAR_Z = 172;
 /** Beyond the box a model fades into its card over this many metres (a dithered crossfade, so nothing pops in the orbit). */
-export const TREE_FADE = 24;
+export const TREE_FADE = 12;
 
 /** How far (m) a point lies outside the battlefield box: 0 inside it. */
 export function treeEdgeDistance(x: number, z: number): number {
