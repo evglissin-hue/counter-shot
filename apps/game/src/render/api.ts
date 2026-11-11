@@ -5,6 +5,8 @@
 
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import type { FrameData, TerrainPatch } from "@keepfall/sim";
+import type { KeyframePart, RenderKeyframe } from "./keyframe";
+export type { KeyframePart, RenderKeyframe } from "./keyframe";
 
 export type QualityTier = "low" | "medium" | "high" | "ultra";
 
@@ -149,6 +151,15 @@ export interface GameRendererApi {
   updateNav(kind: Uint8Array, floor: Float32Array): void;
   /** How far a courtyard's storm has gone (0..1; castle 0 is the enemy's) and whether its attackers outnumber its defenders now. */
   setStorm(castle: number, progress: number, holding: boolean): void;
+
+  /**
+   * S3: a picture of the renderer's world (every part's state and the last frame applied) that `apply` can put back.
+   * Another module's share is added with `registerKeyframePart`.
+   */
+  capture(): RenderKeyframe;
+  /** S3: put the renderer exactly where a keyframe was taken (the parts, then its last frame again without events). */
+  apply(k: RenderKeyframe): void;
+  registerKeyframePart(name: string, part: KeyframePart): void;
 
   /** World point under a screen point (terrain or masonry), for the overview. */
   pick(clientX: number, clientY: number): { x: number; y: number; z: number } | null;

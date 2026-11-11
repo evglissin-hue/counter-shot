@@ -262,3 +262,50 @@ test("subscribers can leave, and reset forgets what was in flight", () => {
   m.reset();
   assert.equal(m.log.length, 0);
 });
+
+test("a moment carries the tick it began where its kind knows it: a shot's first knockdown, a collapse's first fall, a chain's first burst, a man's blow", () => {
+  // A shot: knockdowns at 40 and 45, closed later (its tick is the last knockdown's).
+  let r = rig();
+  r.m.frame(frame(10, { events: [muzzle(0, 5)], men: [[1, 0, -50, 0], [2, 1, -50, 0]] }));
+  r.m.frame(frame(40, { events: [down(1, Cause.Ball, 5)] }));
+  r.m.frame(frame(45, { events: [down(2, Cause.Ball, 5)] }));
+  quiet(r.m, 60, 400);
+  assert.equal(r.got[0].kind, "multiKill");
+  assert.equal(r.got[0].first, 40);
+  assert.equal(r.got[0].tick, 45);
+  // A collapse: the first fall at 30, the last at 90.
+  r = rig();
+  const wall = secs.find((s) => s.castle === 0 && s.kind === "walls")!;
+  r.m.frame(frame(30, { events: [[EventKind.Fell, 0, wall.index, 15, 0]] }));
+  r.m.frame(frame(90, { events: [[EventKind.Fell, 0, wall.index, 15, 0]] }));
+  quiet(r.m, 120, 500);
+  const breach = r.got.find((x) => x.kind === "breachOpened")!;
+  assert.equal(breach.first, 30);
+  assert.equal(breach.tick, 90);
+  // A keg chain: the first burst at 100, the last at 160.
+  r = rig();
+  const kegs: Ev[] = [[EventKind.Keg, 1, 10, 1, 0], [EventKind.Keg, 1, 20, 1, 0], [EventKind.Keg, 1, 30, 1, 0]];
+  r.m.frame(frame(10, { men: [[1, 10, 0, 0]], events: kegs.map((k, i) => [k[0], 1, 10 * (i + 1), 1, 0] as Ev) }));
+  r.m.frame(frame(100, { events: [[EventKind.Explosion, 10, 1, 0, 6]] }));
+  r.m.frame(frame(130, { events: [[EventKind.Explosion, 20, 1, 0, 6]] }));
+  r.m.frame(frame(160, { events: [[EventKind.Explosion, 30, 1, 0, 6]] }));
+  quiet(r.m, 190, 600);
+  const chain = r.got.find((x) => x.kind === "kegChain")!;
+  assert.equal(chain.first, 100);
+  assert.equal(chain.tick, 160);
+  // A man thrown: the blow at 20, the moment when his body settles at 120.
+  r = rig();
+  r.m.frame(frame(10, { events: [muzzle(0, 9)], men: [[7, 0, -40, 0]] }));
+  r.m.frame(frame(20, { events: [down(7, Cause.Burst, 9, 18)], parts: [[7, 0, 1, -40]] }));
+  r.m.frame(frame(60, { parts: [[7, 20, 2, -40]] }));
+  r.m.frame(frame(120, { settled: [[7, 25, 0.2, -40]] }));
+  const th = r.got.find((x) => x.kind === "thrown")!;
+  assert.equal(th.first, 20);
+  assert.equal(th.tick, 120);
+  // A kind that does not know when it began leaves it out.
+  r = rig();
+  r.m.match(view({ tick: 1 }));
+  r.m.match(view({ tick: 100, gateOpen: [true, false] }));
+  assert.equal(r.got[0].kind, "gateDown");
+  assert.equal(r.got[0].first, undefined);
+});

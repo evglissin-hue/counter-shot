@@ -303,6 +303,45 @@ export class StoneSet {
     }
   }
 
+  /**
+   * Keyframe (S3): every stone whose transform differs from its as-built one
+   * (dust and withdrawn stones too, they sit at y -1000), as [id, x, y, z, qx, qy, qz, qw]
+   * each: the layout `updateBodies` takes.
+   */
+  captureMoved(): Float32Array {
+    let n = 0;
+    const differs = (g: Group, o: number): boolean => {
+      const a = g.dynArray, b = g.initial;
+      return a[o] !== b[o] || a[o + 1] !== b[o + 1] || a[o + 2] !== b[o + 2] || a[o + 4] !== b[o + 4] || a[o + 5] !== b[o + 5] || a[o + 6] !== b[o + 6] || a[o + 7] !== b[o + 7];
+    };
+    for (const g of this.groups) for (let i = 0; i < g.count; i++) if (differs(g, i * 8)) n++;
+    const out = new Float32Array(n * 8);
+    let k = 0;
+    for (const g of this.groups) {
+      for (let i = 0; i < g.count; i++) {
+        const o = i * 8;
+        if (!differs(g, o)) continue;
+        const a = g.dynArray;
+        out[k] = g.ids[i];
+        out[k + 1] = a[o];
+        out[k + 2] = a[o + 1];
+        out[k + 3] = a[o + 2];
+        out[k + 4] = a[o + 4];
+        out[k + 5] = a[o + 5];
+        out[k + 6] = a[o + 6];
+        out[k + 7] = a[o + 7];
+        k += 8;
+      }
+    }
+    return out;
+  }
+
+  /** Keyframe (S3): every stone back as built, then the captured ones put where they were. */
+  restoreMoved(moved: Float32Array) {
+    this.resetStones();
+    this.updateBodies(moved, moved.length / 8);
+  }
+
   /** Push the touched instance ranges to the GPU (once per frame). */
   flush() {
     for (const g of this.groups) {
