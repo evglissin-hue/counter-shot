@@ -154,18 +154,30 @@ try {
     const seconds = Number(process.env.PATH_SECONDS) || 300;
     await page.evaluate(() => window.__sandbox.setRoute("right"));
     await page.waitForFunction((t) => (window.__sandbox.match?.tick ?? 0) >= t * 60, seconds, { timeout: 1800000, polling: 500 });
-    const cam = { x: -26, y: 22, z: -52, tx: -34, ty: 0, tz: -86, fov: 55 };
-    const tops = await page.evaluate(() => {
-      const d = window.__sandbox.renderer.groundMarks.data;
-      let n = 0, m = 0;
-      for (let k = 2; k < d.grid.nx * d.grid.nz * 4; k += 4) {
-        const v = d.data[k];
-        if (v > 0.25) n++;
-        if (v > m) m = v;
+    // The most worn place (a 7 x 7 block with the most trodden), and a view of it; the HUD and any end screen are hidden.
+    const hot = await page.evaluate(() => {
+      const d = window.__sandbox.renderer.groundMarks.data, { nx, nz, x0, z0, cell } = d.grid;
+      let n = 0, m = 0, best = -1, bi = 0, bj = 0;
+      for (let j = Math.round((-125 - z0) / cell); j < Math.round((-40 - z0) / cell); j += 2) for (let i = 3; i < nx - 3; i += 2) {
+        let sum = 0;
+        for (let dj = -3; dj <= 3; dj++) for (let di = -3; di <= 3; di++) sum += d.data[((j + dj) * nx + i + di) * 4 + 2];
+        if (sum > best) {
+          best = sum;
+          bi = i;
+          bj = j;
+        }
       }
-      return { cellsOver025: n, max: m };
-    }).catch(() => null);
-    console.log("trodden", JSON.stringify(tops), `after ${seconds} s`);
+      for (let k = 2; k < nx * nz * 4; k += 4) {
+        if (d.data[k] > 0.25) n++;
+        if (d.data[k] > m) m = d.data[k];
+      }
+      const cv = document.querySelector("canvas");
+      for (const el of Array.from(document.querySelectorAll("body *"))) if (el !== cv && !el.contains(cv)) el.style.visibility = "hidden";
+      return { x: x0 + bi * cell, z: z0 + bj * cell, cellsOver025: n, max: m };
+    });
+    console.log("trodden", JSON.stringify(hot), `after ${seconds} s`);
+    await page.evaluate(() => window.__sandbox.freeze(true));
+    const cam = { x: hot.x + 10, y: 7, z: hot.z - 14, tx: hot.x, ty: 0, tz: hot.z, fov: 55 };
     for (const tier of tiers) await pair(page, "paths", tier, cam);
     await page.close();
   }
