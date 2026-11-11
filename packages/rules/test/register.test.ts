@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, MATCH_EMPLACEMENTS, REGISTER, UNMANNED, weaponOf, WEAPONS } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT, MATCH_EMPLACEMENTS, REGISTER, UNMANNED, weaponOf, WEAPONS, Unit } from "@keepfall/content";
 import { MinionState, OutCause, SandboxSim, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Register, Team, type MatchInput } from "@keepfall/rules";
 
@@ -323,4 +323,67 @@ test("the register runs on a bare sandbox (the Practice range): one team's guns,
   }
   assert.ok(world.reload[2] > 0 || world.reload[0] > 0, "its guns fired");
   world.free();
+});
+
+test("a salvo skips guns when its own men stand at the mark, at order time and when they walk in later", () => {
+  const m = newMatch();
+  const reg = m.register;
+  assert.ok(markAt(m, 46, -45));
+  assert.ok(reg.bearing(Team.Player, 1, false).length > 0, "clear ground bears");
+  // Order it, then a man of the team walks onto the mark before the shots go.
+  assert.equal(reg.salvo(Team.Player, 1, false, m.tick), true);
+  const queued = reg.queued.length;
+  assert.ok(queued > 0);
+  const w = m.world.army!.newWave(Team.Player, 1, true);
+  m.world.army!.spawnAt(Team.Player, w, Unit.Pikeman, 46, -45, 0).speed = 0;
+  for (let i = 0; i < 400; i++) m.step();
+  assert.equal(reg.queued.length, 0, "the queue ran out");
+  for (let id = 0; id < 8; id++) assert.equal(m.world.reload[id], 0, `gun ${id} did not fire`);
+  // And a salvo ordered now finds nothing that bears, though the guns are loaded.
+  assert.deepEqual(reg.bearing(Team.Player, 1, false), []);
+  assert.deepEqual(reg.bearing(Team.Player, 1, false, false), [], "own men, not reload: still no gun");
+  assert.equal(reg.salvo(Team.Player, 1, false, m.tick + 5000), false);
+  m.free();
+});
+
+test("a salvo does not fire where a bridge is at risk", () => {
+  const m = newMatch();
+  const reg = m.register;
+  const b = layout.bridges.find((x) => x.site.name === "centre")!.site;
+  assert.ok(markAt(m, b.x, b.z));
+  assert.deepEqual(reg.bearing(Team.Player, 1, true, false), [], "a mark on a bridge is nobody's target");
+  m.free();
+});
+
+test("bearing(..., loaded = false) skips only the reload test", () => {
+  const m = newMatch();
+  const reg = m.register;
+  assert.ok(markAt(m, 46, -45));
+  m.queue(m.tick, Team.Player, { kind: "fire", emplacement: 2, yaw: 0.6, pitch: 0.05, charge: 1, fuse: 0, spin: Spin.None });
+  m.step();
+  assert.ok(!reg.bearing(Team.Player, 1, false).includes(2));
+  assert.ok(reg.bearing(Team.Player, 1, false, false).includes(2), "reloading gun counts as bearing when not asked for loaded");
+  m.world.mounts.knockOut(0, OutCause.Shot, -1, m.tick);
+  assert.ok(!reg.bearing(Team.Player, 1, false, false).includes(0), "a knocked-out gun still does not");
+  m.free();
+});
+
+test("a salvo's queued shots drop when their mark is replaced in place by a seventh", () => {
+  const m = newMatch();
+  const reg = m.register;
+  for (let i = 0; i < REGISTER.max; i++) {
+    assert.ok(markAt(m, 46, -45));
+    m.step();
+  }
+  assert.equal(reg.mark(Team.Player, 1)!.n, 1);
+  assert.equal(reg.salvo(Team.Player, 1, false, m.tick), true);
+  assert.ok(reg.queued.length > 0);
+  assert.ok(reg.queued.every((q) => q.made === reg.mark(Team.Player, 1)!.made));
+  // A seventh mark replaces the oldest, which is place 1.
+  assert.ok(markAt(m, 20, -40));
+  assert.equal(reg.mark(Team.Player, 1)!.x, 20);
+  for (let i = 0; i < 400; i++) m.step();
+  assert.equal(reg.queued.length, 0);
+  for (let id = 0; id < 8; id++) assert.equal(m.world.reload[id], 0, `gun ${id} did not fire at the new spot`);
+  m.free();
 });

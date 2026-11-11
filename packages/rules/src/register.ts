@@ -57,6 +57,8 @@ export interface SalvoShot {
   team: number;
   emplacement: number;
   mark: number;
+  /** The `made` tick of the mark it was ordered at: a mark replaced in place meanwhile is a different mark, and the shot is dropped. */
+  made: number;
 }
 
 export interface RegisterHost {
@@ -69,6 +71,10 @@ export interface RegisterHost {
   /** Reloads as a share of each weapon's own now (sudden death). */
   reloadScale(): number;
   /** A salvo shot is about to fire from an emplacement at this aim (the match turns the barrel of a gun nobody rides, so the page can draw it). */
+  /** Is one of the team's own men within r of a point? (Absent: no check.) */
+  ownNear?(team: number, x: number, z: number, r: number): boolean;
+  /** Would a shot from the emplacement at a point put a bridge at risk, its error scaled by errScale? (Absent: no check.) */
+  bridgeAtRisk?(e: Emplacement, x: number, z: number, errScale: number): boolean;
   aimed?(emplacement: number, yaw: number, pitch: number): void;
 }
 
@@ -146,16 +152,27 @@ export class Register {
     return s;
   }
 
-  /** The guns of the team that would fire in a salvo at mark n now, nearest first (empty: none bears, or no such mark). */
-  bearing(team: number, n: number, mortar: boolean): number[] {
+  /** Would a salvo shot of e at the mark land near the team's own men or put a bridge at risk? (The same guards as the gun nobody mans.) */
+  private unsafe(team: number, e: Emplacement, m: Mark): boolean {
+    const U = UNMANNED[e.weapon] ?? UNMANNED.longGun!;
+    if (this.host.ownNear?.(team, m.x, m.z, U.clearOwn)) return true;
+    return !!this.host.bridgeAtRisk?.(e, m.x, m.z, REGISTER.errScale);
+  }
+
+  /**
+   * The guns of the team that would fire in a salvo at mark n now, nearest first (empty: none bears, or no such mark).
+   * With loaded = false the reload test is skipped (the page tells "guns loading" from "no gun bears").
+   */
+  bearing(team: number, n: number, mortar: boolean, loaded = true): number[] {
     const m = this.mark(team, n);
     if (!m) return [];
     const found: Array<{ id: number; d: number }> = [];
     for (const e of this.host.emplacements) {
       if (e.empty || this.host.owner(e.id) !== team) continue;
       if (e.weapon === "mortar" && !mortar) continue;
-      if (this.host.world.reload[e.id] !== 0 || !this.host.world.mounts.up(e.id)) continue;
+      if ((loaded && this.host.world.reload[e.id] !== 0) || !this.host.world.mounts.up(e.id)) continue;
       if (!this.solve(team, e, m, m.x, m.z)) continue;
+      if (this.unsafe(team, e, m)) continue;
       found.push({ id: e.id, d: ground(e.x, e.z, m.x, m.z) });
     }
     found.sort((a, b) => a.d - b.d || a.id - b.id);
@@ -169,7 +186,7 @@ export class Register {
     const guns = this.bearing(team, n, mortar);
     if (guns.length === 0) return false;
     const gap = REGISTER.salvoSpan / Math.max(1, guns.length - 1);
-    for (let k = 0; k < guns.length; k++) this.queued.push({ tick: tick + 1 + Math.round(k * gap), team, emplacement: guns[k], mark: n });
+    for (let k = 0; k < guns.length; k++) this.queued.push({ tick: tick + 1 + Math.round(k * gap), team, emplacement: guns[k], mark: n, made: this.mark(team, n)!.made });
     this.salvoAt[team] = tick;
     return true;
   }
@@ -195,7 +212,8 @@ export class Register {
     const { world } = this.host;
     const e = this.host.emplacements[q.emplacement];
     const m = this.mark(q.team, q.mark);
-    if (!e || !m || e.empty || world.reload[e.id] !== 0 || !world.mounts.up(e.id)) return;
+    if (!e || !m || m.made !== q.made || e.empty || world.reload[e.id] !== 0 || !world.mounts.up(e.id)) return;
+    if (this.unsafe(q.team, e, m)) return;
     const U = UNMANNED[e.weapon] ?? UNMANNED.longGun!;
     const r = (U.errBase + U.errPerM * ground(e.x, e.z, m.x, m.z)) * REGISTER.errScale;
     const rr = r * dsqrt(this.rng.next());
@@ -224,6 +242,6 @@ export class Register {
     for (const places of this.marks) for (const m of places) out.push(...(m ? [1, m.n, m.x, m.y, m.z, m.emplacement, m.made, m.fades] : [0]));
     for (const l of this.landings) out.push(...(l ? [1, l.x, l.y, l.z, l.tick] : [0]));
     out.push(this.salvoAt[0], this.salvoAt[1], this.queued.length, this.draws);
-    for (const q of this.queued) out.push(q.tick, q.team, q.emplacement, q.mark);
+    for (const q of this.queued) out.push(q.tick, q.team, q.emplacement, q.mark, q.made);
   }
 }

@@ -198,7 +198,7 @@ export class Gangs {
         hold(GangState.Walking);
         continue;
       }
-      if (this.army.enemyNear(g.team, p[0], p[1], REGISTER.gangClear)) {
+      if (this.nearSideFoe(g, p[0], p[1], REGISTER.gangClear)) {
         hold(GangState.Waiting);
         continue;
       }
@@ -221,6 +221,23 @@ export class Gangs {
         this.list.splice(gi--, 1);
       }
     }
+  }
+
+  /**
+   * An upright enemy within r of the gang's check point on the gang's own side of the gap.
+   * A man holding the far bank is not in the way (his hold point can lie inside r of a flank bridge's check
+   * point, which would wait forever with every bridge down).
+   */
+  private nearSideFoe(g: Gang, x: number, z: number, r: number): boolean {
+    const mid = this.site(g.bridge).z;
+    const r2 = r * r;
+    for (const n of this.minions.list) {
+      if (n.team === g.team || n.state !== MinionState.Upright || n.role === Role.Mason) continue;
+      if (g.team === 1 ? n.z >= mid : n.z <= mid) continue;
+      const dx = n.x - x, dz = n.z - z;
+      if (dx * dx + dz * dz < r2) return true;
+    }
+    return false;
   }
 
   /** Does what this piece rests on stand (or is there bridge beside it to bond to)? */

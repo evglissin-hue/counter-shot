@@ -213,3 +213,20 @@ test("the same seed and inputs give the same hash twice", () => {
   };
   assert.deepEqual(run(), run());
 });
+
+test("an enemy holding the far bank inside the clearance radius does not hold the gang", () => {
+  const sim = world();
+  const { p, policy } = purse(1000);
+  sim.gangs!.policy = policy;
+  blow(sim);
+  const checkZ = site.z - site.length / 2 - 3;
+  const farZ = checkZ + REGISTER.gangClear - 1;
+  assert.ok(farZ > site.z, `the far man (z ${farZ}) is across the gap (centre ${site.z})`);
+  const w = sim.army!.newWave(0, CENTRE, true);
+  const foe = sim.army!.spawnAt(0, w, Unit.Pikeman, site.x, farZ, 0);
+  foe.speed = 0;
+  wave(sim, 1);
+  for (let t = 0; t < 70 * 60; t++) sim.step();
+  assert.deepEqual(p.charges, [REGISTER.gangCost], "paid and working despite the man on the far bank");
+  sim.free();
+});

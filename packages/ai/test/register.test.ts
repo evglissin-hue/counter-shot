@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, type AiLevel, type Difficulty } from "@keepfall/content";
+import { BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, Unit, type AiLevel, type Difficulty } from "@keepfall/content";
 import type { Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
@@ -92,13 +92,27 @@ test("with enemy men on a mark a Knight orders a salvo, not twice in 20 s; a Squ
       m.step();
       marks();
     }
-    const mark = m.register.list(team)[0];
-    assert.ok(mark, "there is a mark");
+    assert.ok(m.register.list(team)[0], "there is a mark");
+    // A salvo fires only loaded guns clear of the team's own men and of bridges: go on until a mark has a gun that bears, and load the guns.
+    const bears = () => m.register.list(team).find((k) => m.register.bearing(team, k.n, false).length > 0 && k.y < m.world.terrain.heightAt(k.x, k.z) + 0.5);
+    for (let i = 0; i < 6 * 60 * 60 && !bears(); i++) {
+      ai.step();
+      m.step();
+      marks();
+    }
+    const mark = bears();
+    assert.ok(mark, "a mark with a gun that bears");
+    for (const e of m.emplacements) m.world.reload[e.id] = 0;
     // Eight of the enemy's men standing on it.
-    m.army.spawnMix(foe, 1, new Array(8).fill(0), 0, { x: mark.x, z: mark.z });
+    const wv = m.army.newWave(foe, 1, true);
+    for (let k = 0; k < 12; k++) m.army.spawnAt(foe, wv, Unit.Pikeman, mark.x - 2 + (k % 3) * 2, mark.z - 2 + Math.floor(k / 3) * 2, 0).speed = 0;
     const before = sent.length;
     const at = m.tick;
+    // The unmanned guns would shoot the men down before the AI looks: they are held while it decides.
+    (m as unknown as { autoFire: boolean[] }).autoFire[foe] = false;
+    (m as unknown as { autoFire: boolean[] }).autoFire[team] = false;
     for (let i = 0; i < 45 * 60; i++) {
+      for (const e of m.emplacements) m.world.reload[e.id] = 0;
       ai.step();
       m.step();
     }
