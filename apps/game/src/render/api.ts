@@ -19,7 +19,7 @@ export type CameraPose =
   /** Chase a projectile: its position and velocity. */
   | { mode: "follow"; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   /** Placed by the page (the mortar's spotter and its ride): eye position, the point it looks at, field of view. */
-  | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number };
+  | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number; /** Set the field of view at once instead of easing to it (a replay's camera). */ snap?: boolean };
 
 /** The impact cam's camera: eye position, the point it looks at, field of view in degrees. */
 export interface InsetPose {

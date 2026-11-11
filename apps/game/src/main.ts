@@ -3006,7 +3006,7 @@ function replayKey(blocked: boolean) {
 /** A match ended by a blow: when its last blow's clip has closed (6 s after the result), play it, then open the end screen; no clip after 8 s, no replay. */
 function endFlowUpdate(now: number) {
   const f = endFlow;
-  if (!f || player.playing) return;
+  if (!f || player.playing || !$("menu").hidden) return;
   if (!f.clip && now - f.at >= 8000) recorder.flush();
   if (f.clip) {
     endFlow = null;

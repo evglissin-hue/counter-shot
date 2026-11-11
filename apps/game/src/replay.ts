@@ -30,7 +30,7 @@ export interface ReplayHost {
   applyFrame(f: FrameData): void;
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void;
   setStones(stones: Float32Array, count: number): void;
-  setCamera(pose: { mode: "free" } & CamPose): void;
+  setCamera(pose: { mode: "free"; snap: boolean } & CamPose): void;
   render(dt: number): void;
   setTimeScale(scale: number): void;
   sightBlocked: Sight["blocked"];
@@ -288,7 +288,7 @@ export class ReplayPlayer {
 
   private poseCamera(tick: number) {
     const p = this.take!.poseAt(tick);
-    this.host.setCamera({ mode: "free", ...p });
+    this.host.setCamera({ mode: "free", ...p, snap: true });
   }
 
   /** Put the live view back whatever happened, then hand over. */
