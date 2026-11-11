@@ -47,8 +47,8 @@ export class WindField {
   }
 
   /** Each sim frame: the wind now and where it is heading (gust fields may be missing in old frames: then no front shows). */
-  setFrame(windX: number, windZ: number, gustX?: number, gustZ?: number, gustIn?: number) {
-    this.state.setFrame(windX, windZ, gustX, gustZ, gustIn);
+  setFrame(windX: number, windZ: number, gustX?: number, gustZ?: number, gustIn?: number, tick?: number) {
+    this.state.setFrame(windX, windZ, gustX, gustZ, gustIn, tick);
   }
 
   /** Where the front is aimed: the gun you ride (or the camera's focus when you ride none). */

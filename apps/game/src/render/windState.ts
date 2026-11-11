@@ -43,6 +43,8 @@ export class WindState {
   /** Seconds until the coming front reaches the anchor. */
   left = 0;
   hasLead = false;
+  /** The sim tick of the last frame taken (-1: none or unknown). */
+  tick = -1;
   private anchorX = 0;
   private anchorZ = -150;
   private leadX = 0;
@@ -60,7 +62,10 @@ export class WindState {
   private pastStartDirZ = 1;
 
   /** Each sim frame: the wind now and where it is heading (gust fields may be missing in old frames: then no front shows). */
-  setFrame(windX: number, windZ: number, gustX?: number, gustZ?: number, gustIn?: number) {
+  setFrame(windX: number, windZ: number, gustX?: number, gustZ?: number, gustIn?: number, tick?: number) {
+    // The same frame again (a keyframe re-applies its last frame): the wind has already taken it.
+    if (tick !== undefined && tick === this.tick) return;
+    this.tick = tick ?? -1;
     this.nowX = windX || 0;
     this.nowZ = windZ || 0;
     if (gustX === undefined || gustZ === undefined || gustIn === undefined) {

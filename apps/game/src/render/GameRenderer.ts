@@ -636,7 +636,7 @@ export class GameRenderer implements GameRendererApi {
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.flags?.setWind(frame.windX || 0, frame.windZ || 0);
-    this.windField.setFrame(frame.windX, frame.windZ, frame.gustX, frame.gustZ, frame.gustIn);
+    this.windField.setFrame(frame.windX, frame.windZ, frame.gustX, frame.gustZ, frame.gustIn, frame.tick);
     const ev = frame.events;
     for (let i = 0; i < frame.eventCount; i++) {
       const o = i * EVENT_STRIDE;
