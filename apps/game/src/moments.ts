@@ -33,8 +33,10 @@ export type MomentKind =
 export interface Moment {
   /** The page clock (ms) when it was found. */
   atMs: number;
-  /** The simulation tick it belongs to. */
+  /** The simulation tick it belongs to (when it closed). */
   tick: number;
+  /** The tick it began, where a kind knows it (a shot's first knockdown, a collapse's first fall, a chain's first burst, a man's blow); the recorder's clip starts before it. */
+  first?: number;
   x: number;
   y: number;
   z: number;
@@ -462,7 +464,7 @@ export class Moments {
     const m = Math.hypot(t.x - t.x0, t.z - t.z0);
     if (m < T.throwMin) return;
     const metres = Math.round(m);
-    this.emit({ tick: this.tick, x: t.x0, y: t.y, z: t.z0, kind: "thrown", team: t.team, size: metres, men: 1, text: `A man thrown ${metres} m`, shot: t.shot >= 0 ? t.shot : undefined });
+    this.emit({ tick: this.tick, x: t.x0, y: t.y, z: t.z0, kind: "thrown", first: t.tick, team: t.team, size: metres, men: 1, text: `A man thrown ${metres} m`, shot: t.shot >= 0 ? t.shot : undefined });
   }
 
   // ---- plots -------------------------------------------------------------------
@@ -517,11 +519,11 @@ export class Moments {
     const team = g.team;
     const credit = this.ricochets.find((r) => r.team === team && r.tick >= g.first - T.ricochetSlack && r.tick <= g.last + T.ricochetSlack);
     if (credit) {
-      this.emit({ tick: g.last, x: g.x, y: g.y, z: g.z, kind: "ricochetKill", team, size: n, men: n, shot: g.shot, text: n === 1 ? "A man felled off a ricochet" : `${word(n)} men felled off a ricochet` });
+      this.emit({ tick: g.last, x: g.x, y: g.y, z: g.z, kind: "ricochetKill", first: g.first, team, size: n, men: n, shot: g.shot, text: n === 1 ? "A man felled off a ricochet" : `${word(n)} men felled off a ricochet` });
       return;
     }
     if (n >= T.multiMin) {
-      this.emit({ tick: g.last, x: g.x, y: g.y, z: g.z, kind: "multiKill", team, size: n, men: n, shot: g.shot, text: `${word(n)} men with one shot` });
+      this.emit({ tick: g.last, x: g.x, y: g.y, z: g.z, kind: "multiKill", first: g.first, team, size: n, men: n, shot: g.shot, text: `${word(n)} men with one shot` });
     }
   }
 
@@ -558,27 +560,27 @@ export class Moments {
     if (towerSec >= 0 && towerN >= T.towerMin && towerN >= T.towerShare * this.sectionStones[towerSec]) {
       const [x, y, z] = at(towerSec);
       const parts = [`${stones} stones`, ...tail(c.men, c.guns)];
-      this.emit({ tick: c.last, x, y, z, kind: "towerDown", team, size: stones, men: c.men, stones, guns: c.guns, text: `Tower down: ${parts.join(", ")}` });
+      this.emit({ tick: c.last, x, y, z, kind: "towerDown", first: c.first, team, size: stones, men: c.men, stones, guns: c.guns, text: `Tower down: ${parts.join(", ")}` });
       return;
     }
     if (wallSec >= 0 && wallN >= T.breachMin) {
       const [x, y, z] = at(wallSec);
       const parts = [`${wallN} stones`, ...tail(c.men, c.guns)];
-      this.emit({ tick: c.last, x, y, z, kind: "breachOpened", team, size: wallN, men: c.men, stones: wallN, guns: c.guns, text: `Breach in the wall: ${parts.join(", ")}` });
+      this.emit({ tick: c.last, x, y, z, kind: "breachOpened", first: c.first, team, size: wallN, men: c.men, stones: wallN, guns: c.guns, text: `Breach in the wall: ${parts.join(", ")}` });
       return;
     }
     if (c.men >= 1) {
       const [x, y, z] = this.yardAt[c.castle];
-      this.emit({ tick: c.last, x, y, z, kind: "collapseKill", team, size: c.men, men: c.men, stones, text: c.men === 1 ? "A man buried under falling masonry" : `${word(c.men)} men buried under falling masonry` });
+      this.emit({ tick: c.last, x, y, z, kind: "collapseKill", first: c.first, team, size: c.men, men: c.men, stones, text: c.men === 1 ? "A man buried under falling masonry" : `${word(c.men)} men buried under falling masonry` });
     }
   }
 
   private closeChain(k: KegChain) {
     if (k.own >= 2) {
-      this.emit({ tick: k.last, x: k.x, y: k.y, z: k.z, kind: "kegBack", team: k.team >= 0 ? 1 - k.team : -1, size: k.own, men: k.own, text: `A keg among its own: ${k.own} men` });
+      this.emit({ tick: k.last, x: k.x, y: k.y, z: k.z, kind: "kegBack", first: k.first, team: k.team >= 0 ? 1 - k.team : -1, size: k.own, men: k.own, text: `A keg among its own: ${k.own} men` });
     }
     if (k.bursts >= T.kegMin) {
-      this.emit({ tick: k.last, x: k.x, y: k.y, z: k.z, kind: "kegChain", team: k.team, size: k.bursts, men: k.men, text: `${k.bursts} kegs in a chain${k.men ? `, ${k.men} ${k.men === 1 ? "man" : "men"} down` : ""}` });
+      this.emit({ tick: k.last, x: k.x, y: k.y, z: k.z, kind: "kegChain", first: k.first, team: k.team, size: k.bursts, men: k.men, text: `${k.bursts} kegs in a chain${k.men ? `, ${k.men} ${k.men === 1 ? "man" : "men"} down` : ""}` });
     }
   }
 

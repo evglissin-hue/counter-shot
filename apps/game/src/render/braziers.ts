@@ -185,6 +185,23 @@ export class Braziers {
     if (this.glowPos) this.glowPos.needsUpdate = true;
   }
 
+  /** Which braziers burn (S3 keyframes): one flag each, in spot order. */
+  capture(): Uint8Array {
+    return Uint8Array.from(this.fires ? this.fires.lit.map((l) => (l ? 1 : 0)) : []);
+  }
+
+  /** Put captured flags back: every brazier burns, then those that were out go out again. */
+  apply(lit: ArrayLike<number>) {
+    this.reset();
+    const f = this.fires;
+    if (!f) return;
+    for (let i = 0; i < f.lit.length && i < lit.length; i++) {
+      if (lit[i]) continue;
+      f.lit[i] = false;
+      this.hide(i);
+    }
+  }
+
   /** Once a frame: each lit brazier lets out a puff of thin smoke now and then. */
   update(dt: number, puff: (x: number, y: number, z: number) => void) {
     const f = this.fires;

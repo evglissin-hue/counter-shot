@@ -350,6 +350,15 @@ export class Effects {
     this.impB[k].set(s, Math.max(0, Math.min(1, dust)), bx / bl, bz / bl);
   }
 
+  /** Keyframe (S3): no impacts in flight, and the ring back at its first slot (the chips draw their motion from the slot). */
+  reset() {
+    for (let k = 0; k < this.impA.length; k++) {
+      this.impA[k].set(0, -100, 0, -1000);
+      this.impB[k].set(0, 0, 0, 0);
+    }
+    this.nextSlot = 0;
+  }
+
   private fillDots(points: Float32Array | null, arr: Float32Array, attr: THREE.InstancedBufferAttribute, mesh: THREE.Mesh, max: number, spacing: number, lenU: N) {
     const g = mesh.geometry as THREE.InstancedBufferGeometry;
     if (!points || points.length < 6) {

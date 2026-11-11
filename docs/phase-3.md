@@ -124,6 +124,6 @@ Goal, Why, Rules (numbered, with starting numbers), Data and code (where it live
 | 3.11 The arsenal | Not started | | |
 | 3.12 Sieges for one | Not started | | |
 | 3.13 Two seats | Not started | | |
-| S The shot as a show | S1 moments and feats, S2 the impact cam: built (November 10); S3 to S6 not started | unchanged (page only) | 17 |
+| S The shot as a show | S1 moments and feats, S2 the impact cam: built (November 10); S3 the recorder, S4 the replay, S5 the film and the photo, S6 the log and replay files: built (November 11, `claude/keepfall-show-s3-s6`; the saved film's sound runs long in this container) | unchanged (page only; the rules gain an input observer) | 17 (S1, S2), 19 (S3 to S6; the game link declares `downloads` so the film, photos and replay files can be saved) |
 | V The steward's ear | V1 the order line, V2 voice, V3 standing orders: built (November 10); the game link declares `dictation` and `tts` since version 18 | unchanged (page only) | 18 |
 | L The look | L0 the minimap: built (November 10); L2 stone that remembers and L3 a living valley: built (November 11, branch `claude/keepfall-look-l2-l3`); L1, L4 to L8 not started | unchanged (page only) | 17 |

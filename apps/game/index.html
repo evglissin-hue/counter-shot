@@ -136,6 +136,12 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .storm.theirs .meter > i { background: var(--bad); }
 .storm.theirs .title b { color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .storm .meter > i { transition: none; } }
+.watchbar { position: absolute; left: 50%; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 8px 12px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
+.watchbar .mono { min-width: 92px; text-align: center; }
+.watchbar button { border: 1px solid var(--line); }
+.watchbar button:disabled { opacity: 0.4; cursor: default; }
+.watchbar #watch-end { flex-basis: 100%; text-align: center; font: 600 14px/1.2 var(--ui); color: var(--brass); }
+#replay-why { margin: 0; color: #f0a08c; }
 .bridges { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
 .bridges b { font-weight: 600; }
 .bridges .down { color: var(--bad); }
@@ -487,6 +493,33 @@ body.title-screen .side > * { display: none !important; }
 .cmark .arrow::after { content: ""; position: absolute; left: 20px; top: 0; border-left: 10px solid var(--brass); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
 .cmark.edge .arrow { display: block; }
 @media (prefers-reduced-motion: reduce) { .coach, .coach-hl, .cmark .ring { animation: none; } .coach-hl { box-shadow: 0 0 10px 2px rgba(201, 154, 70, 0.6); } }
+/* The replay (S4): the HUD steps aside, two black bars close in, a caption sits above the lower bar. */
+body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden !important; }
+#replay { position: absolute; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+#replay[hidden] { display: none; }
+#replay .rbar { position: absolute; left: 0; right: 0; height: 10%; background: #000; transform: scaleY(0); }
+#replay-top { top: 0; transform-origin: top; }
+#replay-bot { bottom: 0; transform-origin: bottom; }
+#replay-cover { position: absolute; inset: 0; background: #000; opacity: 1; }
+#replay-cap { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); bottom: calc(10% + 18px); max-width: 60%; color: var(--ink); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+#replay-name { display: inline-block; font: 600 12px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass); }
+#replay-text { display: block; margin-top: 6px; font: 400 15px/1.3 var(--ui); }
+#replay-speed { display: inline-block; margin-left: 10px; font: 600 12px/1 var(--mono); letter-spacing: 0.04em; color: var(--ink); }
+#replay-speed[hidden] { display: none; }
+#replay-skip { position: absolute; right: max(24px, env(safe-area-inset-right, 0px)); bottom: calc(10% + 18px); pointer-events: auto; padding: 5px 12px; font: 500 12px/1 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.6); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+#replay-skip:hover { color: var(--ink); }
+/* The film (S5): the bars, caption and title card are drawn on one canvas (the same drawing as in the saved file). */
+#film-view { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+body.filming #replay > :not(#replay-skip):not(#film-view) { display: none; }
+body.filming #replay-skip { bottom: auto; top: 14px; }
+/* Photo mode (S5): the HUD is off; a small panel at the bottom says the keys. */
+body.photoing #app > :not(#scene):not(#photo):not(#error) { visibility: hidden !important; }
+body.photoing #replay { visibility: hidden; }
+#photo { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 60; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; max-width: min(960px, 94vw); padding: 8px 12px; font: 400 13px/1.35 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.72); border: 1px solid var(--line); border-radius: 8px; }
+#photo[hidden] { display: none; }
+#photo kbd { font: 600 11px var(--mono); color: var(--ink); }
+#photo button { padding: 5px 10px; font-size: 12px; border: 1px solid var(--line); }
+#photo-fov { font: 600 12px var(--mono); color: var(--ink); }
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -535,6 +568,13 @@ body.title-screen .side > * { display: none !important; }
       <div class="meter"><i id="storm-fill"></i></div>
     </div>
   </div>
+  <div id="watch-bar" class="watchbar glass" hidden role="group" aria-label="Replay controls">
+    <span class="mono" id="watch-clock">0:00 / 0:00</span>
+    <button id="watch-pause" aria-pressed="false">Pause</button>
+    <button data-watch-speed="1" aria-pressed="true">1x</button><button data-watch-speed="2" aria-pressed="false">2x</button><button data-watch-speed="4" aria-pressed="false">4x</button>
+    <button id="watch-back">Back to the menu</button>
+    <span id="watch-end" role="status" hidden></span>
+  </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
   <div class="weapon glass">
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
@@ -572,6 +612,7 @@ body.title-screen .side > * { display: none !important; }
       <dt>Guns</dt><dd>Knock one out: bring down the masonry under it, hit it square, sweep its crew with chain shot, or shell it. It is out 30 s, or until masons rebuild under it (20 gold to whoever does it)</dd>
       <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
       <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
+      <dt>X</dt><dd>Replay the last big moment while the match waits (not against a friend). Esc skips</dd>
       <dt>K</dt><dd>Impact cam: a small view of where your shot lands, a second before it does. Click it to swap views</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
       <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
@@ -661,6 +702,9 @@ body.title-screen .side > * { display: none !important; }
             <span class="small" id="level-blurb"></span>
           </div>
         </div>
+        <button class="choice" id="replay-go"><b>Watch a replay</b><span>Open a saved match file and watch it again, from either castle or the overview, at up to four times speed.</span></button>
+        <p class="small" id="replay-why" role="alert" hidden></p>
+        <input type="file" id="replay-file" accept=".json,application/json" hidden>
         <button class="choice" id="online-go"><b>Play a friend</b><span>The same match against a friend on their own laptop: one hosts, the other joins.</span></button>
       </div>
       <div id="online" class="online" hidden>
@@ -670,7 +714,7 @@ body.title-screen .side > * { display: none !important; }
         <div class="actions"><button class="primary" id="online-host">Host a match</button><button id="online-cancel">Cancel</button><button id="online-back">Back</button></div>
         <p class="small">The host plays the oxblood castle, the friend who joins the green one. Both of you open this game's claude.ai link, signed in: share it with your friend from the artifact's Share menu.</p>
       </div>
-      <div class="actions"><button id="book-open">Book of feats</button><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
+      <div class="actions"><button id="book-open">Book of feats</button><button id="menu-save" hidden>Save the replay</button><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
     </div>
   </div>
@@ -691,10 +735,14 @@ body.title-screen .side > * { display: none !important; }
         <tbody id="end-table"></tbody>
       </table>
       <ul class="log" id="end-log" aria-label="What happened"></ul>
+      <p class="small" id="film-status" role="status" hidden></p>
       <div class="actions">
         <button class="primary" id="end-again">Play again</button>
         <button id="end-guided" hidden>Play the guided match again</button>
         <button id="end-practice">Practice range</button>
+        <button id="end-save">Save the replay</button>
+        <button id="end-film" hidden>Watch the film</button>
+        <button id="end-film-save" hidden>Save the film</button>
         <button id="end-look">Look around</button>
       </div>
     </div>
@@ -707,7 +755,21 @@ body.title-screen .side > * { display: none !important; }
     </div>
   </div>
   <div id="error" hidden role="alert"></div>
+  <div id="replay" hidden aria-live="off">
+    <canvas id="film-view" hidden></canvas>
+    <div id="replay-cover"></div>
+    <div id="replay-top" class="rbar"></div>
+    <div id="replay-bot" class="rbar"></div>
+    <div id="replay-cap"><span><b id="replay-name"></b><span id="replay-speed" hidden></span></span><span id="replay-text"></span></div>
+    <button id="replay-skip" type="button">Skip (Esc)</button>
+  </div>
 </div>
+<div id="photo" hidden>
+    <span id="photo-hint">Photo: <kbd>WASD</kbd> move, <kbd>Q</kbd> <kbd>E</kbd> down and up, <kbd>Shift</kbd> faster, mouse looks, wheel for the view<span id="photo-step-hint">, <kbd>,</kbd> <kbd>.</kbd> step the clip</span>, <kbd>C</kbd> or <kbd>Space</kbd> saves a picture, <kbd>O</kbd> or <kbd>Esc</kbd> leaves</span>
+    <span id="photo-fov"></span>
+    <button id="photo-back" type="button">Step back</button><button id="photo-fwd" type="button">Step on</button>
+    <button id="photo-save" type="button">Save picture</button><button id="photo-leave" type="button">Leave</button>
+  </div>
 <!-- artifact-body-end -->
 <script type="module" src="./src/main.ts"></script>
 </body>

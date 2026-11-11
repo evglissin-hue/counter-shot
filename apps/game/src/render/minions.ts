@@ -141,6 +141,26 @@ interface Body {
   sc: Float32Array;
 }
 
+/** Fields of a captured drop and limb (Float64 each). */
+const DROP_FIELDS = 20;
+const LIMB_FIELDS = 32;
+
+/** What the figures remember between frames, for a keyframe (see Minions.captureState). */
+export interface MinionsState {
+  frozen: Map<number, Float32Array>;
+  teamOf: Map<number, number>;
+  unitOf: Map<number, number>;
+  severed: Map<number, number[]>;
+  kegless: number[];
+  drops: Float64Array[];
+  nextDrop: number;
+  limbs: Float64Array[];
+  nextLimb: number;
+  lastParts: Float32Array;
+  /** The figures' own clock (seconds): their idle sway, breath and a fallen man's last pose go by it. */
+  time: number;
+}
+
 /** A piece of kit lying where it fell (a two-point stick, verlet). */
 interface Drop {
   on: boolean;
@@ -1043,6 +1063,113 @@ export class Minions implements FigureSink {
     show(this.mallet, this.nMallet);
     show(this.axe, this.nAxe);
     show(this.cap, this.nCap);
+  }
+
+  /**
+   * Keyframe (S3): what the figures remember between frames: the fallen as they froze, whose side and
+   * trade each man was, severed limbs, kegs set down, dropped kit, loose limbs. Moving bodies and
+   * upright figures are not kept: they come back with the frame applied after a restore.
+   */
+  captureState(): MinionsState {
+    const frozen = new Map<number, Float32Array>();
+    for (const [id, body] of this.frozen) frozen.set(id, body.slice());
+    const severed = new Map<number, number[]>();
+    for (const [id, c] of this.severed) severed.set(id, [c.limb, c.sign]);
+    const time = this.rig.time;
+    const drops: Float64Array[] = [];
+    this.drops.forEach((d, slot) => {
+      if (!d.on) return;
+      const r = new Float64Array(DROP_FIELDS);
+      r.set([slot, d.kind, d.owner, d.len, d.r], 0);
+      r.set(d.a, 5);
+      r.set(d.b, 11);
+      r[17] = d.age;
+      r[18] = d.still;
+      r[19] = d.sinkAt < 0 ? -1 : time - d.sinkAt;
+      drops.push(r);
+    });
+    const limbs: Float64Array[] = [];
+    for (const L of this.limbs) {
+      if (!L) continue;
+      const r = new Float64Array(LIMB_FIELDS);
+      r[0] = L.team;
+      r[1] = L.upper;
+      L.pos.toArray(r, 2);
+      L.q.toArray(r, 5);
+      L.offU.toArray(r, 9);
+      L.offL.toArray(r, 12);
+      L.qU.toArray(r, 15);
+      L.qL.toArray(r, 19);
+      r[23] = L.sign;
+      L.vel.toArray(r, 24);
+      L.spin.toArray(r, 27);
+      r[30] = L.age;
+      r[31] = L.settled ? 1 : 0;
+      limbs.push(r);
+    }
+    return {
+      frozen,
+      teamOf: new Map(this.teamOf),
+      unitOf: new Map(this.unitOf),
+      severed,
+      kegless: [...this.rig.kegless],
+      drops,
+      nextDrop: this.nextDrop,
+      limbs,
+      nextLimb: this.nextLimb,
+      lastParts: this.lastParts.slice(0, this.lastPartCount * PART_STRIDE),
+      time,
+    };
+  }
+
+  /** Keyframe (S3): forget everything, then put the captured state back. */
+  restoreState(st: MinionsState) {
+    this.clear();
+    for (const [id, body] of st.frozen) this.frozen.set(id, body.slice());
+    for (const [id, t] of st.teamOf) this.teamOf.set(id, t);
+    for (const [id, u] of st.unitOf) this.unitOf.set(id, u);
+    for (const [id, [limb, sign]] of st.severed) this.severed.set(id, { limb, sign });
+    for (const id of st.kegless) this.rig.kegless.add(id);
+    // The figures' clock goes back too, so a man knocked down after a restore leaves the same pose each time (S4).
+    this.rig.time = st.time;
+    this.rig.since = 0;
+    const time = this.rig.time;
+    for (const r of st.drops) {
+      const d = this.drops[r[0]];
+      if (!d) continue;
+      d.on = true;
+      d.kind = r[1];
+      d.owner = r[2];
+      d.len = r[3];
+      d.r = r[4];
+      for (let k = 0; k < 6; k++) {
+        d.a[k] = r[5 + k];
+        d.b[k] = r[11 + k];
+      }
+      d.age = r[17];
+      d.still = r[18];
+      d.sinkAt = r[19] < 0 ? -1 : time - r[19];
+    }
+    this.nextDrop = st.nextDrop;
+    this.limbs = st.limbs.map((r) => ({
+      team: r[0],
+      upper: r[1],
+      pos: new THREE.Vector3().fromArray(r, 2),
+      q: new THREE.Quaternion().fromArray(r, 5),
+      offU: new THREE.Vector3().fromArray(r, 9),
+      offL: new THREE.Vector3().fromArray(r, 12),
+      qU: new THREE.Quaternion().fromArray(r, 15),
+      qL: new THREE.Quaternion().fromArray(r, 19),
+      sign: r[23],
+      vel: new THREE.Vector3().fromArray(r, 24),
+      spin: new THREE.Vector3().fromArray(r, 27),
+      age: r[30],
+      settled: r[31] > 0.5,
+    }));
+    this.nextLimb = st.nextLimb;
+    this.lastParts = st.lastParts.slice();
+    this.lastPartCount = st.lastParts.length / PART_STRIDE;
+    this.drawFrozen();
   }
 
   /** Forget the team of every minion (after a reset). */

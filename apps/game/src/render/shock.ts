@@ -117,6 +117,12 @@ export class Shock {
     for (const s of this.slots) s.born = -100;
   }
 
+  /** Keyframe (S3): nothing in flight, and the ring back at its first slot. */
+  reset() {
+    this.clear();
+    this.next = 0;
+  }
+
   /** Draw every mesh once, invisible, so its shader compiles now (loading) and not at the first burst. */
   prime(on: boolean) {
     for (const s of this.slots) {
