@@ -3053,6 +3053,10 @@ else {
     return bridgesOpen.slice();
   },
   startMode,
+  /** Test tools only (look rounds L2 and L3): the renderer, to stage a haze or read the ground marks. */
+  get renderer() {
+    return renderer;
+  },
   /** S1: every moment found this match, and the book (tests read them; fakeMoment feeds one in as if the match had made it). */
   get moments() {
     return moments.log.slice();
