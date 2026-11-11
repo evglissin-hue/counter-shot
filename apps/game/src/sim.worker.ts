@@ -5,9 +5,9 @@
 // page sends inputs; the worker tags each with a tick, steps the sim and posts
 // what changed.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, CASTLE_SHAPE, Earn, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, CASTLE_SHAPE, Earn, UNMANNED, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
-import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput } from "@keepfall/rules";
+import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type RegisterHost } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
 import { LANE_COUNT, laneSummary } from "./threat";
@@ -226,9 +226,22 @@ function registerInfo(reg: Register, world: SandboxSim, tick: number, mine: (e: 
         return Math.ceil(t / 60);
       };
       const reach = reg.bearing(me, m.n, false, false), reachM = reg.bearing(me, m.n, true, false);
-      bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length, reach.length, reachM.length, soonest(reach), soonest(reachM)]));
+      // Nothing could reach it: is it because the rules hold fire there? Asked of the match through the register's own host (the same calls as its salvo): one of your men by the mark, or a bridge the shot could hit.
+      let why = 0;
+      if (reachM.length === 0) {
+        const host = (reg as unknown as { host: RegisterHost }).host;
+        let own = false, bridge = false;
+        for (const e of world.emplacements) {
+          if (e.empty || !mine(e)) continue;
+          const U = UNMANNED[e.weapon] ?? UNMANNED.longGun!;
+          if (host.ownNear?.(me, m.x, m.z, U.clearOwn)) own = true;
+          else if (host.bridgeAtRisk?.(e, m.x, m.z, REGISTER.errScale)) bridge = true;
+        }
+        why = own ? 1 : bridge ? 2 : 0;
+      }
+      bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length, reach.length, reachM.length, soonest(reach), soonest(reachM), why]));
     }
-    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1], reach: bear[2], reachM: bear[3], loadS: bear[4], loadMS: bear[5] };
+    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1], reach: bear[2], reachM: bear[3], loadS: bear[4], loadMS: bear[5], why: bear[6] === 1 ? "own" : bear[6] === 2 ? "bridge" : "" };
   });
   const canMark: number[] = [];
   for (const e of world.emplacements) if (!e.empty && mine(e) && reg.canMark(me, e.id, tick)) canMark.push(e.id);

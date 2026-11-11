@@ -67,6 +67,8 @@ export interface MarkInfo {
   reachM: number;
   loadS: number;
   loadMS: number;
+  /** Why nothing could reach it, when the rules hold fire there: one of your own men stands by it ("own"), or a bridge is in the way of the shot ("bridge"). "" otherwise. */
+  why: "" | "own" | "bridge";
 }
 
 /** 3.2: one of the page's own team's bridge gangs (state: GangState; bridge: index into the layout's bridges). */
