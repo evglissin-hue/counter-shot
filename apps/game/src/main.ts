@@ -81,7 +81,7 @@ import {
   updateImpactCam,
 } from "./impactCam";
 import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, RegisterInfo, ToWorker } from "./protocol";
-import { bearWhy, MarkChips, newestMark, SalvoKeys } from "./marks";
+import { bearWhy, MarkChips, newestMark, SalvoKeys, salvoLine } from "./marks";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
@@ -141,6 +141,8 @@ const markHint = $<HTMLButtonElement>("markhint");
 let practiceReg: RegisterInfo | null = null;
 /** The marks last seen (made ticks by number), to say when a new one is made. */
 let marksSeen = new Map<number, number>();
+/** Whether the Marks header last showed a half typed order (so a key press redraws it at once). */
+let salvoLineArmed = false;
 /** Until when (ms) the gun tabs flash as guns fire on their own: a salvo was ordered. */
 let salvoWatch = 0;
 const regInfo = (): RegisterInfo | null => (isMatch() ? matchInfo : practiceReg);
@@ -553,7 +555,7 @@ function onFrame(f: FrameData) {
       if (a >= 0 && a < layout.bridges.length && mode !== null) {
         const mine = b === ME;
         if (kind === EventKind.GangStart) {
-          if (mine) showNote(`Bridge gang at the ${roadName(a).toLowerCase()} bridge: ${REGISTER.gangCost} gold`, 3000);
+          if (mine) showNote(`Bridge gang sent to the ${roadName(a).toLowerCase()} bridge (${REGISTER.gangCost} gold)`, 3000);
         } else {
           showNote(mine ? `${roadName(a)} bridge relaid` : `They relaid the ${roadName(a).toLowerCase()} bridge`, 3500);
           logMoment(mine ? `Your gang relaid the ${roadName(a).toLowerCase()} bridge` : `The enemy relaid the ${roadName(a).toLowerCase()} bridge`, !mine);
@@ -2622,9 +2624,8 @@ const roadName = (k: number): string => {
 /** The command card's line for your bridge gangs: where each is, and what holds it. */
 function updateGangs(info: MatchInfo) {
   const lines = info.gangs.map((g) => {
-    const road = roadName(g.bridge).toLowerCase();
-    const what = g.state === 0 ? "walking" : g.state === 1 ? (info.gold[ME] < REGISTER.gangCost ? `waiting: ${REGISTER.gangCost} gold` : "waiting: enemy near") : `${Math.round(g.progress * 100)}%`;
-    return `Relaying the ${road} bridge: ${what}`;
+    const what = g.state === 0 ? "walking" : g.state === 1 ? (info.gold[ME] < REGISTER.gangCost ? `waiting (${REGISTER.gangCost} gold)` : "waiting (enemy near)") : `at work ${Math.round(g.progress * 100)}%`;
+    return `${roadName(g.bridge)} bridge: gang ${what}`;
   });
   const el = $("gangs");
   const t = lines.join("\n");
@@ -2640,7 +2641,8 @@ function updateBridges() {
     .map((b, k) => ({ name: ownSide(b.site.name), open: bridgesOpen[k] ?? true, x: b.site.x }))
     .sort((a, b) => leftFirst * (a.x - b.x))
     .map((b) => `${b.name} <b class="${b.open ? "" : "down"}">${b.open ? "open" : "down"}</b>`);
-  $("bridges").innerHTML = `Bridges: ${parts.join(", ")}`;
+  const anyDown = layout.bridges.some((_, k) => !(bridgesOpen[k] ?? true));
+  $("bridges").innerHTML = `Bridges: ${parts.join(", ")}${anyDown ? '. <span class="hint-down">Down: send waves to relay</span>' : ""}`;
 }
 
 function onBridges(open: boolean[]) {
@@ -2737,16 +2739,15 @@ canvas.addEventListener("pointerup", (e) => {
   const d = downAtPx;
   downAtPx = null;
   if (!d || view !== "overview" || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6) return;
-  // 3.2: a click on one of your marks orders the salvo at it.
-  const n = markAt(e.clientX, e.clientY);
-  if (n > 0) {
-    orderSalvo(n);
+  // One of your plots under the pointer wins (a mark's small disc must not eat a click meant for a plot); else a click on one of your marks orders the salvo at it.
+  const p = isMatch() ? renderer.pick(e.clientX, e.clientY) : null;
+  const plot = p ? estate.plotAt(p.x, p.z) : -1;
+  if (plot >= 0) {
+    estate.openPlot(plot);
     return;
   }
-  if (!isMatch()) return;
-  const p = renderer.pick(e.clientX, e.clientY);
-  const plot = p ? estate.plotAt(p.x, p.z) : -1;
-  if (plot >= 0) estate.openPlot(plot);
+  const n = markAt(e.clientX, e.clientY);
+  if (n > 0) orderSalvo(n);
 });
 $("overview-btn").addEventListener("click", () => toggleOverview());
 
@@ -2780,13 +2781,15 @@ function syncRegister() {
   markChips.update(marks, reg?.salvoReady ?? 0, mortarBox.checked);
   if (!isMatch()) $("command").hidden = marks.length === 0;
   renderer.setChalk(marks.map((m) => ({ n: m.n, x: m.x, y: m.y, z: m.z, life: m.left / m.life })));
-  $("salvo-line").textContent = salvoKeys.armed ? "Which mark? 1 to 6" : "";
+  const line = salvoLine(salvoKeys.armed, marks, reg?.salvoReady ?? 0);
+  if ($("salvo-line").textContent !== line) $("salvo-line").textContent = line;
+  salvoLineArmed = salvoKeys.armed;
   // A new mark: a note (and the guide's tick). A refreshed one keeps its tick.
   const now = new Map<number, number>();
   for (const m of marks) {
     now.set(m.n, m.made);
     if (marksSeen.get(m.n) !== m.made && mode !== null) {
-      showNote(`Marked: ${m.place}`, 2200);
+      showNote(`Marked: ${m.place} (your guns watch it)`, 2200);
       guide.mark("mark");
     }
   }
@@ -2837,15 +2840,19 @@ function orderSalvo(n: number) {
   salvoWatch = clock() + 4000;
   const e = EMP[current];
   sound.salvoRoll(e.x, e.y, e.z);
-  showNote(`Fire for effect: mark ${num}, ${m.place}`, 2600);
+  const guns = mortarBox.checked ? m.bearM : m.bear;
+  showNote(`Fire for effect at mark ${num}: ${guns} ${guns === 1 ? "gun" : "guns"}`, 2600);
 }
 
-/** The number of your mark under a click in the overview (the nearest within a few pixels), or 0. */
+/** How near (px) a click must be to a mark's centre to pick it in the overview. */
+const MARK_PICK = 14;
+
+/** The number of your mark under a click in the overview (the nearest within MARK_PICK pixels), or 0. */
 function markAt(clientX: number, clientY: number): number {
   const reg = regInfo();
   if (!reg) return 0;
   const r = canvas.getBoundingClientRect();
-  let best = 0, bd = 30 * 30;
+  let best = 0, bd = MARK_PICK * MARK_PICK;
   for (const m of reg.marks) {
     const p = renderer.project(m.x, m.y + 0.5, m.z);
     if (!p) continue;
@@ -3131,7 +3138,7 @@ function frame(wall: number) {
   updateHud();
   updateCharge(now);
   placeMarkHint();
-  if (salvoKeys.armed !== ($("salvo-line").textContent !== "")) syncRegister();
+  if (salvoKeys.armed !== salvoLineArmed) syncRegister();
   coach.render(now, { marksOn: !ride && !follow && blocked === false, weapon: current, charging: !!charging });
   setMapBig(mapHover || input.down("KeyG"));
   if (mode !== null && (mapFrame++ % 3 === 0 || FIXED)) drawMap();

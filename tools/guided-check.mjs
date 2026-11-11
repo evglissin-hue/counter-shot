@@ -145,6 +145,7 @@ try {
   await expect("step 6 was done once and never comes back: step 5 leads to step 7, Mark the road", () => window.__sandbox.coach.state.step === 6 && /Step 7 of 10/.test(document.getElementById("coach-step").textContent) && /Mark the road/.test(document.getElementById("coach-title").textContent) && window.__sandbox.coach.state.phase === "ask");
   // ---- step 7: mark the road (3.2) ----
   await expect("step 7 asks for a landing on their road and the T key", () => /their waves take/.test(document.getElementById("coach-how").textContent) && /<kbd>T<\/kbd>/.test(document.getElementById("coach-how").innerHTML));
+  await expect("step 7 puts a world mark labelled Their road on the road their waves take", () => !document.getElementById("coach-mark").hidden && document.getElementById("coach-mark-label").textContent === "Their road", null, 60000);
   await shot("guided-step7");
   await patch({ marks: [{ n: 1, x: 0, y: 0, z: -95, made: 0, left: 10800, life: 10800, place: "Centre bridge", bear: 1, bearM: 2 }] });
   // Watched from inside the page (a follow-up is on show a few seconds, and a round trip here can be slow on a busy machine).

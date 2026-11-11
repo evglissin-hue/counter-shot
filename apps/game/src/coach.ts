@@ -11,7 +11,7 @@ import { MINION_STRIDE, PLOT_STRIDE, type FrameData } from "@keepfall/sim";
 import { EARN_STRIDE, type MatchInfo } from "./protocol";
 import type { GuideStep } from "./guide";
 
-type MarkKind = "keep" | "gate" | "wave" | "hold";
+type MarkKind = "keep" | "gate" | "wave" | "hold" | "road";
 
 /** What a step's tests and highlights may look at. */
 interface Ctx {
@@ -122,6 +122,7 @@ const STEPS: Step[] = [
     follow: () => `On their next wave, press ${KBD("F")} and the mark's number: every gun that bears fires there.`,
     followHighlights: ["#marks-row"],
     highlights: () => ["#markhint"],
+    mark: { kind: "road", label: "Their road" },
   },
   {
     title: "Send your waves in",
@@ -551,6 +552,12 @@ export class Coach {
         return [h.x, 1.5, h.z];
       }
       case "wave": return this.enemy;
+      // The road their waves take: where their current wave is, else the centre bridge's approach on your side.
+      case "road": {
+        if (this.enemy) return this.enemy;
+        const h = holdMarker(this.me, "centre");
+        return [h.x, 0.5, h.z];
+      }
     }
   }
 
