@@ -6,7 +6,7 @@
 //     taken earlier, put back after more shooting, must equal the world as it was.
 //  2. A Versus AI match after about 60 s with shots fired: the same, and the
 //     recorder's ring, keyframes and reel are printed.
-// Exit 1 on a failure.
+// The range's men do not die to its guns, so the fallen and the blood are required of the match. Exit 1 on a failure.
 // Usage: PORT=5184 node tools/replay-check.mjs [match seconds]
 import { createServer } from "vite";
 import { createRequire } from "node:module";
@@ -38,6 +38,8 @@ const MB = 2 ** 20;
 async function load(hash) {
   for (let i = 0; i < 3; i++) {
     try {
+      // A new hash alone does not reload the page: start from a blank one.
+      await page.goto("about:blank");
       await page.goto(`http://127.0.0.1:${PORT}/index.html#${hash}`, { waitUntil: "load" });
       await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 180000 });
       return;
@@ -112,6 +114,7 @@ try {
   // A wave of pikemen at the target castle's gate so some fall.
   await page.evaluate(() => window.__sandbox.spawn(0, 12, 0, -30));
   await frames(30);
+  console.log(`   men standing in the range: ${await page.evaluate(() => window.__sandbox.frame.minions.length / 10)}`);
   const fire = async (slot, x, y, z) => {
     const laid = await page.evaluate(([s, px, py, pz]) => {
       const S = window.__sandbox;
@@ -125,7 +128,8 @@ try {
   let shots = 0;
   // First the men: the chain shot and the long gun laid on the wave, so bodies fall and blood is laid.
   for (let i = 0; i < 3; i++) {
-    await fire(i === 1 ? 0 : 2, 0, 1, -30);
+    const laid = await fire(i === 1 ? 0 : 2, 0, 1, -30);
+    console.log(`   shot ${i} at the wave: laid ${laid}`);
     await frames(40);
   }
   for (let i = 0; i < 14; i++) {
@@ -148,7 +152,7 @@ try {
     window.__sandbox.holdCharge(null);
   });
   await frames(100);
-  const practice = await roundTrip("practice", { stonesMoved: 10, decals: 1, frozen: 1 });
+  const practice = await roundTrip("practice", { stonesMoved: 10, craters: 1 });
   console.log(`   practice recorder: ${JSON.stringify(await page.evaluate(() => window.__sandbox.recorder.stats))}`);
   await putBack("practice", async () => {
     for (let i = 0; i < 3; i++) {
@@ -181,7 +185,7 @@ try {
   }
   check("shots fired in the match", fired > 0, `(${fired})`);
   await page.waitForTimeout(1500);
-  await roundTrip("match", { stonesMoved: 1 });
+  await roundTrip("match", { stonesMoved: 1, frozen: 1, decals: 1 });
   await putBack("match", async () => {
     await page.evaluate(() => window.__sandbox.advance(6));
     await page.waitForTimeout(2500);
