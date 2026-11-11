@@ -11,7 +11,7 @@
 // pictures must be the same), the live view equal before and after a replay (played out and skipped half way), X in a
 // match (the match waits while it plays), X with nothing to replay, the end of a match by a blow (result, the field, the
 // last blow's replay, the end screen) and a surrender (no replay).
-// Usage: PORT=5184 node tools/replay-check.mjs [match seconds]   (SKIP_PRACTICE=1 leaves out the Practice range, STOP_AFTER_PICS=1 stops once the two plays are compared, DUMP=1 saves the two pictures of a differing pair to tools/.shots/S4-same-*)
+// Usage: PORT=5184 node tools/replay-check.mjs [match seconds]   (SKIP_PRACTICE=1 leaves out the Practice range, STOP_AFTER_PICS=1 stops once the two plays are compared, DUMP=1 saves the two pictures of a differing pair to tools/.shots/S4-same-*, DUMP=all saves every pair)
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -303,7 +303,7 @@ try {
         const same = shots[0][k].equals(shots[1][k]);
         const frac = same ? 0 : await diffPng(shots[0][k], shots[1][k]);
         check(`the same picture at clip tick ${k + 1} of 3 on both plays`, same || frac < 0.005, same ? "(byte-identical)" : `(${(frac * 100).toFixed(3)}% of pixels differ)`);
-        if (!same && process.env.DUMP) {
+        if ((!same && process.env.DUMP) || process.env.DUMP === "all") {
           writeFileSync(`${shotDir}S4-same-${k + 1}-a.png`, shots[0][k]);
           writeFileSync(`${shotDir}S4-same-${k + 1}-b.png`, shots[1][k]);
         }
