@@ -36,6 +36,11 @@ import {
   vec4,
   cameraViewMatrix,
   cos,
+  cameraFar,
+  cameraNear,
+  perspectiveDepthToViewZ,
+  positionView,
+  viewportDepthTexture,
   sin,
 } from "three/tsl";
 import type { FrameData } from "@keepfall/sim";
@@ -50,6 +55,8 @@ import type { N } from "./tslUtils";
 const PUFFS = 9;
 /** The haze's opacity at its thickest. */
 const OPACITY = 0.2;
+/** How close (m) behind a puff a wall or the ground must be for the puff to fade there. */
+const SOFT = 3;
 /** How high the puffs reach above the ground (m). */
 const HEIGHT = 8;
 
@@ -129,7 +136,10 @@ export class Haze {
       const r2d = dot(vuv, vuv);
       const wisp = texture(noise, vuv.mul(0.18).add(vec2(vSeed, vSeed.mul(1.7)))).r;
       const disc = float(1).sub(smoothstep(0.0, 1.0, r2d));
-      return clamp(disc.mul(disc).mul(wisp.mul(1.1).add(0.5)).mul(vAlpha), 0.0, 1.0);
+      // Soft where a puff meets a wall or the ground: fade out within SOFT m of what lies behind it (no hard line where the quad cuts in).
+      const sceneZ: N = perspectiveDepthToViewZ(viewportDepthTexture(), cameraNear, cameraFar);
+      const soft: N = clamp(positionView.z.sub(sceneZ).div(SOFT), 0.0, 1.0);
+      return clamp(disc.mul(disc).mul(wisp.mul(1.1).add(0.5)).mul(vAlpha).mul(soft), 0.0, 1.0);
     })();
     this.mesh = new THREE.Mesh(geo, m);
     this.mesh.name = "haze";
