@@ -12,8 +12,8 @@ export const LINE_VERSION = 1;
 export type Side = "squire" | "knight" | "warlord" | "idle";
 
 /** What a shot by hand was for (the gunner's Aim keys, grouped: every raid is "raid", every gun is "gun"). */
-export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun";
-export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun"];
+export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun" | "range";
+export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun", "range"];
 
 /** How a match is set up. Everything needed to play it again. */
 export interface MatchSetup {
@@ -25,6 +25,8 @@ export interface MatchSetup {
   plans: [string, string];
   /** A plan that is not stock, as AiStep lists (null: stock). */
   steps?: [unknown[] | null, unknown[] | null];
+  /** 3.2: fields merged over each side's AiLevel (null: its own), e.g. { "marks": 0, "salvo": false } for a Knight that does not mark. Put it in the id too. */
+  levels?: [Record<string, unknown> | null, Record<string, unknown> | null];
   /** The variant's name ("base": no changes) and its changes by content path, e.g. { "WEAPONS.mortar.reload": 600 }. */
   variant: string;
   tuning: Record<string, unknown>;
@@ -79,6 +81,11 @@ export interface Totals {
   worstMs: number;
   /** Steps slower than 16 ms and slower than 33 ms (wall clock, on the machine that ran it). Optional: older lines lack it. */
   slowSteps?: [number, number];
+  /** 3.2: marks made, salvos fired, and shots by guns nobody mans at men on a mark (the last read from Match.autoOnMark), by castle; and the bridges standing at the end (0 to 3). Older lines lack all four: read them as 0 (3 bridges). */
+  marks?: [number, number];
+  salvos?: [number, number];
+  autoOnMark?: [number, number];
+  bridgesUp?: number;
 }
 
 export interface MatchLine {

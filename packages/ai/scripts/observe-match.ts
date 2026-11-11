@@ -3,7 +3,7 @@
 // observe-line.ts describes. Tuning is applied before the match is built and
 // undone when it is freed, so a process can play many setups.
 
-import { applyTuning, BUILDING_KINDS, buildLayout, GAME_LAYOUT, MATCH, type AiStep, type Difficulty } from "@keepfall/content";
+import { applyTuning, BUILDING_KINDS, buildLayout, GAME_LAYOUT, MATCH, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
 import { RULES_VERSION, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_RULES_VERSION } from "@keepfall/rules";
 import { AIM_GROUPS, AiPlayer } from "@keepfall/ai";
@@ -24,7 +24,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const seed = setup.seed;
   const secs = setup.secs;
   const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false });
-  const ais = pair((team) => (setup.sides[team] === "idle" ? null : new AiPlayer(m, team, setup.sides[team] as Difficulty, seed, { plan: (setup.steps?.[team] as AiStep[] | null | undefined) ?? undefined })));
+  const ais = pair((team) => (setup.sides[team] === "idle" ? null : new AiPlayer(m, team, setup.sides[team] as Difficulty, seed, { plan: (setup.steps?.[team] as AiStep[] | null | undefined) ?? undefined, level: (setup.levels?.[team] as Partial<AiLevel> | null | undefined) ?? undefined })));
   const outs = (c: number) => m.emplacements.filter((e, i) => (e.z < -75 ? 1 : 0) === c && !e.empty && !m.world.mounts.up(i)).length;
   const plots = (c: number) => [0, 1, 2, 3, 4, 5].map((p) => {
     const s = m.world.structures!.slot(c, p);
@@ -39,6 +39,10 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   let moving = 0, movingMax = 0, windowMoving = 0, worst = 0, windowWorst = 0;
   /** Steps slower than 16 ms and 33 ms (one slow step on a busy machine says little; many say more). */
   const slow: [number, number] = [0, 0];
+  /** 3.2: marks made (each is a new object in the register) and salvos fired (a new salvoAt), by castle. */
+  const marksMade: [number, number] = [0, 0], salvos: [number, number] = [0, 0];
+  const seenMarks = new WeakSet<object>();
+  const salvoAt: [number, number] = [m.register.salvoAt[0], m.register.salvoAt[1]];
   const sample = (tick: number) => {
     const army = m.armyCounts();
     samples.push({
@@ -72,6 +76,10 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     if (ms > windowWorst) windowWorst = ms;
     if (ms > 16) slow[0]++;
     if (ms > 33) slow[1]++;
+    for (const c of [0, 1] as const) {
+      for (const k of m.register.marks[c]) if (k && !seenMarks.has(k)) (seenMarks.add(k), marksMade[c]++);
+      if (m.register.salvoAt[c] !== salvoAt[c]) (salvoAt[c] = m.register.salvoAt[c], salvos[c]++);
+    }
     if (i % 10 === 0) {
       moving = m.world.castle.awakeCount();
       if (moving > movingMax) movingMax = moving;
@@ -103,6 +111,10 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     movingMax,
     worstMs: worst,
     slowSteps: slow,
+    marks: marksMade,
+    salvos,
+    autoOnMark: [m.autoOnMark[0], m.autoOnMark[1]],
+    bridgesUp: m.army.bridgeOpen.filter(Boolean).length,
   };
   const r = m.result;
   const line: MatchLine = {

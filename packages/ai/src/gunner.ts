@@ -7,7 +7,7 @@
 // marker). The barrel turns at the gun's own rates, it waits for the reload,
 // and it waits to see where a shot came down before it fires again.
 
-import { MID_Z, MUSTER, SLOTS_PER_CASTLE, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
+import { BRIDGES, MID_Z, MUSTER, REGISTER, SLOTS_PER_CASTLE, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, type Rng } from "@keepfall/core";
 import { clampAim, clearOfCastle, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
@@ -23,13 +23,16 @@ export const enum Aim {
   Masons = 20,
   /** After M5: an enemy gun, its crew swept off its wall or its pit shelled: + its emplacement. */
   Gun = 30,
+  /** 3.2: ranging a spot of ground to mark: + the spot's number (see spots()). */
+  Range = 100,
 }
 
 /** The kinds of target shots are counted by (for tools): Aim.Raid + plot counts as "raid", Aim.Gun + emplacement as "gun". */
-export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun"] as const;
+export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range"] as const;
 
 /** The index in AIM_GROUPS of a target's key. */
 function aimGroup(key: number): number {
+  if (key >= Aim.Range) return 6;
   if (key >= Aim.Gun) return 5;
   if (key >= Aim.Masons) return 4;
   if (key >= Aim.Raid) return 3;
@@ -70,6 +73,8 @@ interface InFlight {
   z: number;
   sYaw: number;
   sPitch: number;
+  /** 3.2: the ground this shot was laid for, if a landing there may be marked (a road spot, an enemy gun, the foot of the wall it breaches). */
+  mark: { x: number; z: number; kind: "road" | "gun" | "wall"; spot: number } | null;
 }
 
 /** What it has learned about a gun: how far off its aim runs (the wind, its eye), and the target that is for. */
@@ -95,7 +100,7 @@ export class Gunner {
   riding = -1;
   shotsFired = 0;
   /** Shots fired by what they were laid for, indexed as AIM_GROUPS (for tools; sums to shotsFired). */
-  readonly byAim = [0, 0, 0, 0, 0, 0];
+  readonly byAim = [0, 0, 0, 0, 0, 0, 0];
   private aim: AimState = { yaw: 0, pitch: 0 };
   private target: Target | null = null;
   private lay: Lay | null = null;
@@ -114,6 +119,12 @@ export class Gunner {
   /** After M5: the enemy guns that hit its castle, and when they last did; and the tick until which it leaves guns alone. */
   private hurtBy = new Map<number, number>();
   private counterUntil = 0;
+  /** 3.2: the ground it ranges (computed once), tries without a mark per spot, spots left alone until a tick, a mark waiting to be sent, and the tick of its last salvo order. */
+  private _spots: Array<{ x: number; z: number }> | null = null;
+  private tries: number[] = [];
+  private restUntil: number[] = [];
+  private pendingMark: { emp: number; at: number } | null = null;
+  private salvoSentAt = -1e9;
 
   constructor(
     private m: Match,
@@ -207,6 +218,10 @@ export class Gunner {
     if (this.stage && this.stage() < 2) return;
     this.learn(tick);
     this.watch(tick);
+    if (this.pendingMark && tick >= this.pendingMark.at) {
+      this.send(tick, { kind: "mark", emplacement: this.pendingMark.emp });
+      this.pendingMark = null;
+    }
     // After M5: the gun it rides was knocked out: drop what it was laying on and look again.
     if (this.riding >= 0 && !this.m.world.mounts.up(this.riding) && this.target) {
       this.target = null;
@@ -214,6 +229,7 @@ export class Gunner {
       this.nextThink = tick;
     }
     if (tick >= this.nextThink) {
+      this.salvo(tick);
       this.think(tick);
       this.nextThink = tick + this.L.think;
     }
@@ -249,10 +265,108 @@ export class Gunner {
     this.shotsFired++;
     this.byAim[aimGroup(this.target.key)]++;
     const L = this.lay;
-    this.flight = { emp: e.id, tick, lobbed: w.minSpeed < w.speed, x: L.x, y: L.y, z: L.z, sYaw: L.sYaw, sPitch: L.sPitch };
+    this.flight = { emp: e.id, tick, lobbed: w.minSpeed < w.speed, x: L.x, y: L.y, z: L.z, sYaw: L.sYaw, sPitch: L.sPitch, mark: this.markFor(this.target) };
     if (this.target.key === Aim.Keep) this.faceStep++;
     // The next shot is laid afresh: the target may have moved, and the hand is never the same twice.
     this.lay = null;
+  }
+
+  /** 3.2: the ground it ranges: the centre road before its own gate, then the road 8 m short of each bridge on its own side. */
+  private spots(): Array<{ x: number; z: number }> {
+    if (this._spots) return this._spots;
+    const dir = MUSTER[this.team].dir;
+    const out = [{ x: 0, z: V.frontFaceZ(this.team) + dir * 20 }];
+    // Its own side of the stream is its castle's side: opposite to the way its waves march.
+    for (const b of BRIDGES) out.push({ x: b.x, z: b.z - dir * (b.length / 2 + 8) });
+    this.tries = out.map(() => 0);
+    this.restUntil = out.map(() => 0);
+    return (this._spots = out);
+  }
+
+  /** 3.2: nothing presses: no crowd at its gate, no gun of its own threatened, not breaching with its waves close to the wall. */
+  private quiet(tick: number, crowd: boolean): boolean {
+    if (crowd || this.threat(tick)) return false;
+    const gate = MUSTER[this.foe];
+    return !(V.marchers(this.m, this.team, gate.x, gate.z, 30) >= 3 && !V.wayIn(this.m, this.team));
+  }
+
+  /** Is ground within a mark of one of the team's? */
+  private marked(x: number, z: number): boolean {
+    for (const k of this.m.register.list(this.team)) if (V.flat(k.x, k.z, x, z) <= REGISTER.radius) return true;
+    return false;
+  }
+
+  /** 3.2: the first spot of ground not marked yet (and not given up on for a while) that one of its guns can lay on, and that gun. */
+  private rangePick(tick: number): { e: Emplacement; t: Target } | null {
+    const spots = this.spots();
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i];
+      if (tick < this.restUntil[i] || this.marked(s.x, s.z)) continue;
+      const t: Target = { key: Aim.Range + i, x: s.x, y: this.m.world.terrain.heightAt(s.x, s.z) + 0.4, z: s.z, vx: 0, vz: 0 };
+      let e: Emplacement | null = null;
+      for (const kind of i === 0 ? (["mortar"] as const) : (["longGun", "chainShot"] as const)) {
+        const c = this.soonest(kind, t.x, t.y, t.z);
+        if (c && (!e || this.readyIn(c) < this.readyIn(e))) e = c;
+      }
+      if (e) return { e, t };
+    }
+    return null;
+  }
+
+  /** 3.2: the ground a shot laid for this target may mark (marks 2 adds an enemy gun it hits and the foot of the wall it breaches). */
+  private markFor(t: Target): InFlight["mark"] {
+    if (t.key >= Aim.Range) return { x: t.x, z: t.z, kind: "road", spot: t.key - Aim.Range };
+    if (this.L.marks < 2) return null;
+    if (t.key === Aim.Breach) return { x: t.x, z: t.z, kind: "wall", spot: -1 };
+    if (t.key >= Aim.Gun) return { x: t.x, z: t.z, kind: "gun", spot: -1 };
+    return null;
+  }
+
+  /** 3.2: a shot of its own came down at (x, z): mark it if it is where it was laid for (within a mark's reach less a metre), after its reaction time. */
+  private landed(f: InFlight, x: number, z: number, tick: number) {
+    const k = f.mark;
+    if (!k) return;
+    const hit = V.flat(x, z, k.x, k.z) <= REGISTER.radius - 1;
+    if (k.kind === "road") {
+      if (hit) this.tries[k.spot] = 0;
+      else if (++this.tries[k.spot] >= 5) {
+        this.tries[k.spot] = 0;
+        this.restUntil[k.spot] = tick + 60 * 60; // not getting it: the next spot first, this one again in a minute
+      }
+    }
+    if (!hit || this.pendingMark) return;
+    // The other kinds never push a road mark out of its place, and are not made twice over the same ground.
+    if (k.kind !== "road" && (this.m.register.list(this.team).length >= REGISTER.max || this.marked(k.x, k.z))) return;
+    this.pendingMark = { emp: f.emp, at: tick + this.L.react };
+  }
+
+  /** 3.2: fire for effect, from a Knight up: at the mark with most of the enemy's marching men on it, or (marks 2) its wall mark as its own waves close on the wall. */
+  private salvo(tick: number) {
+    const L = this.L, m = this.m, team = this.team, reg = m.register;
+    if (!L.salvo || tick - reg.salvoAt[team] < REGISTER.salvoEvery || tick - this.salvoSentAt < 120) return;
+    let best = 0, bestN = 0;
+    for (const k of reg.list(team)) {
+      const n = V.marchers(m, this.foe, k.x, k.z, REGISTER.radius);
+      if (n > bestN) {
+        bestN = n;
+        best = k.n;
+      }
+    }
+    if (bestN < REGISTER.aiSalvoMen) best = 0;
+    if (!best && L.marks >= 2) {
+      // Its wall mark: the foot of the enemy front wall, where it breaches (at x = 7 either side of the gate).
+      const z = V.frontFaceZ(this.foe);
+      for (const k of reg.list(team)) {
+        if (V.flat(k.x, k.z, 7, z) > REGISTER.radius && V.flat(k.x, k.z, -7, z) > REGISTER.radius) continue;
+        if (V.marchers(m, team, k.x, k.z, REGISTER.aiWallNear) >= REGISTER.aiSalvoMen) {
+          best = k.n;
+          break;
+        }
+      }
+    }
+    if (!best || reg.bearing(team, best, false).length === 0) return;
+    this.salvoSentAt = tick;
+    this.send(tick + L.react, { kind: "salvo", mark: best });
   }
 
   /** For tools: what it is doing. */
@@ -273,6 +387,7 @@ export class Gunner {
       if (l.emplacement !== f.emp || l.auto) continue;
       this.flight = null;
       this.readyAt = Math.max(this.readyAt, tick + this.L.look);
+      this.landed(f, l.x, l.z, tick);
       const o = this.offset(f.emp);
       const k = this.L.learn;
       if (f.lobbed) {
@@ -324,6 +439,10 @@ export class Gunner {
         if (e && this.m.world.reload[e.id] < (e.weapon === "mortar" ? 90 : 3 * 60)) pick = { e, t };
       }
     }
+    if (!pick && L.marks >= 1 && this.quiet(tick, crowd !== null)) {
+      // 3.2: nothing presses: range a spot of ground it has not marked. Before its gate the mortar (no gun lays flat that
+      // low); by a bridge only flat fire (the long gun, the chain shot): a shell that falls long would cut the road for both sides.
+      pick = this.rangePick(tick);    }
     if (!pick) {
       // 2. A loaded mortar: on the keep, or (from a Knight up) now and then on the enemy's buildings or masons.
       const t = this.shellTarget();

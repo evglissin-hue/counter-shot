@@ -13,6 +13,7 @@ import {
   MIX_NAMES,
   MUSTER,
   PLOTS,
+  REGISTER,
   ROUTE_NAMES,
   TUTOR,
   UPGRADES,
@@ -44,6 +45,10 @@ export class Steward {
   private mixes: Array<MixName | null> = PLOTS.map(() => null);
   private turn = 0;
   private leaves: number[][] | null = null;
+  /** 3.2: the roads it has sent waves down; the tick it last sent a wave to relay each bridge; and the barracks it has sent down a downed road for one wave. */
+  private used = new Set<number>();
+  private gangSent = [-1e9, -1e9, -1e9];
+  private gang: { plot: number; route: RouteName; waves: number } | null = null;
 
   constructor(
     private m: Match,
@@ -179,7 +184,17 @@ export class Steward {
     const open = m.army.bridgeOpen;
     const gateUp = V.gateStands(m, foe, this.leaves);
     const way = V.wayIn(m, team);
+    // 3.2: a bridge gang works only when a wave comes down a road whose bridge is down; one barracks sends one for one wave.
+    if (this.gang && m.waves[team] > this.gang.waves) this.gang = null;
+    if (!this.gang && !this.stage) this.gang = this.startGang(tick, plots, open);
     for (const p of plots) {
+      if (this.gang && this.gang.plot === p) {
+        if (this.routes[p] !== this.gang.route) {
+          this.routes[p] = this.gang.route;
+          this.send(tick, { kind: "barracks", plot: p, route: this.gang.route });
+        }
+        continue;
+      }
       let route = this.routes[p] ?? m.estate.barracks[team][p].route;
       let mix = this.mixes[p] ?? m.estate.barracks[team][p].mix;
       if (this.stage) {
@@ -200,12 +215,28 @@ export class Steward {
         const k = [0, 1, 2].find((i) => open[(ROUTE_NAMES.indexOf(route) + i) % 3]);
         if (k !== undefined) route = ROUTE_NAMES[(ROUTE_NAMES.indexOf(route) + k) % 3];
       }
+      this.used.add(ROUTE_NAMES.indexOf(route));
       if (route !== this.routes[p] || mix !== this.mixes[p]) {
         this.routes[p] = route;
         this.mixes[p] = mix;
         this.send(tick, { kind: "barracks", plot: p, mix, route });
       }
     }
+  }
+
+  /**
+   * 3.2, from a Knight up: a bridge is down, no wave has been sent to it in the last minute (the sim reports gangs at work: gangs.status())
+   * and no gang works it now) and there is gold for a gang: one working barracks sends its next wave down that road,
+   * which a gang then relays. A road it has used goes first.
+   */
+  private startGang(tick: number, plots: number[], open: boolean[]): { plot: number; route: RouteName; waves: number } | null {
+    if (!this.L.gangs || this.gold < REGISTER.gangCost + this.L.reserve) return null;
+    const working = this.m.world.gangs?.status() ?? [];
+    const down = [0, 1, 2].filter((r) => !open[r] && tick - this.gangSent[r] >= 60 * 60 && !working.some((g) => g.route === r));
+    if (!down.length) return null;
+    down.sort((a, b) => Number(this.used.has(b)) - Number(this.used.has(a)) || a - b);
+    this.gangSent[down[0]] = tick;
+    return { plot: plots[0], route: ROUTE_NAMES[down[0]], waves: this.m.waves[this.team] };
   }
 
   /** A route for a barracks: the open bridges, the fewest enemy marchers near them; ties go in turn. */

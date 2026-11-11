@@ -26,9 +26,9 @@ export class AiPlayer {
     readonly difficulty: AiName,
     seed: number,
     /** For tools: a build plan to follow instead of the level's own. */
-    opts?: { plan?: AiStep[] },
+    opts?: { plan?: AiStep[]; /** For tools: fields merged over the level (a Knight that does not mark: { marks: 0 }). */ level?: Partial<AiLevel> },
   ) {
-    this.level = AI_LEVELS[difficulty];
+    this.level = opts?.level ? { ...AI_LEVELS[difficulty], ...opts.level } : AI_LEVELS[difficulty];
     const rng = new Rng((hashString(`ai:${team}`) ^ seed) >>> 0);
     const send = (tick: number, input: MatchInput) => this.m.queue(tick, team, input);
     this.tutor = difficulty === "tutor" ? new Tutor(m, team) : null;

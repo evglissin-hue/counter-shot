@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TICKS_PER_SEC = 60;
-const KINDS = ["keep", "crowd", "breach", "raid", "masons", "gun"];
+const KINDS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range"];
 const LEVEL_ORDER = ["idle", "squire", "knight", "warlord"];
 
 // ---------------------------------------------------------------- reading
@@ -496,6 +496,34 @@ function sidesChart(mirror, levels) {
   return s + "</svg>";
 }
 
+/**
+ * 3.2: per side (its level, and its tweak if the setup overrides it), over the matches played: the marks made, the
+ * salvos fired, the shots by guns nobody mans (and those at men on a mark) and the bridges standing at the end,
+ * each as a mean per match. Lines from before 3.2 lack the fields and count as 0.
+ */
+function registerRows(all) {
+  const groups = new Map();
+  for (const m of all) {
+    for (const c of [0, 1]) {
+      const tw = m.setup.levels?.[c];
+      const key = `${m.setup.sides[c]}${tw ? " " + JSON.stringify(tw) : ""}`;
+      const g = groups.get(key) ?? { n: 0, marks: 0, salvos: 0, auto: 0, onMark: 0, range: 0, up: 0 };
+      g.n++;
+      g.marks += m.totals.marks?.[c] ?? 0;
+      g.salvos += m.totals.salvos?.[c] ?? 0;
+      g.auto += m.totals.auto?.[c] ?? 0;
+      g.onMark += m.totals.autoOnMark?.[c] ?? 0;
+      g.range += m.totals.byHand?.[c]?.range ?? 0;
+      g.up += m.totals.bridgesUp ?? 3;
+      groups.set(key, g);
+    }
+  }
+  const f = (v, n) => Math.round((v / n) * 10) / 10;
+  return [...groups.entries()].map(([side, g]) => ({
+    side, sides: g.n, "ranging shots": f(g.range, g.n), marks: f(g.marks, g.n), salvos: f(g.salvos, g.n), "auto shots": f(g.auto, g.n), "shots on marks": f(g.onMark, g.n), "bridges standing": f(g.up, g.n),
+  }));
+}
+
 function handChart(all) {
   const win = Object.fromEntries(KINDS.map((k) => [k, 0]));
   const lose = Object.fromEntries(KINDS.map((k) => [k, 0]));
@@ -701,6 +729,7 @@ ${failedList}
 <section><h2>Targets</h2>
 <table><thead><tr><th>Target</th><th>Measured, and how</th><th>Result</th><th>Target text</th></tr></thead><tbody>${targetRows}</tbody></table>
 </section>
+<section><h2>Range and register</h2>${table(registerRows(a.all))}<div class="small">Per side, as a mean per match: marks made, salvos fired, shots by guns nobody mans (and how many of them at men on a mark) and bridges standing at the end (of 3; lines from before 3.2 count as 0 marks and 3 bridges).</div></section>
 <section><h2>Charts</h2>
 <figure><h3>Match length (T1)</h3>${length}<figcaption>Mirror matches with a result: ${mirrorDecided.length}. The shaded band is the median target.</figcaption></figure>
 <figure><h3>Endings by pairing (T2)</h3>${endings}<figcaption>All matches with a result, by who commanded castle 0 and castle 1.</figcaption></figure>

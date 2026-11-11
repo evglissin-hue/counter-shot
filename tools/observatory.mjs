@@ -10,6 +10,9 @@
 // pairs are castle 0 : castle 1. swap=1 plays each pairing also with the
 // castles exchanged. variants is a JSON array of { name, tuning }; every setup
 // is played under each (none: one variant "base" with no changes).
+// tweak0='{"marks":0,"salvo":false}' tweak1=... merge those fields over a
+// side's AiLevel in every setup (castle 0, castle 1); they go into the setup
+// id so a resumed run keeps them apart.
 //
 // Other tools (observatory-openings.mjs, observatory-prices.mjs) import
 // runPool() and bundle() from here. A setup whose plan is not stock sets
@@ -196,7 +199,10 @@ async function main() {
   const setups = [];
   for (const v of variants) {
     for (const [a, b, seed] of cases) {
-      const setup = { id: `${a}-${b}-s${seed}-${v.name}`, seed, sides: [a, b], plans: ["stock", "stock"], variant: v.name, tuning: v.tuning ?? {} };
+      const tw = [args.tweak0, args.tweak1];
+      const suffix = `${tw[0] ? `-t0=${tw[0]}` : ""}${tw[1] ? `-t1=${tw[1]}` : ""}`;
+      const setup = { id: `${a}-${b}-s${seed}-${v.name}${suffix}`, seed, sides: [a, b], plans: ["stock", "stock"], variant: v.name, tuning: v.tuning ?? {} };
+      if (tw[0] || tw[1]) setup.levels = tw.map((t) => (t ? JSON.parse(t) : null));
       if (secs) setup.secs = secs;
       setups.push(setup);
     }

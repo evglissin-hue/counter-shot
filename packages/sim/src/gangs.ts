@@ -65,7 +65,9 @@ const CHECKS = 8;
 
 /** Read-only view of a gang for the page and the AI. */
 export interface GangStatus {
+  /** Index into layout.bridges (BRIDGES order: right, centre, left), and its road (ROUTE_NAMES index: left, centre, right). */
   bridge: number;
+  route: number;
   team: number;
   state: GangState;
   men: number;
@@ -291,7 +293,7 @@ export class Gangs {
   status(): GangStatus[] {
     return this.list.map((g) => {
       const d = this.down(g.bridge);
-      return { bridge: g.bridge, team: g.team, state: g.state, men: g.men.length, progress: g.laid + d > 0 ? g.laid / (g.laid + d) : 1 };
+      return { bridge: g.bridge, route: g.route, team: g.team, state: g.state, men: g.men.length, progress: g.laid + d > 0 ? g.laid / (g.laid + d) : 1 };
     });
   }
 
