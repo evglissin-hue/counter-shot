@@ -5,14 +5,15 @@
 // page sends inputs; the worker tags each with a tick, steps the sim and posts
 // what changed.
 
-import { buildLayout, CASTLE_SHAPE, Earn, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, CASTLE_SHAPE, Earn, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
-import { GUIDED_OPTIONS, Match, Team, TUTOR_TEAM, type MatchInput } from "@keepfall/rules";
+import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
-import { EARN_STRIDE, type FromWorker, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type ToWorker } from "./protocol";
+import { placeName } from "./marks";
+import { EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
 
 /** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
 let gen = 0;
@@ -53,6 +54,15 @@ let matchSeed = 0;
 let waitingSince = 0;
 let netSentAt = 0;
 let netDirty = true;
+/**
+ * 3.2: the Practice range's register (one team, its four guns: the register runs on the page's
+ * worker only, never in the pinned session) and the gun the page rides there (-1: none).
+ */
+let practiceReg: Register | null = null;
+let practiceManned = -1;
+/** The bearing counts of the marks as last worked out (they cost a solve per gun, so a few times a second): by mark and the tick it was made. */
+const bearCache = new Map<string, [number, number]>();
+let bearAt = -1e9;
 
 async function load(): Promise<Rapier> {
   if (R) return R;
@@ -98,6 +108,10 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   ai = null;
   net = null;
   stopped = false;
+  practiceReg = null;
+  practiceManned = -1;
+  bearCache.clear();
+  bearAt = -1e9;
   me = Team.Player;
   matchSeed = seed;
   if (mode === "guided") {
@@ -119,6 +133,12 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   } else {
     match = null;
     sim = new SandboxSim(R, layout, { seed, minions });
+    // 3.2: marks and salvos with the range's four guns (the page's team owns every one; the gun it rides fires its salvo shot with its own aim left alone).
+    const range = sim;
+    practiceReg = new Register(
+      { world: range, emplacements: range.emplacements, owner: (id) => (id < ASHWRIGHT_EMPLACEMENTS.length ? Team.Player : -1), manned: (team) => (team === Team.Player ? practiceManned : -1), reloadScale: () => 1 },
+      seed,
+    );
   }
   navSent = -1;
   bridgesSent = -1;
@@ -176,10 +196,32 @@ function matchInfo(): MatchInfo | null {
     keepFloor: [floorSound(match, 0), floorSound(match, 1)],
     lanes: laneSummary(match.world.minions.list, L.list, lanesBuf),
     tutor: ai && ai.difficulty === "tutor" ? ai.stage : -1,
+    ...registerInfo(match.register, match.world, match.tick, (e) => teamOf(e) === me),
     ...estateInfo(match),
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/**
+ * 3.2: the page's own team's marks (never the other side's), when its next salvo may be ordered,
+ * and the guns whose last landing may be marked now. Reads only. `mine` says which emplacements are
+ * the page's team's. How many guns bear on each mark is worked out a few times a second.
+ */
+function registerInfo(reg: Register, world: SandboxSim, tick: number, mine: (e: Emplacement) => boolean): RegisterInfo {
+  if (tick - bearAt >= 6 || tick < bearAt) {
+    bearAt = tick;
+    bearCache.clear();
+  }
+  const marks: MarkInfo[] = reg.list(me).map((m) => {
+    const key = `${m.n}:${m.made}`;
+    let bear = bearCache.get(key);
+    if (!bear) bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length]));
+    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1] };
+  });
+  const canMark: number[] = [];
+  for (const e of world.emplacements) if (!e.empty && mine(e) && reg.canMark(me, e.id, tick)) canMark.push(e.id);
+  return { marks, salvoReady: Math.max(0, REGISTER.salvoEvery - (tick - reg.salvoAt[me])), canMark };
 }
 
 /** The tops of a keep's timber storeys (m), lowest first: the roof is the last. */
@@ -296,7 +338,13 @@ function tick(advanceMs = -1) {
         net.afterStep(() => netHash(match!));
         netDirty = true;
       }
-    } else sim.step();
+    } else {
+      // 3.2: the range's register fades marks and fires salvo shots before the step, reads landings after it (the match does the same).
+      const t = sim.tick;
+      practiceReg?.beforeStep(t);
+      sim.step();
+      practiceReg?.afterStep(t);
+    }
     const ms = performance.now() - t0;
     stepEma = stepEma === 0 ? ms : stepEma * 0.9 + ms * 0.1;
     if (ms > peakNow) peakNow = ms;
@@ -351,6 +399,7 @@ function tick(advanceMs = -1) {
       standing: counts.standing,
       awake: sim.castle.awakeCount(),
       match: info,
+      reg: !match && practiceReg ? registerInfo(practiceReg, sim, sim.tick, (e) => e.id < ASHWRIGHT_EMPLACEMENTS.length) : null,
       bridges,
       sections,
       nav,
@@ -415,6 +464,11 @@ async function handle(msg: ToWorker) {
             netDirty = true;
             postNet(false);
           } else match.queue(match.tick, me, input);
+        } else if (sim && practiceReg && (input.kind === "mark" || input.kind === "salvo" || input.kind === "man")) {
+          // The range's register: not through a lockstep, there is none. Only the four guns the page rides are its team's.
+          if (input.kind === "mark") practiceReg.makeMark(Team.Player, input.emplacement, sim.tick);
+          else if (input.kind === "salvo") practiceReg.salvo(Team.Player, input.mark, input.mortar === true, sim.tick);
+          else practiceManned = input.emplacement >= 0 && input.emplacement < ASHWRIGHT_EMPLACEMENTS.length ? input.emplacement : -1;
         } else if (sim && (input.kind === "fire" || input.kind === "minions")) sim.queue(sim.tick, input);
         break;
       }

@@ -52,7 +52,7 @@ interface Step {
   mark?: { kind: MarkKind; label: string };
 }
 
-/** Stop their wave: the step that may interrupt an earlier one (the tutor stirs by 4:00 at the latest). */
+/** Stop their wave (index 5; "Mark the road" follows it): the step that may interrupt an earlier one (the tutor stirs by 4:00 at the latest). */
 const WAVE_STEP = 5;
 /**
  * Send your waves in: it interrupts too, once the men waiting at your marker
@@ -60,7 +60,7 @@ const WAVE_STEP = 5;
  * men standing (WAVES.maxStanding, 96) your barracks cannot even top up your
  * garrison, and two of the tutor's waves could storm a courtyard nobody holds.
  */
-const SEND_STEP = 6;
+const SEND_STEP = 7;
 /** Your men waiting out of your courtyard that make step 7 interrupt (eight waves; the cap is twelve). */
 const HELD_MANY = 64;
 /** A step asked this long (ticks of match time) without being done gets its Skip button pulsing; not the last two (a siege takes its time). */
@@ -114,6 +114,14 @@ const STEPS: Step[] = [
     follow: () => "Your other guns fire on their own at men near your gate.",
     highlights: () => ["#threat", TABS(2), TABS(3)],
     mark: { kind: "wave", label: "Their wave" },
+  },
+  {
+    title: "Mark the road",
+    how: `Land a shot on the road their waves take, then press ${KBD("T")}.`,
+    test: (c) => c.info.marks.length > 0,
+    follow: () => `On their next wave, press ${KBD("F")} and the mark's number: every gun that bears fires there.`,
+    followHighlights: ["#marks-row"],
+    highlights: () => ["#markhint"],
   },
   {
     title: "Send your waves in",
@@ -175,6 +183,8 @@ const SIGHT_CLEAR = 60;
 const EDGE = 34;
 
 export class Coach {
+  /** How long a follow-up shows (ms); a test on a slow machine lengthens it. */
+  followMs = FOLLOW_MS;
   private active = false;
   private hidden = false;
   private me: 0 | 1 = 1;
@@ -456,7 +466,7 @@ export class Coach {
     }
     this.phase = "after";
     this.afterText = text;
-    this.afterUntil = now + (text ? FOLLOW_MS : TICK_MS);
+    this.afterUntil = now + (text ? this.followMs : TICK_MS);
     this.draw();
   }
 
@@ -491,7 +501,7 @@ export class Coach {
     this.stepEl.textContent = `Step ${this.idx + 1} of ${STEPS.length}`;
     this.titleEl.textContent = (after ? "✓ " : "") + step.title;
     this.card.classList.toggle("done", after);
-    if (after) this.howEl.textContent = this.afterText;
+    if (after) this.howEl.innerHTML = this.afterText;
     else if (waiting) this.howEl.textContent = waiting;
     else this.howEl.innerHTML = step.how;
     this.howEl.hidden = after && !this.afterText;
