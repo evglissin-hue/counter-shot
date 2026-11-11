@@ -3038,7 +3038,7 @@ function filmEnded(completed: boolean) {
   const quiet = filmQuiet;
   filmQuiet = false;
   const base = { seconds: film.elapsed, frames: film.frames, wallMs: performance.now() - filmStarted, size: 0, type: "", name: "" };
-  if (!quiet && $("menu").hidden) {
+  if (!quiet && $("menu").hidden && matchInfo?.result) {
     $("end").hidden = false;
     setFilmStatus(completed ? "The film is over." : "Film stopped.");
   }
