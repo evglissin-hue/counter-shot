@@ -4,7 +4,8 @@
 // and Esc, the gun tabs (an empty slot opens the menu on it), the weapon card's
 // lines, the sound button and M, Controls and H, the shot camera box and V, the
 // overview (Tab), the "click to take the gun" hint, pause (P), the minimap growing
-// on hover and while G is held; 3.2: T marks where a shot landed, the chip, the salvo orders (F then a
+// on hover and while G is held, the impact cam (K turns it off and on; a long gun
+// shot opens its inset and it closes after); 3.2: T marks where a shot landed, the chip, the salvo orders (F then a
 // number, a chip click, the mortar toggle) and that no enemy mark is ever in MatchInfo. Each result is
 // polled: software rendering draws a few frames a second and the HUD redraws
 // every fourth frame. Exits 1 if anything fails.
@@ -35,9 +36,9 @@ page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 let failed = 0;
 /** Wait (up to 15 s) for fn() in the page to be true. */
-async function expect(name, fn, arg, ms = 30000) {
+async function expect(name, fn, arg, timeout = 30000) {
   let ok = true;
-  try { await page.waitForFunction(fn, arg, { timeout: ms, polling: 100 }); } catch { ok = false; }
+  try { await page.waitForFunction(fn, arg, { timeout, polling: 100 }); } catch { ok = false; }
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
 }
@@ -274,6 +275,41 @@ try {
   const before = await page.evaluate(() => window.__sent.length);
   await typeInPage(["KeyF", "KeyF"], 700);
   await expect("F twice orders a salvo at the newest mark on the range, and its worker took it", (before) => { const l = window.__sent[window.__sent.length - 1]; return window.__sent.length === before + 1 && l.kind === "salvo" && l.mark === 1 && window.__sandbox.register.salvoReady > 0 && window.__sandbox.register.salvoReady < 1200; }, before);
+  // The impact cam: K turns it off and on, and a long gun shot opens its inset and closes it after the landing.
+  // Software rendering holds the frame pacer at its lowest resolution, where the inset stays shut: ignore the pacer.
+  await page.evaluate(() => window.__sandbox.impactIgnorePacer(true));
+  await expect("the impact cam starts on, its inset closed", () => window.__sandbox.impact.enabled && document.getElementById("impact").hidden);
+  await page.keyboard.press("KeyK");
+  await expect("K turns the impact cam off", () => !window.__sandbox.impact.enabled);
+  await page.keyboard.press("KeyK");
+  await expect("K turns it back on", () => window.__sandbox.impact.enabled);
+  await expect("the Controls panel lists K", () => [...document.querySelectorAll("#help dt")].some((d) => d.textContent === "K"));
+  await page.evaluate(() => { window.__sandbox.select(0); window.__sandbox.aimAtPoint(0, 0, 6, -16.4); });
+  await page.evaluate(() => window.__sandbox.fire());
+  await expect("the inset opens after a long gun shot", () => !document.getElementById("impact").hidden && window.__sandbox.impact.shown, null, 120000);
+  await expect("and closes after the landing", () => document.getElementById("impact").hidden && !window.__sandbox.impact.open, null, 120000);
+
+  // Track V: the order line. Enter opens it (focused), "mill" builds a mill, "surrender" is refused, Esc closes it.
+  await page.goto("about:blank");
+  await load("versus=knight-webgl-low");
+  await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60, null, { timeout: 180000, polling: 200 });
+  await expect("the order line is closed at first", () => document.getElementById("steward-row").hidden);
+  await page.keyboard.press("Enter");
+  await expect("Enter opens the order line, focused", () => !document.getElementById("steward-row").hidden && document.activeElement?.id === "steward-input");
+  const taken0 = await page.evaluate(() => window.__sandbox.ownPlots.filter((p) => p.state !== 0).length);
+  await page.keyboard.type("mill");
+  await page.keyboard.press("Enter");
+  await expect("the line closes after an order is sent, the answer shows", () => document.getElementById("steward-row").hidden && !document.getElementById("steward-answer").hidden);
+  await expect("'mill' raises a building on a free plot of the player's", (n) => window.__sandbox.ownPlots.filter((p) => p.state !== 0).length > n, taken0, 20000);
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("surrender");
+  await page.keyboard.press("Enter");
+  await expect("'surrender' is refused in words, the line stays open", () => /Not by words/.test(document.getElementById("steward-answer").textContent) && !document.getElementById("steward-row").hidden);
+  await expect("and the match is not over", () => !window.__sandbox.match.result);
+  await page.keyboard.press("Escape");
+  await expect("Esc closes the line", () => document.getElementById("steward-row").hidden);
+  await expect("the Controls panel lists Enter and the refused lines", () => [...document.querySelectorAll("#help dt")].some((d) => d.textContent === "Enter") && !document.getElementById("steward-refused-head").hidden);
+
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   console.log(failed ? `${failed} failed` : "all passed");

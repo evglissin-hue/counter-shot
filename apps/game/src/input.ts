@@ -8,6 +8,8 @@ export interface Pressed {
   weapon: number; // 0..7 (M3: eight emplacements), or -1
   overview: boolean;
   shotCam: boolean;
+  /** The impact cam (K): an inset on where your shot lands, on or off. */
+  impact: boolean;
   spin: boolean;
   fuseUp: boolean;
   fuseDown: boolean;
@@ -166,6 +168,7 @@ export class Input {
       weapon,
       overview: e.has("Tab") || edge(8),
       shotCam: e.has("KeyV") || edge(3),
+      impact: e.has("KeyK"),
       spin: e.has("KeyR") || edge(2),
       fuseUp: e.has("BracketRight") || edge(12),
       fuseDown: e.has("BracketLeft") || edge(13),

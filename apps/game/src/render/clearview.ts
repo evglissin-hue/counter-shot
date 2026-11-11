@@ -49,6 +49,12 @@ export class ClearView {
     this.count.value = n;
   }
 
+  /** Off for a second camera (the impact cam's inset): the aim line and crosshair are the main view's. The next update() turns it back on. */
+  suspend() {
+    this.count.value = 0;
+    this.crosshair.value = 0;
+  }
+
   /**
    * Opacity factor (0..1) for a world position: low near the aim line and,
    * when riding a weapon, near the crosshair. Evaluate in the vertex stage.

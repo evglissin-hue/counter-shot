@@ -10,7 +10,7 @@ import { float, uniform } from "three/tsl";
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
 import { STREAM } from "@keepfall/content";
-import type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
+import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
 import { ClearView } from "./clearview";
 import { Decals } from "./decals";
@@ -18,6 +18,7 @@ import { Effects } from "./effects";
 import { EstateView } from "./estate";
 import { Flags } from "./flags";
 import { Guns } from "./guns";
+import { Inset } from "./inset";
 import { Ladders } from "./ladders";
 import { Markers } from "./markers";
 import { Chalk, type ChalkMark } from "./chalk";
@@ -40,7 +41,7 @@ import { Terrain } from "./terrain";
 import { Views } from "./views";
 import { Works } from "./works";
 
-export type { CameraPose, GameRendererApi, Listener, PathHit, QualityTier, RenderStats } from "./api";
+export type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 
 const STYLE = GRITTY;
 
@@ -119,6 +120,12 @@ export class GameRenderer implements GameRendererApi {
   private flags: Flags | null = null;
   private layout: CastleLayout | null = null;
   private post: Post | null = null;
+  /** The impact cam's second pass, and what the page last asked of it (null pose: closed). */
+  private inset: Inset | null = null;
+  private insetPose: InsetPose | null = null;
+  private insetRect: InsetRect = { x: 0, y: 0, w: 0, h: 0 };
+  private insetSwapped = false;
+  private readonly savedPose = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 50 };
   private noise: THREE.Texture;
   private time = uniform(0);
   private wind = uniform(new THREE.Vector2(0, 0));
@@ -295,6 +302,7 @@ export class GameRenderer implements GameRendererApi {
     renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.setClearColor(0x000000, 1);
     this.post = new Post(renderer);
+    this.inset = new Inset(renderer, this.scene, STYLE);
     this.initialized = true;
     this.applyQuality();
     this.applyLook();
@@ -727,6 +735,23 @@ export class GameRenderer implements GameRendererApi {
     return null;
   }
 
+  setInset(pose: InsetPose | null, rect: InsetRect, swapped: boolean): void {
+    this.insetPose = pose;
+    this.insetRect = rect;
+    this.insetSwapped = swapped;
+  }
+
+  /** Is the straight line between two points cut by masonry (any stone, standing or fallen)? */
+  sightBlocked(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
+    const stones = this.stones;
+    if (!stones) return false;
+    const dx = bx - ax, dy = by - ay, dz = bz - az;
+    const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (len < 1e-6) return false;
+    for (const c of [0, 1, 2] as const) if (stones.raycast(ax, ay, az, dx / len, dy / len, dz / len, c, len) >= 0) return true;
+    return false;
+  }
+
   setRenderScale(scale: number): void {
     this.renderScale = Math.max(0.4, Math.min(1, scale));
     this.post?.setScale(this.renderScale);
@@ -872,6 +897,15 @@ export class GameRenderer implements GameRendererApi {
     this.views.update(real);
     const cam = this.views.camera;
     cam.updateMatrixWorld();
+    // Impact cam swapped in: the main pass draws from the inset's view and the inset from the gun's, then the gun's is restored.
+    const swapped = this.insetSwapped && !!this.insetPose && !!this.inset;
+    if (swapped) {
+      const sp = this.savedPose;
+      sp.pos.copy(cam.position);
+      sp.quat.copy(cam.quaternion);
+      sp.fov = cam.fov;
+      this.aimCamera(cam, this.insetPose!);
+    }
     this.clear.update(cam);
     this.mortarAim.update(cam);
     this.chalk.face(cam);
@@ -934,6 +968,18 @@ export class GameRenderer implements GameRendererApi {
       this.storm.prime(true);
     }
     post.render(this.now);
+    // The impact cam: a second pass (while priming, a tiny one, so its shaders compile at load).
+    if (this.inset && (this.insetPose || priming)) this.drawInset(swapped, priming);
+    if (swapped) {
+      const sp = this.savedPose;
+      cam.position.copy(sp.pos);
+      cam.quaternion.copy(sp.quat);
+      if (cam.fov !== sp.fov) {
+        cam.fov = sp.fov;
+        cam.updateProjectionMatrix();
+      }
+      cam.updateMatrixWorld();
+    }
     if (priming) {
       this.shock.prime(false);
       this.projectiles.prime(false);
@@ -963,6 +1009,54 @@ export class GameRenderer implements GameRendererApi {
     }
   }
 
+  /** Point a camera at a pose: eye, the point it looks at, field of view. */
+  private aimCamera(cam: THREE.PerspectiveCamera, p: InsetPose) {
+    cam.position.set(p.x, p.y, p.z);
+    cam.up.set(0, 1, 0);
+    cam.lookAt(p.tx, p.ty, p.tz);
+    if (cam.fov !== p.fov) {
+      cam.fov = p.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
+  }
+
+  /**
+   * The inset's pass. Everything the main frame did for its own camera is put right for this one:
+   * the sky is centred on it, the aim help (arc, ghost trail, landing ring, mortar marks) is hidden
+   * (it is laid out for the main view), the readability fade near the aim line is off, and the sun's
+   * shadow map is not drawn again (it does not depend on the camera).
+   */
+  private drawInset(swapped: boolean, priming: boolean) {
+    const inset = this.inset!;
+    const ic = inset.camera;
+    if (swapped) {
+      const sp = this.savedPose;
+      ic.position.copy(sp.pos);
+      ic.quaternion.copy(sp.quat);
+      if (ic.fov !== sp.fov) {
+        ic.fov = sp.fov;
+        ic.updateProjectionMatrix();
+      }
+      ic.updateMatrixWorld();
+    } else if (this.insetPose) this.aimCamera(ic, this.insetPose);
+    else this.aimCamera(ic, { x: 0, y: 40, z: -40, tx: 0, ty: 0, tz: -75, fov: 45 });
+    this.sky.follow(ic);
+    this.clear.suspend();
+    const hide = [this.marker, this.blastRing, this.mortarAim.root, this.effects.root.getObjectByName("aim-arc"), this.effects.root.getObjectByName("ghost-trail")];
+    const was = hide.map((o) => !!o && o.visible);
+    for (const o of hide) if (o) o.visible = false;
+    const shadow = this.sun?.shadow;
+    const auto = shadow ? shadow.autoUpdate : true;
+    if (shadow) shadow.autoUpdate = false;
+    const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
+    inset.draw(priming && !this.insetPose ? { x: 0, y: 0, w: 16, h: 9 } : this.insetRect, w, h, this.now);
+    if (shadow) shadow.autoUpdate = auto;
+    hide.forEach((o, i) => {
+      if (o) o.visible = was[i];
+    });
+  }
+
   getStats(): RenderStats {
     const size = this.renderer ? this.renderer.getDrawingBufferSize(new THREE.Vector2()) : new THREE.Vector2();
     return {
@@ -978,6 +1072,7 @@ export class GameRenderer implements GameRendererApi {
 
   dispose(): void {
     this.post?.dispose();
+    this.inset?.dispose();
     this.stones?.dispose();
     this.flags?.dispose();
     this.terrain.dispose();
