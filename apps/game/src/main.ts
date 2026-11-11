@@ -90,6 +90,8 @@ import { Pacer, SCALES } from "./pacing";
 import { Timeline } from "./timeline";
 import { ThreatStrip } from "./threat";
 import { OverviewMarks } from "./overviewMarks";
+import { buildView, createSteward } from "./steward";
+import type { MatchInput } from "@keepfall/rules";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -103,6 +105,24 @@ const layout = buildLayout(1, GAME_LAYOUT);
 const soundscape = new Soundscape(sound, layout);
 /** M3: the build wheel, gold coming in, notes and sounds of the plots. */
 const estate = new Estate(renderer, sound, send, (text, ms) => showNote(text, ms), $);
+// Track V: the steward's order line, voice and standing orders (src/steward). Everything goes through the page's own functions.
+const steward = createSteward({
+  $,
+  canvas,
+  available: () => ready && isMatch() && !!matchInfo && !matchInfo.result && !ride && !!$("menu").hidden && !!$("end").hidden && !!$("gone").hidden,
+  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing() }) : null),
+  standingCtx: () => (matchInfo && isMatch() && !matchInfo.result ? { gateOpen: matchInfo.gateOpen[ME], gold: matchInfo.gold[ME], repairs: matchInfo.repairs, plots: estate.ownPlots() } : null),
+  act: stewardAct,
+  note: (text, ms) => showNote(text, ms),
+  closeBuild: () => estate.wheel.close(),
+});
+function stewardAct(i: MatchInput) {
+  if (i.kind === "order") giveOrder(i.order);
+  else if (i.kind === "route") setRoute(ownSide(i.route));
+  else if (i.kind === "repair") toggleRepair(i.repair, i.on);
+  else if (i.kind === "man") i.emplacement < 0 ? view !== "overview" && toggleOverview() : select(Math.max(0, EMP.findIndex((e) => e.id === i.emplacement)));
+  else send({ t: "input", input: i });
+}
 /** The minimap: both castles and both armies at a glance (the owner's ask: less reading, more seeing). */
 const minimap = new Minimap($<HTMLCanvasElement>("minimap"));
 /** M6: the threat strip over the minimap, and the group marks in the overview. */
@@ -1844,6 +1864,7 @@ function startMode(m: Mode, net?: OnlineStart) {
   renderer.setSide(ME);
   buildTabs();
   estate.reset(m, ME);
+  steward.reset();
   // After M5 the Practice range shows the target castle's guns too: something to silence.
   renderer.showEmplacements(ALL_EMP.length);
   renderer.setMarkers(match);
@@ -2803,6 +2824,7 @@ function frame(wall: number) {
   }
   // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
   const wheelKeys = estate.keys(p, isMatch());
+  steward.tick(now);
   if (!wheelKeys && p.weapon >= 0) select(p.weapon);
   if (p.next) step(1);
   if (p.prev) step(-1);
@@ -3014,6 +3036,10 @@ else {
   },
   get match() {
     return matchInfo;
+  },
+  /** Track V test hook: the player's plots (kind index, state). */
+  get ownPlots() {
+    return estate.ownPlots().map((p) => ({ ...p }));
   },
   /** L0 test hook: lay fields over what the minimap draws from (null: none), and read its draw times. */
   patchMap(p: Partial<MinimapState> | null) {
