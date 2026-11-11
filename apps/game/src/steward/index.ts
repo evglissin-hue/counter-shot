@@ -1,5 +1,5 @@
 // The steward's ear on the game page (track V): the order line (Enter), voice
-// (hold T), the answer, and the standing orders. Every order goes out through
+// (hold Y), the answer, and the standing orders. Every order goes out through
 // the page's own functions (`act`), so the HUD stays in step and the match sees
 // only the inputs a key or a button would send.
 
@@ -291,7 +291,7 @@ export function createSteward(deps: StewardDeps): Steward {
       if (!deps.available()) return;
       e.preventDefault();
       openLine(true);
-    } else if (e.code === "KeyT" && voice.offered && !typingTarget(e.target) && deps.available()) {
+    } else if (e.code === "KeyY" && voice.offered && !typingTarget(e.target) && deps.available()) {
       openLine(false);
       listenEl.hidden = false;
       inputEl.value = "";
@@ -300,7 +300,7 @@ export function createSteward(deps: StewardDeps): Steward {
     }
   });
   window.addEventListener("keyup", (e) => {
-    if (e.code === "KeyT" && voice.listening) voice.stop();
+    if (e.code === "KeyY" && voice.listening) voice.stop();
   });
   window.addEventListener("blur", () => {
     if (voice.listening) voice.stop();
