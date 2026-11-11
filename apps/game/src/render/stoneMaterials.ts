@@ -37,6 +37,8 @@ import {
 import type { WedgeSpec } from "@keepfall/content";
 import type { StylePreset } from "./styles";
 import { N, aaLine, boxUV, bumpNormal, median3, qrot } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
+import { WEAR_CHIPS, crackLines, dustOver, faceBits, sootOver, wearFinish, wearVarying } from "./wearShading";
 
 export type GroupKind = "stone" | "wedge" | "wood" | "plaster" | "roof" | "pole";
 
@@ -104,6 +106,13 @@ function masonry(ctx: Ctx, isWedge: boolean): THREE.MeshStandardNodeMaterial {
   const p: N = I.vLocal;
   const n: N = I.vN;
   const shade: N = I.vShade;
+  // Per-stone wear (wear.ts): fresh faces bared by a neighbour's going, new stone, scorch, cracks, dust.
+  const wear: N = wearVarying();
+  const { fresh, isNew } = faceBits(wear, n);
+  // How much weathering a face carries: none on bared stone, a little less on new stone.
+  const wk: N = float(1).sub(fresh);
+  const grimeK: N = wk.mul(float(1).sub(isNew.mul(0.5)));
+  const ageK: N = wk.mul(float(1).sub(isNew));
 
   // Distance to the nearest edge of the current face, in metres.
   let edge: N;
@@ -128,6 +137,12 @@ function masonry(ctx: Ctx, isWedge: boolean): THREE.MeshStandardNodeMaterial {
   const big: N = texture(noise, uv.mul(0.31));
   const fine: N = texture(noise, uv.mul(1.17).add(0.5));
   const detailFade = fadeByDistance(40, 160);
+  // Chipped edges (High and Ultra): small notches of paler stone within 6 cm of an edge, broken by noise.
+  const chipNoise: N = texture(noise, uv.mul(3.9).add(0.31)).g;
+  const chipW: N = WEAR_CHIPS.mul(0.065).mul(smoothstep(0.52, 0.78, chipNoise)).mul(detailFade);
+  const chipOn: N = smoothstep(0.01, 0.02, chipW);
+  const chip: N = float(1).sub(smoothstep(chipW.sub(0.004), chipW, edge)).mul(chipOn);
+  const chipLip: N = float(1).sub(smoothstep(0.0, 0.009, edge.sub(chipW))).mul(chipOn).mul(float(1).sub(chip));
 
   // Castle 1 (Ashwright) is brick, castle 0 granite: the flag rides in iColor.w.
   const brick: N = I.vCol.w.greaterThan(0.5);
@@ -142,10 +157,10 @@ function masonry(ctx: Ctx, isWedge: boolean): THREE.MeshStandardNodeMaterial {
     c.mulAssign(float(1).sub(crack.mul(0.22)));
     // Vertical weathering streaks running down the wall (world height).
     const streak = texture(noise, vec2(uv.x.mul(0.45), positionWorld.y.mul(0.035).add(shade.mul(0.2)))).r;
-    c.mulAssign(float(1).sub(smoothstep(0.45, 0.75, streak).mul(0.3)));
+    c.mulAssign(float(1).sub(smoothstep(0.45, 0.75, streak).mul(0.3).mul(ageK)));
     // Brown-green staining blotches.
     const stain = smoothstep(0.55, 0.8, texture(noise, uv.mul(0.11).add(0.7)).r);
-    c.assign(mix(c, c.mul(vec3(0.82, 0.78, 0.62)), stain.mul(0.6)));
+    c.assign(mix(c, c.mul(vec3(0.82, 0.78, 0.62)), stain.mul(0.6).mul(grimeK)));
 
     // Brick: each block is laid from small bricks in running bond, each brick its own tint.
     const buv: N = boxUV(p, n);
@@ -161,30 +176,46 @@ function masonry(ctx: Ctx, isWedge: boolean): THREE.MeshStandardNodeMaterial {
     const bc: N = mix(c.mul(brickTint), color(B.mortar), brickLine.mul(0.75));
     // Soot rising up the brickwork: darker towards the wall tops, in streaks.
     const sootN = texture(noise, vec2(uv.x.mul(0.3), positionWorld.y.mul(0.02))).g;
-    const soot: N = smoothstep(4.5, 12.0, positionWorld.y.add(sootN.sub(0.5).mul(5.0))).mul(0.7);
+    const soot: N = smoothstep(4.5, 12.0, positionWorld.y.add(sootN.sub(0.5).mul(5.0))).mul(0.7).mul(wk);
     bc.assign(mix(bc, color(B.soot), soot));
     c.assign(select(brick, bc, c));
 
     // Each block a touch darker towards its bottom: reads as stacked masonry.
     c.mulAssign(mix(float(S.bottomShade), float(1.0), smoothstep(-1.0, 0.25, relY)));
     // Grime and damp near the ground.
-    const g = float(1).sub(smoothstep(0.0, 2.6, positionWorld.y)).mul(S.grime);
+    const g = float(1).sub(smoothstep(0.0, 2.6, positionWorld.y)).mul(S.grime).mul(grimeK);
     c.assign(mix(c, c.mul(vec3(0.62, 0.6, 0.52)), g));
     // Green-grey lichen low down on the granite (and a little on ledges).
     const mossMask = smoothstep(0.42, 0.72, texture(noise, uv.mul(0.17)).r);
     const up = smoothstep(0.55, 0.95, normalWorld.y);
     const low = float(1).sub(smoothstep(0.0, 3.5, positionWorld.y));
-    const amount = clamp(up.mul(0.6).add(low.mul(0.9)), 0, 1).mul(mossMask).mul(select(brick, S.moss * 0.25, S.moss * 1.2));
+    const amount = clamp(up.mul(0.6).add(low.mul(0.9)), 0, 1).mul(mossMask).mul(select(brick, S.moss * 0.25, S.moss * 1.2)).mul(ageK);
     c.assign(mix(c, color(S.mossColor).mul(fine.g.mul(0.5).add(0.75)), amount));
+    // A bared face is paler and a touch warmer; stone the masons laid stays a shade paler.
+    c.mulAssign(mix(vec3(1, 1, 1), vec3(1.32, 1.28, 1.2), fresh));
+    c.mulAssign(float(1).add(isNew.mul(0.12)));
+    // Scorch (patchy char, heaviest on faces turned up) and the dust that has settled.
+    c.assign(sootOver(c, wear.y, big.g.mul(0.6).add(fine.r.mul(0.4)), fine.g));
+    c.assign(dustOver(c, wear.w, fine.g));
+    // Chipped edges: pale notches with a darker lip.
+    c.assign(mix(c, c.mul(vec3(1.3, 1.27, 1.2)), chip));
+    c.mulAssign(float(1).sub(chipLip.mul(0.4)));
+    // Hairline cracks, readable at a distance.
+    const cl: N = crackLines(noise, uv, wear.z, shade);
+    c.mulAssign(float(1).sub(cl.mul(wear.z.mul(0.4).add(0.55)).mul(0.8)));
     // Mortar between the physics blocks.
     const m = aaLine(edge, S.mortarWidth);
     c.assign(mix(c, select(brick, color(B.mortar), color(S.mortar)), m.mul(0.8)));
     return c;
   });
   mat.colorNode = colorFn();
-  mat.roughnessNode = clamp(float(S.roughness).add(fine.g.sub(0.5).mul(0.25)).add(big.b.mul(-0.05)), 0.35, 1.0);
-  const h = fine.g.mul(0.6).add(big.r.mul(0.3)).sub(float(1).sub(smoothstep(0.0, 0.05, big.b)).mul(0.15));
-  mat.normalNode = bumpNormal(h, float(S.bump * 0.9).mul(fadeByDistance(12, 60)));
+  mat.roughnessNode = clamp(float(S.roughness).add(fine.g.sub(0.5).mul(0.25)).add(big.b.mul(-0.05)).add(fresh.mul(0.15)).add(chip.mul(0.2)), 0.35, 1.0);
+  const hWeathered = fine.g.mul(0.6).add(big.r.mul(0.3)).sub(float(1).sub(smoothstep(0.0, 0.05, big.b)).mul(0.15));
+  // A bared face is broken: the cellular channel gives it facets.
+  const hBroken = big.b.mul(0.9).add(fine.g.mul(0.35));
+  const h = mix(hWeathered, hBroken, fresh.mul(0.85)).sub(chip.mul(0.2));
+  mat.normalNode = bumpNormal(h, float(S.bump * 0.9).mul(fadeByDistance(12, 60)).mul(float(1).add(fresh.mul(1.3))));
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -208,6 +239,7 @@ function wood(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   const beamA: N = select(isX, p.y, p.x);
   const beamB: N = select(isX.or(isY), p.z, p.y);
   const endFace: N = abs(select(isX, n.x, select(isY, n.y, n.z))).greaterThan(0.5);
+  const wear: N = wearVarying();
   const isGate: N = I.vSize.y.greaterThan(I.vSize.x);
   const across: N = select(isGate, p.x, p.z);
   const along: N = select(isGate, p.y, p.x);
@@ -236,9 +268,10 @@ function wood(ctx: Ctx): THREE.MeshStandardNodeMaterial {
     const w: N = mix(c, beam, select(isBeam, 1.0, 0.0)).toVar();
     // Weathered grey timber: silvered on top, darker and damp low down (and just above the water).
     w.mulAssign(mix(0.62, 1.0, smoothstep(-0.9, 1.2, positionWorld.y)));
-    return w;
+    return wearFinish(w, wear, noise);
   })();
   mat.roughness = 0.88;
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -257,6 +290,7 @@ function plaster(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   const v: N = p.y;
   const H: N = sz.y;
   const big: N = sideZ.or(sideX);
+  const wear: N = wearVarying();
   mat.colorNode = Fn(() => {
     const tex = texture(noise, boxUV(p, n).mul(0.6).add(I.vShade.mul(11.0)));
     const c: N = color(style.plaster).mul(tex.r.sub(0.5).mul(0.12).add(1.0)).toVar();
@@ -287,9 +321,10 @@ function plaster(ctx: Ctx): THREE.MeshStandardNodeMaterial {
       c.assign(mix(c, color(style.timber).mul(1.1), frm));
     }
     c.assign(mix(c, glass, win));
-    return c;
+    return wearFinish(c, wear, noise);
   })();
   mat.roughness = 0.92;
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -311,6 +346,7 @@ function roof(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   const cc: N = p.x.div(colW).add(row.mul(0.5)).add(40.0);
   const colId: N = floor(cc);
   const fc: N = fract(cc);
+  const wear: N = wearVarying();
   mat.colorNode = Fn(() => {
     const c: N = I.vCol.rgb.toVar();
     const tileVar = hash(row.mul(31.0).add(colId).add(I.vShade.mul(1000.0))).sub(0.5);
@@ -323,9 +359,10 @@ function roof(ctx: Ctx): THREE.MeshStandardNodeMaterial {
       const tiled = c.mul(lip).mul(t).mul(float(1).sub(seamV.mul(0.45)));
       c.assign(select(top, tiled, c.mul(0.6)));
     }
-    return c;
+    return wearFinish(c, wear, noise);
   })();
   mat.roughness = 0.7;
+  applyCloudShadow(mat);
   return mat;
 }
 
@@ -335,8 +372,9 @@ function pole(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   mat.name = `${style.name}-pole`;
   const I = applyInstancing(mat, false);
   const p: N = I.vLocal;
-  mat.colorNode = color(style.pole).mul(texture(noise, vec2(p.x.add(p.z).mul(3.0), p.y.mul(0.3))).g.mul(0.4).add(0.8));
+  mat.colorNode = wearFinish(color(style.pole).mul(texture(noise, vec2(p.x.add(p.z).mul(3.0), p.y.mul(0.3))).g.mul(0.4).add(0.8)), wearVarying(), noise);
   mat.roughness = 0.7;
+  applyCloudShadow(mat);
   return mat;
 }
 

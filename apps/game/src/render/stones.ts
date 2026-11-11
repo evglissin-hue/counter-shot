@@ -2,6 +2,8 @@
 // material group). Positions and rotations live in one interleaved, dynamic
 // instance buffer per group: [x, y, z, shade, qx, qy, qz, qw]. Moving a stone
 // is eight float writes; the GPU applies the rotation in the vertex shader.
+// A third attribute per group, iWear (vec4: faces, soot, crack, dust), holds the
+// per-stone wear that wear.ts owns; it is written only when a stone's wear changes.
 
 import * as THREE from "three/webgpu";
 import type { CastleLayout, Stone } from "@keepfall/content";
@@ -37,6 +39,11 @@ interface Group {
   proxy: THREE.Mesh;
   dmin: number;
   dmax: number;
+  /** Per-stone wear [faces, soot, crack, dust], slot order. */
+  wearArray: Float32Array;
+  wear: THREE.InstancedBufferAttribute;
+  wmin: number;
+  wmax: number;
 }
 
 const _c = new THREE.Color();
@@ -61,6 +68,8 @@ export class StoneSet {
   private wedgePlanes = new Float64Array(24);
   private local = new Float64Array(6);
   private wedgeR = 0;
+  /** Called for every stone the page moves (wear.ts watches for stones leaving their place). */
+  onBody: ((id: number, x: number, y: number, z: number) => void) | null = null;
 
   constructor(layout: CastleLayout, noise: THREE.Texture) {
     this.layout = layout;
@@ -127,6 +136,9 @@ export class StoneSet {
           statArray[o + 7] = frac(s.shade * 7.31);
         }
       }
+      const wearArray = new Float32Array(Math.max(1, count) * 4);
+      const wear = new THREE.InstancedBufferAttribute(wearArray, 4, false, 1);
+      wear.setUsage(THREE.DynamicDrawUsage);
       const dyn = new THREE.InstancedInterleavedBuffer(dynArray, 8, 1);
       dyn.setUsage(THREE.DynamicDrawUsage);
       const stat = new THREE.InstancedInterleavedBuffer(statArray, 8, 1);
@@ -171,6 +183,10 @@ export class StoneSet {
         proxy,
         dmin: Infinity,
         dmax: -Infinity,
+        wearArray,
+        wear,
+        wmin: Infinity,
+        wmax: -Infinity,
       });
     }
   }
@@ -190,6 +206,7 @@ export class StoneSet {
     geo.setAttribute("iQuat", new THREE.InterleavedBufferAttribute(g.dyn, 4, 4));
     geo.setAttribute("iSize", new THREE.InterleavedBufferAttribute(g.stat, 4, 0));
     geo.setAttribute("iColor", new THREE.InterleavedBufferAttribute(g.stat, 4, 4));
+    geo.setAttribute("iWear", g.wear);
     geo.instanceCount = g.count;
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, -75), 400);
     g.geometries.set(style.name, geo);
@@ -292,7 +309,24 @@ export class StoneSet {
       a[k + 7] = data[o + 7];
       if (s < g.dmin) g.dmin = s;
       if (s > g.dmax) g.dmax = s;
+      if (this.onBody) this.onBody(id, data[o + 1], data[o + 2], data[o + 3]);
     }
+  }
+
+  /** Write one stone's wear [faces, soot, crack, dust] by id; flush() sends the touched range. */
+  setWear(id: number, faces: number, soot: number, crack: number, dust: number) {
+    const gi = this.groupOf[id];
+    if (gi === 255 || gi === undefined) return;
+    const g = this.groups[gi];
+    const s = this.slotOf[id];
+    const a = g.wearArray;
+    const k = s * 4;
+    a[k] = faces;
+    a[k + 1] = soot;
+    a[k + 2] = crack;
+    a[k + 3] = dust;
+    if (s < g.wmin) g.wmin = s;
+    if (s > g.wmax) g.wmax = s;
   }
 
   resetStones() {
@@ -312,6 +346,14 @@ export class StoneSet {
       g.dyn.needsUpdate = true;
       g.dmin = Infinity;
       g.dmax = -Infinity;
+    }
+    for (const g of this.groups) {
+      if (g.wmin > g.wmax) continue;
+      g.wear.clearUpdateRanges();
+      g.wear.addUpdateRange(g.wmin * 4, (g.wmax - g.wmin + 1) * 4);
+      g.wear.needsUpdate = true;
+      g.wmin = Infinity;
+      g.wmax = -Infinity;
     }
   }
 
