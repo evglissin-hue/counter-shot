@@ -61,9 +61,10 @@ import { Input } from "./input";
 import { Feats, bestText, type FeatDef } from "./feats";
 import { Moments } from "./moments";
 import { describeLog, readLog, replayFileName, type ReplayFile } from "./matchLog";
-import { downloadText, readReplayFile, Watch } from "./watch";
+import { downloadBlob, downloadText, readReplayFile, Watch } from "./watch";
 import { Recorder, type Clip, type FrameExtras } from "./recorder";
 import { ReplayPlayer, domView } from "./replay";
+import { FILM, Film, FilmRecorder, PhotoCam, drawOverlay, filmFileName, filmNote, filmView, photoFileName, stepTick, titleCard, type OverlayState } from "./film";
 import { keyframeDiff, type RenderKeyframe } from "./render/keyframe";
 import {
   bindImpactFrame,
@@ -250,6 +251,12 @@ let replayFreezeAt: number[] = [];
 /** Test only: after each replay, which renderer parts differ between the world as it stood before it and right after it (null: not checked). */
 let replayDiff: string[] | null = null;
 let replayCheck = false;
+/** S5 test hooks: a busy wait at the start of every page frame (ms), and freeze the test clock once the film has run this many seconds. */
+let slowMs = 0;
+let filmFreezeAt: number | null = null;
+/** S5 test hooks: skip the renderer's draw while a clip plays (the picture is junk, the timing of the fast path is real), and a trim for the film's sound (ms). */
+let skipRender = false;
+let audioTrim = 0;
 /** Can each bridge still be crossed (layout order), and is the walk overlay on. */
 let bridgesOpen: boolean[] = layout.bridges.map(() => true);
 let navOn = false;
@@ -1844,6 +1851,8 @@ function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   const first = mode === null;
   if (mode === "online" && m !== "online") void online.leave();
   endFlow = null;
+  filmAbandon();
+  leavePhoto(false);
   replayHold = false;
   player.cancel();
   setPause(false);
@@ -2669,6 +2678,12 @@ function showEnd() {
     li.append(b, m.text);
     log.appendChild(li);
   }
+  // S5: the film, from the reel (never against a friend, and not with an empty reel).
+  recorder.flush();
+  const clips = recorder.reel.length;
+  const filmOk = mode !== "online" && clips > 0;
+  $("end-film").hidden = $("end-film-save").hidden = !filmOk;
+  setFilmStatus(filmOk ? filmNote(clips) : "");
   $("end").hidden = false;
   document.exitPointerLock?.();
 }
@@ -2938,6 +2953,316 @@ function replaySounds(f: FrameData, speed: number, audible: boolean) {
   }
 }
 
+
+// ---- the film and the photo (S5) ----------------------------------------------------------
+const filmCanvas = $<HTMLCanvasElement>("film-view");
+const filmG = filmCanvas.getContext("2d");
+/** The recording's composite canvas (the game's canvas plus the overlay), and its recorder, while a film is being saved. */
+let composite: { canvas: HTMLCanvasElement; g: CanvasRenderingContext2D } | null = null;
+let filmRec: FilmRecorder | null = null;
+/** The slot of the last film frame recorded, which the loop waits for before the next frame. */
+let filmWait: Promise<void> | null = null;
+let filmBefore: RenderKeyframe | null = null;
+let filmQuiet = false;
+let filmStarted = 0;
+let lastFilmBlob: Blob | null = null;
+interface FilmResult {
+  ok: boolean;
+  size: number;
+  type: string;
+  seconds: number;
+  frames: number;
+  wallMs: number;
+  name: string;
+  pauses?: number;
+  late?: number;
+  why?: string;
+}
+let filmResolve: ((r: FilmResult) => void) | null = null;
+
+function setFilmStatus(text: string) {
+  const el = $("film-status");
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+/** One picture for the page and the recording: the overlay on the page's canvas, and the game canvas plus the overlay on the composite. */
+function paintFilm(st: OverlayState, world: boolean) {
+  if (filmG) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.round(filmCanvas.clientWidth * dpr)), h = Math.max(1, Math.round(filmCanvas.clientHeight * dpr));
+    if (filmCanvas.width !== w || filmCanvas.height !== h) {
+      filmCanvas.width = w;
+      filmCanvas.height = h;
+    }
+    filmG.clearRect(0, 0, w, h);
+    if (!world) {
+      filmG.fillStyle = "#000";
+      filmG.fillRect(0, 0, w, h);
+    }
+    drawOverlay(filmG, w, h, st);
+  }
+  const c = composite;
+  if (c && filmRec) {
+    const { canvas: cv, g } = c;
+    if (world) g.drawImage(renderer.surface, 0, 0, cv.width, cv.height);
+    else {
+      g.fillStyle = "#000";
+      g.fillRect(0, 0, cv.width, cv.height);
+    }
+    drawOverlay(g, cv.width, cv.height, st);
+    filmWait = filmRec.frame();
+  }
+}
+
+const film = new Film({
+  playClip: (clip, budget, onEnd) => playReplay(clip, { hold: false, budget, onEnd }),
+  cancelClip: () => player.cancel(),
+  updateClip: (dt) => replayLoop(dt, false),
+  show: (on) => {
+    document.body.classList.toggle("replaying", on);
+    document.body.classList.toggle("filming", on);
+    $("replay").hidden = !on;
+    filmCanvas.hidden = !on;
+  },
+  paint: paintFilm,
+  done: (completed) => filmEnded(completed),
+});
+
+function filmEnded(completed: boolean) {
+  const rec = filmRec, saving = film.saving, resolve = filmResolve;
+  filmRec = null;
+  composite = null;
+  filmWait = null;
+  filmResolve = null;
+  filmFreezeAt = null;
+  if (filmBefore) replayDiff = keyframeDiff(filmBefore, renderer.capture());
+  filmBefore = null;
+  replayHold = false;
+  send({ t: "pause", paused: paused || userPause });
+  const quiet = filmQuiet;
+  filmQuiet = false;
+  const base = { seconds: film.elapsed, frames: film.frames, wallMs: performance.now() - filmStarted, size: 0, type: "", name: "", pauses: rec?.pauses, late: rec?.lateMs };
+  if (!quiet && $("menu").hidden && matchInfo?.result) {
+    $("end").hidden = false;
+    setFilmStatus(completed ? "The film is over." : "Film stopped.");
+  }
+  if (!rec) {
+    resolve?.({ ok: false, ...base, why: saving ? "no recorder" : "not saving" });
+    return;
+  }
+  if (!completed) {
+    rec.abort();
+    setFilmStatus("The film was stopped: nothing saved.");
+    resolve?.({ ok: false, ...base, why: "stopped" });
+    return;
+  }
+  setFilmStatus("Saving the film...");
+  void rec
+    .finish()
+    .then((blob) => {
+      lastFilmBlob = blob;
+      const name = filmFileName(rec.type.ext);
+      downloadBlob(blob, name);
+      setFilmStatus(`Film saved: ${name} (${(blob.size / 1048576).toFixed(1)} MB, ${base.seconds.toFixed(0)} s).`);
+      resolve?.({ ok: true, ...base, size: blob.size, type: blob.type, name });
+    })
+    .catch((err) => {
+      setFilmStatus("The film could not be saved.");
+      resolve?.({ ok: false, ...base, why: String(err) });
+    });
+}
+
+/** The film is dropped without the end screen coming back (a new match starts). */
+function filmAbandon() {
+  if (!film.active) return;
+  filmQuiet = true;
+  film.cancel();
+}
+
+/** Watch (or save) the film of the reel. `scale` shrinks its times (tests). */
+function startFilm(saving: boolean, scale = 1): boolean {
+  if (film.active || player.playing || photo || mode === null) return false;
+  recorder.flush();
+  const reel = recorder.reel;
+  if (!reel.length) return false;
+  const r = matchInfo?.result ?? null;
+  const card = titleCard({
+    me: { name: "You", team: ME },
+    foe: { name: mode === "online" ? friendName : "Enemy", team: FOE },
+    winner: r ? r.winner : null,
+    short: r ? endLine(r).short : "The match goes on",
+    clock: clockText(r ? r.tick : (matchInfo?.tick ?? 0)),
+    date: new Date(),
+  });
+  if (saving) {
+    try {
+      const cw = renderer.surface;
+      const w = Math.min(cw.width || 1280, 1280) & ~1;
+      const h = Math.round((w * (cw.height || 720)) / (cw.width || 1280)) & ~1;
+      const cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = h;
+      const g = cv.getContext("2d");
+      if (!g) throw new Error("no 2D canvas");
+      composite = { canvas: cv, g };
+      filmRec = new FilmRecorder(cv, sound.recordFeed());
+      filmRec.audioTrimMs = audioTrim;
+    } catch (err) {
+      composite = null;
+      filmRec = null;
+      setFilmStatus(`This browser cannot save a film (${err instanceof Error ? err.message : String(err)}).`);
+      return false;
+    }
+  }
+  endRide();
+  cancelCharge();
+  follow = null;
+  replayHold = true;
+  send({ t: "pause", paused: true });
+  filmBefore = replayCheck ? renderer.capture() : null;
+  filmStarted = performance.now();
+  $("end").hidden = true;
+  document.exitPointerLock?.();
+  if (!film.start(reel, card, { scale, saving })) {
+    replayHold = false;
+    send({ t: "pause", paused: paused || userPause });
+    filmRec?.abort();
+    filmRec = null;
+    composite = null;
+    $("end").hidden = false;
+    return false;
+  }
+  return true;
+}
+
+/** One page frame of the film (the title card, or a clip through the replay player); the loop waits for the recorder's slot when saving. */
+function filmLoop(dt: number, p: { skip: boolean; mute: boolean }) {
+  if (p.skip) {
+    film.cancel();
+    requestAnimationFrame(frame);
+    return;
+  }
+  input.mouseX = input.mouseY = 0;
+  input.wheel = input.wheelAlt = 0;
+  if (p.mute) {
+    sound.setMuted(!sound.muted);
+    updateHud(true);
+  }
+  film.update(film.saving ? FILM.frame : dt);
+  if (film.phase === "title") {
+    sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: 1 });
+    soundscape.update(dt, renderer.listener());
+  }
+  if (filmFreezeAt !== null && film.elapsed >= filmFreezeAt) {
+    frozen = true;
+    filmFreezeAt = null;
+  }
+  const w = filmWait;
+  filmWait = null;
+  if (w) void w.then(() => requestAnimationFrame(frame));
+  else requestAnimationFrame(frame);
+}
+
+/** Photo mode: a free camera over a paused replay or a waiting match. */
+let photo: { cam: PhotoCam; kind: "replay" | "match"; tick: number } | null = null;
+let photoSaved = 0;
+
+function photoKind(): "replay" | "match" | null {
+  if (film.active) return null;
+  if (player.playing) return "replay";
+  if (mode === null || mode === "online") return null;
+  if (!$("menu").hidden || !$("end").hidden || !$("gone").hidden || endFlow !== null) return null;
+  return userPause || replayHold ? "match" : null;
+}
+
+function enterPhoto(): boolean {
+  const kind = photoKind();
+  if (!kind || photo) return false;
+  endRide();
+  cancelCharge();
+  photo = { cam: PhotoCam.from(renderer.listener(), renderer.fov()), kind, tick: kind === "replay" ? player.at : -1 };
+  if (kind === "match") {
+    closeImpactCam();
+    renderer.setInset(null, { x: 0, y: 0, w: 0, h: 0 }, false);
+    $("impact").hidden = true;
+    renderer.setAimArc(null);
+    renderer.setGhostTrail(null);
+    renderer.setLandingMarker(null);
+    renderer.setMortarAim(null, null, 0, true);
+  }
+  document.body.classList.add("photoing");
+  $("photo").hidden = false;
+  // There is no clip to step in a waiting match.
+  for (const id of ["photo-back", "photo-fwd", "photo-step-hint"]) $(id).hidden = kind !== "replay";
+  return true;
+}
+
+/** Leave photo mode: the replay goes back to the tick it was at, the live camera comes back on the next frame. */
+function leavePhoto(restore = true) {
+  const ph = photo;
+  if (!ph) return;
+  photo = null;
+  document.body.classList.remove("photoing");
+  $("photo").hidden = true;
+  if (restore && ph.kind === "replay" && player.playing) player.scrub(ph.tick);
+}
+
+function photoStep(n: number) {
+  const ph = photo, take = player.current;
+  if (!ph || ph.kind !== "replay" || !take || !player.playing) return;
+  player.scrub(stepTick(player.at, n, take.start, take.end));
+}
+
+/** The picture: the canvas right after a render, as a PNG (no bars, no HUD). */
+function savePhoto(): Promise<{ size: number; type: string; name: string } | null> {
+  const ph = photo;
+  if (!ph) return Promise.resolve(null);
+  renderer.setCamera(ph.cam.pose());
+  renderer.render(0);
+  return new Promise((resolve) => {
+    renderer.surface.toBlob((blob) => {
+      if (!blob) return resolve(null);
+      const name = photoFileName();
+      downloadBlob(blob, name);
+      photoSaved++;
+      showNote(`Picture saved (${name})`, 2500);
+      resolve({ size: blob.size, type: blob.type, name });
+    }, "image/png");
+  });
+}
+
+function photoLoop(dt: number, p: { photo: boolean; skip: boolean; photoShot: boolean; stepBack: boolean; stepFwd: boolean; mute: boolean }) {
+  const ph = photo!;
+  if (p.photo || p.skip) {
+    leavePhoto();
+    return;
+  }
+  if (p.mute) {
+    sound.setMuted(!sound.muted);
+    updateHud(true);
+  }
+  if (input.locked) ph.cam.look(input.mouseX, input.mouseY);
+  input.mouseX = input.mouseY = 0;
+  ph.cam.zoom(input.wheel);
+  input.wheel = input.wheelAlt = 0;
+  ph.cam.move(dt, { x: input.axis("KeyA", "KeyD"), z: input.axis("KeyS", "KeyW"), y: input.axis("KeyQ", "KeyE"), fast: input.down("ShiftLeft") || input.down("ShiftRight") });
+  if (p.stepBack) photoStep(-1);
+  if (p.stepFwd) photoStep(1);
+  if (p.photoShot) void savePhoto();
+  $("photo-fov").textContent = `${ph.cam.fov.toFixed(0)}°`;
+  renderer.setCamera(ph.cam.pose());
+  if (!paused) renderer.render(0);
+  sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: 1 });
+  soundscape.update(dt, renderer.listener());
+}
+$("photo-back").addEventListener("click", () => photoStep(-1));
+$("photo-fwd").addEventListener("click", () => photoStep(1));
+$("photo-save").addEventListener("click", () => void savePhoto());
+$("photo-leave").addEventListener("click", () => leavePhoto());
+$("end-film").addEventListener("click", () => void startFilm(false));
+$("end-film-save").addEventListener("click", () => void startFilm(true));
+
 const player = new ReplayPlayer(
   {
     layout,
@@ -2949,7 +3274,10 @@ const player = new ReplayPlayer(
     setProjectiles: (p, n, c, nc) => renderer.setProjectiles(p, n, c, nc),
     setStones: (s, n) => renderer.setStones(s, n),
     setCamera: (pose) => renderer.setCamera(pose),
-    render: (dt) => renderer.render(dt),
+    render: (dt) => {
+      if (!skipRender) renderer.render(dt);
+      film.afterRender();
+    },
     // 1 means the page's own pace (slow motion at an impact may be on when a replay is asked for).
     setTimeScale: (s) => renderer.setTimeScale(s === 1 ? timeScale : s),
     sightBlocked: (ax, ay, az, bx, by, bz) => renderer.sightBlocked(ax, ay, az, bx, by, bz),
@@ -2969,9 +3297,9 @@ const player = new ReplayPlayer(
     extras: replayExtras,
     frame: replaySounds,
   },
-  domView(document),
+  filmView(film, domView(document)),
 );
-$("replay-skip").addEventListener("click", () => player.skip());
+$("replay-skip").addEventListener("click", () => (film.active ? film.cancel() : player.skip()));
 
 /** Play a clip over the field. `hold`: the worker waits for it (a match still going); the match goes on after. */
 function playReplay(clip: Clip, opts: { hold: boolean; budget?: number; onEnd?: () => void }) {
@@ -3046,6 +3374,12 @@ let last = performance.now();
 /** Is the build wheel open, as the page's layout last knew (notes move under it). */
 let wheelShown = false;
 function frame(wall: number) {
+  if (slowMs) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < slowMs) {
+      // test only: a machine too slow to draw in time
+    }
+  }
   let dt = Math.min(0.1, (wall - last) / 1000);
   last = wall;
   if (FIXED) {
@@ -3069,6 +3403,17 @@ function frame(wall: number) {
   // S4: the end of a match shows its last blow before the end screen; X replays the last moment.
   endFlowUpdate(now);
   if (p.replay) replayKey(blocked);
+  // S5: photo mode (O) over a replay or a waiting match; the film.
+  if (p.photo && !photo && enterPhoto()) p.photo = false;
+  if (photo) {
+    photoLoop(dt, p);
+    requestAnimationFrame(frame);
+    return;
+  }
+  if (film.active) {
+    filmLoop(dt, p);
+    return;
+  }
   if (player.playing) {
     if (p.skip) player.skip();
     else {
@@ -3360,6 +3705,80 @@ else {
     if (!c || player.playing) return false;
     playReplay(c, { hold: true, budget });
     return true;
+  },
+  /** S5: the film's state; play it (a scale shrinks its times; false: nothing to show); save it (the file's size and type, and the game seconds and frames it ran); freeze the test clock once it has run so many game seconds; the last saved file's bytes (base64). */
+  get film() {
+    return { active: film.active, phase: film.phase, index: film.index, saving: film.saving, elapsed: film.elapsed, frames: film.frames, planned: film.planned.total, count: film.planned.clips, played: film.played.slice(), replay: player.playing, held: replayHold, endShown: !$("end").hidden, status: $("film-status").textContent, buttons: [!$("end-film").hidden, !$("end-film-save").hidden], overlay: { ...film.overlay, card: !!film.overlay.card } };
+  },
+  playFilm(budgetScale = 1) {
+    return startFilm(false, budgetScale);
+  },
+  saveFilm(budgetScale = 1): Promise<FilmResult> {
+    return new Promise((resolve) => {
+      filmResolve = resolve;
+      if (!startFilm(true, budgetScale)) {
+        filmResolve = null;
+        resolve({ ok: false, size: 0, type: "", seconds: 0, frames: 0, wallMs: 0, name: "", why: "could not start" });
+      }
+    });
+  },
+  skipFilm() {
+    film.cancel();
+  },
+  filmFreezeAt(t: number | null) {
+    filmFreezeAt = t;
+  },
+  filmBlob() {
+    const b = lastFilmBlob;
+    if (!b) return Promise.resolve(null);
+    return b.arrayBuffer().then((buf) => {
+      let bin = "";
+      const u = new Uint8Array(buf);
+      for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000));
+      return { type: b.type, base64: btoa(bin) };
+    });
+  },
+  /** S5 tests: skip drawing while a clip plays; trim the film's sound by this many ms in a slow slot. */
+  skipRender(on: boolean) {
+    skipRender = on;
+  },
+  audioTrim(ms: number) {
+    audioTrim = ms;
+  },
+  /** S5: slow every page frame by a busy wait of this many ms (0: off). */
+  slowFrames(ms: number) {
+    slowMs = ms;
+  },
+  /** S5: photo mode on or off (true: whether it is on now), where the free camera is, a step through the clip, a look, and the picture. */
+  photo(on: boolean) {
+    if (on) enterPhoto();
+    else leavePhoto();
+    return !!photo;
+  },
+  get photoState() {
+    return photo ? { kind: photo.kind, fov: photo.cam.fov, x: photo.cam.x, y: photo.cam.y, z: photo.cam.z, yaw: photo.cam.yaw, pitch: photo.cam.pitch, tick: player.at, saved: photoSaved, stepHint: !$("photo-step-hint").hidden } : null;
+  },
+  photoStep(n: number) {
+    photoStep(n);
+  },
+  photoLook(yaw: number, pitch: number) {
+    if (!photo) return;
+    photo.cam.yaw = yaw;
+    photo.cam.pitch = pitch;
+  },
+  photoMove(x: number, y: number, z: number) {
+    if (!photo) return;
+    photo.cam.x = x;
+    photo.cam.y = y;
+    photo.cam.z = z;
+  },
+  savePhoto() {
+    return savePhoto();
+  },
+  /** The camera as the renderer has it (photo mode puts it back). */
+  get camera() {
+    const l = renderer.listener();
+    return { x: l.x, y: l.y, z: l.z, fx: l.fx, fy: l.fy, fz: l.fz, fov: renderer.fov() };
   },
   skipReplay() {
     player.skip();

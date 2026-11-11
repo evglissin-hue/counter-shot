@@ -38,7 +38,12 @@ export async function readReplayFile(file: File): Promise<ReadResult> {
 
 /** Hand a text over as a download (a Blob and a link). */
 export function downloadText(text: string, name: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+  downloadBlob(new Blob([text], { type: "application/json" }), name);
+}
+
+/** Hand a file to the person (the film and the photo of S5 use it too). */
+export function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
