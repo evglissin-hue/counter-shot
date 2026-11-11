@@ -275,6 +275,9 @@ try {
   const before = await page.evaluate(() => window.__sent.length);
   await typeInPage(["KeyF", "KeyF"], 700);
   await expect("F twice orders a salvo at the newest mark on the range, and its worker took it", (before) => { const l = window.__sent[window.__sent.length - 1]; return window.__sent.length === before + 1 && l.kind === "salvo" && l.mark === 1 && window.__sandbox.register.salvoReady > 0 && window.__sandbox.register.salvoReady < 1200; }, before);
+  // The impact cam on a fresh range page with the real clock (the 3.2 checks above run on the test clock and leave shells in flight).
+  await page.goto("about:blank");
+  await load("practice-webgl-low");
   // The impact cam: K turns it off and on, and a long gun shot opens its inset and closes it after the landing.
   // Software rendering holds the frame pacer at its lowest resolution, where the inset stays shut: ignore the pacer.
   await page.evaluate(() => window.__sandbox.impactIgnorePacer(true));
