@@ -273,7 +273,7 @@ try {
   await expect("the long gun is loaded again, the chip bears", () => { const c = window.__sandbox.chips[0]; return !!c && !c.dim; });
   const before = await page.evaluate(() => window.__sent.length);
   await typeInPage(["KeyF", "KeyF"], 700);
-  await expect("F twice orders a salvo at the newest mark on the range, and its worker took it", () => { const l = window.__sent[window.__sent.length - 1]; return window.__sent.length === before + 1 && l.kind === "salvo" && l.mark === 1 && window.__sandbox.register.salvoReady > 0 && window.__sandbox.register.salvoReady < 1200; });
+  await expect("F twice orders a salvo at the newest mark on the range, and its worker took it", (before) => { const l = window.__sent[window.__sent.length - 1]; return window.__sent.length === before + 1 && l.kind === "salvo" && l.mark === 1 && window.__sandbox.register.salvoReady > 0 && window.__sandbox.register.salvoReady < 1200; }, before);
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   console.log(failed ? `${failed} failed` : "all passed");

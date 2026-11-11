@@ -68,7 +68,8 @@ await host.waitForSelector("#online-wait:not([hidden])", { state: "attached", ti
 const code = await host.textContent("#online-code");
 console.log(`host is waiting in match ${code}`);
 await guest.waitForSelector("#online-list li button:not([disabled])", { state: "attached", timeout: 60000 });
-await click(guest, "#online-list li button");
+// (the list redraws now and then: a click that finds no button tries again)
+await guest.evaluate(() => new Promise((done) => { const t = setInterval(() => { if (window.__sandbox.mode === "online") { clearInterval(t); done(); } else document.querySelector("#online-list li button:not([disabled])")?.click(); }, 700); }));
 await host.waitForFunction(() => window.__sandbox.mode === "online" && !!window.__sandbox.match, null, { timeout: 120000 });
 await guest.waitForFunction(() => window.__sandbox.mode === "online" && !!window.__sandbox.match, null, { timeout: 120000 });
 const [a0, b0] = [await state(host), await state(guest)];
@@ -96,9 +97,8 @@ const markShot = async (page, x, z) => {
   await page.evaluate(([x, z]) => { window.__sandbox.select(0); if (!window.__sandbox.aimAtPoint(0, x, 0, z)) throw new Error("out of reach"); }, [x, z]);
   await page.waitForFunction(() => window.__sandbox.reload[window.__sandbox.match.team === 1 ? 0 : 8] === 0, null, { timeout: 90000, polling: 200 });
   await page.evaluate(() => window.__sandbox.fire());
-  await page.waitForFunction(() => window.__sandbox.register?.canMark.some((id) => id === 0 || id === 8), null, { timeout: 90000, polling: 200 });
-  await page.evaluate(() => window.__sandbox.markHere());
-  await page.waitForFunction(() => window.__sandbox.register.marks.length === 1, null, { timeout: 60000, polling: 200 });
+  // The page marks the landing itself the moment it may be marked (a round trip here can outlast the 5 s window on a slow machine).
+  await page.waitForFunction(() => { const s = window.__sandbox; if (s.register.marks.length === 1) return true; if (s.register.canMark.some((id) => id === 0 || id === 8)) s.markHere(); return false; }, null, { timeout: 120000, polling: 50 });
 };
 await markShot(host, 0, -62);
 await markShot(guest, 0, -88);

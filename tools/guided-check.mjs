@@ -74,6 +74,8 @@ try {
   await expect("it carries the Start here tag and its blurb", () => !document.getElementById("guided-tag").hidden && /Start here/.test(document.getElementById("guided-tag").textContent) && /wakes up slowly/.test(document.querySelector("#guided-go span:not(.tag)").textContent));
   await press("#guided-go");
   await guidedReady();
+  // A follow-up shows 3 s: on a slow machine the page may not be polled in that time, so the checks lengthen it.
+  await page.evaluate(() => { window.__sandbox.coach.followMs = 12000; });
   await expect("it starts the guided mode, named in the HUD", () => window.__sandbox.mode === "guided" && document.getElementById("mode-name").textContent === "Guided match");
   await expect("the coach shows step 1 and the checklist guide is hidden", () => !document.getElementById("coach").hidden && /Step 1 of 10/.test(document.getElementById("coach-step").textContent) && /Take the long gun/.test(document.getElementById("coach-title").textContent) && document.getElementById("guide").hidden);
   await expect("the tutor's stage is reported (0 until it wakes)", () => typeof window.__sandbox.match.tutor === "number" && window.__sandbox.match.tutor >= 0);

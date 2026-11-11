@@ -183,6 +183,8 @@ const SIGHT_CLEAR = 60;
 const EDGE = 34;
 
 export class Coach {
+  /** How long a follow-up shows (ms); a test on a slow machine lengthens it. */
+  followMs = FOLLOW_MS;
   private active = false;
   private hidden = false;
   private me: 0 | 1 = 1;
@@ -464,7 +466,7 @@ export class Coach {
     }
     this.phase = "after";
     this.afterText = text;
-    this.afterUntil = now + (text ? FOLLOW_MS : TICK_MS);
+    this.afterUntil = now + (text ? this.followMs : TICK_MS);
     this.draw();
   }
 
