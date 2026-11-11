@@ -36,13 +36,44 @@ export async function readReplayFile(file: File): Promise<ReadResult> {
   return readLog(text);
 }
 
-/** Hand a text over as a download (a Blob and a link). */
-export function downloadText(text: string, name: string) {
-  downloadBlob(new Blob([text], { type: "application/json" }), name);
+/** Hand a text over as a download. Resolves true when it was saved (or handed to the browser), false when not. */
+export function downloadText(text: string, name: string): Promise<boolean> {
+  return downloadBlob(new Blob([text], { type: "application/json" }), name);
 }
 
-/** Hand a file to the person (the film and the photo of S5 use it too). */
-export function downloadBlob(blob: Blob, name: string) {
+/** The claude.ai `downloads` capability (the game link declares it): a file the page made, offered with a confirmation. */
+interface Downloads {
+  save(r: { filename: string; data: Blob }): Promise<{ status: string }>;
+}
+let downloadsNs: Promise<Downloads | null> | null = null;
+function downloads(): Promise<Downloads | null> {
+  if (!downloadsNs) {
+    const c = (window as unknown as { claude?: { use?(name: string): Promise<unknown> } }).claude;
+    downloadsNs = c?.use ? c.use("downloads").then((d) => (d as Downloads | null) ?? null, () => null) : Promise.resolve(null);
+  }
+  return downloadsNs;
+}
+
+/**
+ * Hand a file to the person (the replay, the film and the photo of S5 and S6).
+ * In the claude.ai page the frame cannot download by itself: the `downloads`
+ * capability shows the viewer the name and size and saves it if they accept.
+ * Elsewhere (the dev page, the test tools) a Blob and a link do it. Resolves
+ * true when the file was saved or handed to the browser, false when the viewer
+ * declined or saving is not possible here.
+ */
+export async function downloadBlob(blob: Blob, name: string): Promise<boolean> {
+  const d = await downloads();
+  if (d) {
+    try {
+      await d.save({ filename: name, data: blob });
+      return true;
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code;
+      if (code === "declined" || code === "rate_limited") return false;
+      // Saves unusable in this view: fall back to a link (it may do nothing in a sandboxed frame).
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -51,6 +82,7 @@ export function downloadBlob(blob: Blob, name: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return true;
 }
 
 export interface WatchHooks {

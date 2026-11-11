@@ -2204,8 +2204,7 @@ function saveLog(): Promise<string> {
 async function saveReplay() {
   if (!playing()) return;
   const text = await saveLog();
-  downloadText(text, replayFileName());
-  showNote("Replay saved", 2500);
+  showNote((await downloadText(text, replayFileName())) ? "Replay saved" : "Replay not saved", 2500);
 }
 $("end-save").addEventListener("click", () => void saveReplay());
 $("menu-save").addEventListener("click", () => void saveReplay());
@@ -3084,8 +3083,7 @@ function filmEnded(completed: boolean) {
     .then((blob) => {
       lastFilmBlob = blob;
       const name = filmFileName(rec.type.ext);
-      downloadBlob(blob, name);
-      setFilmStatus(`Film saved: ${name} (${(blob.size / 1048576).toFixed(1)} MB, ${base.seconds.toFixed(0)} s).`);
+      void downloadBlob(blob, name).then((ok) => setFilmStatus(ok ? `Film saved: ${name} (${(blob.size / 1048576).toFixed(1)} MB, ${base.seconds.toFixed(0)} s).` : "Film not saved."));
       resolve?.({ ok: true, ...base, size: blob.size, type: blob.type, name });
     })
     .catch((err) => {
@@ -3245,9 +3243,8 @@ function savePhoto(): Promise<{ size: number; type: string; name: string } | nul
     renderer.surface.toBlob((blob) => {
       if (!blob) return resolve(null);
       const name = photoFileName();
-      downloadBlob(blob, name);
       photoSaved++;
-      showNote(`Picture saved (${name})`, 2500);
+      void downloadBlob(blob, name).then((ok) => showNote(ok ? `Picture saved (${name})` : "Picture not saved", 2500));
       resolve({ size: blob.size, type: blob.type, name });
     }, "image/png");
   });
