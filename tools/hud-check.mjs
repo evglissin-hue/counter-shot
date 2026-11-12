@@ -329,8 +329,10 @@ try {
   await expect("K turns it back on", () => window.__sandbox.impact.enabled);
   await expect("the Controls panel lists K", () => [...document.querySelectorAll("#help dt")].some((d) => d.textContent === "K"));
   await page.evaluate(() => { window.__sandbox.select(0); window.__sandbox.aimAtPoint(0, 0, 6, -16.4); });
+  const shownBefore = await page.evaluate(() => window.__sandbox.impact.shownCount);
   await page.evaluate(() => window.__sandbox.fire());
-  await expect("the inset opens after a long gun shot", () => !document.getElementById("impact").hidden && window.__sandbox.impact.shown, null, 120000);
+  // Counted, not caught while open: on a slow page the inset can open and close between two polls.
+  await expect("the inset opens after a long gun shot", (n) => window.__sandbox.impact.shownCount > n, shownBefore, 120000);
   await expect("and closes after the landing", () => document.getElementById("impact").hidden && !window.__sandbox.impact.open, null, 120000);
 
   // Track V: the order line. Enter opens it (focused), "mill" builds a mill, "surrender" is refused, Esc closes it.

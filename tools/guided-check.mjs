@@ -182,6 +182,9 @@ try {
   await expect("and the enemy keep meter when none does", () => document.getElementById("keep-theirs").classList.contains("coach-hl") && !document.getElementById("storm").classList.contains("coach-hl"));
   const tick = await page.evaluate(() => window.__sandbox.match.tick);
   await patch({ result: { winner: 1, reason: "keep", tick } });
+  // S4: a keep win first replays its last blow (about 10 s on a real GPU; a minute or more in software rendering): see it start, then skip it as a player can (Esc).
+  await expect("a win replays the last blow first", () => window.__sandbox.replay.playing || !document.getElementById("end").hidden, null, 60000);
+  if (await page.evaluate(() => window.__sandbox.replay.playing)) await page.keyboard.press("Escape");
   await expect("a win: the coach goes, the end screen shows its buttons", () => document.getElementById("coach").hidden && document.querySelectorAll(".coach-hl").length === 0 && !document.getElementById("end").hidden && document.getElementById("end-title").textContent === "Victory" && document.getElementById("end-line").textContent === "You won your first match." && document.getElementById("end-again").textContent === "Versus AI: Squire" && !document.getElementById("end-guided").hidden && document.getElementById("end-guided").textContent === "Play the guided match again" && document.getElementById("end-practice").textContent === "Practice range", null, 60000);
   await shot("guided-end");
   await press("#end-again");

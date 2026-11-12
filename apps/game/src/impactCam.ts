@@ -136,7 +136,10 @@ export function closeImpactCam() {
 }
 
 /** What is open, for tests and the HUD. */
-export function impactState(): { open: boolean; shown: boolean; reason: ImpactReason | null; swapped: boolean; enabled: boolean; msToLanding: number } {
+/** Times the inset has been shown since the page loaded (for tests: a slow page may miss it while it is open). */
+let shownCount = 0;
+
+export function impactState(): { open: boolean; shown: boolean; reason: ImpactReason | null; swapped: boolean; enabled: boolean; msToLanding: number; shownCount: number } {
   const now = clock();
   return {
     open: !!cur,
@@ -145,6 +148,7 @@ export function impactState(): { open: boolean; shown: boolean; reason: ImpactRe
     swapped,
     enabled,
     msToLanding: cur ? Math.round(cur.landsAt - now) : 0,
+    shownCount,
   };
 }
 
@@ -339,6 +343,7 @@ export function updateImpactCam(now: number, dt: number): ImpactFrame {
       cam.placed = false;
     } else if (!cur.shownAt && now >= cur.landsAt - LEAD_MS) {
       cur.shownAt = now;
+      shownCount++;
       cur.stand = null;
     }
   }
