@@ -102,6 +102,18 @@ export interface GameRendererApi {
 
   /** Turn a weapon model to its current aim (radians). `active` highlights the one you ride. */
   setWeaponPose(emplacement: number, yaw: number, pitch: number, active: boolean): void;
+  /**
+   * Look round L1: every gun's reload as the match reports it, ticks left per match emplacement id (the page's `reload`
+   * array as it is). The renderer turns it into a reload stage for the gun's recoil (the gun rolls back on a shot, stays
+   * back while loading and is run out again late in the reload) and, for the crew round, the gun's crew.
+   */
+  setReloads(left: ArrayLike<number>): void;
+  /**
+   * Look round L1: how full a gun's ready box is, for the kegs standing in the powder box beside it: none for 0 charges,
+   * else the share of `capacity` rounded up, at most four. Milestone 3.3 feeds this from each gun's ready box; until then
+   * nothing calls it and every box shows four.
+   */
+  setReadyBox(emplacement: number, charges: number, capacity: number): void;
   setCamera(pose: CameraPose): void;
 
   /** Aim help, as xyz triples; null hides. Partial predicted arc (cold white, outlined). */

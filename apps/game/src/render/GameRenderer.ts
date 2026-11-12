@@ -7,7 +7,7 @@
 
 import * as THREE from "three/webgpu";
 import { float, uniform } from "three/tsl";
-import type { CastleLayout, Emplacement } from "@keepfall/content";
+import type { CastleLayout, Emplacement, WeaponKind } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
 import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
@@ -20,6 +20,7 @@ import { Effects } from "./effects";
 import { EstateView, type EstateState } from "./estate";
 import { Flags } from "./flags";
 import { Guns, type GunState } from "./guns";
+import { JOLT_END, joltAt, type Jolt } from "./recoilCam";
 import { Inset } from "./inset";
 import { eventChance, frameBytes, roughBytes, type KeyframePart, type RenderKeyframe } from "./keyframe";
 import { Ladders } from "./ladders";
@@ -143,6 +144,11 @@ export class GameRenderer implements GameRendererApi {
   private insetRect: InsetRect = { x: 0, y: 0, w: 0, h: 0 };
   private insetSwapped = false;
   private readonly savedPose = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 50 };
+  /** Look round L1: the gun you ride fired at `at` (the renderer's clock); the camera's jolt is laid over the picture only (see applyJolt). */
+  private jolt: { kind: WeaponKind; at: number } | null = null;
+  private joltTmp: Jolt = { back: 0, up: 0, pitch: 0, fov: 0 };
+  private readonly joltSaved = { on: false, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 50 };
+  private readonly joltDir = new THREE.Vector3();
   private noise: THREE.Texture;
   private time = uniform(0);
   private wind = uniform(new THREE.Vector2(0, 0));
@@ -818,6 +824,9 @@ export class GameRenderer implements GameRendererApi {
   }
 
   private spawnMuzzle(em: number) {
+    // Look round L1: the gun rolls back; if it is the one you ride, the camera jolts with it (replays pose every gun as not ridden).
+    const fired = this.guns.fire(em);
+    if (fired && fired.active) this.jolt = { kind: fired.kind, at: this.now };
     const p = this.tmpA, d = this.tmpB;
     if (!this.guns.muzzle(em, p, d)) return;
     this.birds.noise(p.x, p.y, p.z, this.now);
@@ -896,6 +905,14 @@ export class GameRenderer implements GameRendererApi {
     this.guns.setPose(emplacement, yaw, pitch, active);
     const em = active ? this.emplacementList.find((x) => x.id === emplacement) : undefined;
     if (em) this.windField.setAnchor(em.x, em.z);
+  }
+
+  setReloads(left: ArrayLike<number>): void {
+    this.guns.setReloads(left);
+  }
+
+  setReadyBox(emplacement: number, charges: number, capacity: number): void {
+    this.guns.setReadyBox(emplacement, charges, capacity);
   }
 
   setCamera(pose: CameraPose): void {
@@ -1182,6 +1199,53 @@ export class GameRenderer implements GameRendererApi {
     cam.updateProjectionMatrix();
   }
 
+  /**
+   * Look round L1: the camera's jolt when the gun you ride fires, laid over the gun's camera after Views has eased it
+   * (a kick back and up, a tip and a punch of the field of view). It is the picture only: the pose is put back after the
+   * frame and the inset are drawn, so Views' own easing and the page's aim never see it.
+   */
+  private applyJolt(cam: THREE.PerspectiveCamera) {
+    const jl = this.jolt;
+    if (!jl) return;
+    const age = this.now - jl.at;
+    if (age < 0 || age >= JOLT_END) {
+      this.jolt = null;
+      return;
+    }
+    const mode = this.views.mode;
+    if (mode !== "sight" && mode !== "free") return;
+    const j = joltAt(jl.kind, mode, age, this.joltTmp);
+    if (j.back === 0 && j.up === 0 && j.pitch === 0 && j.fov === 0) return;
+    const sv = this.joltSaved;
+    sv.on = true;
+    sv.pos.copy(cam.position);
+    sv.quat.copy(cam.quaternion);
+    sv.fov = cam.fov;
+    cam.getWorldDirection(this.joltDir);
+    cam.position.addScaledVector(this.joltDir, -j.back);
+    cam.position.y += j.up;
+    cam.rotateX(j.pitch);
+    if (j.fov !== 0) {
+      cam.fov = sv.fov + j.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
+  }
+
+  /** Take the jolt off again (a no-op when none is on). */
+  private undoJolt(cam: THREE.PerspectiveCamera) {
+    const sv = this.joltSaved;
+    if (!sv.on) return;
+    sv.on = false;
+    cam.position.copy(sv.pos);
+    cam.quaternion.copy(sv.quat);
+    if (cam.fov !== sv.fov) {
+      cam.fov = sv.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
+  }
+
   render(dtSeconds: number): void {
     if (!this.initialized) return;
     const real = Math.max(0, Math.min(0.25, dtSeconds || 0));
@@ -1205,7 +1269,7 @@ export class GameRenderer implements GameRendererApi {
       sp.quat.copy(cam.quaternion);
       sp.fov = cam.fov;
       this.aimCamera(cam, this.insetPose!);
-    }
+    } else this.applyJolt(cam);
     this.clear.update(cam);
     this.mortarAim.update(cam);
     this.chalk.face(cam);
@@ -1243,7 +1307,7 @@ export class GameRenderer implements GameRendererApi {
     this.terrain.flush();
     this.groundMarks.update();
     this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
-    this.guns.update(dt);
+    this.guns.update(dt, this.now, cam.quaternion);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
     if (this.flashLevel < 0.01) this.flashLevel = 0;
@@ -1286,6 +1350,7 @@ export class GameRenderer implements GameRendererApi {
       }
       cam.updateMatrixWorld();
     }
+    this.undoJolt(cam);
     if (priming) {
       this.shock.prime(false);
       this.projectiles.prime(false);

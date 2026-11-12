@@ -505,6 +505,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
         else if (ALL_EMP[g]) reload[g] = weaponOf(ALL_EMP[g]).reload;
       }
     }
+    renderer.setReloads(reload);
     soundscape.reload(EMP[current].weapon, rl(current), WEAPONS[EMP[current].weapon].reload, view === "sight" && mode !== null);
     if (was > 0 && rl(current) === 0) {
       sound.ready(EMP[current].weapon);
@@ -533,7 +534,7 @@ function frameExtras(m: Extract<FromWorker, { t: "frame" }>): FrameExtras {
     const live = (c: number) => (info.attackers[c] > info.defenders[c] && info.attackers[c] >= 2 ? 1 : 0);
     storm = [info.storm[0] / info.stormHold, live(0), info.storm[1] / info.stormHold, live(1)];
   }
-  return { guns: info ? info.guns : null, out: m.out, storm, bridges: m.bridges, arms: info ? info.arms : null };
+  return { guns: info ? info.guns : null, out: m.out, storm, bridges: m.bridges, arms: info ? info.arms : null, reload: Int16Array.from(m.reload) };
 }
 
 function onFrame(f: FrameData) {
@@ -3143,6 +3144,7 @@ function applyShake(pose: CameraPose, now: number) {
 /** What the page tells the renderer with a frame that the frame does not carry, for a replay: barrels, the storm rings, and (`full`) which guns are out. */
 function replayExtras(e: FrameExtras, full: boolean) {
   if (e.guns) for (let i = 0; i < ALL_EMP.length && e.guns.length >= (i + 1) * 2; i++) renderer.setWeaponPose(i, e.guns[i * 2], e.guns[i * 2 + 1], false);
+  if (e.reload) renderer.setReloads(e.reload);
   if (full && e.out) for (let i = 0; i < ALL_EMP.length && i * 2 < e.out.length; i++) renderer.setGunOut(ALL_EMP[i].id, e.out[i * 2] > 0);
   if (e.storm) {
     renderer.setStorm(0, e.storm[0], e.storm[1] > 0);
