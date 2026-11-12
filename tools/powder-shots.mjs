@@ -185,7 +185,8 @@ try {
     let level = L0.level, blown = false;
     for (let attempt = 0; attempt < 6 && !blown; attempt++) {
       console.log("attempt", attempt, "charge", level.toFixed(3));
-      await wait(() => window.__sandbox.reload[1] === 0, undefined, 300000).catch(() => {});
+      // Reload counts game time: step the match on until the mortar is ready.
+      for (let k = 0; k < 40 && (await sb(() => window.__sandbox.reload[1])) !== 0; k++) await adv(1);
       await sb(() => { window.__booms = []; });
       await sb((l) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, level);
       let boom = null;
