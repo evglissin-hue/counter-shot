@@ -70,4 +70,40 @@ Mark the road before the left bridge with the long gun. Buy a second long gun. W
 
 ## Status
 
-Not started.
+Done (November 12). Branch `claude/phase3-observatory-runs` (merges `claude/festive-keller-mgdjup`: tracks V, S1 to S6, the look's L0, L2, L3). Built through the build and review loop: a contract commit (`REGISTER` in `packages/content/src/register.ts`, AiLevel's `marks`, `salvo`, `gangs`), then executors for the rules (the register), the bridge gangs, the AI and the page, then the rounds.
+
+**What was built.**
+- Rules (`packages/rules/src/register.ts`, `match.ts`): marks per team (places 1 to 6, the oldest replaced, 180 s life refreshed by a shot landing inside, hashed, their own Rng stream "register"); the inputs `{ kind: "mark", emplacement }` and `{ kind: "salvo", mark, mortar? }`; guns nobody mans lay on men on marked ground with a quarter of the error, threat counted from half the distance, and reload as `REGISTER.reload`; fire for effect from the nearest gun out over 1.5 s, one a team every 20 s. A salvo skips a gun with its own men near the mark or a bridge at risk (checked when ordered and again as each gun fires), and a mark replaced meanwhile drops the rest of its salvo.
+- Bridge gangs (`packages/sim/src/gangs.ts`): two men of a wave sent down a road whose bridge is down; 60 gold once; 40 s; the deck restored lowest first, rubble carried off; they wait while an enemy is within 20 m on their own side of the gap (enemies across the gap no longer hold them: with every bridge down that cut the valley for good).
+- The AI: from the Knight up it ranges the enemy gate (a flat gun where one bears, the mortar otherwise), turns any own hand landing near the gate (and, for the Warlord, near the wall it attacks) into a mark, renews it, and orders the salvo there as its waves arrive (3 or more of its men within 30 m), mortar included; the earlier salvo on 6 enemy men on a mark stays; bridge gangs from the steward.
+- The page: T marks where your shot landed (a "T mark" label on the landing; T falls back to any of your guns' newest landing); chalk crosses with numbers in the world and chalk-white numbers on the minimap; the Marks row in the command card (chips with place names and a draining ring, the keys and the salvo wait in the header, "Mortar in the salvo"); F then a number, F twice, a chip click or a click on a mark in the overview fires for effect; the refusals say why ("Guns loading (N s)", "Only the mortar bears: tick Mortar in the salvo", "Our men near", "No gun bears", "Salvo ready in N s"); a drum roll and the gun tabs flash; gang lines and notes; the Practice range has marks and salvos with its four guns; the guided match's step 7 "Mark the road" with a "Their road" mark. Enemy marks are never sent to the page (the owner's open question below; default hidden). Voice orders moved from T to hold Y (the owner's answer, November 11).
+
+**Versions and pins.** Sim `RULES_VERSION` 11 to 12; `MATCH_RULES_VERSION` 8 to 9; `NET_VERSION` 4 to 5 (marks and salvos are inputs and the register is in the net hash). Re-pinned: MATCH_HASH e90ee604 / 7f743abe to edd989a0 / 7f743abe; WAVE_MATCH_HASH 77856e2b / 7f068fe4 to 504816da / a09c952a (its script now marks and orders a salvo); ESTATE_MATCH_HASH 2a25ef46 / f93ead42 to 718a1455 / f93ead42; AI_MATCH_HASH 1122efd1 / e4a33d6c to 28b2822d / a50a7488; GUIDED_MATCH_HASH c6289857 / dbf0c11b to 20ad5b9f / dbf0c11b. SESSION_HASH (fcfc80cf / 9c6521a6) and the lab's 35a7603f / 054e5eb0 unchanged.
+
+**The observatory.**
+- A Knight that marks against one that does not (`a2-marks`, 80 matches, 40 seeds from both castles): the marking side wins 54 of 80, 67.5% (95% interval 57.2% to 77.8%; 26 of 40 as castle 0, 28 of 40 as castle 1). Aim: clearly above 55%. Per match it holds 3.2 marks, orders 2.8 salvos of 1.6 guns, its guns nobody mans fire 36.9 shots on marked ground, and it spends 6.7 hand shots ranging. Before the gate marks it won 19 of 40 (47.5%, marking only roads and bridges), and with two marks at a time 17 of 40.
+- Men downed by guns nobody mans on marked ground: shots on marks went from 0 to 7 a side to 27 to 57 a side in traced Knight mirrors.
+- Bridges standing at the end: 2.0 to 2.3 of 3 on average.
+- The quick run (`a2-quick`, 24 of 24) on the final AI:
+
+| Target | Value | Pass |
+| --- | --- | --- |
+| T1 Length | median 5.4 min; 42% between 6 and 16; 0.0% by time (n 12) | FAIL |
+| T2 Endings | keep 100% (n 12) | FAIL |
+| T3 Sides | castle 0 won 3 of 12; too few to call | n/a |
+| T4 Skill | Warlord beats Knight 100% (n 12) | PASS |
+| T5 Spending | median unspent-gold time 78.5 s (48 sides) | FAIL |
+| T6 Openings | not measured | n/a |
+| T7 Targets | keep takes 56% of 1122 shots by hand | FAIL |
+| T8 Comebacks | the side behind won 6 of 12 (50%) | FAIL |
+| T9 Budget | p99 most stones moving 780; worst step 104.7 ms; steps over 33 ms a match: median 82, most 408 (this machine) | FAIL |
+
+Against 3.1's quick run: more matches in the 6 to 16 minute band (42% against 8%), fewer hand shots at the keep (56% against 72%), comebacks 50% against 17%; unspent gold doubled (T5 now fails at 78.5 s). An earlier quick run with the AI marking roads only gave median 6.9 min and 67% in the band: the gate salvos shorten matches again.
+
+**The rounds.**
+- Checks: `npm run check`, `check:browser`, `hud-check`, `guided-check`, `online-check`, `sound-check` (results in the commit that closes 3.2).
+- Dead-end hunt (read-only, then fixed): T was bound to marking and to voice (voice moved to Y); "No gun bears" while guns were only loading; salvos ignored own men and bridges; a seventh mark could redirect a salvo in flight; gangs invisible on the page and the bridge note wrong; only the ridden gun could be marked; no hint when only the mortar bears; a gang held forever by enemies across the gap.
+- Player's chair (1280x720): the right column overflowed with two marks (it now fits six marks and two gang lines); the impact inset covered the minimap and the Controls panel; the chips hid their keys and showed the shared salvo wait as each mark's timer; two marks both named "Field" (now with a range); minimap marks unreadable; badges under the crosshair; a one-gun salvo read as a failure (the note now counts guns); gangs unexplained; step 7 had no world mark. All fixed.
+- Test tools made robust for a loaded machine: the guided check keeps "Send your waves in" from interrupting steps 5 to 7 on the real clock; the HUD check gives the impact cam a fresh page on the real clock and waits for a salvo's later guns.
+
+**Open.** The owner's question above (should the enemy see your marks?) is unanswered; marks stay hidden. T5 got worse; 3.3 (powder) is where gold gets its uses.
