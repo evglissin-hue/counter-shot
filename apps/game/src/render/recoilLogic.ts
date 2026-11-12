@@ -72,12 +72,12 @@ export interface StageState {
   full: number;
   /** The stage the last feed since the shot gave, or -1 when none has come. */
   fed: number;
-  /** Seconds since the last shot on the renderer's clock; Infinity for a gun that never fired. */
+  /** Seconds since the last shot on the renderer clock (1e6 for a gun that never fired). */
   age: number;
 }
 
 export function newStage(): StageState {
-  return { stage: 1, full: 1, fed: -1, age: Infinity };
+  return { stage: 1, full: 1, fed: -1, age: 1e6 };
 }
 
 /** A shot: the reload starts over, and its length is a guess until the feed says. */
@@ -103,7 +103,7 @@ export function stageFeed(s: StageState, left: number) {
 
 /** A frame of the renderer's own clock (slow motion slows it): the stage creeps on between feeds, never far past the last one. */
 export function stageStep(s: StageState, dt: number) {
-  if (dt > 0) s.age += dt;
+  if (dt > 0) s.age = Math.min(1e6, s.age + dt);
   if (s.stage >= 1 || !(dt > 0)) return;
   const next = s.stage + (dt * 60) / s.full;
   const limit = s.fed >= 0 ? Math.min(1, s.fed + 2 / s.full) : 1;

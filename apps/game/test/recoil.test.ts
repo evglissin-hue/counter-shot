@@ -22,9 +22,9 @@ test("a long gun leaps back in 0.07 s, stays back while loading and is run out b
   assert.ok(Math.abs(kick("chainShot", 1, 0.2).back - 0.6) < 1e-9);
 });
 
-test("a gun that never fired sits run out (age Infinity, stage 1)", () => {
+test("a gun that never fired sits run out (age 1e6, stage 1)", () => {
   for (const k of KINDS) {
-    const r = kick(k, Infinity, 1);
+    const r = kick(k, 1e6, 1);
     assert.deepEqual([r.back, r.down, r.pitch], [0, 0, 0], k);
   }
 });
@@ -49,7 +49,7 @@ test("the mortar's bed thuds down and comes back by 0.25 s; the swivel springs b
 test("stage: a gun never fired is loaded; a shot starts it at 0; a feed gives the stage and the full time", () => {
   const s = newStage();
   assert.equal(s.stage, 1);
-  assert.equal(s.age, Infinity);
+  assert.equal(s.age, 1e6);
   stageFire(s, 240);
   assert.equal(s.stage, 0);
   assert.equal(s.age, 0);

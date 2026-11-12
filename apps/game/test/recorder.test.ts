@@ -221,7 +221,7 @@ test("a clip too big for the reel by itself is not kept", () => {
 
 test("a frame's extras, noted at receipt, ride with its entry and its keyframe", () => {
   const { rec } = rig();
-  const ex = (n: number): FrameExtras => ({ guns: new Float32Array([n, n]), out: new Int16Array([n]), storm: [n, 0, 0, 0], bridges: [true], arms: new Int8Array([n]) });
+  const ex = (n: number): FrameExtras => ({ guns: new Float32Array([n, n]), out: new Int16Array([n]), storm: [n, 0, 0, 0], bridges: [true], arms: new Int8Array([n]), reload: null });
   const f1 = frame(2), f2 = frame(4);
   rec.note(f1, ex(1));
   rec.note(f2, ex(2));

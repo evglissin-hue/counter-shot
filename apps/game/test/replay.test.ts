@@ -10,7 +10,7 @@ import { CLOCK_BASE, LEAD_TICKS, MOMENT_NAMES, ReplayPlayer, quiet, speedLabel, 
 
 const layout = buildLayout(1, GAME_LAYOUT);
 const empty = new Float32Array(0);
-const noExtras: FrameExtras = { guns: null, out: null, storm: null, bridges: null, arms: null };
+const noExtras: FrameExtras = { guns: null, out: null, storm: null, bridges: null, arms: null, reload: null };
 
 function frame(tick: number, events: number[][] = []): FrameData {
   const ev = new Float32Array(events.length * EVENT_STRIDE);

@@ -1,15 +1,41 @@
 // Procedural models of the Ashwright weapons, one per emplacement: a long gun
-// on a wheeled carriage, a squat wide mortar on its bed, a chain-shot gun with
-// a flared muzzle and a small swivel gun on a post. Each turns about its pivot
-// (yaw about Y, then pitch about the gun's local X). The page sets the pose;
-// nothing here makes a physics decision.
+// and a chain-shot gun cast in bronze on worn carriages with breeching ropes, a
+// squat iron mortar on its bed and a small iron swivel on a post, each with what
+// stands beside it (a garland of shot, a powder box with its kegs, a linstock
+// with a slow match glowing). Each turns about its pivot (yaw about Y, then
+// pitch about the gun's local X) and rolls back on a shot (look round L1). The
+// page sets the pose; nothing here makes a physics decision.
+//
+// A gun is: root (what it stands on, and the props beside it) > tip (the gun
+// itself: it tips over on its own when knocked out) > yaw > slide (the carriage
+// and barrel, rolling back along the gun's own -Z) > pitch (the barrel).
 
 import * as THREE from "three/webgpu";
-import { cameraPosition, color, float, mix, normalWorld, positionWorld, pow, smoothstep, texture, uniform, vec2 } from "three/tsl";
+import { uniform } from "three/tsl";
 import type { CastleLayout, Emplacement, WeaponKind } from "@keepfall/content";
-import { stoneBounds } from "@keepfall/content";
-import type { N } from "./tslUtils";
-import { applyCloudShadow } from "./clouds";
+import { WEAPONS, stoneBounds } from "@keepfall/content";
+import {
+  Breeching,
+  barrelGeos,
+  bronzeMaterial,
+  carriageGeos,
+  glowGeometry,
+  glowMaterial,
+  ironMaterial,
+  kegGeometry,
+  kegMaterial,
+  merge,
+  mortarBedGeos,
+  propsFor,
+  quoinGeo,
+  ropeMaterial,
+  woodMaterial,
+  yokeGeos,
+  type BarrelSpec,
+} from "./gunModel";
+import { BOX_KEGS, RECOIL_BACK, kegCount, kick, newStage, stageFeed, stageFire, stageStep, type Kick, type StageState } from "./recoilLogic";
+
+type Geo = THREE.BufferGeometry;
 
 interface Gun {
   em: Emplacement;
@@ -17,13 +43,16 @@ interface Gun {
   /** The gun itself (its carriage, bed or yoke and barrel) over what it stands on (a tower's deck, a platform, a post): it tips over on its own. */
   tip: THREE.Group;
   yaw: THREE.Group;
+  /** The carriage and barrel together: they roll back along the gun's -Z on a shot (the mortar's bed thuds down instead). */
+  slide: THREE.Group;
   pitch: THREE.Group;
   active: { value: number };
   activeTarget: number;
   curYaw: number;
   curPitch: number;
-  /** M3: its iron, and what its model shows ("" for an empty slot). */
+  /** M3: its iron and its bronze, and what its model shows ("" for an empty slot). */
   iron: THREE.Material;
+  bronze: THREE.Material;
   armed: string;
   /**
    * After M5: knocked out. It tips over on its bed, or (its masonry gave
@@ -38,6 +67,26 @@ interface Gun {
   groundY: number;
   /** The way it tips (a turn about the vertical, picked from its id). */
   tipYaw: number;
+  // --- look round L1 ---
+  /** Its reload stage and the age of its last shot. */
+  st: StageState;
+  /** Kegs standing in its powder box (0 to 4). */
+  kegs: number;
+  /** The kick applied now (metres back, metres down, radians of barrel). */
+  back: number;
+  down: number;
+  pitchKick: number;
+  /** The world y the crew and the props stand on (null: an empty slot). */
+  floorY: number | null;
+  rope: Breeching | null;
+  quoin: THREE.Mesh | null;
+  quoinAt: { bedTop: number; s: number; r: number } | null;
+  /** Where the kegs stand and the match burns, in the gun's root frame. */
+  kegPos: THREE.Vector3[];
+  matchPos: THREE.Vector3 | null;
+  /** The same in the world (refreshed when the root moves). */
+  matchWorld: THREE.Vector3;
+  phase: number;
 }
 
 /** One gun's share of a keyframe. */
@@ -51,80 +100,13 @@ export interface GunState {
   groundY: number;
   yaw: number;
   pitch: number;
-}
-
-function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMaterial {
-  const m = new THREE.MeshStandardNodeMaterial();
-  applyCloudShadow(m);
-  m.name = "gun-iron";
-  const n: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z), positionWorld.y).mul(0.9)).r;
-  m.colorNode = mix(color(0x262524), color(0x4b3123), smoothstep(0.55, 0.85, n).mul(0.6));
-  m.metalness = 0.65;
-  m.roughness = 0.5;
-  // The weapon you ride gets a faint cold rim so it reads against the wall.
-  const v: N = positionWorld.sub(cameraPosition).normalize();
-  const rim: N = pow(float(1).sub(normalWorld.dot(v.negate()).abs()), 3.0);
-  m.emissiveNode = color(0xb8c8d8).mul(rim.mul(0.12).add(0.01)).mul(active);
-  return m;
-}
-
-function woodMaterial(noise: THREE.Texture): THREE.MeshStandardNodeMaterial {
-  const m = new THREE.MeshStandardNodeMaterial();
-  applyCloudShadow(m);
-  m.name = "gun-wood";
-  const g: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z).mul(2.5), positionWorld.y.mul(0.4))).g;
-  m.colorNode = mix(color(0x2b2824), color(0x4d4841), g.mul(0.8).add(0.1));
-  m.roughness = 0.9;
-  m.metalness = 0;
-  return m;
-}
-
-/** A barrel along +Z: rear radius, muzzle radius, from z0 to z1, with a muzzle swell and a cascabel. */
-function barrel(r0: number, r1: number, z0: number, z1: number, flare = 1.25): THREE.BufferGeometry[] {
-  const out: THREE.BufferGeometry[] = [];
-  const len = z1 - z0;
-  const body = new THREE.CylinderGeometry(r1, r0, len, 14, 1);
-  body.rotateX(Math.PI / 2);
-  body.translate(0, 0, (z0 + z1) / 2);
-  out.push(body);
-  const swell = new THREE.CylinderGeometry(r1 * flare, r1 * flare, Math.min(0.14, len * 0.08), 14, 1);
-  swell.rotateX(Math.PI / 2);
-  swell.translate(0, 0, z1 - 0.06);
-  out.push(swell);
-  const ring = new THREE.CylinderGeometry(r0 * 1.08, r0 * 1.08, 0.08, 14, 1);
-  ring.rotateX(Math.PI / 2);
-  ring.translate(0, 0, z0 + 0.06);
-  out.push(ring);
-  const knob = new THREE.SphereGeometry(r0 * 0.45, 8, 6);
-  knob.translate(0, 0, z0 - r0 * 0.3);
-  out.push(knob);
-  // Trunnions at the pivot.
-  const tr = new THREE.CylinderGeometry(r0 * 0.38, r0 * 0.38, r0 * 2 + 0.16, 8, 1);
-  tr.rotateZ(Math.PI / 2);
-  out.push(tr);
-  return out;
-}
-
-function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
-  const g = new THREE.BoxGeometry(w, h, d);
-  g.translate(x, y, z);
-  return g;
-}
-
-function wheel(r: number, w: number, x: number, y: number, z: number): THREE.BufferGeometry {
-  const g = new THREE.CylinderGeometry(r, r, w, 12, 1);
-  g.rotateZ(Math.PI / 2);
-  g.translate(x, y, z);
-  return g;
-}
-
-function addAll(parent: THREE.Object3D, geos: THREE.BufferGeometry[], mat: THREE.Material) {
-  for (const g of geos) {
-    const mesh = new THREE.Mesh(g, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-  }
+  /** Reload stage, the reload's length in ticks, the stage the last feed gave, the seconds since the last shot (L1). */
+  stage: number;
+  full: number;
+  fed: number;
+  age: number;
+  /** Kegs in its powder box. */
+  kegs: number;
 }
 
 /**
@@ -150,6 +132,15 @@ function supportHeight(layout: CastleLayout, x: number, y: number, z: number): {
   return { under, ring };
 }
 
+const _m = new THREE.Matrix4();
+const _p = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const _s = new THREE.Vector3();
+const _one = new THREE.Vector3(1, 1, 1);
+const _zero = new THREE.Vector3(0, 0, 0);
+const _id = new THREE.Quaternion();
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+
 export class Guns {
   readonly root = new THREE.Group();
   /** How many guns are shown (the rest are another mode's). */
@@ -157,139 +148,372 @@ export class Guns {
   private guns: Gun[] = [];
   private noise: THREE.Texture;
   private wood: THREE.MeshStandardNodeMaterial;
+  private rope: THREE.MeshStandardNodeMaterial;
+  private kegMat: THREE.MeshStandardNodeMaterial;
+  private glowMat: THREE.MeshBasicNodeMaterial;
   private mats: THREE.Material[] = [];
+  /** Every gun's four kegs in one instanced mesh (a hidden keg is scaled to nothing), and every match's glow in another. */
+  private kegMesh: THREE.InstancedMesh | null = null;
+  private glowMesh: THREE.InstancedMesh | null = null;
+  private k: Kick = { back: 0, down: 0, pitch: 0 };
 
   constructor(noise: THREE.Texture) {
     this.noise = noise;
     this.root.name = "guns";
     this.wood = woodMaterial(noise);
-    this.mats.push(this.wood);
+    this.rope = ropeMaterial();
+    this.kegMat = kegMaterial();
+    this.glowMat = glowMaterial();
   }
 
   build(layout: CastleLayout, emplacements: Emplacement[]) {
     for (const g of this.guns) {
       this.root.remove(g.root);
+      g.rope?.dispose();
       g.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
-    for (const m of this.mats) if (m !== this.wood) m.dispose();
-    this.mats = [this.wood];
+    for (const m of this.mats) m.dispose();
+    this.mats = [];
+    for (const im of [this.kegMesh, this.glowMesh]) {
+      if (!im) continue;
+      this.root.remove(im);
+      im.geometry.dispose();
+      im.dispose();
+    }
     this.guns = [];
     this.layout = layout;
     for (const em of emplacements) {
       const active = uniform(0);
       const iron = ironMaterial(this.noise, active);
-      this.mats.push(iron);
+      const bronze = bronzeMaterial(this.noise, active);
+      this.mats.push(iron, bronze);
       const root = new THREE.Group();
       root.name = `gun-${em.id}-${em.weapon}`;
       root.position.set(em.x, em.y, em.z);
       const tip = new THREE.Group();
       const yaw = new THREE.Group();
+      const slide = new THREE.Group();
       const pitch = new THREE.Group();
       root.add(tip);
       tip.add(yaw);
-      yaw.add(pitch);
-      const gun: Gun = { em: { ...em }, root, tip, yaw, pitch, active, activeTarget: 0, curYaw: em.baseYaw, curPitch: 0, iron, armed: "", out: false, fell: false, dropY: 0, dropV: 0, tumble: 0, groundY: 0, tipYaw: (em.id * 2.399) % (Math.PI * 2) };
+      yaw.add(slide);
+      slide.add(pitch);
+      const gun: Gun = {
+        em: { ...em },
+        root,
+        tip,
+        yaw,
+        slide,
+        pitch,
+        active,
+        activeTarget: 0,
+        curYaw: em.baseYaw,
+        curPitch: 0,
+        iron,
+        bronze,
+        armed: "",
+        out: false,
+        fell: false,
+        dropY: 0,
+        dropV: 0,
+        tumble: 0,
+        groundY: 0,
+        tipYaw: (em.id * 2.399) % (Math.PI * 2),
+        st: newStage(),
+        kegs: BOX_KEGS,
+        back: 0,
+        down: 0,
+        pitchKick: 0,
+        floorY: null,
+        rope: null,
+        quoin: null,
+        quoinAt: null,
+        kegPos: [],
+        matchPos: null,
+        matchWorld: new THREE.Vector3(),
+        phase: (em.id * 1.7) % 6.28,
+      };
       this.guns.push(gun);
       this.root.add(root);
-      this.mount(gun, em);
-      this.setPose(em.id, em.baseYaw, kindRestPitch(em.weapon), false);
     }
+    const n = Math.max(1, this.guns.length);
+    this.kegMesh = new THREE.InstancedMesh(kegGeometry(), this.kegMat, n * BOX_KEGS);
+    this.kegMesh.name = "gun-kegs";
+    this.kegMesh.frustumCulled = false;
+    this.kegMesh.castShadow = true;
+    this.kegMesh.receiveShadow = true;
+    this.glowMesh = new THREE.InstancedMesh(glowGeometry(), this.glowMat, n);
+    this.glowMesh.name = "gun-match-glow";
+    this.glowMesh.frustumCulled = false;
+    this.glowMesh.renderOrder = 3;
+    for (let i = 0; i < n * BOX_KEGS; i++) this.kegMesh.setMatrixAt(i, _m.compose(_zero, _id, _zero));
+    for (let i = 0; i < n; i++) this.glowMesh.setMatrixAt(i, _m.compose(_zero, _id, _zero));
+    this.root.add(this.kegMesh, this.glowMesh);
+    for (const g of this.guns) {
+      this.mount(g, g.em);
+      this.setPose(g.em.id, g.em.baseYaw, kindRestPitch(g.em.weapon), false);
+    }
+    this.placeInstances();
   }
 
   private layout: CastleLayout | null = null;
 
+  private mesh(parent: THREE.Object3D, geos: Geo[], mat: THREE.Material, shadow = true): THREE.Mesh | null {
+    const g = merge(geos);
+    if (!g) return null;
+    const m = new THREE.Mesh(g, mat);
+    m.castShadow = shadow;
+    m.receiveShadow = true;
+    parent.add(m);
+    return m;
+  }
+
   /** Build (or take down) a gun's model for what its slot holds now: nothing in an empty slot (M3). */
   private mount(g: Gun, em: Emplacement) {
-    for (const group of [g.root, g.tip, g.yaw, g.pitch]) {
+    const keep = new Set<THREE.Object3D>([g.tip, g.yaw, g.slide, g.pitch]);
+    for (const group of [g.root, g.tip, g.yaw, g.slide, g.pitch]) {
       for (const child of [...group.children]) {
-        if (child === g.tip || child === g.yaw || child === g.pitch) continue;
+        if (keep.has(child)) continue;
         group.remove(child);
         child.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
       }
     }
+    g.rope?.dispose();
+    g.rope = null;
+    g.quoin = null;
+    g.quoinAt = null;
+    g.kegPos = [];
+    g.matchPos = null;
+    g.floorY = null;
     g.em = { ...em };
     g.armed = em.empty ? "" : `${em.weapon}`;
     g.root.name = `gun-${em.id}-${em.empty ? "empty" : em.weapon}`;
+    // A new gun in the slot: loaded, run out, at rest.
+    g.st = newStage();
+    g.back = 0;
+    g.down = 0;
+    g.pitchKick = 0;
+    g.slide.position.set(0, 0, 0);
+    g.pitch.position.set(0, 0, 0);
     if (em.empty || !this.layout) return;
     const layout = this.layout;
     const sup = supportHeight(layout, em.x, em.y, em.z);
     let floor = sup.under;
+    const rootWood: Geo[] = [];
+    const rootIron: Geo[] = [];
     if (sup.ring - sup.under > 1.5) {
       // Inside a tower: a timber deck across the top of the ring.
       floor = sup.ring;
       const deck = new THREE.CylinderGeometry(layout.wedge.rIn + 0.05, layout.wedge.rIn + 0.05, 0.25, 20, 1);
       deck.translate(0, floor - 0.125 - em.y, 0);
-      addAll(g.root, [deck], this.wood);
+      rootWood.push(deck);
     }
     const drop = Math.max(0.3, em.y - floor);
-    this.model(em.weapon, em.barrel, drop, g.root, g.yaw, g.pitch, g.iron);
+    g.floorY = em.y - drop;
+    this.model(g, em.weapon, em.barrel, drop, rootWood);
+    // What stands beside it, on the floor, turned with the gun's rest aim (it does not turn when the gun does).
+    const props = propsFor(em.weapon);
+    const place = (geos: Geo[], into: Geo[]) => {
+      for (const p of geos) {
+        p.rotateY(em.baseYaw);
+        p.translate(0, -drop, 0);
+        into.push(p);
+      }
+    };
+    place(props.wood, rootWood);
+    place(props.iron, rootIron);
+    g.kegPos = props.kegs.map((v) => v.clone().applyAxisAngle(Y_AXIS, em.baseYaw).setY(-drop + v.y));
+    if (props.match) g.matchPos = props.match.clone().applyAxisAngle(Y_AXIS, em.baseYaw).setY(-drop + props.match.y);
+    this.mesh(g.root, rootWood, this.wood);
+    this.mesh(g.root, rootIron, g.iron);
+    g.root.updateWorldMatrix(true, false);
+    if (g.matchPos) g.matchWorld.copy(g.matchPos).applyMatrix4(g.root.matrixWorld);
+    this.applyKick(g, true);
+  }
+
+  /** The gun's model: carriage or bed or post, and the barrel. */
+  private model(g: Gun, kind: WeaponKind, len: number, drop: number, rootWood: Geo[]) {
+    const { yaw, slide, pitch } = g;
+    if (kind === "longGun" || kind === "chainShot") {
+      const chain = kind === "chainShot";
+      const spec: BarrelSpec = { r0: chain ? 0.24 : 0.22, r1: chain ? 0.17 : 0.13, z0: chain ? -0.7 : -1.2, z1: len, flare: chain ? 1.45 : 1.25 };
+      this.mesh(pitch, barrelGeos(spec, "gun"), g.bronze);
+      // Carriage: cheeks, transoms, axletrees and four trucks, below the trunnions.
+      const ch = Math.min(drop, 0.85);
+      const car = carriageGeos(ch, chain, spec.r0, spec.z0);
+      this.mesh(slide, car.wood, this.wood);
+      this.mesh(slide, car.iron, g.iron);
+      const q = new THREE.Mesh(quoinGeo(), this.wood);
+      q.castShadow = true;
+      q.receiveShadow = true;
+      slide.add(q);
+      g.quoin = q;
+      g.quoinAt = { bedTop: car.bedTop, s: car.quoinS, r: spec.r0 * 0.9 };
+      g.rope = new Breeching(car.bolts, RECOIL_BACK[kind], -ch, this.rope);
+      g.rope.mesh.castShadow = false;
+      yaw.add(g.rope.mesh);
+      if (drop > ch + 0.05) {
+        // A timber platform makes up the rest of the height to the wall walk.
+        const h = drop - ch;
+        const p = new THREE.BoxGeometry(2.2, h, 2.8);
+        p.translate(0, -ch - h / 2, 0);
+        rootWood.push(p);
+      }
+    } else if (kind === "mortar") {
+      // Squat, wide bore; the bed sits under the trunnions.
+      const spec: BarrelSpec = { r0: 0.42, r1: 0.4, z0: -0.35, z1: len, flare: 1.12 };
+      this.mesh(pitch, barrelGeos(spec, "mortar"), g.iron);
+      const bed = mortarBedGeos(drop);
+      this.mesh(slide, bed.wood, this.wood);
+      this.mesh(slide, bed.iron, g.iron);
+    } else {
+      // Swivel gun: a short cast barrel in an iron yoke on a wooden post, tiller at the back.
+      const spec: BarrelSpec = { r0: 0.075, r1: 0.055, z0: -0.45, z1: len, flare: 1.3 };
+      const tiller = new THREE.BoxGeometry(0.035, 0.035, 0.6);
+      tiller.translate(0, 0, -0.72);
+      this.mesh(pitch, [...barrelGeos(spec, "swivel"), tiller], g.iron);
+      this.mesh(yaw, yokeGeos(), g.iron);
+      const post = new THREE.CylinderGeometry(0.1, 0.13, drop - 0.2, 8, 1);
+      post.translate(0, -0.2 - (drop - 0.2) / 2, 0);
+      rootWood.push(post);
+    }
   }
 
   /** M3: what each slot holds now (a gun bought for an empty slot appears; nothing else changes). */
   arm(emplacements: Emplacement[]) {
+    let changed = false;
     for (const em of emplacements) {
       const g = this.guns.find((x) => x.em.id === em.id);
       if (!g) continue;
       const want = em.empty ? "" : `${em.weapon}`;
-      if (want !== g.armed) this.mount(g, em);
+      if (want !== g.armed) {
+        this.mount(g, em);
+        this.setPose(g.em.id, g.curYaw, g.curPitch, g.activeTarget > 0);
+        changed = true;
+      }
     }
+    if (changed) this.placeInstances();
   }
 
-  private model(kind: WeaponKind, len: number, drop: number, root: THREE.Group, yaw: THREE.Group, pitch: THREE.Group, iron: THREE.Material) {
-    const wood = this.wood;
-    if (kind === "longGun" || kind === "chainShot") {
-      const chain = kind === "chainShot";
-      const r0 = chain ? 0.24 : 0.22;
-      const r1 = chain ? 0.17 : 0.13;
-      addAll(pitch, barrel(r0, r1, chain ? -0.7 : -1.2, len, chain ? 1.45 : 1.25), iron);
-      // Carriage: two cheeks, an axle bed and four trucks, below the trunnions.
-      const ch = Math.min(drop, 0.85);
-      const cheekH = ch * 0.75;
-      const cy = -ch + 0.18 + cheekH / 2 - 0.1;
-      addAll(yaw, [box(0.12, cheekH, 1.5, 0.3, cy, -0.25), box(0.12, cheekH, 1.5, -0.3, cy, -0.25), box(0.72, 0.14, 1.3, 0, -ch + 0.25, -0.25)], wood);
-      const wr = 0.2;
-      addAll(yaw, [wheel(wr, 0.1, 0.42, -ch + wr, 0.25), wheel(wr, 0.1, -0.42, -ch + wr, 0.25), wheel(wr * 0.85, 0.1, 0.42, -ch + wr * 0.85, -0.8), wheel(wr * 0.85, 0.1, -0.42, -ch + wr * 0.85, -0.8)], wood);
-      if (drop > ch + 0.05) {
-        // A timber platform makes up the rest of the height to the wall walk.
-        const h = drop - ch;
-        addAll(root, [box(1.9, h, 2.6, 0, -ch - h / 2, -0.2)], wood);
-      }
-    } else if (kind === "mortar") {
-      // Squat, wide bore; the bed sits under the trunnions.
-      addAll(pitch, barrel(0.42, 0.4, -0.35, len, 1.12), iron);
-      const bore = new THREE.CircleGeometry(0.3, 16);
-      bore.translate(0, 0, len + 0.001);
-      const boreMat = new THREE.MeshBasicNodeMaterial();
-      boreMat.colorNode = color(0x050505);
-      this.mats.push(boreMat);
-      pitch.add(new THREE.Mesh(bore, boreMat));
-      const bedH = Math.max(0.3, drop - 0.05);
-      addAll(yaw, [box(0.3, bedH, 1.4, 0.55, -drop + bedH / 2, 0), box(0.3, bedH, 1.4, -0.55, -drop + bedH / 2, 0), box(1.4, 0.2, 1.5, 0, -drop + 0.1, 0)], wood);
-    } else {
-      // Swivel gun: a short barrel in an iron yoke on a wooden post, tiller at the back.
-      addAll(pitch, barrel(0.075, 0.055, -0.45, len, 1.3), iron);
-      addAll(pitch, [box(0.035, 0.035, 0.6, 0, 0, -0.72)], iron);
-      addAll(yaw, [box(0.04, 0.22, 0.05, 0.11, -0.08, 0), box(0.04, 0.22, 0.05, -0.11, -0.08, 0), box(0.26, 0.04, 0.06, 0, -0.19, 0)], iron);
-      const post = new THREE.CylinderGeometry(0.1, 0.13, drop - 0.2, 8, 1);
-      post.translate(0, -0.2 - (drop - 0.2) / 2, 0);
-      addAll(root, [post], wood);
-    }
+  private find(i: number): Gun | undefined {
+    return this.guns.find((x) => x.em.id === i) ?? this.guns[i];
   }
 
   setPose(i: number, yaw: number, pitch: number, active: boolean) {
-    const g = this.guns.find((x) => x.em.id === i) ?? this.guns[i];
+    const g = this.find(i);
     if (!g) return;
     g.curYaw = yaw;
     g.curPitch = pitch;
     g.yaw.rotation.set(0, yaw, 0);
-    // Rotating about local X by -pitch lifts the barrel (+Z) towards +Y.
-    g.pitch.rotation.set(-pitch, 0, 0);
+    this.applyPitch(g);
     g.activeTarget = active ? 1 : 0;
   }
 
+  /** Rotating about local X by -pitch lifts the barrel (+Z) towards +Y; the mortar's kick adds to it; the quoin follows the breech. */
+  private applyPitch(g: Gun) {
+    g.pitch.rotation.set(-(g.curPitch + g.pitchKick), 0, 0);
+    const q = g.quoin, at = g.quoinAt;
+    if (q && at) {
+      const p = g.curPitch;
+      const under = at.s * Math.sin(p) - at.r * Math.cos(p);
+      q.position.set(0, at.bedTop, at.s * Math.cos(p));
+      q.scale.y = Math.max(0.01, under - at.bedTop);
+    }
+  }
+
+  /** Lay the kick of the gun's last shot on its parts: the carriage back (the ropes follow), the mortar's bed down, the swivel's barrel along its axis. */
+  private applyKick(g: Gun, force = false) {
+    if (g.armed === "") return;
+    const k = kick(g.em.weapon, g.st.age, g.st.stage, this.k);
+    if (g.em.weapon === "longGun" || g.em.weapon === "chainShot") {
+      if (force || Math.abs(k.back - g.back) > 1e-5) {
+        g.back = k.back;
+        g.slide.position.z = -k.back;
+        g.rope?.update(k.back);
+      }
+    } else if (g.em.weapon === "mortar") {
+      if (force || Math.abs(k.down - g.down) > 1e-5 || Math.abs(k.pitch - g.pitchKick) > 1e-5) {
+        g.down = k.down;
+        g.pitchKick = k.pitch;
+        g.slide.position.y = -k.down;
+        this.applyPitch(g);
+      }
+    } else if (force || Math.abs(k.back - g.back) > 1e-5) {
+      g.back = k.back;
+      g.pitch.position.z = -k.back;
+    }
+  }
+
+  // --- the shot, the reload and the box ---------------------------------------------------------
+
+  /** A Muzzle event: the gun fires (its kick begins, its reload stage starts over). Says what fired and whether it is the one you ride. */
+  fire(i: number): { kind: WeaponKind; active: boolean } | null {
+    const g = this.find(i);
+    if (!g || g.armed === "") return null;
+    stageFire(g.st, WEAPONS[g.em.weapon].reload);
+    this.applyKick(g);
+    return { kind: g.em.weapon, active: g.activeTarget > 0 };
+  }
+
+  /** The page's reload array: ticks left per match emplacement id. A gun with ticks left has begun its reload. */
+  setReloads(left: ArrayLike<number>) {
+    for (const g of this.guns) {
+      if (g.armed === "") continue;
+      const v = left[g.em.id];
+      if (v === undefined) continue;
+      stageFeed(g.st, v);
+    }
+  }
+
+  /** The ready box beside a gun holds this many charges of this capacity: kegs show 0 for none, else the share rounded up (at most four). */
+  setReadyBox(i: number, charges: number, capacity: number) {
+    const g = this.find(i);
+    if (!g) return;
+    const n = kegCount(charges, capacity);
+    if (n === g.kegs) return;
+    g.kegs = n;
+    this.placeInstances();
+  }
+
+  /** Reload stage of a gun, 0 just fired to 1 loaded (1 for a gun that never fired or an empty slot). */
+  stage(i: number): number {
+    const g = this.find(i);
+    return g && g.armed !== "" ? g.st.stage : 1;
+  }
+
+  /** How far the gun has rolled back now, in metres (the mortar: how far its bed has dropped; the swivel: its barrel along its axis). */
+  slide(i: number): number {
+    const g = this.find(i);
+    if (!g || g.armed === "") return 0;
+    return g.em.weapon === "mortar" ? g.down : g.back;
+  }
+
+  /** The world y the crew and the props stand on; null for an empty slot. */
+  floor(i: number): number | null {
+    const g = this.find(i);
+    return g ? g.floorY : null;
+  }
+
+  /** Write every gun's kegs into the instanced mesh (and the world places of the matches): after a gun moves, appears, or is shown or hidden. */
+  private placeInstances() {
+    const km = this.kegMesh;
+    if (!km) return;
+    this.guns.forEach((g, gi) => {
+      const show = g.root.visible && g.armed !== "";
+      if (show) g.root.updateWorldMatrix(true, false);
+      if (show) g.root.getWorldQuaternion(_q);
+      for (let k = 0; k < BOX_KEGS; k++) {
+        if (show && k < g.kegs && k < g.kegPos.length) km.setMatrixAt(gi * BOX_KEGS + k, _m.compose(_p.copy(g.kegPos[k]).applyMatrix4(g.root.matrixWorld), _q, _one));
+        else km.setMatrixAt(gi * BOX_KEGS + k, _m.compose(_zero, _id, _zero));
+      }
+      if (show && g.matchPos) g.matchWorld.copy(g.matchPos).applyMatrix4(g.root.matrixWorld);
+    });
+    km.instanceMatrix.needsUpdate = true;
+  }
+
   /**
-   * After M5: a gun knocked out (or back). `fell`: its masonry gave way, so it
-   * falls to `groundY`; otherwise it tips over on its bed. Back: it stands as
+   * After M5: a gun knocked out (or back). `fell`: its masonry gave
+   * way, so it falls to `groundY`; otherwise it tips over on its bed. Back: it stands as
    * it was at once (its crew has put it back).
    */
   setOut(i: number, out: boolean, fell: boolean, groundY: number) {
@@ -301,17 +525,34 @@ export class Guns {
     g.dropV = 0;
     g.tumble = 0;
     g.groundY = groundY;
+    if (g.rope) g.rope.mesh.visible = !out;
     if (!out) {
       g.root.position.set(g.em.x, g.em.y, g.em.z);
       g.root.rotation.set(0, 0, 0);
       g.tip.position.set(0, 0, 0);
       g.tip.rotation.set(0, 0, 0);
+      this.placeInstances();
     }
   }
 
-  /** Keyframe (S3): per gun, what it holds, whether it is out or fell, how far its fall has gone, and where it points. */
+  /** Keyframe (S3): per gun, what it holds, whether it is out or fell, how far its fall has gone, where it points, its reload and its box. */
   captureState(): GunState[] {
-    return this.guns.map((g) => ({ armed: g.armed, out: g.out, fell: g.fell, dropY: g.dropY, dropV: g.dropV, tumble: g.tumble, groundY: g.groundY, yaw: g.curYaw, pitch: g.curPitch }));
+    return this.guns.map((g) => ({
+      armed: g.armed,
+      out: g.out,
+      fell: g.fell,
+      dropY: g.dropY,
+      dropV: g.dropV,
+      tumble: g.tumble,
+      groundY: g.groundY,
+      yaw: g.curYaw,
+      pitch: g.curPitch,
+      stage: g.st.stage,
+      full: g.st.full,
+      fed: g.st.fed,
+      age: g.st.age,
+      kegs: g.kegs,
+    }));
   }
 
   /** Keyframe (S3): put every gun as captured, a fall standing where it had got to (not replayed). */
@@ -326,6 +567,12 @@ export class Guns {
       g.dropV = st.dropV;
       g.tumble = st.tumble;
       g.groundY = st.groundY;
+      g.kegs = st.kegs ?? BOX_KEGS;
+      g.st.stage = st.stage ?? 1;
+      g.st.full = st.full ?? 1;
+      g.st.fed = st.fed ?? -1;
+      g.st.age = st.age ?? 1e6;
+      if (g.rope) g.rope.mesh.visible = !g.out;
       // Upright again, then (if out) where its fall had got to.
       g.root.position.set(g.em.x, g.em.y, g.em.z);
       g.root.rotation.set(0, 0, 0);
@@ -333,17 +580,20 @@ export class Guns {
       g.tip.rotation.set(0, 0, 0);
       if (g.out) this.animateOut(g, 0);
       this.setPose(g.em.id, st.yaw, st.pitch, g.activeTarget > 0);
+      this.applyKick(g, true);
     });
+    this.placeInstances();
   }
 
   /** Show the first n guns (the rest belong to a castle that has none in this mode). */
   setShown(n: number) {
     this.guns.forEach((g, i) => (g.root.visible = i < n));
+    this.placeInstances();
   }
 
   /** World position of an emplacement's muzzle at its current pose, and the barrel direction. */
   muzzle(i: number, out: THREE.Vector3, dir: THREE.Vector3): boolean {
-    const g = this.guns.find((x) => x.em.id === i) ?? this.guns[i];
+    const g = this.find(i);
     if (!g) return false;
     const cp = Math.cos(g.curPitch);
     dir.set(Math.sin(g.curYaw) * cp, Math.sin(g.curPitch), Math.cos(g.curYaw) * cp);
@@ -351,17 +601,39 @@ export class Guns {
     return true;
   }
 
-  update(dt: number) {
+  /** A frame: `dt` seconds of the renderer's own clock (slow motion slows it), `now` that clock, and the camera's turn (the matches' glows face it). */
+  update(dt: number, now = 0, camQuat?: THREE.Quaternion) {
     const k = 1 - Math.exp(-dt * 6);
+    let moved = false;
     for (const g of this.guns) {
       g.active.value += (g.activeTarget - g.active.value) * k;
-      if (g.out) this.animateOut(g, dt);
+      stageStep(g.st, dt);
+      this.applyKick(g);
+      if (g.out) {
+        this.animateOut(g, dt);
+        if (g.fell) moved = true;
+      }
+    }
+    if (moved) this.placeInstances();
+    const gm = this.glowMesh;
+    if (gm) {
+      this.guns.forEach((g, gi) => {
+        const on = g.matchPos !== null && g.armed !== "" && g.root.visible && !g.out;
+        if (!on) {
+          gm.setMatrixAt(gi, _m.compose(_zero, _id, _zero));
+          return;
+        }
+        // A slow match flickers: a few slow waves and a quick one, by the renderer's clock.
+        const f = 0.9 + 0.12 * Math.sin(now * 7.3 + g.phase) + 0.08 * Math.sin(now * 19.1 + g.phase * 2.1) + 0.05 * Math.sin(now * 41 + g.phase * 3.7);
+        gm.setMatrixAt(gi, _m.compose(g.matchWorld, camQuat ?? _id, _s.setScalar(f)));
+      });
+      gm.instanceMatrix.needsUpdate = true;
     }
   }
 
   /**
    * A knocked-out gun: tipping over on its bed (what it stands on stays put:
-   * a tower's deck, a wall gun's platform, a swivel's post), or falling with
+   * a tower's deck, a wall gun's platform, a swivel's post, and the props beside it), or falling with
    * its masonry, all of it, and coming to rest on the ground.
    */
   private animateOut(g: Gun, dt: number) {
@@ -387,11 +659,20 @@ export class Guns {
   }
 
   dispose() {
-    for (const g of this.guns) g.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    for (const g of this.guns) {
+      g.rope?.dispose();
+      g.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
     for (const m of this.mats) m.dispose();
+    for (const im of [this.kegMesh, this.glowMesh]) {
+      im?.geometry.dispose();
+      im?.dispose();
+    }
+    for (const m of [this.wood, this.rope, this.kegMat, this.glowMat]) m.dispose();
   }
 }
 
 function kindRestPitch(kind: WeaponKind): number {
   return kind === "mortar" ? 0.9 : 0.05;
 }
+
