@@ -115,7 +115,7 @@ try {
   await expect("no enemy man outside their courtyard: step 6 ticks, its follow-up shows", () => window.__sandbox.coach.state.phase === "after" && /fire on their own at men near your gate/.test(document.getElementById("coach-how").textContent));
   await expect("then the interrupted step 3 comes back, Step 3 of 10", () => window.__sandbox.coach.state.step === 2 && window.__sandbox.coach.state.phase === "ask" && /Step 3 of 10/.test(document.getElementById("coach-step").textContent));
   await expect("with its ring on gun tab 2 again", () => document.querySelector('#weapons [data-weapon="1"]').classList.contains("coach-hl") && !document.querySelector('#weapons [data-weapon="2"]').classList.contains("coach-hl"));
-  await patch({ standing: undefined });
+  await patch({ standing: undefined, order: 0 }); // waves not on Hold through steps 5 to 7: on the real clock men pile up and "Send your waves in" would interrupt (it has its own test below)
   await page.keyboard.press("Digit2");
   await expect("taking the mortar", () => document.getElementById("w-name").textContent === "Mortar");
   await page.evaluate(() => { const b = document.getElementById("shotcam"); if (b.checked) b.click(); });
@@ -165,7 +165,7 @@ try {
   check("the marks row is ringed", seen.ring);
   await expect("the mark shows as a chip", () => window.__sandbox.chips.length === 1 && window.__sandbox.chips[0].place === "Centre bridge");
   await expect(...stepIs(8));
-  await patch({ marks: undefined });
+  await patch({ marks: undefined, order: undefined });
   // ---- step 8: send your waves in ----
   await patch({ tutor: 2 });
   await expect("step 8 rings the route and order buttons", () => document.querySelectorAll('#command [data-route].coach-hl').length === 3 && document.querySelectorAll('#command [data-order].coach-hl').length === 3);
