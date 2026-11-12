@@ -154,7 +154,7 @@ export class Crews {
     capGeo.scale(1, 0.62, 1.05);
     capGeo.translate(0, 0.035, -0.01);
     this.cap = mk("crew-cap", capGeo, cloth, MAX_MEN, true);
-    const apronGeo = new THREE.BoxGeometry(0.3, 0.52, 0.03);
+    const apronGeo = new THREE.BoxGeometry(0.25, 0.42, 0.025);
     apronGeo.deleteAttribute("uv");
     this.apron = mk("crew-apron", apronGeo, cloth, MAX_MEN, true);
     // The staff: from its head (local y 0) to its butt (y = POLE): a drum of sponge or rammer at the head end.
@@ -337,7 +337,7 @@ export class Crews {
     _p.set(this.head[0] + ux * 0.03, this.head[1] + uy * 0.03, this.head[2] + uz * 0.03);
     this.cap.setMatrixAt(k, _m4.compose(_p, qTor, _one));
     setColor(this.cap, k, C_TEAM[team & 1], 0.75);
-    _p.set(this.pel[0] + ux * 0.1 + fx * 0.17, this.pel[1] + uy * 0.1 + 0.02, this.pel[2] + uz * 0.1 + fz * 0.17);
+    _p.set(this.pel[0] + ux * 0.1 + fx * 0.15, this.pel[1] + uy * 0.1 + 0.02, this.pel[2] + uz * 0.1 + fz * 0.15);
     // Hangs from the chest: its long side along the spine, a little forward of the belly.
     this.apron.setMatrixAt(k, _m4.compose(_p, qTor, _one));
     setColor(this.apron, k, C_APRON, 1);

@@ -133,7 +133,7 @@ test("long gun and chain shot: swab, load, ram, run out, ready", () => {
     assert.ok(Math.abs(r.f[GUNNER].pz - PLACES[kind].gunnerReady[1]) < 0.01, "the gunner is by the breech");
     for (const m of [SPONGE, LOADER, HELPER]) assert.equal(r.f[m].carry, NO_CARRY);
     for (const m of [LOADER, HELPER]) assert.equal(r.f[m].hw, 0, "the others stand clear");
-    assert.ok(r.f[SPONGE].tb[1] - r.f[SPONGE].ta[1] < -POLE + 0.1, "the staff stands upright");
+    assert.ok(r.f[SPONGE].tb[1] - r.f[SPONGE].ta[1] > POLE - 0.1, "the staff stands upright, its head down");
   }
 });
 

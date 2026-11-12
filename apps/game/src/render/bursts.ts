@@ -70,6 +70,8 @@ export interface BurstConfig {
   opacity: number;
   /** Keep particles above y = 0 (the field). */
   floor: boolean;
+  /** With `floor`: keep them above the height they were thrown from instead (dust thrown up from a wall walk). */
+  floorAtSpawn?: boolean;
   /** How much the sun shades the puffs (0 flat, 1 fully lit). Defaults to 1. */
   lighting?: number;
   /** Thin out near the aim line and crosshair (readability rule 6). */
@@ -150,7 +152,7 @@ export class Burst {
     const drift: N = vec3((wind as N).x.mul(cfg.windScale), cfg.rise, (wind as N).y.mul(cfg.windScale)).mul(t);
     const size: N = mix(cfg.size[0], cfg.size[1], float(1).sub(exp(t.mul(-cfg.grow)))).mul(scale).mul(mix(0.7, 1.3, r5));
     const p0: N = A.xyz.add(dir.mul(speed).mul(travel)).add(drift).add(vec3(0, -0.5 * cfg.gravity, 0).mul(t.mul(t)));
-    const centre: N = cfg.floor ? vec3(p0.x, max(p0.y, size.mul(0.3)), p0.z) : p0;
+    const centre: N = cfg.floor ? vec3(p0.x, max(p0.y, size.mul(0.3).add(cfg.floorAtSpawn ? A.y : 0)), p0.z) : p0;
     const alive: N = cfg.sink === undefined ? t.greaterThanEqual(0.0).and(t.lessThan(life)) : t.greaterThanEqual(0.0).and(t.lessThan(life)).and(p0.y.greaterThan(cfg.sink));
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
     const up: N = (cameraWorldMatrix as N).element(1).xyz;

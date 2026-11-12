@@ -335,8 +335,9 @@ function pole(f: Figure, g: CrewGun, ins: number) {
 /** The staff stood upright at his side, a hand on it. */
 function poleRest(f: Figure) {
   const x = f.px - Math.cos(f.face) * 0.3 + Math.sin(f.face) * 0.15, z = f.pz + Math.sin(f.face) * 0.3 + Math.cos(f.face) * 0.15;
-  set3(f.tb, x, f.py, z);
-  set3(f.ta, x, f.py + POLE, z);
+  // Head down on the floor, the butt up.
+  set3(f.ta, x, f.py, z);
+  set3(f.tb, x, f.py + POLE, z);
   set3(f.hr, x, f.py + 1.05, z);
   set3(f.hl, x, f.py + 1.4, z);
   f.tool = STAFF;
