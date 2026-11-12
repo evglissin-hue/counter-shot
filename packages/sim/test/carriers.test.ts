@@ -11,6 +11,9 @@ import {
   KEG,
   keepDoor,
   magazineBurst,
+  magazineDoor,
+  mirrorZ,
+  CASTLE_SHAPE,
   MATCH_EMPLACEMENTS,
   plotCentre,
   POWDER,
@@ -137,18 +140,19 @@ test("without a powder store (the Practice range, a match with powder off) every
   off.free();
 });
 
-test("three boys per castle stand at the keep's door to start; a boy's keg fills a box from the store", () => {
+test("three boys per castle stand at the store's door (the magazine's lean-to) to start; a boy's keg fills a box from the store", () => {
   const sim = world();
   const c = sim.carriers!;
   for (const castle of [0, 1]) {
     const boys = boysOf(sim, castle);
     assert.equal(boys.length, POWDER.boys);
-    const d = keepDoor(castle);
+    assert.equal(c.status(castle).magazine, 5, "the magazine on plot 5 works");
+    const d = magazineDoor(castle, 5);
     for (const b of boys) {
       const m = sim.minions.list[b.minion];
       assert.equal(m.unit, Unit.PowderBoy);
       assert.equal(m.role, Role.Carrier);
-      assert.ok(Math.hypot(m.x - d.x, m.z - d.z) < 3, "at the keep's door");
+      assert.ok(Math.hypot(m.x - d.x, m.z - d.z) < 2, "at the magazine's door");
     }
   }
   const lg = gunOf(sim, 1, "longGun");
@@ -313,7 +317,7 @@ test("a boy knocked down by a ball while he carries a keg sets it off where he l
   assert.ok(events(sim).some((e) => e[0] === EventKind.KegBurst && e[1] === m.id), "a KegBurst event");
   assert.ok(!boysOf(sim, 1).some((x) => x.minion === m.id), "he is no longer one of the boys");
   assert.ok(boysOf(sim, 1).some((x) => x.minion < 0), "and a replacement is due");
-  // 20 s later a new boy stands at the keep's door.
+  // POWDER.respawn ticks later a new boy stands at the store's door.
   run(sim, POWDER.respawn + 2);
   assert.equal(boysOf(sim, 1).filter((x) => x.minion < 0).length, 0, "replaced");
   sim.free();
@@ -560,4 +564,34 @@ test("buildings: the magazine's pieces are 24 to 36 on every plot, inside it, an
     assert.ok(r.count >= 24 && r.count <= 36, `plot ${r.plot}: ${r.count} pieces`);
   }
   assert.equal(shotCost({ ...MATCH_EMPLACEMENTS[0], empty: true }), 0);
+});
+
+test("a boy with no way at all to the store (left on a wall top) finds his way round to its door", () => {
+  const sim = world();
+  const c = sim.carriers!;
+  const b = boysOf(sim, 1)[0];
+  const m = sim.minions.list[b.minion];
+  // The top of castle 1's back wall: walkable, but with no way down.
+  const S = CASTLE_SHAPE;
+  const x = -5, z = mirrorZ(1, S.half);
+  const cell = navCell(x, z);
+  assert.ok(cell >= 0 && sim.nav.kind[cell] === NavKind.Raised, "the wall top is walkable");
+  m.x = x;
+  m.z = z;
+  m.y = sim.army!.surface(x, z, cell);
+  sim.minions.place(m);
+  const top = m.y;
+  assert.ok(top > 3, "up on the wall");
+  // Give the boys an errand.
+  drain(sim, gunOf(sim, 1, "longGun").id);
+  drain(sim, gunOf(sim, 1, "mortar").id);
+  const d = magazineDoor(1, c.status(1).magazine);
+  let came = false;
+  run(sim, POWDER.stuck + 4 * 60, () => {
+    if (m.state === MinionState.Upright && Math.hypot(m.x - d.x, m.z - d.z) < 1.5 && m.y < 1) came = true;
+  });
+  assert.equal(m.state, MinionState.Upright, "still on his feet");
+  assert.ok(came, "he came round to the magazine's door");
+  assert.ok(m.y < top - 2, "off the wall");
+  sim.free();
 });
