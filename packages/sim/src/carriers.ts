@@ -18,8 +18,10 @@
 //   takes it when the gun fires (SandboxSim.apply calls it for every shot,
 //   by hand, by its crew or in a salvo; it refuses a fire canPay refuses).
 // - Boys: POWDER.boys per castle, Unit.PowderBoy minions with Role.Carrier in
-//   the minion list (a wave of their own, like the masons' crew), spawned at
-//   the store's door. Each repeats an errand: choose the gun most in need (POWDER.topUp
+//   the minion list (a wave of their own, like the masons' crew), spawned
+//   where they wait with nothing to do: in the lee of the magazine's vault, on
+//   the side of its plot away from the keep (magazineLee), or by the keep's
+//   door without one. Each repeats an errand: choose the gun most in need (POWDER.topUp
 //   order: the gun the team rides, then a gun that cannot fire, then the
 //   emptiest under topUp), walk to the store (magazineDoor of the working
 //   magazine, else keepDoor), take a full keg (POWDER.take ticks; POWDER.keg
@@ -30,7 +32,7 @@
 //   he makes for the nearest point within POWDER.reach of it he can get to.
 //   The team that rides a gun is asked through the
 //   policy. They run from enemy men within POWDER.flee as masons do, with their
-//   kegs. A boy who falls is replaced at the store's door after
+//   kegs. A boy who falls is replaced where they wait after
 //   POWDER.respawn ticks. A boy who cannot reach a gun's foot for
 //   POWDER.stuck ticks hoists from where he stands within POWDER.reach of it,
 //   or takes the keg to the next gun in need (that gun passed over for
@@ -78,6 +80,7 @@ import {
   keepDoor,
   magazineBurst,
   magazineDoor,
+  magazineLee,
   masonRefuge,
   PLOTS,
   plotCentre,
@@ -239,7 +242,7 @@ export class Carriers {
     }
   }
 
-  /** Both castles' boys, at the store's door (the start of a match). */
+  /** Both castles' boys, where they wait (the start of a match). */
   spawnAll() {
     for (const c of [0, 1] as const) {
       if (this.wave[c] < 0) this.wave[c] = this.army.newWave(c, 1, true);
@@ -248,11 +251,8 @@ export class Carriers {
   }
 
   private spawn(b: Boy) {
-    // At the store's door: along the magazine's lean-to (its door faces x = 0), or beside the keep's door.
-    const p = this.magazinePlot(b.castle);
-    const d = p >= 0 ? magazineDoor(b.castle, p) : keepDoor(b.castle);
-    const off = (b.slot - (POWDER.boys - 1) / 2) * 1.2;
-    const x = p >= 0 ? d.x : d.x + off, z = p >= 0 ? d.z + off : d.z;
+    // Where boys wait: in the lee of the magazine, or by the keep's door without one.
+    const { x, z } = this.waitSpot(b.castle, b.slot);
     const m = this.army.spawnAt(b.castle, this.wave[b.castle], Unit.PowderBoy, x, z, b.castle === 0 ? 3.141592653589793 / 2 : 0);
     m.role = Role.Carrier;
     m.home = b.castle;
@@ -347,6 +347,18 @@ export class Carriers {
     if (b.minion < 0) return null;
     const m = this.minions.list[b.minion];
     return m.state === MinionState.Upright ? m : null;
+  }
+
+  /** Where a boy with nothing to do waits (and comes out): in the lee of the working magazine, a little apart along it, or beside the keep's door. */
+  private waitSpot(castle: number, slot: number): { x: number; z: number } {
+    const p = this.magazinePlot(castle);
+    const off = (slot - (POWDER.boys - 1) / 2) * 1.2;
+    if (p < 0) {
+      const d = keepDoor(castle);
+      return { x: d.x + off, z: d.z };
+    }
+    const l = magazineLee(castle, p);
+    return { x: l.x, z: l.z + off };
   }
 
   private storeDoor(castle: number): { x: number; z: number } {
@@ -616,6 +628,12 @@ export class Carriers {
             }
             return;
           }
+        }
+        if (m.task === BoyTask.Idle && b.keg <= 0) {
+          // Nothing to do and nothing to put back: wait in the lee of the magazine, a little apart.
+          const w = this.waitSpot(castle, b.slot);
+          if (this.walkGoal(b, m, w.x, w.z, speed, walkAction, standAction, tick)) this.stand(m, NaN, 1);
+          return;
         }
         const d = this.storeDoor(castle);
         if (!this.walkGoal(b, m, d.x, d.z, speed, walkAction, standAction, tick)) {
