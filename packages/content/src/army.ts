@@ -9,9 +9,10 @@
 
 import { DIST } from "./field";
 import { BRIDGES, type RouteName } from "./map";
+import { POWDER } from "./powder";
 import type { BurstDef, WeaponKind } from "./weapons";
 
-export type UnitKind = "pikeman" | "mason" | "ladder" | "sapper" | "musketeer";
+export type UnitKind = "pikeman" | "mason" | "ladder" | "sapper" | "musketeer" | "powderBoy";
 
 /** Unit kinds as the sim numbers them (Minion.unit). */
 export const enum Unit {
@@ -24,6 +25,8 @@ export const enum Unit {
   Sapper = 3,
   /** Shoots enemy minions from range (M3). */
   Musketeer = 4,
+  /** Carries kegs of powder from the store to the guns (3.3): never fights. */
+  PowderBoy = 5,
 }
 
 export interface UnitDef {
@@ -132,13 +135,29 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     knock: 2.4,
     batters: false,
   },
+  // A powder boy never fights: he carries kegs from the store to the guns (carriers.ts).
+  powderBoy: {
+    kind: "powderBoy",
+    name: "Powder boy",
+    speed: POWDER.speedEmpty,
+    speedJitter: 0,
+    charge: 1,
+    sight: 0,
+    reach: 0,
+    blowMin: 0,
+    blowMax: 0,
+    readyMin: 0,
+    readyMax: 0,
+    hit: 0,
+    knock: 0,
+  },
 };
 
 /** UNITS by the sim's unit number. */
-export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer];
+export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer, UNITS.powderBoy];
 
 /** Unit numbers by kind. */
-export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer };
+export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer, powderBoy: Unit.PowderBoy };
 
 /**
  * A sapper's powder keg (M3): he sets it at the foot of the enemy front wall,
