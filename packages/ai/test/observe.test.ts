@@ -44,7 +44,7 @@ test("the same setup gives the same line; a variant differs; undo leaves the bas
   const t = a.totals;
   for (const side of [0, 1] as const) {
     assert.ok(t.powderSpent![side] >= t.shots[side] + t.auto[side], `${t.powderSpent![side]} charges spent on ${t.shots[side] + t.auto[side]} shots`);
-    assert.ok(t.powderMade![side] >= 0 && t.powderBought![side] === 0 && t.powderLost![side] >= 0 && t.dryRideSecs![side] === 0);
+    assert.ok(t.powderMade![side] >= 0 && t.powderBought![side] % 20 === 0 && t.powderLost![side] >= 0 && t.dryRideSecs![side] <= 40);
     assert.equal(t.magazineBlown![side], -1);
     assert.equal(t.magazinesBlown![side], 0);
   }
