@@ -14,7 +14,7 @@
 // has too), so the master can take "before" stills from main with the same tool.
 // Writes tools/.shots/l1-<tag>-<view>.png.
 // Usage: PORT=5633 node tools/l1-shots.mjs [--quality=low|medium|high|ultra] [--tag=name] [views...]
-//   views: rest fire reload runout glass trail shell hit closeup crew crewfar inset (default: all)
+//   views: rest fire reload runout glass trail shell hit closeup crew crewfar blast inset (default: all)
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -381,6 +381,21 @@ async function tour() {
     await shot("crew", "-1");
     console.log("crews: men drawn", await page.evaluate(() => window.__sandbox.renderer.crews.men), "pose and draw ms per frame (smoothed)", await page.evaluate(() => +window.__sandbox.renderer.crews.cost.toFixed(3)));
     await page.evaluate(() => window.__sandbox.look(null));
+  }
+
+  // The blast of a shot from a free camera beside the gun, a little behind it, 5 m off at about the height of the wall's merlons: 0.17 s (the flash lights the wall and the crew, the dust ring jumps), 1 s (the bank of smoke stands), 3 s (it drifts off with the wind).
+  if (want("blast")) {
+    const g = await gunAt();
+    await readyToFire();
+    await page.evaluate(([g]) => window.__sandbox.look({ x: g.gx + 5.5, y: g.gy - 0.3, z: g.gz - 2.5, tx: g.gx - 0.3, ty: g.gy - 0.7, tz: g.gz + 1.2, fov: 58 }), [g]);
+    await fireStep("long", 5);
+    await shot("blast", "-0.17s");
+    await step(25);
+    await shot("blast", "-1s");
+    await step(60);
+    await shot("blast", "-3s");
+    await page.evaluate(() => window.__sandbox.look(null));
+    await run();
   }
 
   // The far castle's guns through the zoomed sight (their crews at the ready, 100 m and more off).
