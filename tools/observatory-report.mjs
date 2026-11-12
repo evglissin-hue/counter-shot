@@ -201,6 +201,57 @@ function t5(all) {
   };
 }
 
+/**
+ * 3.3, powder: shots by hand a minute (median over sides), the share of matches in which a magazine blew (aim 15% to 35%),
+ * the win rate of the side that lost its magazine first (aim 20% or more, so a blow is not the end), and the powder made,
+ * bought and spent per side (medians, charges). Lines from before 3.3 lack the fields and are left out.
+ */
+function powderStats(all) {
+  const has = all.filter((m) => m.totals.magazinesBlown && m.totals.powderMade);
+  const perMin = [];
+  for (const m of all) {
+    const mins = m.result.tick / (TICKS_PER_SEC * 60);
+    if (mins <= 0) continue;
+    for (const s of [0, 1]) if (m.setup.sides[s] !== "idle") perMin.push(m.totals.shots[s] / mins);
+  }
+  const blew = has.filter((m) => m.totals.magazinesBlown[0] + m.totals.magazinesBlown[1] > 0);
+  let first = 0, firstWon = 0;
+  for (const m of blew) {
+    const [a, b] = m.totals.magazineBlown;
+    if (a === b) continue;
+    const loser = a >= 0 && (b < 0 || a < b) ? 0 : 1;
+    if (m.result.winner !== 0 && m.result.winner !== 1) continue;
+    first++;
+    if (m.result.winner === loser) firstWon++;
+  }
+  const side = (f) => [0, 1].map((s) => median(has.filter((m) => m.setup.sides[s] !== "idle").map((m) => f(m)[s])));
+  const share = has.length ? blew.length / has.length : NaN;
+  const rate = first ? firstWon / first : NaN;
+  return {
+    matches: has.length,
+    shotsPerMinute: median(perMin),
+    blownShare: share,
+    blownMatches: blew.length,
+    firstLostWinRate: rate,
+    firstLostN: first,
+    made: side((m) => m.totals.powderMade),
+    bought: side((m) => m.totals.powderBought),
+    spent: side((m) => m.totals.powderSpent),
+    shareOk: has.length ? share >= 0.15 && share <= 0.35 : null,
+    rateOk: first ? rate >= 0.2 : null,
+  };
+}
+
+function powderLines(p) {
+  const med = (v) => v.map((x) => (Number.isFinite(x) ? num(x, 0) : "n/a")).join(" / ");
+  return [
+    `Shots by hand a minute (median over sides): ${num(p.shotsPerMinute)} (${p.matches} matches with powder lines).`,
+    `Matches with a magazine blown: ${pct(p.blownShare)} (${p.blownMatches} of ${p.matches}; aim 15% to 35%) ${statusText(p.shareOk)}.`,
+    `Win rate of the side that lost its magazine first: ${pct(p.firstLostWinRate)} (n = ${p.firstLostN}; aim 20% or more) ${statusText(p.rateOk)}.`,
+    `Powder per side, castle 0 / castle 1 (medians, charges): made ${med(p.made)}, bought ${med(p.bought)}, spent ${med(p.spent)}.`,
+  ];
+}
+
 function t7(all) {
   const tot = Object.fromEntries(KINDS.map((k) => [k, 0]));
   let n = 0;
@@ -349,7 +400,8 @@ function analyse(dir) {
   const pairings = [];
   for (const a of present) for (const b of present) if (a !== b) pairings.push(pairing(decided, a, b));
 
-  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult };
+  const powder = powderStats(all);
+  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder };
 }
 
 // ---------------------------------------------------------------- charts
@@ -731,6 +783,7 @@ ${failedList}
 <table><thead><tr><th>Target</th><th>Measured, and how</th><th>Result</th><th>Target text</th></tr></thead><tbody>${targetRows}</tbody></table>
 </section>
 <section><h2>Range and register</h2>${table(registerRows(a.all))}<div class="small">Per side, as a mean per match: marks made, salvos fired, shots by guns nobody mans (and how many of them at men on a mark) and bridges standing at the end (of 3; lines from before 3.2 count as 0 marks and 3 bridges).</div></section>
+<section><h2>Powder</h2><ul>${powderLines(a.powder).map((l) => `<li>${esc(l)}</li>`).join("")}</ul></section>
 <section><h2>Charts</h2>
 <figure><h3>Match length (T1)</h3>${length}<figcaption>Mirror matches with a result: ${mirrorDecided.length}. The shaded band is the median target.</figcaption></figure>
 <figure><h3>Endings by pairing (T2)</h3>${endings}<figcaption>All matches with a result, by who commanded castle 0 and castle 1.</figcaption></figure>
@@ -768,6 +821,7 @@ function buildSummary(a) {
       ...(t.id === "T6" ? { rows: t.table ?? null } : {}),
     })),
     pairings: a.pairings,
+    powder: a.powder,
   };
 }
 
@@ -781,6 +835,9 @@ function buildMarkdown(a) {
   lines.push("| Target | Value | Pass |");
   lines.push("| --- | --- | --- |");
   for (const t of a.targets) lines.push(`| ${t.id} ${t.name} | ${t.value.replace(/\|/g, "/")} | ${statusText(t.pass)} |`);
+  lines.push("");
+  lines.push("Powder", "");
+  for (const l of powderLines(a.powder)) lines.push(`- ${l}`);
   lines.push("");
   return lines.join("\n");
 }

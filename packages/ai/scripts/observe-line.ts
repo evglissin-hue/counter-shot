@@ -40,7 +40,7 @@ export interface Sample {
   gold: [number, number];
   /** Gold spent so far (Match.spent). */
   spent: [number, number];
-  /** Each castle's six plots, one letter each: "." empty, b/m/f a barracks, mill or foundry rising, B/M/F working, x a ruin. */
+  /** Each castle's six plots, one letter each: "." empty, b/m/f/k a barracks, mill, foundry or magazine rising, B/M/F/K working, x a ruin. */
   plots: [string, string];
   /** Keep storeys still under each banner (Match.floorsUnder: 3 on the roof, 0 down). */
   floors: [number, number];
@@ -53,6 +53,8 @@ export interface Sample {
   storm: [number, number];
   /** Each castle's guns knocked out now. */
   out: [number, number];
+  /** 3.3: charges in each castle's store (Carriers.status). Older lines lack it. */
+  stock?: [number, number];
   /** Stones moving now (CastleSim.awakeCount), the most seen in this window, and the slowest Match.step in this window (ms, wall clock). */
   moving: number;
   movingMax: number;
@@ -88,6 +90,18 @@ export interface Totals {
   /** 3.2 (A2): guns that fired in salvos, by castle (salvos x guns). Older lines lack it. */
   salvoGuns?: [number, number];
   bridgesUp?: number;
+  /**
+   * 3.3, by castle (older lines lack all of them): charges made (the cellar's and the mills', what did not fit included),
+   * bought at the magazine (20 a buy), spent (the cost of every shot that left a gun) and lost (made with the store full);
+   * the tick of the first magazine blown (-1: none) and how many blew; and the seconds the gun the AI rode could not pay.
+   */
+  powderMade?: [number, number];
+  powderBought?: [number, number];
+  powderSpent?: [number, number];
+  powderLost?: [number, number];
+  magazineBlown?: [number, number];
+  magazinesBlown?: [number, number];
+  dryRideSecs?: [number, number];
 }
 
 export interface MatchLine {

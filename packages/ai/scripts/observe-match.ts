@@ -3,8 +3,8 @@
 // observe-line.ts describes. Tuning is applied before the match is built and
 // undone when it is freed, so a process can play many setups.
 
-import { applyTuning, BUILDING_KINDS, buildLayout, GAME_LAYOUT, MATCH, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
-import { RULES_VERSION, type Rapier } from "@keepfall/sim";
+import { applyTuning, BUILDING_KINDS, buildLayout, castleOfEmp, GAME_LAYOUT, MATCH, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
+import { EVENT_STRIDE, EventKind, RULES_VERSION, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_RULES_VERSION } from "@keepfall/rules";
 import { AIM_GROUPS, AiPlayer } from "@keepfall/ai";
 import { AIM_KINDS, LINE_VERSION, type AimKind, type BuildEntry, type MatchLine, type MatchSetup, type Sample, type Totals } from "./observe-line";
@@ -30,11 +30,17 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     const s = m.world.structures!.slot(c, p);
     if (s.kind < 0 || s.state === 0) return ".";
     if (s.state === 3) return "x";
-    const k = BUILDING_KINDS[s.kind][0];
+    const k = BUILDING_KINDS[s.kind] === "magazine" ? "k" : BUILDING_KINDS[s.kind][0];
     return s.state === 1 ? k : k.toUpperCase();
   }).join("");
 
+  const stockOf = (c: number) => m.world.carriers?.status(c).stock ?? 0;
   const samples: Sample[] = [];
+  /** 3.3: powder made (a second's rate each second), shots seen leave (by id), the first magazine blown and how many, seconds the ridden gun could not pay. */
+  const made: [number, number] = [0, 0], spent: [number, number] = [0, 0], blownAt: [number, number] = [-1, -1], blown: [number, number] = [0, 0], dry: [number, number] = [0, 0];
+  const seenShots = new Set<number>();
+  const worldEvents = (m.world as unknown as { events: number[] }).events;
+  let evSeen = 0;
   const richSecs: [number, number] = [0, 0];
   let moving = 0, movingMax = 0, windowMoving = 0, worst = 0, windowWorst = 0;
   /** Steps slower than 16 ms and 33 ms (one slow step on a busy machine says little; many say more). */
@@ -56,6 +62,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
       fallen: [army.fallen[0], army.fallen[1]],
       storm: [m.storm[0], m.storm[1]],
       out: [outs(0), outs(1)],
+      stock: [stockOf(0), stockOf(1)],
       moving: m.world.castle.awakeCount(),
       movingMax: windowMoving,
       worstMs: windowWorst,
@@ -90,7 +97,27 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
       if (moving > movingMax) movingMax = moving;
       if (moving > windowMoving) windowMoving = moving;
     }
-    if (i % 60 === 59) for (const c of [0, 1] as const) if (m.gold[c] > 400) richSecs[c]++;
+    if (i % 60 === 59) {
+      for (const c of [0, 1] as const) {
+        if (m.gold[c] > 400) richSecs[c]++;
+        made[c] += m.powderRate(c);
+        const r = ais[c]?.gunner.riding ?? -1;
+        if (r >= 0 && m.world.carriers && !m.world.carriers.canPay(r)) dry[c]++;
+      }
+    }
+    // 3.3: every shot that left a gun burned its cost; every MagazineBlew event is a magazine gone up (the world's event log, read in place).
+    for (const [id, info] of m.world.shotInfo) {
+      if (seenShots.has(id)) continue;
+      seenShots.add(id);
+      const e = m.emplacements[info.emplacement];
+      spent[castleOfEmp(e)] += shotCost(e);
+    }
+    for (; evSeen + EVENT_STRIDE <= worldEvents.length; evSeen += EVENT_STRIDE) {
+      if (worldEvents[evSeen] !== EventKind.MagazineBlew) continue;
+      const c = worldEvents[evSeen + 1] as 0 | 1;
+      if (blownAt[c] < 0) blownAt[c] = i;
+      blown[c]++;
+    }
     if (i % 1800 === 1799) sample(i + 1);
   }
   const tick = m.result ? m.result.tick : i;
@@ -109,7 +136,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     byHand,
     shots: [m.shots[0], m.shots[1]],
     auto: [m.autoShots[0], m.autoShots[1]],
-    build: m.applied.map((a): BuildEntry => [a[0], a[1], a[2]]),
+    build: m.applied.filter((a) => a[2] !== "powder").map((a): BuildEntry => [a[0], a[1], a[2]]),
     richSecs,
     tricks: pair((c) => m.economy.tricks[c].reduce((a, b) => a + b, 0)),
     stats: pair((c) => ({ ...m.stats(c) }) as unknown as Record<string, number>),
@@ -121,6 +148,13 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     salvoGuns,
     autoOnMark: [m.autoOnMark[0], m.autoOnMark[1]],
     bridgesUp: m.army.bridgeOpen.filter(Boolean).length,
+    powderMade: [Math.round(made[0]), Math.round(made[1])],
+    powderBought: pair((c) => m.applied.filter((a) => a[1] === c && a[2] === "powder").length * POWDER.buy.charges),
+    powderSpent: spent,
+    powderLost: pair((c) => m.world.carriers?.status(c).lost ?? 0),
+    magazineBlown: blownAt,
+    magazinesBlown: blown,
+    dryRideSecs: dry,
   };
   const r = m.result;
   const line: MatchLine = {
