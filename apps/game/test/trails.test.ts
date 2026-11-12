@@ -7,6 +7,7 @@ import {
   MAX_POINTS,
   MAX_SEGMENTS,
   MAX_SHOTS,
+  SHELL_ALPHA,
   SHELL_PATH,
   TrailSet,
 } from "../src/render/trailLogic";
@@ -121,7 +122,7 @@ test("a shell's thread comes in over its first moments", () => {
   const n = set.fill(now, 0, 0, A, B, C);
   let p = 0;
   for (let i = 0; i < n; i++) p = Math.max(p, C[i * 4 + 1]);
-  assert.ok(p < 0.5 * 0.5, `faint at first: ${p}`);
+  assert.ok(p < SHELL_ALPHA * 0.5, `faint at first: ${p}`);
 });
 
 test("a shot that vanishes takes its trail with it; another keeps its own", () => {

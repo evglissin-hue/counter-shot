@@ -21,7 +21,7 @@ export const BALL_PATH = 0.06;
 export const BALL_ALPHA = 0.34;
 /** Shells: a thread of smoke along the last 1.5 s of the path, thinning and fading with age. */
 export const SHELL_PATH = 1.5;
-export const SHELL_ALPHA = 0.5;
+export const SHELL_ALPHA = 0.6;
 /** A shell's thread comes in over its first 0.15 s so it does not start with a line at the muzzle. */
 export const SHELL_FADE_IN = 0.15;
 /** How much of the wind's speed carries a shell's thread, and how fast it climbs (m/s). */

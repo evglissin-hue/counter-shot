@@ -29,8 +29,8 @@ import { MAX_SEGMENTS, TrailSet } from "./trailLogic";
 import { PROJECTILE_STRIDE } from "@keepfall/sim";
 
 /** Widest a ribbon's head may be as a share of the screen's height (ball, shell), and its least width in metres. */
-const HEAD_SHARE = [0.0042, 0.0026];
-const HEAD_MIN = [0.1, 0.07];
+const HEAD_SHARE = [0.0042, 0.0036];
+const HEAD_MIN = [0.1, 0.09];
 
 export class Trails {
   readonly root = new THREE.Group();

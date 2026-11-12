@@ -29,9 +29,9 @@ export const BLINK_SLOTS = 24;
 /** Seconds a blink lasts. */
 export const BLINK_LIFE = 0.18;
 /** Size is this share of the distance, between these two sizes (m), times the hit's strength. */
-const SIZE_PER_M = 0.02;
+const SIZE_PER_M = 0.026;
 const SIZE_MIN = 0.5;
-const SIZE_MAX = 4;
+const SIZE_MAX = 4.5;
 const DUST = 0xf0e2c4;
 
 export class Blink {
@@ -65,7 +65,7 @@ export class Blink {
     const alive: N = t.greaterThanEqual(0.0).and(t.lessThan(BLINK_LIFE));
     const dist: N = A.xyz.sub(cameraPosition).length();
     // Quick to bloom, then it eases out to full size as it fades.
-    const grow: N = mix(0.45, 1.0, float(1).sub(float(1).sub(u).pow(2.0)));
+    const grow: N = mix(0.7, 1.0, float(1).sub(float(1).sub(u).pow(2.0)));
     const size: N = clamp(dist.mul(SIZE_PER_M), SIZE_MIN, SIZE_MAX).mul(B.x).mul(grow);
     const s: N = select(alive, size, float(0.0));
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
@@ -78,12 +78,12 @@ export class Blink {
     const vuv: N = varying(qp.mul(2.0), "vBlinkUV");
     const vU: N = varying(u, "vBlinkU");
     const r: N = vuv.length();
-    const core: N = float(1).sub(smoothstep(0.0, 0.45, r));
+    const core: N = float(1).sub(smoothstep(0.0, 0.6, r));
     const halo: N = float(1).sub(smoothstep(0.1, 1.0, r));
     // The hot middle runs a little over 1 so the bloom takes it; the rim is dust coloured.
     m.colorNode = vec4(mix(color(DUST).mul(1.25), vec3(1.0, 0.93, 0.78).mul(1.9), core), 1.0);
-    const fade: N = float(1).sub(vU).pow(1.4);
-    m.opacityNode = clamp(core.add(halo.mul(halo).mul(0.75)).mul(fade).mul(0.95), 0.0, 1.0);
+    const fade: N = float(1).sub(smoothstep(0.3, 1.0, vU));
+    m.opacityNode = clamp(core.add(halo.mul(halo).mul(0.8)).mul(fade).mul(0.95), 0.0, 1.0);
     this.mesh = new THREE.Mesh(geo, m);
     this.mesh.name = "blink";
     this.mesh.frustumCulled = false;
