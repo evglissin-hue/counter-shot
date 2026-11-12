@@ -36,7 +36,8 @@
 //   or takes the keg to the next gun in need (that gun passed over for
 //   POWDER.skip ticks). One with no way at all to the store for POWDER.stuck
 //   ticks (walled in by rubble, left on a ledge) finds his way round to its
-//   door (findWay).
+//   door (findWay); one whose ground is no longer walkable (a fallen post
+//   across it) steps off it to the nearest open cell within POWDER.stepOff m.
 // - Kegs burst: a boy knocked down while he carries a keg, by a ball,
 //   falling masonry, or a burst whose radius reaches him (its farther knock
 //   only throws him down: the keg rolls away unlit), sets it off where he lies: a
@@ -467,7 +468,10 @@ export class Carriers {
   }
 
   private walkTo(m: Minion, x: number, z: number, speed: number, action: number): boolean {
-    if (!this.army.local.steer(m.home, x, z, m.x, m.z, this.dir)) return false;
+    const local = this.army.local;
+    // When his last step went nowhere (the blended way pushed him into a heap he cannot step onto), he follows his own cell's way down.
+    const stalled = m.vx * m.vx + m.vz * m.vz < 0.01;
+    if (!(stalled && local.downhill(m.home, x, z, m.x, m.z, this.dir)) && !local.steer(m.home, x, z, m.x, m.z, this.dir)) return false;
     this.army.move(m, this.dir[0], this.dir[1], speed, NaN, action as Action);
     return true;
   }
@@ -552,16 +556,21 @@ export class Carriers {
     if (b.stuck < POWDER.stuck) return;
     const local = this.army.local;
     if (local.cost(m.home, d.x, d.z, m.x, m.z) < LOCAL_INF || local.cost(m.home, b.tx, b.tz, m.x, m.z) < LOCAL_INF) return;
-    m.x = d.x;
-    m.z = d.z;
-    const c = navCell(d.x, d.z);
-    if (c >= 0) m.y = this.army.surface(d.x, d.z, c);
-    this.minions.place(m);
+    this.put(m, d.x, d.z);
     b.stuck = 0;
     b.best = Infinity;
     b.goal = -1;
     b.gx = b.gz = NaN;
     b.seek = 0;
+  }
+
+  /** Set a boy down at a point (on its floor). */
+  private put(m: Minion, x: number, z: number) {
+    m.x = x;
+    m.z = z;
+    const c = navCell(x, z);
+    if (c >= 0) m.y = this.army.surface(x, z, c);
+    this.minions.place(m);
   }
 
   private think(b: Boy, m: Minion, tick: number) {
@@ -578,6 +587,9 @@ export class Carriers {
         m.cool = POWDER.calmTicks;
       } else if (m.task === BoyTask.Flee && this.army.enemyNear(castle, m.x, m.z, POWDER.calm)) m.cool = POWDER.calmTicks;
     }
+    // Something fell across where he stands (a post, a beam): he steps off it to open ground close by.
+    const off = this.army.stepOff(m.x, m.z, POWDER.stepOff);
+    if (off) this.put(m, off.x, off.z);
     if (m.task === BoyTask.Flee) {
       if (--m.cool <= 0) {
         m.task = b.keg > 0 ? (b.emp >= 0 ? BoyTask.Carry : BoyTask.Back) : b.emp >= 0 ? BoyTask.ToStore : BoyTask.Back;
