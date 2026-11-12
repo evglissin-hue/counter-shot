@@ -256,7 +256,7 @@ export class GameRenderer implements GameRendererApi {
       skirt: mk({ name: "skirt", slots: 4, per: 24, life: [2.2, 4.2], color: 0x857762, colorEnd: 0x9a8f80, additive: false, glow: 1, speed: [10, 22], size: [0.8, 3.2], grow: 1.4, gravity: 0, rise: 0.35, drag: 2.6, windScale: 0.5, spread: 1.0, opacity: 0.62, floor: true, lighting: 0.6, clearAim: true }),
       muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true, clearAim: true }),
       // L1, the blast: a bank of grey-white powder smoke that stands before the sight and drifts off with the wind (eye only; it thins near the aim line), and a low ring of pale dust thrown up from the wall walk round a gun (settling in a second or two; it never sinks below where it was thrown from). Sized for a salvo of 8 guns.
-      bank: mk({ name: "bank", slots: 16, per: 20, life: [3, 5], color: 0xb4b2ac, colorEnd: 0x94928d, additive: false, glow: 1, speed: [1.2, 5], size: [0.9, 3.6], grow: 0.8, gravity: 0, rise: 0.35, drag: 1.7, windScale: 0.9, spread: 0.8, opacity: 0.4, floor: true, lighting: 0.55, clearAim: true }),
+      bank: mk({ name: "bank", slots: 16, per: 20, life: [3, 5], color: 0xb4b2ac, colorEnd: 0x94928d, additive: false, glow: 1, speed: [1.2, 5], size: [0.9, 3.6], grow: 0.8, gravity: 0, rise: 0.35, drag: 1.7, windScale: 0.9, spread: 0.8, opacity: 0.34, floor: true, lighting: 0.55, clearAim: true }),
       ring: mk({ name: "ring", slots: 64, per: 6, life: [1.0, 1.9], color: 0xaa9e8a, colorEnd: 0x948a78, additive: false, glow: 1, speed: [1.4, 3.4], size: [0.25, 0.95], grow: 2.2, gravity: 1.6, rise: 0.15, drag: 2.6, windScale: 0.5, spread: 0.5, opacity: 0.5, floor: true, floorAtSpawn: true, lighting: 0.8, clearAim: true }),
       dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
       trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
@@ -862,10 +862,10 @@ export class GameRenderer implements GameRendererApi {
 
   /** The blast of a shot (look round L1), by weapon: [light's level, its decay, bank of smoke, ring's puffs and their size, how far the light stands back and up]. */
   private static readonly BLAST: Record<WeaponKind, { light: number; decay: number; bank: number; ring: number; ringScale: number; back: number; up: number }> = {
-    longGun: { light: 1.5, decay: 14, bank: 1, ring: 6, ringScale: 1, back: 1.3, up: 1.0 },
-    chainShot: { light: 1.5, decay: 14, bank: 1.1, ring: 6, ringScale: 1.15, back: 1.2, up: 1.0 },
-    mortar: { light: 1.4, decay: 14, bank: 0.9, ring: 4, ringScale: 0.8, back: 0.3, up: 0.9 },
-    swivel: { light: 0.7, decay: 18, bank: 0.35, ring: 2, ringScale: 0.35, back: 0.4, up: 0.3 },
+    longGun: { light: 1.4, decay: 14, bank: 1, ring: 6, ringScale: 1, back: 1.7, up: 1.7 },
+    chainShot: { light: 1.4, decay: 14, bank: 1.1, ring: 6, ringScale: 1.15, back: 1.7, up: 1.7 },
+    mortar: { light: 1.3, decay: 14, bank: 0.9, ring: 4, ringScale: 0.8, back: 0.4, up: 1.5 },
+    swivel: { light: 0.7, decay: 18, bank: 0.35, ring: 2, ringScale: 0.35, back: 0.5, up: 0.7 },
   };
 
   private spawnMuzzle(em: number) {
@@ -885,7 +885,7 @@ export class GameRenderer implements GameRendererApi {
     // The flash lights the wall and the crew: the light stands back from the muzzle and over the carriage, brighter and a little longer for the gun you ride.
     const ridden = !!fired && fired.active;
     const lx = p.x - d.x * blast.back, ly = p.y - d.y * blast.back + blast.up, lz = p.z - d.z * blast.back;
-    this.pulseLight(lx, ly, lz, ridden ? blast.light * 1.4 : blast.light, 0xffb070, ridden ? blast.decay * 0.78 : blast.decay);
+    this.pulseLight(lx, ly, lz, ridden ? blast.light * 1.3 : blast.light, 0xffb070, ridden ? blast.decay * 0.78 : blast.decay);
     // The ring: dust jumps from the floor round the carriage.
     const info = this.crewInfo;
     if (this.guns.crewInfo(em, info)) {

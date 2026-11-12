@@ -379,6 +379,7 @@ async function tour() {
     await waitFor(() => window.__sandbox.reload[0] === 0, 900);
     await frames(8);
     await shot("crew", "-1");
+    console.log("crews: men drawn", await page.evaluate(() => window.__sandbox.renderer.crews.men), "pose and draw ms per frame (smoothed)", await page.evaluate(() => +window.__sandbox.renderer.crews.cost.toFixed(3)));
     await page.evaluate(() => window.__sandbox.look(null));
   }
 
@@ -387,13 +388,13 @@ async function tour() {
     await run();
     const far = await page.evaluate(() => window.__sandbox.guns.map((g, i) => ({ i, x: g.x, z: g.z })).filter((g) => g.z > -75));
     console.log("far guns:", JSON.stringify(far), "men drawn:", await page.evaluate(() => window.__sandbox.renderer.crews.men));
-    // The long gun of the far castle stands at the middle of its gate wall (the player's mirrored: 9.7 m up at z = -16.4).
+    // The far castle chain shot gun, on its tower (15, 13.8, -15): the long gun at the gate is not in the sight's view.
     await page.evaluate(() => {
       const S = window.__sandbox;
       S.look(null);
       S.select(0);
       S.setFov(0, 12);
-      S.aimAtPoint(0, 0, 10.4, -16.4);
+      S.aimAtPoint(0, 15, 14.3, -15);
     });
     await frames(45);
     await shot("crewfar");
