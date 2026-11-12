@@ -133,6 +133,9 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 
 export const ESTATE_MATCH_TICKS = 6900;
 
+/** Gold the player is given at the start of the estate match (see runEstateMatch). */
+export const ESTATE_MATCH_EXTRA_GOLD = 250;
+
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
 export const ESTATE_MATCH_HASH = { state: "718a1455", world: "f93ead42" } as const;
 
@@ -160,6 +163,8 @@ export interface EstateMatchResult extends MatchSessionResult {
 
 export function runEstateMatch(R: Rapier, ticks = ESTATE_MATCH_TICKS, onTick?: (m: Match, tick: number) => void): EstateMatchResult {
   const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed: 7 });
+  // 3.3: mills pay no gold now (they make powder), so the player starts this script with the gold its mill's income used to bring by the last purchase.
+  m.gold[Team.Player] += ESTATE_MATCH_EXTRA_GOLD;
   for (const [t, team, input] of ESTATE_MATCH_SCRIPT) m.queue(t, team, input);
   for (let i = 0; i < ticks; i++) {
     m.step();
