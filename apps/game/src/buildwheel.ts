@@ -14,6 +14,7 @@ import {
   MIX_NAMES,
   PLOTS,
   plotName,
+  POWDER,
   ROUTE_NAMES,
   UPGRADES,
   upgradesFor,
@@ -29,6 +30,7 @@ import {
 } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { PLOT_STRIDE } from "@keepfall/sim";
+import { powderBuyWhy } from "./powder";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2, RUINED = 3;
@@ -74,6 +76,8 @@ export interface WheelState {
   guns: Emplacement[];
   /** After M5: by slot, the masonry it stands on is down (no gun can be bought for it until masons rebuild it). */
   mountDown?: boolean[];
+  /** 3.3: your store (charges, what it holds, the plot of the working magazine or -1), or null in a match without powder. */
+  powder?: { stock: number; cap: number; magazine: number } | null;
 }
 
 export class BuildWheel {
@@ -157,7 +161,7 @@ export class BuildWheel {
     }
     if (!c || !c.input) return;
     if (!c.ok) {
-      this.note(c.cost > this.state.gold ? `Not enough gold: ${c.cost} needed` : `${c.label}: not now`);
+      this.note(c.input.kind === "powder" ? c.detail : c.cost > this.state.gold ? `Not enough gold: ${c.cost} needed` : `${c.label}: not now`);
       return;
     }
     this.send(c.input);
@@ -277,11 +281,21 @@ export class BuildWheel {
       out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `Plot ${i + 1}, ${plotName(s.team, i)}; half price`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
     });
     const free = PLOT_ORDER.find((p) => this.plots[p].state === EMPTY);
+    // The magazine: one a castle, standing or rising (a ruin is rebuilt from the list above).
+    const hasMagazine = this.plots.some((v) => v.kind >= 0 && BUILDING_KINDS[v.kind] === "magazine" && (v.state === STANDING || v.state === RISING));
     // Gold first (the cheapest and the one a new castle wants), then waves, then upgrades.
-    for (const k of ["mill", "barracks", "foundry"] as BuildingKind[]) {
+    for (const k of ["mill", "barracks", "foundry", "magazine"] as BuildingKind[]) {
       const b = BUILDINGS[k];
-      const ok = free !== undefined && s.gold >= b.cost;
-      out.push({ label: b.name, detail: free === undefined ? "Every plot is taken" : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`, cost: b.cost, ok, input: free === undefined ? null : { kind: "build", plot: free, building: k } });
+      if (k === "magazine" && s.powder === null) continue; // a match without powder has no use for one
+      const one = k === "magazine" && hasMagazine;
+      const ok = free !== undefined && s.gold >= b.cost && !one;
+      const detail = one ? "You have one" : free === undefined ? "Every plot is taken" : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`;
+      out.push({ label: b.name, detail, cost: b.cost, ok, input: free === undefined || one ? null : { kind: "build", plot: free, building: k } });
+    }
+    // Powder: bought at once at the working magazine.
+    if (s.powder !== null) {
+      const why = powderBuyWhy(s.powder ?? null, s.gold);
+      out.push({ label: `Powder, ${POWDER.buy.charges} for ${POWDER.buy.gold} gold`, detail: why || "Into the magazine at once", cost: POWDER.buy.gold, ok: !why, input: { kind: "powder" } });
     }
     s.guns.forEach((e, slot) => {
       if (!e.empty) return;
