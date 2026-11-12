@@ -13,6 +13,7 @@ import {
   MIX_NAMES,
   MUSTER,
   PLOTS,
+  POWDER,
   REGISTER,
   ROUTE_NAMES,
   TUTOR,
@@ -29,6 +30,10 @@ import type { Rng } from "@keepfall/core";
 import { Order, PlotState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
 import * as V from "./view";
+
+/** 3.3: the building kind number of a magazine, and the stock under which it buys powder. */
+const MAGAZINE = BUILDING_KINDS.indexOf("magazine");
+export const BUY_BELOW = 20;
 
 export class Steward {
   /** The next step of its plan, and a step it has asked for and waits to see done. */
@@ -49,6 +54,10 @@ export class Steward {
   private used = new Set<number>();
   private gangSent = [-1e9, -1e9, -1e9];
   private gang: { plot: number; route: RouteName; waves: number } | null = null;
+  /** 3.3: the tick it last asked for a magazine (a rebuild or a new one), -1e9 if never. */
+  private magAskedAt = -1e9;
+  /** 3.3: the tick it first found its magazine a ruin with none standing or rising (-1: none). */
+  private ruinAt = -1;
 
   constructor(
     private m: Match,
@@ -83,16 +92,25 @@ export class Steward {
   private build(tick: number) {
     if (this.stage && this.stage() < 1) return; // the tutor asleep builds and buys nothing
     const m = this.m, team = this.team, st = m.world.structures!;
-    // A ruin first (a barracks before anything else), whenever it can be paid for: it costs half.
-    for (const kind of [0, 1, 2]) {
+    // 3.3: a magazine it has lost comes before anything else: a ruin is rebuilt, and with none standing, rising or in ruins
+    // (or its ruin not rising 60 s after it asked) a new one goes up on a free plot, back plots first.
+    if (!this.stage && this.magazine(tick)) return;
+    // A ruin first (the magazine, then a barracks), whenever it can be paid for: it costs half.
+    for (const kind of [MAGAZINE, 0, 1, 2]) {
       for (let p = 0; p < PLOTS.length; p++) {
         const s = st.slot(team, p);
         if (s.state !== PlotState.Ruined || s.kind !== kind) continue;
+        if (kind === MAGAZINE && this.hasMagazine()) continue; // a team holds one: a ruin beside it stays a ruin
         const k = BUILDING_KINDS[kind];
-        if (this.gold >= Math.round(BUILDINGS[k].cost * BUILDING_REBUILD)) this.send(tick, { kind: "build", plot: p, building: k });
+        if (this.gold >= Math.round(BUILDINGS[k].cost * BUILDING_REBUILD)) {
+          this.send(tick, { kind: "build", plot: p, building: k });
+          if (kind === MAGAZINE) this.magAskedAt = Math.max(this.magAskedAt, tick);
+        }
         return;
       }
     }
+    // 3.3: it buys powder while its stock is low (and never stacks it high): after a rebuild, before its plan's next step.
+    if (!this.stage && this.buyPowder(tick)) return;
     // Then its plan, in order: a step it asked for is checked first.
     if (this.asked === this.step) {
       if (this.done(this.plan[this.step])) {
@@ -130,6 +148,61 @@ export class Steward {
       this.askedAt = tick;
       return;
     }
+  }
+
+  /**
+   * 3.3: the magazine it keeps: true if it asked for a magazine this look (and waits for it, so nothing else is built).
+   * No magazine standing, rising or ruined: build a new one on a free plot; a ruin it asked to rebuild that did not start
+   * to rise within 60 s: a new one beside it (a ruin does not count against the one magazine a team holds).
+   */
+  private magazine(tick: number): boolean {
+    const st = this.m.world.structures!, team = this.team;
+    if (this.hasMagazine()) {
+      this.ruinAt = -1;
+      return false;
+    }
+    let ruin = false;
+    for (let p = 0; p < PLOTS.length; p++) {
+      const s = st.slot(team, p);
+      if (s.kind === MAGAZINE && s.state === PlotState.Ruined) ruin = true;
+    }
+    // A ruin is rebuilt by the loop below; only one that has not risen 60 s after it was asked for gives way to a new magazine.
+    if (ruin) {
+      if (this.ruinAt < 0) this.ruinAt = tick;
+      if (this.magAskedAt < this.ruinAt || tick - this.magAskedAt < 60 * 60) return false;
+    }
+    const cost = BUILDINGS.magazine.cost;
+    if (ruin && this.gold < cost) return false;
+    // Back plots first (the plot numbers run front to back, so the last free one).
+    for (let p = PLOTS.length - 1; p >= 0; p--) {
+      if (st.slot(team, p).state !== PlotState.Empty) continue;
+      if (this.gold >= cost) {
+        this.send(tick, { kind: "build", plot: p, building: "magazine" });
+        this.magAskedAt = tick;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** 3.3: a magazine stands or rises (a team holds one at a time). */
+  private hasMagazine(): boolean {
+    const st = this.m.world.structures!;
+    for (let p = 0; p < PLOTS.length; p++) {
+      const s = st.slot(this.team, p);
+      if (s.kind === MAGAZINE && (s.state === PlotState.Standing || s.state === PlotState.Rising)) return true;
+    }
+    return false;
+  }
+
+  /** 3.3: buy powder (one buy a look) when the stock is under 20, a magazine works, the store has room and the gold stands above the price and the reserve. */
+  private buyPowder(tick: number): boolean {
+    const c = this.m.world.carriers;
+    if (!c || c.status(this.team).magazine < 0) return false;
+    if (c.status(this.team).stock >= BUY_BELOW || c.room(this.team) < POWDER.buy.charges) return false;
+    if (this.gold < POWDER.buy.gold + this.L.reserve) return false;
+    this.send(tick, { kind: "powder" });
+    return true;
   }
 
   /** Is a step done already? */
