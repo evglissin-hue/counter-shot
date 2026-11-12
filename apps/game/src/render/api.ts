@@ -5,6 +5,7 @@
 
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import type { FrameData, TerrainPatch } from "@keepfall/sim";
+import type { PowderInfo } from "../protocol";
 import type { KeyframePart, RenderKeyframe } from "./keyframe";
 export type { KeyframePart, RenderKeyframe } from "./keyframe";
 
@@ -147,6 +148,8 @@ export interface GameRendererApi {
   setMarkers(on: boolean): void;
   /** 3.2: your team's marks, drawn as chalk crosses with their numbers (none: clear them). */
   setChalk(marks: Array<{ n: number; x: number; y: number; z: number; life: number }>): void;
+  /** 3.3: each castle's powder store and every emplacement's box (BOX_STRIDE each, match order): the kegs under the magazines and the hoists at the guns' feet. */
+  setPowder(powder: [PowderInfo, PowderInfo] | null, boxes: Float32Array | null): void;
   /** M3: what each emplacement holds now (a gun bought for an empty slot appears; an empty one shows nothing). */
   setArms(emplacements: Emplacement[]): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */

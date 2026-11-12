@@ -45,6 +45,30 @@ interface PlotView {
   nextPuff: number;
 }
 
+/** The powder keg (the mill's stacked kegs, the page's magazine and hoist draw the same): staves, a bulge, two hoops; axis along local Y. */
+export function makeKegGeometry(): THREE.BufferGeometry {
+  const staves = new THREE.CylinderGeometry(0.2, 0.2, 0.46, 10, 1);
+  const bulge = new THREE.SphereGeometry(0.23, 10, 6);
+  bulge.scale(1, 0.95, 1);
+  const hoop = new THREE.TorusGeometry(0.215, 0.018, 4, 12);
+  hoop.rotateX(Math.PI / 2);
+  const h1 = hoop.clone();
+  h1.translate(0, 0.15, 0);
+  const h2 = hoop.clone();
+  h2.translate(0, -0.15, 0);
+  for (const g of [staves, bulge, h1, h2]) g.deleteAttribute("uv");
+  return mergeGeometries([staves, bulge, h1, h2]);
+}
+
+/** The keg's dark wood, as the mill's kegs have it. */
+export function makeKegMaterial(): THREE.MeshStandardNodeMaterial {
+  const m = new THREE.MeshStandardNodeMaterial();
+  applyCloudShadow(m);
+  m.color = new THREE.Color(0x231c15);
+  m.roughness = 0.75;
+  return m;
+}
+
 export class EstateView {
   readonly root = new THREE.Group();
   private views: PlotView[] = [];
@@ -205,17 +229,7 @@ export class EstateView {
   }
 
   private kegGeometry(): THREE.BufferGeometry {
-    const staves = new THREE.CylinderGeometry(0.2, 0.2, 0.46, 10, 1);
-    const bulge = new THREE.SphereGeometry(0.23, 10, 6);
-    bulge.scale(1, 0.95, 1);
-    const hoop = new THREE.TorusGeometry(0.215, 0.018, 4, 12);
-    hoop.rotateX(Math.PI / 2);
-    const h1 = hoop.clone();
-    h1.translate(0, 0.15, 0);
-    const h2 = hoop.clone();
-    h2.translate(0, -0.15, 0);
-    for (const g of [staves, bulge, h1, h2]) g.deleteAttribute("uv");
-    const g = mergeGeometries([staves, bulge, h1, h2]);
+    const g = makeKegGeometry();
     this.geos.push(g);
     return g;
   }

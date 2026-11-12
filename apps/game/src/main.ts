@@ -2022,6 +2022,7 @@ function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   $("reset").textContent = match ? "Restart the match" : "Rebuild the castles";
   $("menu-back").hidden = false;
   matchInfo = null;
+  renderer.setPowder(null, null);
   powderBar.reset();
   dryNotes.reset();
   endShownFor = -1;
@@ -2523,6 +2524,7 @@ function onMatch(info: MatchInfo) {
   soundscape.match(info, ME, FOE);
   updateRepairs();
   updateStorm();
+  renderer.setPowder(info.powder, info.boxes);
   if (!info.result) {
     const was = prevGate;
     if (was) {
