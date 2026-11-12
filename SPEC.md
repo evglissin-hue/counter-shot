@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.4)
+# Keepfall: Game Spec (draft 0.7)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Draft 0.5 adds the direction the owner approved after phase 2 (November 10): a sixth pillar (section 1) and phase 3 in the build phases (section 15). Draft 0.6 records phase 3's first measurements (3.1, the observatory: sections 15 and 16); no rule changed. Draft 0.7 folds in 3.2, range and register: marks and fire for effect (section 5), bridge gangs (section 8), T and F (section 12). Sections 2 to 14 still describe the game as phase 2 left it; each phase 3 milestone folds its rules into them as it ships (`docs/phase-3.md` and the specs under `docs/phase-3/` say what is coming). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -15,6 +15,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 3. **Light RTS, no grind.** Few decisions with big consequences. Repetitive work is automated, and everything is on hotkeys.
 4. **Readable chaos.** You can always tell where shots are going, what is about to fall and what threatens you.
 5. **Same match on both screens.** The simulation is deterministic, so online play sends only inputs.
+6. **Strategy you can shoot** (phase 3). Every capability of a castle is a thing that stands somewhere and breaks in its own way; shooting costs powder the castle must make; a keep falls because what held it up was cut. When a design call is unclear: you can shoot the tech tree.
 
 ## 2. Platforms, players and modes
 
@@ -55,6 +56,7 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 - **Aim help**: the first part of the flight path, its length set by the weapon and upgrades; a ghost trail of your last shot from this emplacement; a marker where it landed; the barrel's elevation, as a gunner reads off a quadrant. For the mortar, while you charge, a soft ring on the ground where the shell would come down in still air (the wind is yours to read), and a mark on the meter where your last shot left. Aiming is the skill: you correct from your last shot and read the wind. The whole predicted flight is an easy setting. Co-op and casual games show more of the path.
 - **Scatter**: no two shots fly quite alike. Each weapon throws a little off the aim and its charge varies a little (seeded, so a match still replays from its inputs): about half a metre for the long gun at the enemy keep, two metres for the mortar. Rifled barrels tighten it.
 - **Reloads** are per weapon (2 to 12 seconds: the swivel quickest, the mortar slowest). Weapons nobody is manning fire on their own at enemy minions coming at your walls (the approach once the stream is crossed), slower and much less accurately; the mortar fires only when you fire it (one shell knocks down a whole wave).
+- **Range and register** (3.2). Press T within 5 s of your own shot landing to mark that ground (up to six marks a side, each fading after 3 minutes unless a shot lands in it again; the enemy does not see them). Your guns nobody mans shoot four times truer on men on marked ground, notice them from twice as far and reload faster. **Fire for effect**: F then a mark's number (F twice: the newest, or a click on its chip or on the mark in the overview) fires every gun of yours that is loaded, standing and bears on it, one after another over 1.5 s from the nearest; the mortar joins only if "Mortar in the salvo" is ticked; once every 20 s; never a gun whose shot would land by your own men or put a bridge at risk. The AI from the Knight up marks the enemy gate and fires for effect there as its waves arrive.
 - **Shot camera**: optionally follow your shot (on by default for lobbed shells: you ride the shell down), with optional slow motion on impact. It only changes your own camera; the match runs on. Replays come free, because a match is just its inputs.
 - **Kill cams and replays** (after the MVP; the owner's request): the best physics moments come back as short replays from a cinematic angle, with a tally of the damage: a minion thrown across the valley, a limb taken off, a wall dropped on a wave, a tower brought down. In the spirit of Porrasturvat, where the fun is watching a body take every step of the fall. A replay re-runs the sim from a recent snapshot with the recorded inputs, so it shows exactly what happened, and it can slow down and circle the moment freely.
 - **Trick shots** are recognised and pay gold: ricochet kills, collapse kills (masonry you dropped landing on minions), multi-kills, skip shots, long-range keep hits.
@@ -127,6 +129,7 @@ You spend it on buildings, weapons, upgrades, repairs and abilities. There are n
 - **Barracks** spawn a wave on a timer (about every 25 seconds). Per barracks, you set the mix of units and which route the wave takes.
 - **Orders** go to all your waves, by hotkey: **Advance** (default), **Hold** (stop at the midfield marker), **Push the breach** (head for the nearest gap in the enemy walls).
 - **Pathfinding** uses a flow field over the terrain that updates as rubble and craters change it. Minions scramble over rubble heaps and the fallen and go around what is too steep; standing masonry is a wall. Intact walls stop them, so they ram the gate, climb ladders, blow walls with sappers, or pour through breaches. A wave whose bridge is down takes the nearest one still standing.
+- **Bridge gangs** (3.2). A blown bridge stays down until a wave is sent down its road: then two of its men relay the deck in about 40 s for 60 gold (the pieces go back lowest first, rubble carried off), waiting while an enemy is within 20 m on their side of the gap. One gang a bridge at a time; the bridge then stands for both sides.
 - **Fighting** is simple contact combat. Minions inside the enemy courtyard count towards storming it.
 - **Bodies stay** all match as frozen physics debris (cover, ramps, blockages on the routes); past a few hundred the oldest sink into the ground to keep the physics budget.
 - **Numbers**: up to about 60 to 100 alive per side at the peak. Dozens, not hundreds, so each one is a proper physics body when it matters.
@@ -274,7 +277,8 @@ Waves are built from the roster by a deterministic director (seeded Rng, so both
 | Switch weapon | 1 to 8, Q and E | 1 to 8, Q and E | Bumpers |
 | Overview | Tab | Tab | View button |
 | Build wheel | B | B | Y |
-| Abilities | F, G, H | F, G, H | X, then pick |
+| Mark where your shot landed; fire for effect at a mark | T; F then the mark's number | T; F then the number | (not bound yet) |
+| Abilities (later) | to be bound (T and F now mark and fire for effect, G grows the minimap, H is Controls) | | X, then pick |
 | Orders: advance, hold, push | Ctrl+1, Ctrl+2, Ctrl+3 | Ctrl+1, Ctrl+2, Ctrl+3 | D-pad left (in turn) |
 | Route of your next waves | L | L | D-pad right |
 
@@ -360,17 +364,26 @@ Each phase ends with a playable, deployed version.
    - The production monorepo with enforced package boundaries.
    - An Ashwright castle facing a target castle in the Gritty style, with all four weapons and real ballistics (drag, wind, spin, the chain shot as two linked balls).
    - Aim help, sight zoom, the shot camera, craters, a wind gauge, and test minions that ragdoll.
-2. **A full match versus the AI**:
+2. **A full match versus the AI** (done, `docs/phase-2.md`):
    - Build plots, buildings, gold and upgrades, repairs.
    - Barracks and waves with flow-field paths, orders, routes that physics can close.
    - Both win conditions, the AI castle, and the guided first match.
-3. **Online 1v1** (completes the MVP): lockstep over Cloudflare rooms, invite links, desync checks.
+   - Online 1v1 in lockstep, brought forward: it runs over the claude.ai artifact's room. Cloudflare rooms and invite links are still to come.
+3. **One game** (`docs/phase-3.md`; each milestone has its spec under `docs/phase-3/`): the parts of a match made to depend on each other, in this order:
+   - the observatory (AI matches by the thousand, measured against targets; done in 3.1: `npm run observe`, `observe:quick`, `observe:openings`, `observe:prices`);
+   - range and register; powder; the keep that falls by engineering;
+   - machines; the household;
+   - elements (fire, smoke, water, mud); the day (weather as the match's clock);
+   - the valley as a board; armies with nerve and engines; the arsenal;
+   - sieges for one (the Master Gunner's exam, the Daily Siege);
+   - two seats (co-op in one castle, then the wave defence of section 11).
+   Alongside, on the page only: the shot as a show (the impact cam, replays, a film of each match), the steward's ear (orders typed and spoken), and the look.
 4. **Graniteborn**: the second race, with landslides and quakes.
-5. **Co-op wave defence**: the roster, the wave director, both roles.
-6. **Polish**: sound, gore, kill cams and replays of the best moments, more maps, 2v2.
+5. **Later** (`docs/future.md`): the Castle Architect and sieges by post, the March (a campaign), more maps, 2v2.
 
 ## 16. Open questions
 
 - How lockstep feels over a real connection (needs Cloudflare).
-- Castle distance and match pacing (playtests).
-- The final name.
+- Castle distance and match pacing: phase 3's targets (`docs/phase-3.md`) now say what pacing to aim for, and its observatory measures it. The first measures (3.1): Knight mirrors last a median 5.2 minutes and all end by keep; castle 0 wins 47.3% of 400 mirrors (no side bias); one opening (an early economy and Foundry) beats the stock Knight 8 of 8.
+- The final name: Keepfall is the working title, and the repo's name counter-shot is to go. Candidates are under Name in `docs/plan.md`.
+- Each phase 3 spec ends with a short "For the owner" list of choices that are the owner's.

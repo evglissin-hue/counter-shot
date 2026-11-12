@@ -190,6 +190,24 @@ let muzzleIdx = 0;
 let lastBlood = -10;
 let craterDone = false;
 
+/**
+ * The fake match's wind with gusts (what the sim's Wind sends): a base wind of (4, 1.5) m/s that eases into a
+ * new gust every 3 s, strong and slack by turns, with the gust it is easing into as gustX, gustZ and gustIn,
+ * so the renderer draws a front crossing the land. Time zero is 0.3 s into a strong gust.
+ */
+const GUST_LEN = 3;
+const GUST_SCALE = [1.5, 0.6, 1.4, 0.7];
+function gustWind(time: number): { windX: number; windZ: number; gustX: number; gustZ: number; gustIn: number } {
+  const tt = time + 0.3;
+  const k = Math.floor(tt / GUST_LEN);
+  const q = (tt - k * GUST_LEN) / GUST_LEN;
+  const e = q * q * (3 - 2 * q);
+  const to = GUST_SCALE[((k % 4) + 4) % 4];
+  const from = GUST_SCALE[(((k - 1) % 4) + 4) % 4];
+  const s = from + (to - from) * e;
+  return { windX: 4 * s, windZ: 1.5 * s, gustX: 4 * to, gustZ: 1.5 * to, gustIn: Math.max(0, Math.round((GUST_LEN - (tt - k * GUST_LEN)) * 60)) };
+}
+
 function buildFrame(dt: number): FrameData {
   t += dt;
   let np = 0;
@@ -365,8 +383,7 @@ function buildFrame(dt: number): FrameData {
     events,
     eventCount: ne,
     terrain,
-    windX: 4,
-    windZ: 1.5,
+    ...gustWind(t),
     plots: plotBuf,
     plotCount: PLOTS.length,
     kegs: kegBuf,
@@ -400,8 +417,7 @@ function animFrame(dt: number): FrameData {
     events: A.events,
     eventCount: A.eventCount,
     terrain: [],
-    windX: 2,
-    windZ: 1,
+    ...gustWind(t),
     plots: plotBuf,
     plotCount: PLOTS.length,
     kegs: A.kegs,

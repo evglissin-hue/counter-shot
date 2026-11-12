@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { BUILDING_KINDS, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { BUILDING_KINDS, sectionOf, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { Army } from "./army";
@@ -35,10 +35,11 @@ import { Structures } from "./structures";
 import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
+import { Gangs } from "./gangs";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 11;
+export const RULES_VERSION = 12;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -124,6 +125,8 @@ export class SandboxSim {
   readonly ladders: Ladders | null;
   /** Each castle's masons and what they rebuild (matches only). */
   readonly works: Works | null;
+  /** Bridge gangs (matches only): read `gangs.status()`. */
+  readonly gangs: Gangs | null;
   /** M3: the plots' buildings (with plots in the layout), and sappers' kegs and musketeers' shots (matches). */
   readonly structures: Structures | null;
   readonly specialists: Specialists | null;
@@ -198,6 +201,8 @@ export class SandboxSim {
     this.army = opts.army ? new Army(this.minions, this.nav, this.castle, this.terrain, (hashString("army") ^ opts.seed) >>> 0, emit) : null;
     this.ladders = this.army ? new Ladders(R, this.castle.world, this.castle, this.terrain, this.minions, emit) : null;
     this.works = this.army ? new Works(this.minions, this.castle, this.terrain, this.army, emit) : null;
+    this.gangs = this.army ? new Gangs(this.minions, this.castle, this.terrain, this.nav, this.army, emit) : null;
+    if (this.army) this.army.gangs = this.gangs;
     if (this.army && this.ladders) {
       this.army.ladders = this.ladders;
       this.ladders.army = this.army;
@@ -241,6 +246,7 @@ export class SandboxSim {
     this.army?.step(tick);
     this.ladders?.step(tick);
     this.works?.step(tick);
+    this.gangs?.step();
     this.structures?.step(tick);
     this.terrain.rebuild();
     this.notePositions();
@@ -402,8 +408,28 @@ export class SandboxSim {
     }
   }
 
+  /** Turn what the minions and the masonry logged into page events (Down, Fell). State is untouched. */
+  private drainLogs() {
+    const dl = this.minions.downLog;
+    for (let k = 0; k + 3 < dl.length; k += 4) this.event(EventKind.Down, dl[k], dl[k + 1], dl[k + 2], dl[k + 3]);
+    dl.length = 0;
+    const ll = this.castle.looseLog;
+    if (ll.length) {
+      const secs = sectionOf(this.castle.layout);
+      const stones = this.castle.layout.stones;
+      const counts = new Map<number, number>();
+      for (const id of ll) {
+        const key = stones[id].castle * 1000 + (secs[id] + 1);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      for (const key of [...counts.keys()].sort((a, b) => a - b)) this.event(EventKind.Fell, Math.floor(key / 1000), (key % 1000) - 1, counts.get(key)!, 0);
+      ll.length = 0;
+    }
+  }
+
   private afterStep() {
     const castle = this.castle;
+    this.drainLogs();
     for (const im of castle.impacts) this.event(EventKind.Impact, im.x, im.y, im.z, im.strength);
     // M5: tough pieces (keep floor boards) cracked by a blast but still standing.
     for (const id of castle.cracked) {
@@ -630,6 +656,7 @@ export class SandboxSim {
   /** Everything since the last call, for the renderer. Arrays are fresh copies (transferable). */
   collect(): FrameData {
     const b = this.bufs;
+    const lead = this.wind.lead(this.tick);
     const stoneCount = this.castle.collectMoving(b.stones);
     let pc = 0, cc = 0;
     for (const shot of this.shots) {
@@ -659,6 +686,7 @@ export class SandboxSim {
     const worksCount = this.works ? this.works.collect(b.works) : 0;
     const terrain: TerrainPatch[] = this.terrain.patches;
     this.terrain.patches = [];
+    this.drainLogs();
     const events = new Float32Array(this.events);
     this.events.length = 0;
     const plotCount = this.structures ? this.structures.collect(b.plots) : 0;
@@ -691,6 +719,9 @@ export class SandboxSim {
       terrain,
       windX: this.wind.x,
       windZ: this.wind.z,
+      gustX: lead.x,
+      gustZ: lead.z,
+      gustIn: lead.ticks,
     };
   }
 
@@ -709,6 +740,7 @@ export class SandboxSim {
     this.army?.hashInto(extra);
     this.ladders?.hashInto(extra);
     this.works?.hashInto(extra);
+    this.gangs?.hashInto(extra);
     this.structures?.hashInto(extra);
     this.specialists?.hashInto(extra);
     this.mounts.hashInto(extra);

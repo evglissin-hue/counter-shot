@@ -142,6 +142,8 @@ export const enum Role {
   Defend = 2,
   /** One of a castle's masons (works.ts). */
   Mason = 3,
+  /** One of two men of a wave who relay a blown bridge deck (gangs.ts). */
+  Gang = 4,
 }
 
 /** What knocked a minion down (M3: bounties and trick shots). */
@@ -198,6 +200,8 @@ export class Minions {
   /** M3: when set, every knockdown is listed in `downs` as [minion, cause, shot, stone], for the match to pay for. */
   recordDowns = false;
   downs: number[] = [];
+  /** Page events only (not state): every knockdown as [minion, cause, shot, speed], drained by the world into Down events. */
+  downLog: number[] = [];
 
   constructor(private R: Rapier, private world: World, private terrain: Terrain) {}
 
@@ -276,6 +280,7 @@ export class Minions {
     const m = this.list[k.minion];
     if (!m || m.state === MinionState.Sinking || m.state === MinionState.Gone) return;
     if (m.state === MinionState.Frozen) this.thaw(m);
+    let fresh = false;
     if (m.state === MinionState.Upright) {
       // M3: what knocked it down, for bounties and trick shots.
       m.downCause = k.cause ?? Cause.Unknown;
@@ -283,6 +288,7 @@ export class Minions {
       m.downStone = k.stone ?? -1;
       if (this.recordDowns) this.downs.push(m.id, m.downCause, m.downShot, m.downStone);
       this.toRagdoll(m, tick);
+      fresh = true;
     }
     // Push every part, and the part nearest the hit point extra.
     let best = 0, bestD = 1e9;
@@ -299,6 +305,15 @@ export class Minions {
       const s = i === best ? 1 + k.extra : 1;
       const v = b.linvel();
       b.setLinvel({ x: v.x + k.vx * s, y: v.y + k.vy * s, z: v.z + k.vz * s }, true);
+    }
+    if (fresh) {
+      let top2 = 0;
+      for (const b of m.parts) {
+        const v = b.linvel();
+        const s2 = v.x * v.x + v.y * v.y + v.z * v.z;
+        if (s2 > top2) top2 = s2;
+      }
+      this.downLog.push(m.id, m.downCause ?? Cause.Unknown, m.downShot ?? -1, dsqrt(top2));
     }
   }
 

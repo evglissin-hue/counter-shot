@@ -44,11 +44,14 @@ import {
 import { DIST, MID_Z, STREAM, valleyGrid, valleyHeight } from "@keepfall/content";
 import { Rng } from "@keepfall/core";
 import { TERRAIN_GRID, type TerrainPatch } from "@keepfall/sim";
+import { applyCloudShadow } from "./clouds";
 import type { Sky } from "./sky";
 import { buildStreamGeometry, makeStreamMaterial } from "./stream";
 import type { StylePreset } from "./styles";
 import { N, aaLine, bumpNormal } from "./tslUtils";
 import { routeDistanceNodes, streamEdgeNode, wallDistanceNode } from "./valleyNodes";
+import { applyWindSheen } from "./windSheen";
+import type { WindField } from "./windField";
 
 /** Render height everywhere: the valley's own ground. */
 export function groundHeight(x: number, z: number): number {
@@ -201,6 +204,8 @@ function buildOuter(xs: number[], zs: number[]): THREE.BufferGeometry {
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
   g.setAttribute("aCrater", new THREE.BufferAttribute(new Float32Array(nx * nz), 1));
+  // L2/L3 ground marks: none on the coarse surround (the field mesh carries them).
+  g.setAttribute("aMarks", new THREE.BufferAttribute(new Float32Array(nx * nz * 4), 4));
   g.setIndex(new THREE.BufferAttribute(idx.slice(0, k), 1));
   g.computeBoundingSphere();
   return g;
@@ -290,6 +295,10 @@ function buildField(): TerrainGeometry {
   g.setAttribute("position", pa);
   g.setAttribute("normal", na);
   g.setAttribute("aCrater", ca);
+  // L2/L3 ground marks: (scorch, dust, trodden, spare) per vertex, written by groundMarks.ts.
+  const ma = new THREE.BufferAttribute(new Float32Array(total * 4), 4);
+  ma.setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute("aMarks", ma);
   g.setIndex(new THREE.BufferAttribute(idx.slice(0, k), 1));
   g.computeBoundingSphere();
   return { geometry: g, nx, nz, gi0: 0, gj0: 0 };
@@ -348,9 +357,11 @@ interface TerrainCtx {
   style: StylePreset;
   noise: THREE.Texture;
   sky: Sky;
+  /** The game's wind (look round L3): moves a sheen over the grass. */
+  wind?: WindField;
 }
 
-export function makeTerrainMaterial({ style, noise, sky }: TerrainCtx): THREE.MeshStandardNodeMaterial {
+export function makeTerrainMaterial({ style, noise, sky, wind }: TerrainCtx): THREE.MeshStandardNodeMaterial {
   const G = style.ground;
   const mat = new THREE.MeshStandardNodeMaterial();
   mat.name = `${style.name}-terrain`;
@@ -510,9 +521,34 @@ export function makeTerrainMaterial({ style, noise, sky }: TerrainCtx): THREE.Me
     c.assign(mix(c, color(0x4e3d2b).mul(fine.r.mul(0.35).add(0.8)), fresh));
     const wetC = smoothstep(0.25, 0.9, crater);
     c.assign(mix(c, color(0x15120f).mul(fine.g.mul(0.3).add(0.85)), wetC.mul(0.9)));
+    // L2/L3 ground marks: scorch, a pale dust wash and trodden paths (per vertex, ragged per pixel by the noise).
+    {
+      const mk: N = varying(attribute("aMarks", "vec4"), "vMarks");
+      const grain: N = fine.g.mul(0.5).add(fine.r.mul(0.5));
+      const trod: N = smoothstep(0.08, 0.75, mk.z.add(grain.sub(0.5).mul(0.3)));
+      c.assign(mix(c, color(G.mud).mul(grain.mul(0.3).add(0.72)), trod.mul(0.75)));
+      const wash: N = smoothstep(0.03, 0.5, mk.y.add(grain.sub(0.5).mul(0.2)));
+      c.assign(mix(c, color(0xb5ac99).mul(grain.mul(0.2).add(0.9)), wash.mul(0.6)));
+      const char: N = smoothstep(0.1, 0.55, mk.x.add(grain.sub(0.5).mul(0.45)));
+      const ash: N = smoothstep(0.55, 0.95, mk.x.add(mid.r.sub(0.5).mul(0.5)));
+      const burnt: N = mix(color(0x1d1712), color(0x6a655d), ash.mul(0.7)).mul(grain.mul(0.35).add(0.8));
+      c.assign(mix(c, burnt, char.mul(0.92)));
+    }
+    // L3 wind and clouds: the game's wind bends the grass (a pale sheen in streaks) and a gust's front crosses the land.
+    if (wind) {
+      // Grass areas only: not rock, worn earth, roads, paths, craters, the churned mud of the battlefield, or the stream's banks.
+      const earth: N = max(max(worn, road), max(path, smoothstep(0.02, 0.1, crater.abs())));
+      const field: N = float(1).sub(smoothstep(30.0, 60.0, abs(x))).mul(smoothstep(-160.0, -125.0, z)).mul(float(1).sub(smoothstep(-25.0, 10.0, z)));
+      const mudy: N = smoothstep(0.5, 0.64, big.g.mul(0.65).add(mid.r.mul(0.35))).mul(field);
+      const bank: N = float(1).sub(smoothstep(1.5, 5.0, streamEdge)).mul(float(1).sub(smoothstep(0.3, 1.4, y.sub(STREAM.level))));
+      const grass: N = float(1).sub(max(max(rockMask, earth), max(mudy, bank)));
+      c.assign(applyWindSheen(c, noise, wind, vec2(x, z), dist, grass));
+    }
     return c;
   });
   mat.colorNode = colorFn();
+  // L3 wind and clouds: the clouds' shade drifts over the ground.
+  applyCloudShadow(mat);
   // Wet mud and the banks are shinier, rock and straw rougher, crater bottoms the shiniest.
   {
     const { edge } = streamEdgeNode(x, z);
@@ -562,6 +598,7 @@ export class Terrain {
   private noise: THREE.Texture;
   private sky: Sky;
   private time: N;
+  private wind?: WindField;
   private built = false;
   private nx: number;
   private gi0: number;
@@ -569,13 +606,16 @@ export class Terrain {
   private pos: THREE.BufferAttribute;
   private nor: THREE.BufferAttribute;
   private crater: THREE.BufferAttribute;
+  /** L2/L3: the field's per-vertex ground marks (scorch, dust, trodden, spare), shared with groundMarks.ts. */
+  readonly marks: THREE.BufferAttribute;
   /** Current heights of the physics grid (render copy), and the original ones. */
   readonly heights = new Float32Array(TG.nx * TG.nz);
   private base = new Float32Array(TG.nx * TG.nz);
   private rowMin = Infinity;
   private rowMax = -Infinity;
 
-  constructor(noise: THREE.Texture, sky: Sky, time: N) {
+  constructor(noise: THREE.Texture, sky: Sky, time: N, wind?: WindField) {
+    this.wind = wind;
     this.noise = noise;
     this.sky = sky;
     this.time = time;
@@ -593,6 +633,7 @@ export class Terrain {
     this.pos = tg.geometry.attributes.position as THREE.BufferAttribute;
     this.nor = tg.geometry.attributes.normal as THREE.BufferAttribute;
     this.crater = tg.geometry.attributes.aCrater as THREE.BufferAttribute;
+    this.marks = tg.geometry.attributes.aMarks as THREE.BufferAttribute;
     const H = valleyGrid();
     this.heights.set(H);
     this.base.set(H);
@@ -607,7 +648,7 @@ export class Terrain {
   setStyle(style: StylePreset) {
     if (this.built) return;
     this.built = true;
-    this.ground.material = makeTerrainMaterial({ style, noise: this.noise, sky: this.sky });
+    this.ground.material = makeTerrainMaterial({ style, noise: this.noise, sky: this.sky, wind: this.wind });
     this.field.material = this.ground.material;
     this.mountains.material = makeMountainMaterial(style, this.sky);
     this.water.material = makeStreamMaterial(style, this.sky, this.noise, this.time);
@@ -631,6 +672,29 @@ export class Terrain {
   /** Back to the original ground everywhere in the grid. */
   resetHeights() {
     this.heights.set(this.base);
+    this.refresh(0, 0, TG.nx - 1, TG.nz - 1);
+  }
+
+  /** Keyframe (S3): the cells whose height is not the original, as their grid index and height. */
+  captureHeights(): { idx: Int32Array; h: Float32Array } {
+    const H = this.heights, B = this.base;
+    let n = 0;
+    for (let k = 0; k < H.length; k++) if (H[k] !== B[k]) n++;
+    const idx = new Int32Array(n), h = new Float32Array(n);
+    let m = 0;
+    for (let k = 0; k < H.length; k++) {
+      if (H[k] === B[k]) continue;
+      idx[m] = k;
+      h[m] = H[k];
+      m++;
+    }
+    return { idx, h };
+  }
+
+  /** Keyframe (S3): the original ground, then the captured cells; normals and crater shading as applyPatches makes them. */
+  restoreHeights(idx: Int32Array, h: Float32Array) {
+    this.heights.set(this.base);
+    for (let m = 0; m < idx.length; m++) this.heights[idx[m]] = h[m];
     this.refresh(0, 0, TG.nx - 1, TG.nz - 1);
   }
 
@@ -679,6 +743,13 @@ export class Terrain {
     }
     this.rowMin = Infinity;
     this.rowMax = -Infinity;
+  }
+
+  /** L2/L3: upload the ground marks of grid rows j0..j1 (the field mesh's vertices run row by row from the grid's). */
+  flushMarks(j0: number, j1: number) {
+    this.marks.clearUpdateRanges();
+    this.marks.addUpdateRange(j0 * this.nx * 4, (j1 - j0 + 1) * this.nx * 4);
+    this.marks.needsUpdate = true;
   }
 
   /** Render ground height: the patched grid inside it (bilinear), the valley outside. */

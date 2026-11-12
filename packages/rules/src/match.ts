@@ -24,6 +24,7 @@ import {
   MIX_NAMES,
   MUSTER,
   PLOTS,
+  REGISTER,
   REPAIR_KINDS,
   ROUTE_NAMES,
   START_BUILDINGS,
@@ -48,7 +49,8 @@ import {
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { clearOfCastle, MinionState, Order, Role, SandboxSim, SapperTask, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
 import { Economy } from "./economy";
-import { Estate } from "./estate";
+import { Estate, firstSlot } from "./estate";
+import { Register } from "./register";
 
 export const enum Team {
   Enemy = 0,
@@ -56,7 +58,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 8;
+export const MATCH_RULES_VERSION = 9;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -90,7 +92,11 @@ export type MatchInput =
    * side sees it turn: the AI, and a player online). Only for drawing it; a
    * fire carries its own aim.
    */
-  | { kind: "aim"; emplacement: number; yaw: number; pitch: number };
+  | { kind: "aim"; emplacement: number; yaw: number; pitch: number }
+  /** 3.2: mark where the last shot by hand from this emplacement of the team came down (within REGISTER.markWindow ticks; Register). */
+  | { kind: "mark"; emplacement: number }
+  /** 3.2: fire for effect at the team's mark n (1 to 6): every gun that bears, the mortar only with `mortar` (Register). */
+  | { kind: "salvo"; mark: number; mortar?: boolean };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
@@ -173,6 +179,8 @@ export interface Gun {
   errZ: number;
   /** A minion it found it cannot fire at without hitting its own castle (it looks past him next time). */
   skip: number;
+  /** 3.2: its target stands on one of its team's marks (smaller error, shorter reload). */
+  marked: boolean;
 }
 
 /** Which team an emplacement belongs to: the castle on its side of the field. */
@@ -197,9 +205,9 @@ function nearBridge(x: number, z: number, r: number): boolean {
  * waiting to happen (M5 audit: a swivel's shot set off a chain of kegs on a
  * deck and the valley was cut for good), so he is left alone near a bridge.
  */
-function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number, keg: boolean): boolean {
+function bridgeAtRisk(e: Emplacement, x: number, z: number, U: UnmannedDef, range: number, keg: boolean, errScale = 1): boolean {
   const pad = U.clearBridge + (keg ? KEG.burst.radius + 1.5 : 0);
-  if (nearBridge(x, z, U.errBase + U.errPerM * range + pad)) return true;
+  if (nearBridge(x, z, (U.errBase + U.errPerM * range) * errScale + pad)) return true;
   if (U.overshoot <= 0) return false;
   const dx = x - e.x, dz = z - e.z;
   const d = dsqrt(dx * dx + dz * dz) + 1e-9;
@@ -239,6 +247,10 @@ function wellFormed(input: MatchInput): boolean {
       return int(input.emplacement, 0, slots) && one(UPGRADE_KINDS, input.upgrade);
     case "barracks":
       return int(input.plot, 0, plots) && (input.mix === undefined || one(MIX_NAMES, input.mix)) && (input.route === undefined || one(ROUTE_NAMES, input.route));
+    case "mark":
+      return int(input.emplacement, 0, slots);
+    case "salvo":
+      return int(input.mark, 1, REGISTER.max) && (input.mortar === undefined || typeof input.mortar === "boolean");
     default:
       return false;
   }
@@ -256,6 +268,10 @@ export class Match {
   /** Shots each team fired itself, and shots its unmanned weapons fired. */
   readonly shots: [number, number] = [0, 0];
   readonly autoShots: [number, number] = [0, 0];
+  /** Of those, shots at men on a mark of the team (a read-only count for tools: not in the hash). */
+  readonly autoOnMark: [number, number] = [0, 0];
+  /** For tools (not in the hash): every build, buy and upgrade the estate accepted from an input, as [tick, castle, "build mill 1" | "buy mortar 7" | "upgrade heavyShot 0"]; plots and slots are the castle's own (slot 0 to 7). */
+  readonly applied: Array<[number, 0 | 1, string]> = [];
   /** Each team's barracks route for its next waves, and waves sent so far. */
   readonly route: [RouteName, RouteName] = ["centre", "centre"];
   readonly waves: [number, number] = [0, 0];
@@ -278,6 +294,11 @@ export class Match {
   readonly economy: Economy;
   readonly estate: Estate;
   private inputs = new Map<number, Array<{ team: Team; input: MatchInput }>>();
+  /**
+   * An observer (the page's replay log): told of every input that reaches `apply`, on the tick it is applied, in the order applied.
+   * It changes no state; the match plays out the same with or without it.
+   */
+  onInput: ((tick: number, team: Team, input: MatchInput) => void) | null = null;
   private garrison: boolean;
   private autoFire: [boolean, boolean];
   private suddenAt: number;
@@ -291,6 +312,8 @@ export class Match {
   private rotate: boolean;
   /** Waves the enemy's first barracks has sent (its route turns with them). */
   private enemyWaves = 0;
+  /** 3.2: each team's marks and fire for effect (marks are the team's alone: show a page only its own). */
+  readonly register: Register;
   /** Waves each barracks plot has sent (every other one from the second carries a ladder). */
   private plotWaves: [number[], number[]] = [PLOTS.map(() => 0), PLOTS.map(() => 0)];
 
@@ -307,7 +330,7 @@ export class Match {
     this.guns = this.emplacements.map((e) => {
       const w = WEAPONS[e.weapon];
       const pitch = w.restPitch < w.minPitch ? w.minPitch : w.restPitch > w.maxPitch ? w.maxPitch : w.restPitch;
-      return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0, skip: -1 };
+      return { yaw: e.baseYaw, pitch, target: -1, aimYaw: e.baseYaw, aimPitch: pitch, charge: 1, errX: 0, errZ: 0, skip: -1, marked: false };
     });
     this.rng = new Rng((hashString("unmanned") ^ opts.seed) >>> 0);
     this.barracks = opts.barracks !== false;
@@ -332,6 +355,17 @@ export class Match {
     if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
     // After M5: a knocked-out gun's crew puts it back for gold, through the same books as everything else.
     this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
+    this.world.gangs!.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
+    this.register = new Register(
+      { world: this.world, emplacements: this.emplacements, owner: (emp) => this.owner[emp] ?? -1, manned: (team) => this.manned[team] ?? -1, reloadScale: () => this.reloadScale(),
+        ownNear: (team, x, z, r) => this.ownNear(team as Team, x, z, r),
+        bridgeAtRisk: (e, x, z, errScale) => {
+          const dx = x - e.x, dz = z - e.z;
+          return bridgeAtRisk(e, x, z, UNMANNED[e.weapon] ?? UNMANNED.longGun!, dsqrt(dx * dx + dz * dz), false, errScale);
+        },
+        aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
+      opts.seed,
+    );
   }
 
   /** Gold each team earned (income included) and spent: the economy's books. */
@@ -402,6 +436,7 @@ export class Match {
       for (const { team, input } of list) {
         if (!wellFormed(input)) continue;
         if (this.result && input.kind !== "surrender") continue;
+        this.onInput?.(tick, team, input);
         this.apply(team, input, tick);
       }
     }
@@ -413,8 +448,10 @@ export class Match {
         this.sendWaves(Team.Enemy);
       }
       if (this.autoFire[0] || this.autoFire[1]) this.gunnery(tick);
+      this.register.beforeStep(tick);
     }
     this.world.step();
+    this.register.afterStep(tick);
     if (this.result) return;
     // M3: bounties, masonry and trick shots from this step; then income, through the one income function.
     this.economy.step(tick);
@@ -503,13 +540,13 @@ export class Match {
         return;
       // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
       case "build":
-        this.estate.build(team, input.plot, input.building, tick);
+        if (this.estate.build(team, input.plot, input.building, tick)) this.applied.push([tick, team, `build ${input.building} ${input.plot}`]);
         return;
       case "buy":
-        this.estate.buy(team, input.emplacement, input.weapon);
+        if (this.estate.buy(team, input.emplacement, input.weapon)) this.applied.push([tick, team, `buy ${input.weapon} ${input.emplacement - firstSlot(team)}`]);
         return;
       case "upgrade":
-        this.estate.upgrade(team, input.emplacement, input.upgrade);
+        if (this.estate.upgrade(team, input.emplacement, input.upgrade)) this.applied.push([tick, team, `upgrade ${input.upgrade} ${input.emplacement - firstSlot(team)}`]);
         return;
       case "barracks":
         this.estate.setBarracks(team, input.plot, input.mix, input.route);
@@ -522,7 +559,19 @@ export class Match {
         this.setGun(e.id, input.yaw, input.pitch);
         return;
       }
+      case "mark":
+        this.register.makeMark(team, input.emplacement, tick);
+        return;
+      case "salvo":
+        this.register.salvo(team, input.mark, input.mortar === true, tick);
+        return;
     }
+  }
+
+  /** A salvo shot is leaving this emplacement: turn the barrel of a gun nobody rides to it (the one a team rides is left alone: the page swings it back). */
+  private aimed(id: number, yaw: number, pitch: number) {
+    const e = this.emplacements[id];
+    if (e && this.manned[this.owner[id]] !== id) this.setGun(id, yaw, pitch);
   }
 
   /** A gunner put this barrel here (clamped to its limits). */
@@ -597,14 +646,15 @@ export class Match {
       g.target = -1;
       if (!m || m.state !== MinionState.Upright) continue;
       this.autoShots[team]++;
-      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: U.reload * this.reloadScale() });
+      if (g.marked) this.autoOnMark[team]++;
+      this.world.queue(tick, { kind: "fire", emplacement: e.id, yaw: g.yaw, pitch: g.pitch, charge: g.charge, fuse: 0, spin: Spin.None, auto: true, reload: (g.marked ? REGISTER.reload : U.reload) * this.reloadScale() });
     }
   }
 
   /** Choose a target for an unmanned gun and work out its aim (leading it, plus the gun's error). */
   private lay(e: Emplacement, g: Gun, team: Team, U: UnmannedDef) {
     const gate = MUSTER[team];
-    let best = -1, bestD = Infinity;
+    let best = -1, bestD = Infinity, bestMarked = false;
     for (const m of this.world.minions.list) {
       if (m.state !== MinionState.Upright || m.wave < 0 || m.team === team) continue;
       const dx = m.x - e.x, dz = m.z - e.z;
@@ -612,14 +662,17 @@ export class Match {
       if (r2 < U.minRange * U.minRange || r2 > U.maxRange * U.maxRange) continue;
       if (yawTowards(e, m.x, m.z) === null) continue;
       const gx = m.x - gate.x, gz = m.z - gate.z;
-      const threat = gx * gx + gz * gz;
-      if (threat > DEFEND * DEFEND || threat >= bestD) continue;
+      // 3.2: a man on one of the team's marks may be engaged anywhere in range, and counts as nearer the gate.
+      const onMark = this.register.onMark(team, m.x, m.z);
+      const threat = onMark ? (gx * gx + gz * gz) * (REGISTER.nearScale * REGISTER.nearScale) : gx * gx + gz * gz;
+      if ((!onMark && threat > DEFEND * DEFEND) || threat >= bestD) continue;
       if (m.id === g.skip) continue;
       const keg = m.unit === Unit.Sapper && (m.task === SapperTask.Carry || m.task === SapperTask.Plant);
-      if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg)) continue;
+      if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg, onMark ? REGISTER.errScale : 1)) continue;
       if (this.ownNear(team, m.x, m.z, U.clearOwn)) continue;
       bestD = threat;
       best = m.id;
+      bestMarked = onMark;
     }
     if (best < 0) {
       g.target = -1;
@@ -634,7 +687,7 @@ export class Match {
     if (g.target !== best) {
       // A new target: the gun's error for it, drawn once.
       const dx = m.x - e.x, dz = m.z - e.z;
-      const r = U.errBase + U.errPerM * dsqrt(dx * dx + dz * dz);
+      const r = (U.errBase + U.errPerM * dsqrt(dx * dx + dz * dz)) * (bestMarked ? REGISTER.errScale : 1);
       const rr = r * dsqrt(this.rng.next());
       const th = this.rng.range(0, 2 * DPI);
       g.errX = rr * dcos(th);
@@ -650,6 +703,7 @@ export class Match {
       return;
     }
     g.target = best;
+    g.marked = bestMarked;
     g.aimYaw = s.yaw;
     g.aimPitch = s.pitch;
     g.charge = s.charge;
@@ -721,12 +775,13 @@ export class Match {
     nums.push(this.storm[0], this.storm[1], this.stormsBegun[0], this.stormsBegun[1], this.stormsHeld[0], this.stormsHeld[1]);
     for (const r of this.repairs) for (const k of REPAIR_KINDS) nums.push(r[k] ? 1 : 0);
     if (r) nums.push(r.reason === "keep" ? 0 : r.reason === "storm" ? 1 : 2);
-    for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ);
+    for (const g of this.guns) nums.push(g.yaw, g.pitch, g.target, g.aimYaw, g.aimPitch, g.charge, g.errX, g.errZ, g.marked ? 1 : 0);
     // M3: gold earned and spent, open trick-shot tallies, what is built and bought, the enemy's build order, each barracks' waves.
     this.economy.hashInto(nums);
     this.estate.hashInto(nums);
     nums.push(this.enemyWaves);
     for (const p of this.plotWaves) nums.push(...p);
+    this.register.hashInto(nums);
     const f = new Float64Array(nums);
     return { state: hex8(hashBytes(new Uint8Array(f.buffer))), world: w.world };
   }

@@ -2,6 +2,8 @@
 // material group). Positions and rotations live in one interleaved, dynamic
 // instance buffer per group: [x, y, z, shade, qx, qy, qz, qw]. Moving a stone
 // is eight float writes; the GPU applies the rotation in the vertex shader.
+// A third attribute per group, iWear (vec4: faces, soot, crack, dust), holds the
+// per-stone wear that wear.ts owns; it is written only when a stone's wear changes.
 
 import * as THREE from "three/webgpu";
 import type { CastleLayout, Stone } from "@keepfall/content";
@@ -37,6 +39,11 @@ interface Group {
   proxy: THREE.Mesh;
   dmin: number;
   dmax: number;
+  /** Per-stone wear [faces, soot, crack, dust], slot order. */
+  wearArray: Float32Array;
+  wear: THREE.InstancedBufferAttribute;
+  wmin: number;
+  wmax: number;
 }
 
 const _c = new THREE.Color();
@@ -61,6 +68,8 @@ export class StoneSet {
   private wedgePlanes = new Float64Array(24);
   private local = new Float64Array(6);
   private wedgeR = 0;
+  /** Called for every stone the page moves (wear.ts watches for stones leaving their place). */
+  onBody: ((id: number, x: number, y: number, z: number) => void) | null = null;
 
   constructor(layout: CastleLayout, noise: THREE.Texture) {
     this.layout = layout;
@@ -127,6 +136,9 @@ export class StoneSet {
           statArray[o + 7] = frac(s.shade * 7.31);
         }
       }
+      const wearArray = new Float32Array(Math.max(1, count) * 4);
+      const wear = new THREE.InstancedBufferAttribute(wearArray, 4, false, 1);
+      wear.setUsage(THREE.DynamicDrawUsage);
       const dyn = new THREE.InstancedInterleavedBuffer(dynArray, 8, 1);
       dyn.setUsage(THREE.DynamicDrawUsage);
       const stat = new THREE.InstancedInterleavedBuffer(statArray, 8, 1);
@@ -171,6 +183,10 @@ export class StoneSet {
         proxy,
         dmin: Infinity,
         dmax: -Infinity,
+        wearArray,
+        wear,
+        wmin: Infinity,
+        wmax: -Infinity,
       });
     }
   }
@@ -190,6 +206,7 @@ export class StoneSet {
     geo.setAttribute("iQuat", new THREE.InterleavedBufferAttribute(g.dyn, 4, 4));
     geo.setAttribute("iSize", new THREE.InterleavedBufferAttribute(g.stat, 4, 0));
     geo.setAttribute("iColor", new THREE.InterleavedBufferAttribute(g.stat, 4, 4));
+    geo.setAttribute("iWear", g.wear);
     geo.instanceCount = g.count;
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, -75), 400);
     g.geometries.set(style.name, geo);
@@ -292,7 +309,24 @@ export class StoneSet {
       a[k + 7] = data[o + 7];
       if (s < g.dmin) g.dmin = s;
       if (s > g.dmax) g.dmax = s;
+      if (this.onBody) this.onBody(id, data[o + 1], data[o + 2], data[o + 3]);
     }
+  }
+
+  /** Write one stone's wear [faces, soot, crack, dust] by id; flush() sends the touched range. */
+  setWear(id: number, faces: number, soot: number, crack: number, dust: number) {
+    const gi = this.groupOf[id];
+    if (gi === 255 || gi === undefined) return;
+    const g = this.groups[gi];
+    const s = this.slotOf[id];
+    const a = g.wearArray;
+    const k = s * 4;
+    a[k] = faces;
+    a[k + 1] = soot;
+    a[k + 2] = crack;
+    a[k + 3] = dust;
+    if (s < g.wmin) g.wmin = s;
+    if (s > g.wmax) g.wmax = s;
   }
 
   resetStones() {
@@ -301,6 +335,45 @@ export class StoneSet {
       g.dmin = 0;
       g.dmax = g.count - 1;
     }
+  }
+
+  /**
+   * Keyframe (S3): every stone whose transform differs from its as-built one
+   * (dust and withdrawn stones too, they sit at y -1000), as [id, x, y, z, qx, qy, qz, qw]
+   * each: the layout `updateBodies` takes.
+   */
+  captureMoved(): Float32Array {
+    let n = 0;
+    const differs = (g: Group, o: number): boolean => {
+      const a = g.dynArray, b = g.initial;
+      return a[o] !== b[o] || a[o + 1] !== b[o + 1] || a[o + 2] !== b[o + 2] || a[o + 4] !== b[o + 4] || a[o + 5] !== b[o + 5] || a[o + 6] !== b[o + 6] || a[o + 7] !== b[o + 7];
+    };
+    for (const g of this.groups) for (let i = 0; i < g.count; i++) if (differs(g, i * 8)) n++;
+    const out = new Float32Array(n * 8);
+    let k = 0;
+    for (const g of this.groups) {
+      for (let i = 0; i < g.count; i++) {
+        const o = i * 8;
+        if (!differs(g, o)) continue;
+        const a = g.dynArray;
+        out[k] = g.ids[i];
+        out[k + 1] = a[o];
+        out[k + 2] = a[o + 1];
+        out[k + 3] = a[o + 2];
+        out[k + 4] = a[o + 4];
+        out[k + 5] = a[o + 5];
+        out[k + 6] = a[o + 6];
+        out[k + 7] = a[o + 7];
+        k += 8;
+      }
+    }
+    return out;
+  }
+
+  /** Keyframe (S3): every stone back as built, then the captured ones put where they were. */
+  restoreMoved(moved: Float32Array) {
+    this.resetStones();
+    this.updateBodies(moved, moved.length / 8);
   }
 
   /** Push the touched instance ranges to the GPU (once per frame). */
@@ -312,6 +385,14 @@ export class StoneSet {
       g.dyn.needsUpdate = true;
       g.dmin = Infinity;
       g.dmax = -Infinity;
+    }
+    for (const g of this.groups) {
+      if (g.wmin > g.wmax) continue;
+      g.wear.clearUpdateRanges();
+      g.wear.addUpdateRange(g.wmin * 4, (g.wmax - g.wmin + 1) * 4);
+      g.wear.needsUpdate = true;
+      g.wmin = Infinity;
+      g.wmax = -Infinity;
     }
   }
 

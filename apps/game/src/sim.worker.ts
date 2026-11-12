@@ -5,14 +5,17 @@
 // page sends inputs; the worker tags each with a tick, steps the sim and posts
 // what changed.
 
-import { buildLayout, CASTLE_SHAPE, Earn, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, buildLayout, CASTLE_SHAPE, Earn, UNMANNED, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
-import { GUIDED_OPTIONS, Match, Team, TUTOR_TEAM, type MatchInput } from "@keepfall/rules";
+import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type MatchOptions, type RegisterHost } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
+import { MatchLog, makeSetup, writeLog, type LoggedMode, type ReplayFile, type ReplaySetup } from "./matchLog";
+import { NET_VERSION } from "./net";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
-import { EARN_STRIDE, type FromWorker, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type ToWorker } from "./protocol";
+import { placeName } from "./marks";
+import { EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
 
 /** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
 let gen = 0;
@@ -53,6 +56,21 @@ let matchSeed = 0;
 let waitingSince = 0;
 let netSentAt = 0;
 let netDirty = true;
+/**
+ * 3.2: the Practice range's register (one team, its four guns: the register runs on the page's
+ * worker only, never in the pinned session) and the gun the page rides there (-1: none).
+ */
+let practiceReg: Register | null = null;
+let practiceManned = -1;
+/** The bearing counts of the marks as last worked out (they cost a solve per gun, so a few times a second): by mark and the tick it was made. */
+const bearCache = new Map<string, number[]>();
+let bearAt = -1e9;
+/** S6: the log of the match being played (every input it applies), and its setup for the file. */
+let matchLog: MatchLog | null = null;
+let logSetup: ReplaySetup | null = null;
+/** S6: a replay being watched: the tick it stops at, and whether it has been reported (the file's hash is compared then). */
+let watching: ReplayFile | null = null;
+let watchSent = false;
 
 async function load(): Promise<Rapier> {
   if (R) return R;
@@ -78,7 +96,7 @@ function rehearse() {
   r.free();
 }
 
-function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}) {
+function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}, replay?: ReplayFile) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
@@ -98,16 +116,38 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   ai = null;
   net = null;
   stopped = false;
+  practiceReg = null;
+  practiceManned = -1;
+  bearCache.clear();
+  bearAt = -1e9;
   me = Team.Player;
   matchSeed = seed;
-  if (mode === "guided") {
+  if (watching) speed = 1; // the speed of a replay does not carry into the next match
+  matchLog = null;
+  logSetup = null;
+  watching = null;
+  watchSent = false;
+  /** The options the match is built from: the log's setup records them as they were. */
+  let opts: MatchOptions | null = null;
+  if (mode === "watch" && replay) {
+    // S6: a saved match played again from its file: the same options, every logged input queued on its tick, nobody driving it.
+    watching = replay;
+    speed = 1;
+    opts = replay.setup.opts;
+    me = replay.setup.team === 0 ? Team.Enemy : Team.Player;
+    match = new Match(R, layout, opts);
+    sim = match.world;
+    for (const [tick, team, , input] of replay.inputs) match.queue(tick, team === 0 ? Team.Enemy : Team.Player, input);
+  } else if (mode === "guided") {
     // M6: the guided first match: the tutor commands the enemy castle (it starts without a barracks; your waves start on Hold).
-    match = new Match(R, layout, { ...GUIDED_OPTIONS, seed });
+    opts = { ...GUIDED_OPTIONS, seed };
+    match = new Match(R, layout, opts);
     sim = match.world;
     ai = new AiPlayer(match, TUTOR_TEAM, "tutor", seed);
   } else if (mode === "versus" || mode === "online") {
     // Someone commands the enemy castle now (the AI, or a friend): no fixed build order, no routes in turn.
-    match = new Match(R, layout, { seed, plan: false, rotate: false });
+    opts = { seed, plan: false, rotate: false };
+    match = new Match(R, layout, opts);
     sim = match.world;
     if (mode === "versus") ai = new AiPlayer(match, Team.Enemy, setup.difficulty ?? "knight", seed);
     else {
@@ -119,6 +159,18 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   } else {
     match = null;
     sim = new SandboxSim(R, layout, { seed, minions });
+    // 3.2: marks and salvos with the range's four guns (the page's team owns every one; the gun it rides fires its salvo shot with its own aim left alone).
+    const range = sim;
+    practiceReg = new Register(
+      { world: range, emplacements: range.emplacements, owner: (id) => (id < ASHWRIGHT_EMPLACEMENTS.length ? Team.Player : -1), manned: (team) => (team === Team.Player ? practiceManned : -1), reloadScale: () => 1 },
+      seed,
+    );
+  }
+  if (match && opts && mode !== "watch") {
+    // S6: every match keeps a log of what it applied (Match.onInput changes nothing in it).
+    const log = (matchLog = new MatchLog());
+    match.onInput = (tick, team, input) => log.record(tick, team, input);
+    logSetup = makeSetup(mode as LoggedMode, opts, me as 0 | 1, NET_VERSION, layout, mode === "versus" ? (setup.difficulty ?? "knight") : undefined);
   }
   navSent = -1;
   bridgesSent = -1;
@@ -176,10 +228,57 @@ function matchInfo(): MatchInfo | null {
     keepFloor: [floorSound(match, 0), floorSound(match, 1)],
     lanes: laneSummary(match.world.minions.list, L.list, lanesBuf),
     tutor: ai && ai.difficulty === "tutor" ? ai.stage : -1,
+    ...registerInfo(match.register, match.world, match.tick, (e) => teamOf(e) === me),
     ...estateInfo(match),
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/**
+ * 3.2: the page's own team's marks (never the other side's), when its next salvo may be ordered,
+ * and the guns whose last landing may be marked now. Reads only. `mine` says which emplacements are
+ * the page's team's. How many guns bear on each mark is worked out a few times a second.
+ */
+function registerInfo(reg: Register, world: SandboxSim, tick: number, mine: (e: Emplacement) => boolean): RegisterInfo {
+  if (tick - bearAt >= 6 || tick < bearAt) {
+    bearAt = tick;
+    bearCache.clear();
+  }
+  const marks: MarkInfo[] = reg.list(me).map((m) => {
+    const key = `${m.n}:${m.made}`;
+    let bear = bearCache.get(key);
+    if (!bear) {
+      const soonest = (ids: number[]) => {
+        let t = 0;
+        for (const id of ids) {
+          const r = world.reload[id];
+          if (r > 0 && (t === 0 || r < t)) t = r;
+        }
+        return Math.ceil(t / 60);
+      };
+      const reach = reg.bearing(me, m.n, false, false), reachM = reg.bearing(me, m.n, true, false);
+      // Nothing could reach it: is it because the rules hold fire there? Asked of the match through the register's own host (the same calls as its salvo): one of your men by the mark, or a bridge the shot could hit.
+      let why = 0;
+      if (reachM.length === 0) {
+        const host = (reg as unknown as { host: RegisterHost }).host;
+        let own = false, bridge = false;
+        for (const e of world.emplacements) {
+          if (e.empty || !mine(e)) continue;
+          const U = UNMANNED[e.weapon] ?? UNMANNED.longGun!;
+          if (host.ownNear?.(me, m.x, m.z, U.clearOwn)) own = true;
+          else if (host.bridgeAtRisk?.(e, m.x, m.z, REGISTER.errScale)) bridge = true;
+        }
+        why = own ? 1 : bridge ? 2 : 0;
+      }
+      bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length, reach.length, reachM.length, soonest(reach), soonest(reachM), why]));
+    }
+    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1], reach: bear[2], reachM: bear[3], loadS: bear[4], loadMS: bear[5], why: bear[6] === 1 ? "own" : bear[6] === 2 ? "bridge" : "" };
+  });
+  const canMark: number[] = [];
+  for (const e of world.emplacements) if (!e.empty && mine(e) && reg.canMark(me, e.id, tick)) canMark.push(e.id);
+  const gangs = (world.gangs?.status() ?? []).filter((g) => g.team === me).map((g) => ({ bridge: g.bridge, state: g.state as number, men: g.men, progress: g.progress }));
+  return { marks, salvoReady: Math.max(0, REGISTER.salvoEvery - (tick - reg.salvoAt[me])), canMark, gangs };
 }
 
 /** The tops of a keep's timber storeys (m), lowest first: the roof is the last. */
@@ -281,13 +380,15 @@ function tick(advanceMs = -1) {
     last = now;
     // After a slow step (a big collapse), fall a little behind real time rather
     // than stall and then rush through the backlog: at most two steps per tick (online, a little more to catch up).
-    const cap = net ? DT * 4 : DT * 2;
+    const cap = net ? DT * 4 : watching ? DT * 8 : DT * 2;
     if (acc > cap) acc = cap;
   }
   let steps = 0;
-  const most = manual ? 12 : net ? 4 : 2;
+  // A replay being watched has no wall to keep to but the page's speed (4x needs up to eight steps an interval).
+  const most = manual ? (watching ? 48 : 12) : net ? 4 : watching ? 8 : 2;
   while (acc >= DT && steps < most) {
     if (net && !net.canStep()) break; // waiting for the friend's inputs for this tick
+    if (watching && match!.tick >= watching.final.tick) break; // the saved match's last tick: stop here
     const t0 = performance.now();
     if (match) {
       ai?.step();
@@ -296,7 +397,13 @@ function tick(advanceMs = -1) {
         net.afterStep(() => netHash(match!));
         netDirty = true;
       }
-    } else sim.step();
+    } else {
+      // 3.2: the range's register fades marks and fires salvo shots before the step, reads landings after it (the match does the same).
+      const t = sim.tick;
+      practiceReg?.beforeStep(t);
+      sim.step();
+      practiceReg?.afterStep(t);
+    }
     const ms = performance.now() - t0;
     stepEma = stepEma === 0 ? ms : stepEma * 0.9 + ms * 0.1;
     if (ms > peakNow) peakNow = ms;
@@ -309,6 +416,12 @@ function tick(advanceMs = -1) {
     steps++;
   }
   if (net) postNet(steps > 0);
+  if (watching && !watchSent && match!.tick >= watching.final.tick) {
+    watchSent = true;
+    acc = 0;
+    const hash = match!.hash();
+    post({ t: "watchEnd", tick: match!.tick, hash, ok: hash.state === watching.final.hash.state && hash.world === watching.final.hash.world });
+  }
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
@@ -351,6 +464,7 @@ function tick(advanceMs = -1) {
       standing: counts.standing,
       awake: sim.castle.awakeCount(),
       match: info,
+      reg: !match && practiceReg ? registerInfo(practiceReg, sim, sim.tick, (e) => e.id < ASHWRIGHT_EMPLACEMENTS.length) : null,
       bridges,
       sections,
       nav,
@@ -392,12 +506,12 @@ async function handle(msg: ToWorker) {
         await load();
         layout ??= buildLayout(1, GAME_LAYOUT);
         rehearse();
-        build(msg.mode, msg.seed, msg.minions, msg.setup);
+        build(msg.mode, msg.seed, msg.minions, msg.setup, msg.replay);
         start();
         break;
       case "reset":
         gen = msg.gen;
-        build(msg.mode, msg.seed, msg.minions, msg.setup);
+        build(msg.mode, msg.seed, msg.minions, msg.setup, msg.replay);
         start();
         break;
       case "netStop":
@@ -407,6 +521,7 @@ async function handle(msg: ToWorker) {
         break;
       case "input": {
         const input = msg.input;
+        if (watching) break; // a replay is driven by its file alone
         if (match) {
           if (input.kind === "minions") break;
           // Online, an input goes out to the friend and both play it on the same tick, a few ticks ahead.
@@ -415,6 +530,11 @@ async function handle(msg: ToWorker) {
             netDirty = true;
             postNet(false);
           } else match.queue(match.tick, me, input);
+        } else if (sim && practiceReg && (input.kind === "mark" || input.kind === "salvo" || input.kind === "man")) {
+          // The range's register: not through a lockstep, there is none. Only the four guns the page rides are its team's.
+          if (input.kind === "mark") practiceReg.makeMark(Team.Player, input.emplacement, sim.tick);
+          else if (input.kind === "salvo") practiceReg.salvo(Team.Player, input.mark, input.mortar === true, sim.tick);
+          else practiceManned = input.emplacement >= 0 && input.emplacement < ASHWRIGHT_EMPLACEMENTS.length ? input.emplacement : -1;
         } else if (sim && (input.kind === "fire" || input.kind === "minions")) sim.queue(sim.tick, input);
         break;
       }
@@ -437,6 +557,10 @@ async function handle(msg: ToWorker) {
         break;
       case "speed":
         speed = msg.factor;
+        break;
+      case "saveLog":
+        // S6: the file as the match stands now (it goes on): its setup, the inputs it applied, and its tick and hash.
+        if (match && matchLog && logSetup) post({ t: "log", text: writeLog(logSetup, matchLog.entries(), match.tick, match.hash()) });
         break;
       case "pause":
         paused = msg.paused;

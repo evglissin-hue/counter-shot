@@ -5,6 +5,8 @@
 
 import type { CastleLayout, Emplacement } from "@keepfall/content";
 import type { FrameData, TerrainPatch } from "@keepfall/sim";
+import type { KeyframePart, RenderKeyframe } from "./keyframe";
+export type { KeyframePart, RenderKeyframe } from "./keyframe";
 
 export type QualityTier = "low" | "medium" | "high" | "ultra";
 
@@ -17,7 +19,26 @@ export type CameraPose =
   /** Chase a projectile: its position and velocity. */
   | { mode: "follow"; x: number; y: number; z: number; vx: number; vy: number; vz: number }
   /** Placed by the page (the mortar's spotter and its ride): eye position, the point it looks at, field of view. */
-  | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number };
+  | { mode: "free"; x: number; y: number; z: number; tx: number; ty: number; tz: number; fov: number; /** Set the field of view at once instead of easing to it (a replay's camera). */ snap?: boolean };
+
+/** The impact cam's camera: eye position, the point it looks at, field of view in degrees. */
+export interface InsetPose {
+  x: number;
+  y: number;
+  z: number;
+  tx: number;
+  ty: number;
+  tz: number;
+  fov: number;
+}
+
+/** A rectangle on the canvas in CSS pixels from its top left. */
+export interface InsetRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 /** The first thing a predicted flight hits. */
 export interface PathHit {
@@ -102,6 +123,13 @@ export interface GameRendererApi {
   groundAt(x: number, z: number): number;
   /** After M5: a gun knocked out (it tips over, or with `fell` falls with its masonry) or back on its mount. */
   setGunOut(emplacement: number, out: boolean, fell?: boolean): void;
+  /**
+   * The impact cam: draw the same world from `pose` into `rect` of the canvas after the main view (null pose: closed).
+   * `swapped` draws the main view from the inset's pose and the inset from the gun's.
+   */
+  setInset(pose: InsetPose | null, rect: InsetRect, swapped: boolean): void;
+  /** Is the straight line between two points cut by masonry? */
+  sightBlocked(ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean;
   /** Dynamic resolution: the share of the full resolution the scene is drawn at (0.4..1). */
   setRenderScale(scale: number): void;
   /** GPU time per frame in ms when the browser can measure it, else null. */
@@ -117,12 +145,23 @@ export interface GameRendererApi {
   showEmplacements(n: number): void;
   /** Show the midfield markers, where each team's waves hold (a match). */
   setMarkers(on: boolean): void;
+  /** 3.2: your team's marks, drawn as chalk crosses with their numbers (none: clear them). */
+  setChalk(marks: Array<{ n: number; x: number; y: number; z: number; life: number }>): void;
   /** M3: what each emplacement holds now (a gun bought for an empty slot appears; an empty one shows nothing). */
   setArms(emplacements: Emplacement[]): void;
   /** The nav grid as the worker sent it: kind and walking height per cell. */
   updateNav(kind: Uint8Array, floor: Float32Array): void;
   /** How far a courtyard's storm has gone (0..1; castle 0 is the enemy's) and whether its attackers outnumber its defenders now. */
   setStorm(castle: number, progress: number, holding: boolean): void;
+
+  /**
+   * S3: a picture of the renderer's world (every part's state and the last frame applied) that `apply` can put back.
+   * Another module's share is added with `registerKeyframePart`.
+   */
+  capture(): RenderKeyframe;
+  /** S3: put the renderer exactly where a keyframe was taken (the parts, then its last frame again without events). */
+  apply(k: RenderKeyframe): void;
+  registerKeyframePart(name: string, part: KeyframePart): void;
 
   /** World point under a screen point (terrain or masonry), for the overview. */
   pick(clientX: number, clientY: number): { x: number; y: number; z: number } | null;

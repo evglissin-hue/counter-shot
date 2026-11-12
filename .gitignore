@@ -6,3 +6,7 @@ tools/.shots/
 lab/.shots/
 dist-physics/
 .claude/worktrees/
+tools/.observatory/
+tools/fixtures/observatory/report.html
+tools/fixtures/observatory/summary.json
+tools/fixtures/observatory/summary.md

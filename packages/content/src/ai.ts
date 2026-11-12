@@ -71,6 +71,17 @@ export interface AiLevel {
   reserve: number;
   /** It sets its barracks' mixes and routes from what it sees (else it keeps its plan's). */
   adapts: boolean;
+  /**
+   * 3.2: what it marks (REGISTER), only where its own shot by hand landed:
+   * 0 nothing; 1 the road just short of each bridge on its own side and the
+   * ground before its own gate (in its warm-up and quiet looks); 2 also an
+   * enemy gun it has hit and the foot of the wall it is breaching.
+   */
+  marks: 0 | 1 | 2;
+  /** 3.2: it orders fire for effect (REGISTER.aiSalvoMen men on a mark, or its wall mark as its waves near it). */
+  salvo: boolean;
+  /** 3.2: when a bridge is down it sends a wave down that road, so a gang relays it (REGISTER.gang*). */
+  gangs: boolean;
 }
 
 export const AI_LEVELS: Record<AiName, AiLevel> = {
@@ -96,6 +107,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     plan: 9 * 60,
     reserve: 40,
     adapts: false,
+    marks: 0,
+    salvo: false,
+    gangs: false,
   },
   knight: {
     name: "Knight",
@@ -119,6 +133,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     plan: 4 * 60,
     reserve: 60,
     adapts: true,
+    marks: 1,
+    salvo: true,
+    gangs: true,
   },
   warlord: {
     name: "Warlord",
@@ -142,6 +159,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     plan: 2 * 60,
     reserve: 80,
     adapts: true,
+    marks: 2,
+    salvo: true,
+    gangs: true,
   },
   // M6: the guided first match's castle. Placeholder numbers (a slower,
   // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
@@ -167,6 +187,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     plan: 6 * 60,
     reserve: 40,
     adapts: false,
+    marks: 0,
+    salvo: false,
+    gangs: false,
   },
 };
 

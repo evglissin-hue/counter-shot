@@ -80,6 +80,27 @@ export class Wind {
     this.z = (this.baseX * sn + this.baseZ * c) * s;
   }
 
+  /**
+   * Where the wind is heading: the wind at the end of the gust easing in now
+   * (the base wind as it will be then, turned and scaled by the gust's
+   * target), and the ticks until then. A pure read for the page (the land
+   * shows a gust before it reaches the gun); it draws nothing from the Rng
+   * streams, changes no state and is not in the hash.
+   */
+  lead(tick: number): { x: number; z: number; ticks: number } {
+    const g = this.gust;
+    const end = g.start + g.len;
+    const t = (end - this.turnStart) / TURN;
+    let bx = this.toX, bz = this.toZ;
+    if (t < 1) {
+      const u = t * t * (3 - 2 * t);
+      bx = this.fromX + (this.toX - this.fromX) * u;
+      bz = this.fromZ + (this.toZ - this.fromZ) * u;
+    }
+    const c = dcos(g.toV), sn = dsin(g.toV);
+    return { x: (bx * c - bz * sn) * g.toS, z: (bx * sn + bz * c) * g.toS, ticks: Math.max(0, end - tick) };
+  }
+
   /** Ticks until the next change starts. */
   nextChangeIn(tick: number): number {
     return this.changeAt - tick;

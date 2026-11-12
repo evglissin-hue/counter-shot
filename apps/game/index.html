@@ -61,6 +61,12 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 #wind-arrow::before { content: ""; position: absolute; left: 50%; top: 2px; bottom: 50%; width: 2px; margin-left: -1px; background: var(--aim); }
 #wind-arrow::after { content: ""; position: absolute; left: 50%; top: -2px; border: 6px solid transparent; border-bottom: 9px solid var(--aim); border-top: 0; margin-left: -6px; }
 .reticle { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+/* The impact cam: an inset on where your shot lands, under the top bar on the right, in a thin brass frame. The renderer draws into the rectangle this element covers; the shade fades it in and out. */
+.impact { position: absolute; top: calc(var(--mb-bottom, 62px) + 8px); right: calc(max(16px, env(safe-area-inset-right, 0px)) + 208px); width: max(20%, 200px); aspect-ratio: 16 / 9; box-sizing: border-box; box-shadow: 0 0 0 2px var(--brass), 0 0 0 3px rgba(0, 0, 0, 0.7), 0 8px 22px rgba(0, 0, 0, 0.5); border-radius: 2px; cursor: pointer; z-index: 5; }
+.impact .shade { position: absolute; inset: 0; background: #000; opacity: var(--shade, 0); pointer-events: none; }
+.impact .cap { position: absolute; left: 6px; top: 5px; font: 500 11px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9); pointer-events: none; }
+.impact .cap kbd { font: 500 10px/1 var(--mono); color: var(--brass); }
+body.impact-swapped .reticle { display: none; }
 .reticle::before, .reticle::after { content: ""; position: absolute; background: var(--aim); box-shadow: 0 0 0 1px rgba(0,0,0,0.6); }
 .reticle::before { width: 18px; height: 2px; left: -9px; top: -1px; }
 .reticle::after { width: 2px; height: 18px; left: -1px; top: -9px; }
@@ -71,6 +77,17 @@ label.check { display: inline-flex; align-items: center; gap: 6px; font: 500 14p
 .hint.tally.show { animation: tally 3.2s ease-out forwards; }
 @keyframes tally { 0% { opacity: 0; transform: translateY(6px); } 8% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .hint.tally.show { animation: none; } }
+/* The steward's order line (track V): one line at the bottom centre. */
+.steward { position: absolute; left: 50%; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(520px, calc(100% - 32px)); display: grid; gap: 6px; justify-items: stretch; z-index: 25; pointer-events: none; }
+.steward-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; pointer-events: auto; }
+.steward-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border-radius: 999px; font: 500 12px/1.2 var(--ui); background: var(--glass-strong); border: 1px solid var(--line); }
+.steward-chip button { border: 0; background: transparent; color: var(--ink-dim); padding: 0 6px; cursor: pointer; font: 500 13px/1 var(--ui); }
+.steward-answer { justify-self: center; padding: 6px 12px; border-radius: 8px; font: 500 14px/1.25 var(--ui); background: var(--glass-strong); border: 1px solid var(--line); text-align: center; }
+.steward-answer.bad { color: #e9b2a6; }
+.steward-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--glass-strong); border: 1px solid var(--line); pointer-events: auto; }
+.steward-row input { flex: 1; min-width: 0; background: transparent; border: 0; outline: 0; color: var(--ink); font: 500 15px/1.3 var(--ui); }
+#steward-listen { font: 600 12px/1 var(--ui); color: var(--brass); letter-spacing: 0.04em; text-transform: uppercase; }
+#steward-refused { margin: 0; padding-left: 18px; font: 12px/1.4 var(--mono); color: var(--ink-dim); }
 .weapon .target { color: var(--ink); }
 .weapon .target:empty { display: none; }
 input[type="range"] { accent-color: var(--brass); width: 120px; }
@@ -119,6 +136,12 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .storm.theirs .meter > i { background: var(--bad); }
 .storm.theirs .title b { color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .storm .meter > i { transition: none; } }
+.watchbar { position: absolute; left: 50%; bottom: calc(56px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 8px 12px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; max-width: calc(100% - 32px); }
+.watchbar .mono { min-width: 92px; text-align: center; }
+.watchbar button { border: 1px solid var(--line); }
+.watchbar button:disabled { opacity: 0.4; cursor: default; }
+.watchbar #watch-end { flex-basis: 100%; text-align: center; font: 600 14px/1.2 var(--ui); color: var(--brass); }
+#replay-why { margin: 0; color: #f0a08c; }
 .bridges { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 500 13px/1.2 var(--ui); white-space: nowrap; }
 .bridges b { font-weight: 600; }
 .bridges .down { color: var(--bad); }
@@ -210,6 +233,18 @@ button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 
 #wind-arrow::before { background: linear-gradient(var(--aim), rgba(244, 246, 248, 0.15)); }
 #wind-arrow { filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
 /* Notes: a brass edge, and a short rise into place. */
+.feat-toast { position: absolute; left: max(16px, env(safe-area-inset-left, 0px)); top: calc(24px + var(--top-h, 40px) + 120px); max-width: min(280px, calc(100% - 32px)); padding: 8px 12px 9px; display: grid; gap: 2px; border-left: 3px solid var(--brass); pointer-events: none; }
+.feat-toast small { font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
+.feat-toast b { font: 20px/1.1 var(--display); font-weight: 400; }
+.feat-toast span { font: 400 12px/1.3 var(--ui); color: var(--ink-dim); }
+.feat-toast.show { animation: note-in 260ms ease-out; }
+.feats { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px 16px; max-height: min(56vh, 460px); overflow: auto; }
+.feats li { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.feats li b { font: 600 14px/1.3 var(--ui); }
+.feats li span { grid-column: 1; font: 400 12px/1.3 var(--ui); color: var(--ink-dim); }
+.feats li i { grid-column: 2; grid-row: 1 / span 2; align-self: center; font: 500 12px/1.3 var(--mono); font-style: normal; color: var(--brass); text-align: right; }
+.feats li.not { opacity: 0.5; }
+#menu.behind .card { visibility: hidden; }
 #note { border-left: 3px solid var(--brass); padding: 10px 14px; max-width: min(620px, calc(100% - 32px)); text-align: left; animation: note-in 260ms ease-out; }
 @keyframes note-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .hint.tally { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); border-color: rgba(201, 154, 70, 0.35); }
@@ -283,8 +318,12 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
 .charge.on { border-color: rgba(201, 154, 70, 0.6); }
 .charge.on #charge-text { color: var(--ink); }
 /* The minimap: both castles and both armies at a glance, above the wind gauge. */
-.mapbox { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 176px; height: min(290px, calc(100% - 330px)); min-height: 180px; padding: 5px; }
-.mapbox canvas { width: 100%; height: 100%; display: block; }
+.mapbox { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); width: 176px; height: min(290px, calc(100% - 330px)); min-height: 180px; }
+/* The map draws its own panel (a plan, L0). It grows from its corner, up and to the left, to twice its size over the scene (pointed at, or G held). */
+.mapzoom { position: absolute; right: 0; bottom: 0; width: 100%; height: 100%; border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.32); }
+.mapzoom canvas { width: 100%; height: 100%; display: block; border-radius: 8px; }
+.mapbox.big .mapzoom { width: var(--mw); height: var(--mh); z-index: 30; border-radius: 16px; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5); }
+.mapbox.big .mapzoom canvas { border-radius: 16px; }
 body.title-screen .mapbox { display: none !important; }
 /* What the minimap shows, the match bar need not say. */
 #army-count { display: none; }
@@ -341,11 +380,13 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 .buildbtn { padding: 4px 6px 4px 10px; gap: 7px; }
 .buildbtn kbd { height: 16px; min-width: 16px; font-size: 10px; color: var(--ink-dim); }
 /* The right-hand column: the map, your waves' and masons' commands, the wind. */
-.side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.side { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: 196px; max-height: calc(100% - 78px - env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > * { pointer-events: auto; }
-.mapbox { position: static; width: auto; height: min(260px, calc(100vh - 480px)); min-height: 150px; }
+.side > :not(.mapbox) { flex: none; }
+.mapbox { position: relative; inset: auto; width: auto; height: auto; flex: 1 1 min(250px, calc(100vh - 480px)); min-height: 110px; }
 .command { padding: 9px 9px 10px; display: grid; gap: 6px; }
 .cmd-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px; font: 600 10.5px/1.1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-dim); }
+.gangs { padding: 0 2px; font: 500 11px/1.35 var(--ui); color: var(--brass); white-space: pre-line; }
 .cmd-head + .seg { margin-top: -1px; }
 .seg + .cmd-head { margin-top: 4px; }
 .cmd-head > span + span { font: 500 12px/1.1 var(--ui); letter-spacing: 0; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -453,7 +494,56 @@ body.title-screen .side > * { display: none !important; }
 .cmark .arrow { display: none; position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; }
 .cmark .arrow::after { content: ""; position: absolute; left: 20px; top: 0; border-left: 10px solid var(--brass); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
 .cmark.edge .arrow { display: block; }
+/* 3.2 range and register: the marks row on the command card, the "T mark" label on the landing marker, the tab flash of a salvo. */
+.command.range > :not(.marks-row) { display: none; }
+.marks-row { display: grid; gap: 5px; }
+.marks-row[hidden] { display: none; }
+.marks-row .cmd-head { margin-top: 4px; }
+.command.range .marks-row .cmd-head { margin-top: 0; }
+.chips { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; max-height: 86px; overflow-y: auto; scrollbar-width: thin; }
+.chip { display: flex; align-items: center; gap: 5px; width: 100%; height: 26px; padding: 1px 4px 1px 2px; border-radius: 7px; font: 500 12px/1.05 var(--ui); text-align: left; min-width: 0; }
+.chip .ring { position: relative; flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: conic-gradient(var(--c, #f0cd86) calc(var(--p, 1) * 1turn), rgba(236, 228, 210, 0.16) 0); font-style: normal; }
+.chip .ring::before { content: ""; position: absolute; inset: 2.5px; border-radius: 50%; background: #1d1a15; }
+.chip .ring b { position: relative; font: 600 12px/1 var(--mono); color: var(--ink); }
+.chip .pl { flex: 1; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.chip.dim { opacity: 0.5; }
+.chip.low .ring { --c: var(--bad); }
+/* The impact cam sits beside the right-hand column, and steps left of the Controls panel while that is open: it never covers either. */
+body:has(#help:not([hidden])) .impact { right: calc(max(16px, env(safe-area-inset-right, 0px)) + 442px); }
+.mortarbox { font-size: 12.5px; color: var(--ink-dim); padding: 2px 2px; }
+#markhint { position: absolute; left: 0; top: 0; z-index: 5; padding: 2px 7px; font: 600 12px/1.3 var(--ui); color: #f3eedb; background: rgba(11, 13, 16, 0.8); border: 1px solid rgba(243, 238, 219, 0.7); border-radius: 5px; cursor: pointer; white-space: nowrap; will-change: transform; }
+#markhint[hidden] { display: none; }
+#weapons button.firing { animation: tabfire 520ms ease-out; }
+@keyframes tabfire { 0% { background: rgba(240, 205, 134, 0.55); box-shadow: 0 0 0 0 rgba(226, 187, 108, 0.7); } 100% { box-shadow: 0 0 0 6px rgba(226, 187, 108, 0); } }
+@media (prefers-reduced-motion: reduce) { #weapons button.firing { animation: none; } }
 @media (prefers-reduced-motion: reduce) { .coach, .coach-hl, .cmark .ring { animation: none; } .coach-hl { box-shadow: 0 0 10px 2px rgba(201, 154, 70, 0.6); } }
+/* The replay (S4): the HUD steps aside, two black bars close in, a caption sits above the lower bar. */
+body.replaying #app > :not(#scene):not(#replay):not(#error) { visibility: hidden !important; }
+#replay { position: absolute; inset: 0; pointer-events: none; z-index: 40; overflow: hidden; }
+#replay[hidden] { display: none; }
+#replay .rbar { position: absolute; left: 0; right: 0; height: 10%; background: #000; transform: scaleY(0); }
+#replay-top { top: 0; transform-origin: top; }
+#replay-bot { bottom: 0; transform-origin: bottom; }
+#replay-cover { position: absolute; inset: 0; background: #000; opacity: 1; }
+#replay-cap { position: absolute; left: max(24px, env(safe-area-inset-left, 0px)); bottom: calc(10% + 18px); max-width: 60%; color: var(--ink); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9); }
+#replay-name { display: inline-block; font: 600 12px/1 var(--ui); letter-spacing: 0.16em; text-transform: uppercase; color: var(--brass); }
+#replay-text { display: block; margin-top: 6px; font: 400 15px/1.3 var(--ui); }
+#replay-speed { display: inline-block; margin-left: 10px; font: 600 12px/1 var(--mono); letter-spacing: 0.04em; color: var(--ink); }
+#replay-speed[hidden] { display: none; }
+#replay-skip { position: absolute; right: max(24px, env(safe-area-inset-right, 0px)); bottom: calc(10% + 18px); pointer-events: auto; padding: 5px 12px; font: 500 12px/1 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.6); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+#replay-skip:hover { color: var(--ink); }
+/* The film (S5): the bars, caption and title card are drawn on one canvas (the same drawing as in the saved file). */
+#film-view { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+body.filming #replay > :not(#replay-skip):not(#film-view) { display: none; }
+body.filming #replay-skip { bottom: auto; top: 14px; }
+/* Photo mode (S5): the HUD is off; a small panel at the bottom says the keys. */
+body.photoing #app > :not(#scene):not(#photo):not(#error) { visibility: hidden !important; }
+body.photoing #replay { visibility: hidden; }
+#photo { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 60; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; max-width: min(960px, 94vw); padding: 8px 12px; font: 400 13px/1.35 var(--ui); color: var(--ink-dim); background: rgba(14, 12, 10, 0.72); border: 1px solid var(--line); border-radius: 8px; }
+#photo[hidden] { display: none; }
+#photo kbd { font: 600 11px var(--mono); color: var(--ink); }
+#photo button { padding: 5px 10px; font-size: 12px; border: 1px solid var(--line); }
+#photo-fov { font: 600 12px var(--mono); color: var(--ink); }
 </style>
 <!-- artifact-head-end -->
 </head>
@@ -463,6 +553,8 @@ body.title-screen .side > * { display: none !important; }
   <canvas id="scene" aria-label="The battlefield"></canvas>
   <div id="ovmarks" class="ovmarks" hidden aria-hidden="true"></div>
   <div id="reticle" class="reticle" aria-hidden="true"></div>
+  <button id="markhint" hidden title="Mark where your shot landed (T)">T mark</button>
+  <div id="impact" class="impact" hidden title="Impact cam: click to swap with the main view, K turns it off"><div class="shade"></div><span class="cap">Impact <kbd>K</kbd></span></div>
   <div id="want" hidden aria-hidden="true"></div>
   <div id="lock-hint" class="hint glass"><kbd>Click</kbd> take the gun <kbd>Esc</kbd> free the mouse</div>
   <div id="ride-hint" class="hint glass ride" hidden>Riding the shell <kbd>Space</kbd> back to the mortar</div>
@@ -501,6 +593,13 @@ body.title-screen .side > * { display: none !important; }
       <div class="meter"><i id="storm-fill"></i></div>
     </div>
   </div>
+  <div id="watch-bar" class="watchbar glass" hidden role="group" aria-label="Replay controls">
+    <span class="mono" id="watch-clock">0:00 / 0:00</span>
+    <button id="watch-pause" aria-pressed="false">Pause</button>
+    <button data-watch-speed="1" aria-pressed="true">1x</button><button data-watch-speed="2" aria-pressed="false">2x</button><button data-watch-speed="4" aria-pressed="false">4x</button>
+    <button id="watch-back">Back to the menu</button>
+    <span id="watch-end" role="status" hidden></span>
+  </div>
   <div id="bridges" class="bridges glass" hidden role="status"></div>
   <div class="weapon glass">
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
@@ -511,14 +610,20 @@ body.title-screen .side > * { display: none !important; }
   </div>
   <div class="side">
     <div id="threat" class="threat glass" hidden></div>
-    <div id="mapbox" class="mapbox glass" title="Both castles and both armies: walls pale when sound, amber when hit, red when breached; the keep's bars are its floors left; a dot is a man standing"><canvas id="minimap" aria-label="Map of the valley: both castles, the bridges and every man standing"></canvas></div>
+    <div id="mapbox" class="mapbox" title="A plan of the valley: walls pale when sound, hatched when hit (amber when half gone), a gap and a red arrow where a wall is breached; a dot is a man standing, a number beside a group of six or more. Point at it, or hold G, to see it twice the size"><div class="mapzoom"><canvas id="minimap" aria-label="Plan of the valley: both castles, the bridges and every man standing"></canvas></div></div>
     <div id="command" class="command glass" hidden>
       <div class="cmd-head"><span>Waves</span><span id="next-wave"></span></div>
       <div class="seg" role="group" aria-label="Route of your next waves (L)"><button data-route="left" title="Next waves take your left flank (L)">Left</button><button data-route="centre" title="Next waves take the centre road (L)">Centre</button><button data-route="right" title="Next waves take your right flank (L)">Right</button></div>
+      <div class="gangs" id="gangs" hidden></div>
       <div class="seg" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><button data-order="0" title="Advance on the enemy gate (Ctrl+1)">Advance</button><button data-order="1" title="Hold at the midfield markers (Ctrl+2)">Hold</button><button data-order="2" title="Push through the nearest breach (Ctrl+3)">Push</button></div>
       <div class="cmd-head"><span>Repairs</span><span class="masons" id="masons"></span></div>
       <div class="seg toggles" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><button data-repair="gate" aria-pressed="true" title="Masons repair the gate (Alt+1)">Gate</button><button data-repair="walls" aria-pressed="true" title="Masons repair the walls (Alt+2)">Walls</button><button data-repair="towers" aria-pressed="true" title="Masons repair the towers (Alt+3)">Towers</button><button data-repair="keep" aria-pressed="true" title="Masons repair the keep (Alt+4)">Keep</button></div>
       <span class="mono" id="army-count" hidden></span>
+      <div id="marks-row" class="marks-row" hidden>
+        <div class="cmd-head"><span>Marks</span><span id="salvo-line"></span></div>
+        <div id="chips" class="chips" role="group" aria-label="Your marks: fire for effect (F, then the number)"></div>
+        <label class="check mortarbox" title="Send the mortar's shell with the salvo"><input type="checkbox" id="mortar-salvo"> Mortar in the salvo</label>
+      </div>
     </div>
     <div class="wind glass" aria-label="Wind" title="Wind against where you aim: up is ahead">
       <div class="dial"><div id="wind-arrow"></div></div>
@@ -538,15 +643,23 @@ body.title-screen .side > * { display: none !important; }
       <dt>Guns</dt><dd>Knock one out: bring down the masonry under it, hit it square, sweep its crew with chain shot, or shell it. It is out 30 s, or until masons rebuild under it (20 gold to whoever does it)</dd>
       <dt>[ ], Alt+scroll</dt><dd>Mortar fuse: on impact, or a delay (shorter than the flight bursts in the air)</dd>
       <dt>V</dt><dd>Shot camera: follow your shot (the mortar rides its shell)</dd>
+      <dt>X</dt><dd>Replay the last big moment while the match waits (not against a friend). Esc skips</dd>
+      <dt>K</dt><dd>Impact cam: a small view of where your shot lands, a second before it does. Click it to swap views</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
+      <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
       <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
+      <dt>T, F</dt><dd>T: mark where your shot landed. Guns nobody mans shoot true on marked ground. F then its number: every gun that bears fires there.</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
       <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
-      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom)</dd>
+      <dt>Enter</dt><dd>Order line: type orders in plain words ("mill, then waves left"), Enter sends, Esc closes. Aiming goes on behind it</dd>
+      <dt id="steward-voice-dt" hidden>Y (hold)</dt><dd id="steward-voice-dd" hidden>Speak an order; let go to send it</dd>
+      <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom; click a mark: fire for effect)</dd>
       <dt>N</dt><dd>Where minions can walk: green open, amber cut off, red blocked</dd>
       <dt>M, P</dt><dd>Sound on or off; pause (not against a friend)</dd>
       <dt>Gamepad</dt><dd>Left stick aim, right stick fine aim, RT fire, LT zoom, bumpers switch gun, D-pad fuse (up, down), orders (left), route (right), X spin, Y shot camera, B back, View overview</dd>
     </dl>
+    <h3 id="steward-refused-head" class="small" hidden>Orders the steward did not understand</h3>
+    <ol id="steward-refused" hidden></ol>
     <p class="small">Win by bringing down the three floors of the enemy keep, or by holding its courtyard for 20 s with more men inside than its defenders. Gold comes from your keep and mills, enemies you knock down, enemy masonry, hits on the enemy keep and enemy guns knocked out. Aim help shows the first part of each flight and where your last shot landed: correct from there, and mind the wind.</p>
     <div class="row group">
       <label class="small" for="quality">Quality</label>
@@ -556,6 +669,7 @@ body.title-screen .side > * { display: none !important; }
       <label class="check"><input type="checkbox" id="gore" checked> Gore</label>
       <label class="check"><input type="checkbox" id="slowmo"> Slow motion at impacts</label>
       <label class="check"><input type="checkbox" id="navbox"> Where minions can walk (N)</label>
+      <label class="check" id="steward-speak-row" hidden><input type="checkbox" id="steward-speak"> Steward answers aloud</label>
     </div>
     <div class="row group">
       <label class="small" for="volume">Volume</label>
@@ -590,10 +704,19 @@ body.title-screen .side > * { display: none !important; }
   <div id="paused" class="pausedbadge glass" hidden role="status">Paused <span class="small"><kbd>P</kbd> resumes</span></div>
   <div id="floats" class="floats" aria-hidden="true"></div>
   <div id="feed" class="feed" aria-hidden="true"></div>
+  <div id="feat-toast" class="feat-toast glass" hidden role="status"><small>Feat</small><b id="feat-toast-name"></b><span id="feat-toast-hint"></span></div>
   <div id="msgs" class="msgs">
     <div id="note" class="hint glass" hidden role="status"></div>
     <div id="trick" class="hint glass trick" hidden role="status"></div>
     <div id="tally" class="hint glass tally" hidden role="status"></div>
+  </div>
+  <div id="steward" class="steward" hidden>
+    <div id="steward-chips" class="steward-chips" hidden></div>
+    <div id="steward-answer" class="steward-answer" hidden role="status" aria-live="polite"></div>
+    <div id="steward-row" class="steward-row glass" hidden>
+      <span id="steward-listen" hidden>Listening</span>
+      <input id="steward-input" type="text" autocomplete="off" spellcheck="false" maxlength="200" placeholder='Orders: "mill, then waves left"' aria-label="Orders for the steward">
+    </div>
   </div>
   <div id="build" class="wheel glass" hidden role="dialog" aria-label="Build"></div>
   <div id="loading" class="center" hidden><div class="glass">Raising the walls...</div></div>
@@ -611,6 +734,9 @@ body.title-screen .side > * { display: none !important; }
             <span class="small" id="level-blurb"></span>
           </div>
         </div>
+        <button class="choice" id="replay-go"><b>Watch a replay</b><span>Open a saved match file and watch it again, from either castle or the overview, at up to four times speed.</span></button>
+        <p class="small" id="replay-why" role="alert" hidden></p>
+        <input type="file" id="replay-file" accept=".json,application/json" hidden>
         <button class="choice" id="online-go"><b>Play a friend</b><span>The same match against a friend on their own laptop: one hosts, the other joins.</span></button>
       </div>
       <div id="online" class="online" hidden>
@@ -620,8 +746,16 @@ body.title-screen .side > * { display: none !important; }
         <div class="actions"><button class="primary" id="online-host">Host a match</button><button id="online-cancel">Cancel</button><button id="online-back">Back</button></div>
         <p class="small">The host plays the oxblood castle, the friend who joins the green one. Both of you open this game's claude.ai link, signed in: share it with your friend from the artifact's Share menu.</p>
       </div>
-      <div class="actions"><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
+      <div class="actions"><button id="book-open">Book of feats</button><button id="menu-save" hidden>Save the replay</button><button id="menu-back" hidden>Back to the game</button><button id="menu-surrender" hidden>Surrender</button></div>
       <p class="small">Keyboard and mouse or a gamepad. H shows every control.</p>
+    </div>
+  </div>
+  <div id="book" class="overlay" hidden>
+    <div class="card glass" role="dialog" aria-labelledby="book-title">
+      <h2 id="book-title">Book of feats</h2>
+      <p id="book-count" class="small"></p>
+      <ul class="feats" id="book-list" aria-label="Feats"></ul>
+      <div class="actions"><button class="primary" id="book-close">Close</button></div>
     </div>
   </div>
   <div id="end" class="overlay" hidden>
@@ -633,10 +767,14 @@ body.title-screen .side > * { display: none !important; }
         <tbody id="end-table"></tbody>
       </table>
       <ul class="log" id="end-log" aria-label="What happened"></ul>
+      <p class="small" id="film-status" role="status" hidden></p>
       <div class="actions">
         <button class="primary" id="end-again">Play again</button>
         <button id="end-guided" hidden>Play the guided match again</button>
         <button id="end-practice">Practice range</button>
+        <button id="end-save">Save the replay</button>
+        <button id="end-film" hidden>Watch the film</button>
+        <button id="end-film-save" hidden>Save the film</button>
         <button id="end-look">Look around</button>
       </div>
     </div>
@@ -649,7 +787,21 @@ body.title-screen .side > * { display: none !important; }
     </div>
   </div>
   <div id="error" hidden role="alert"></div>
+  <div id="replay" hidden aria-live="off">
+    <canvas id="film-view" hidden></canvas>
+    <div id="replay-cover"></div>
+    <div id="replay-top" class="rbar"></div>
+    <div id="replay-bot" class="rbar"></div>
+    <div id="replay-cap"><span><b id="replay-name"></b><span id="replay-speed" hidden></span></span><span id="replay-text"></span></div>
+    <button id="replay-skip" type="button">Skip (Esc)</button>
+  </div>
 </div>
+<div id="photo" hidden>
+    <span id="photo-hint">Photo: <kbd>WASD</kbd> move, <kbd>Q</kbd> <kbd>E</kbd> down and up, <kbd>Shift</kbd> faster, mouse looks, wheel for the view<span id="photo-step-hint">, <kbd>,</kbd> <kbd>.</kbd> step the clip</span>, <kbd>C</kbd> or <kbd>Space</kbd> saves a picture, <kbd>O</kbd> or <kbd>Esc</kbd> leaves</span>
+    <span id="photo-fov"></span>
+    <button id="photo-back" type="button">Step back</button><button id="photo-fwd" type="button">Step on</button>
+    <button id="photo-save" type="button">Save picture</button><button id="photo-leave" type="button">Leave</button>
+  </div>
 <!-- artifact-body-end -->
 <script type="module" src="./src/main.ts"></script>
 </body>

@@ -68,7 +68,8 @@ await host.waitForSelector("#online-wait:not([hidden])", { state: "attached", ti
 const code = await host.textContent("#online-code");
 console.log(`host is waiting in match ${code}`);
 await guest.waitForSelector("#online-list li button:not([disabled])", { state: "attached", timeout: 60000 });
-await click(guest, "#online-list li button");
+// (the list redraws now and then: a click that finds no button tries again)
+await guest.evaluate(() => new Promise((done) => { const t = setInterval(() => { if (window.__sandbox.mode === "online") { clearInterval(t); done(); } else document.querySelector("#online-list li button:not([disabled])")?.click(); }, 700); }));
 await host.waitForFunction(() => window.__sandbox.mode === "online" && !!window.__sandbox.match, null, { timeout: 120000 });
 await guest.waitForFunction(() => window.__sandbox.mode === "online" && !!window.__sandbox.match, null, { timeout: 120000 });
 const [a0, b0] = [await state(host), await state(guest)];
@@ -85,6 +86,45 @@ const aimFire = (page, yawOff) =>
     s.fire();
   }, yawOff);
 await sleep(4000);
+// 3.2: each side marks where its own shot lands and orders fire for effect at it (through the lockstep); neither sees the other's marks, and the hash check below must stay quiet.
+// (The match's gun ids: the host's long gun is 0, the guest's 8.)
+const markShot = async (page, x, z) => {
+  await page.evaluate(([x, z]) => { window.__sandbox.select(0); if (!window.__sandbox.aimAtPoint(0, x, 0, z)) throw new Error("out of reach"); }, [x, z]);
+  await page.waitForFunction(() => window.__sandbox.reload[window.__sandbox.match.team === 1 ? 0 : 8] === 0, null, { timeout: 90000, polling: 200 });
+  // An earlier shot's landing may still be markable: let that window pass, so the mark is this shot's.
+  await page.waitForFunction(() => window.__sandbox.register.canMark.length === 0, null, { timeout: 30000, polling: 100 });
+  await page.evaluate(() => window.__sandbox.fire());
+  // The page marks the landing itself the moment it may be marked (a round trip here can outlast the 5 s window on a slow machine).
+  try {
+  await page.waitForFunction(() => { const s = window.__sandbox; if (s.register.marks.length === 1) return true; if (s.register.canMark.some((id) => id === 0 || id === 8)) s.markHere(); return false; }, null, { timeout: 120000, polling: 50 });
+  } catch (e) { console.log('mark wait failed', JSON.stringify(await page.evaluate(() => ({ can: window.__sandbox.register.canMark, nm: window.__sandbox.register.marks.length, view: window.__sandbox.view, reload: window.__sandbox.reload.slice(0, 10), team: window.__sandbox.match.team, tick: window.__sandbox.match.tick, shots: window.__sandbox.match.shots }))).slice(0, 700)); throw e; }
+};
+await markShot(host, 0, -62);
+await markShot(guest, 0, -88);
+const marks = (page) => page.evaluate(() => window.__sandbox.register.marks.map((m) => ({ n: m.n, x: Math.round(m.x), z: Math.round(m.z), place: m.place, bear: m.bear })));
+const [hm, gm] = [await marks(host), await marks(guest)];
+console.log("marks", JSON.stringify(hm), JSON.stringify(gm));
+if (hm.length !== 1 || gm.length !== 1) fail(`each side should hold its own one mark, got ${hm.length} and ${gm.length}`);
+else if (Math.abs(hm[0].z - gm[0].z) < 10) fail(`the two sides' marks are the same place (${hm[0].z}, ${gm[0].z}): one side sees the other's`);
+for (const page of [host, guest]) {
+  await page.waitForFunction(() => window.__sandbox.reload[window.__sandbox.match.team === 1 ? 0 : 8] === 0 && window.__sandbox.register.marks[0].bear > 0 && window.__sandbox.register.salvoReady === 0, null, { timeout: 90000, polling: 200 });
+  await page.evaluate(() => window.__sandbox.orderSalvo(1));
+}
+for (const [who, page] of [["host", host], ["guest", guest]]) {
+  try {
+    await page.waitForFunction(() => window.__sandbox.register.salvoReady > 0 && window.__sandbox.register.salvoReady < 1200, null, { timeout: 60000, polling: 200 });
+    console.log(`${who}: the salvo went in`);
+  } catch {
+    fail(`${who}: the salvo order never reached its match`);
+  }
+}
+// S4: X replays nothing against a friend (the impact cam serves): no replay, the world not held, no note.
+for (const p of [host, guest]) await p.keyboard.press("KeyX");
+await sleep(800);
+for (const [who, p] of [["host", host], ["guest", guest]]) {
+  const x = await p.evaluate(() => ({ playing: window.__sandbox.replay.playing, held: window.__sandbox.worldHeld, note: document.getElementById("note")?.textContent ?? "" }));
+  if (x.playing || x.held || /Nothing to replay/.test(x.note)) fail(`X did something online (${who}): ${JSON.stringify(x)}`);
+}
 await aimFire(host, 0);
 await aimFire(guest, 0.01);
 await guest.evaluate(() => window.__sandbox.input({ kind: "build", plot: 1, building: "mill" }));

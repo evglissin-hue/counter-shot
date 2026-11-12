@@ -108,6 +108,22 @@ export class Storm {
     }
   }
 
+  /** Keyframe (S3): per ring [shown, target, live]. */
+  captureState(): Float64Array {
+    const out = new Float64Array(this.rings.length * 3);
+    this.rings.forEach((r, i) => out.set([r.shown, r.target, r.live ? 1 : 0], i * 3));
+    return out;
+  }
+
+  /** Keyframe (S3): the rings as captured (the next update draws them). */
+  restoreState(st: Float64Array) {
+    this.rings.forEach((r, i) => {
+      r.shown = st[i * 3];
+      r.target = st[i * 3 + 1];
+      r.live = st[i * 3 + 2] > 0.5;
+    });
+  }
+
   clear() {
     for (const r of this.rings) {
       r.shown = r.target = 0;

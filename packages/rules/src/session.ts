@@ -25,7 +25,7 @@ import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } fro
 export const MATCH_TICKS = 4900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "e90ee604", world: "7f743abe" } as const;
+export const MATCH_HASH = { state: "edd989a0", world: "7f743abe" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
@@ -95,7 +95,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "77856e2b", world: "7f068fe4" } as const;
+export const WAVE_MATCH_HASH = { state: "504816da", world: "a09c952a" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -112,7 +112,11 @@ export const WAVE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [3000, Team.Player, wall(-0.0707)],
   [3300, Team.Player, wall(-0.0624)],
   [3600, Team.Player, { kind: "order", order: Order.Push }],
+  // 3.2: a shot by hand onto the road the enemy's next wave takes, marked within the window; then guns nobody mans lay on the men on it (a quarter of their error, 2x reload), and one salvo at the mark.
+  [3640, Team.Player, fire(0, 0.4845, -0.0573)],
+  [3700, Team.Player, { kind: "mark", emplacement: 0 }],
   [4000, Team.Player, { kind: "man", emplacement: -1, left: { emplacement: 0, yaw: -0.06, pitch: -0.022 } }],
+  [4520, Team.Player, { kind: "salvo", mark: 1, mortar: true }],
 ];
 
 export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionResult {
@@ -130,7 +134,7 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 export const ESTATE_MATCH_TICKS = 6900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "2a25ef46", world: "f93ead42" } as const;
+export const ESTATE_MATCH_HASH = { state: "718a1455", world: "f93ead42" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],

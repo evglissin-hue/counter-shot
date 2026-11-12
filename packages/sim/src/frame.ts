@@ -88,6 +88,14 @@ export const enum EventKind {
   GunBack = 14,
   /** [kind, minion id, x, y, z]: a chain shot's chain swept a man off his feet (after M5); x, y, z is where. */
   Swept = 15,
+  /** [kind, minion id, cause (minions.ts Cause), shot id (-1: none), speed m/s]: a man was knocked down; speed is his body's fastest part just after the blow. */
+  Down = 16,
+  /** [kind, castle, section (content sectionOf, -1: no section), count, 0]: pieces of a castle that came loose this tick, one event per castle and section. */
+  Fell = 17,
+  /** [kind, bridge (index in layout.bridges), team, x, z]: a bridge gang began work at the near end of its bridge (3.2). */
+  GangStart = 18,
+  /** [kind, bridge, team, x, z]: a gang put the last piece of a bridge back; it stands for both sides again (3.2). */
+  Relaid = 19,
 }
 export const EVENT_STRIDE = 5;
 
@@ -135,6 +143,10 @@ export interface FrameData {
   /** Wind in m/s along x and z. */
   windX: number;
   windZ: number;
+  /** Where the wind is heading (m/s along x and z) and the ticks until it gets there (the gust easing in now; for the page only, see Wind.lead). */
+  gustX?: number;
+  gustZ?: number;
+  gustIn?: number;
   /** Every plot's building (M3, PLOT_STRIDE each; empty without plots). */
   plots: Float32Array;
   plotCount: number;

@@ -1,6 +1,6 @@
 # Keepfall: planning notes
 
-Working notes from the planning conversation. The spec is `SPEC.md` (draft 0.3); the phase plans are `docs/phase-1.md` and `docs/phase-2.md`.
+Working notes from the planning conversation. The spec is `SPEC.md` (draft 0.5); the phase plans are `docs/phase-1.md`, `docs/phase-2.md` and `docs/phase-3.md` (with a spec for each of its milestones under `docs/phase-3/`); ideas kept for later are in `docs/future.md`.
 
 ## The game in one paragraph
 
@@ -64,6 +64,12 @@ A browser game where two castles face each other across a field. You fire siege 
 | Targets besides the keep (after M5) | The owner found no point attacking anything but the keep. Guns now stand on real masonry: bring the tower top or wall walk under one down, strike it square with a ball, sweep its crew off with chain shot or burst a shell beside it, and it is out until its crew puts it back (30 s, free, once the masonry stands again). An enemy gun silenced pays 20 gold. The AI does it to you too (from a Knight up, to a gun that has been hitting it). |
 | Chain shot (after M5) | The owner found it had no place. Its chain now sweeps (taken as the disc it whirls through): it mows down men in its way, knocks ladders off walls and sweeps gun crews away. The long gun breaks stone, the mortar lobs over walls, the chain shot thins waves at range and silences guns, the swivel holds the foot of the walls. |
 | Mortar aiming (after M5) | The owner found the top-down observer weird and asked for a power meter with the landing spot shown as it fills, but not too easy. A spotter's view over the keep (on the front wall when looking close); hold fire to charge, a soft ring slides along the ground to where the shell would come down in still air, let go to fire; the meter falls back if held too long; the elevation follows the charge. |
+| Direction after phase 2 (November 10) | A design review (November 9: the docs, the content, the camera views and 15 AI matches) found that physics, strategy and shooting sit in three layers and one loop decides every match. The owner approved the answer: make the strategy physical so it can be shot, make shooting cost strategy, let physics decide instead of a counter. Phase 3 (`docs/phase-3.md`) builds it in thirteen milestones and three tracks on the page. |
+| The kill cam (November 10) | The owner asked for it by name: track S of phase 3 (`docs/phase-3/show.md`), starting with the impact cam and the moments it shows. |
+| The minimap (November 10) | The owner found it raw and unprofessional. It is redrawn first in the look track (round L0 of `docs/phase-3/look.md`), to the mock in `docs/phase-3/minimap-mock.svg`. |
+| Kept for later (November 10) | The Castle Architect with sieges by post, and the March (a campaign): the owner likes both and finds them too ambitious for now. They are written down in `docs/future.md`. |
+| Dropped (November 10) | The counter-shot idea (shooting shells out of the air, guns hidden until they fire, woolsacks over a wall): the owner said no. Smoke, pitched with it, stays as part of phase 3's elements. |
+| Who builds phase 3 | Other sessions and models than the one that wrote its specs (the owner expects Opus for the master). So each spec says the rules and where they live, and the master still traces the code before it briefs. |
 
 ## Race proposals (for review)
 
@@ -79,7 +85,20 @@ Each race is built on a different branch of physics, has a different skill curve
 
 ## Name
 
-Keepfall is a working title (after the main way to win: topple the enemy keep). The final name comes later; the repo is still called counter-shot.
+Keepfall is a working title (after the main way to win: topple the enemy keep). The final name comes later. The owner will drop the repo's name, counter-shot (November 10), and asked for candidates. A web search on November 10 looked for games already using each (a search, not a trademark check):
+
+| Candidate | Why | Search |
+|---|---|---|
+| Keepfall | Says the win in one word, and every package is already named for it, so keeping it costs nothing | No game found |
+| Stone and Mortar | What a castle is made of, and the gun that breaks it | No game found |
+| Mason's Eye | After the view that shows what holds a building up (phase 3, 3.4): the skill the game is about | No game found |
+| Plunging Fire | A gunner's words for a mortar's high arc | No game found |
+| Ashlar | Dressed stone, as the keep is built of: one rare word | No game found (a block in another game) |
+| Ashwright | The guild's own name: a word nobody else has | Nothing found at all |
+
+Looked at and set aside: Castellan (two castle games on Steam use the word, and a board game), Fire for Effect (a 2020 game about besieged cities has it), Bannerfall (a 2026 siege game has it).
+
+The recommendation is to keep Keepfall, with Stone and Mortar as the alternative. Renaming means the repo, the packages (`@keepfall/*`), the page's storage keys (`keepfall.*`) and the docs.
 
 ## Technical direction
 
@@ -176,3 +195,44 @@ The lab page: https://claude.ai/artifact/GHqbFzcvN2tPt7wkhSm7NN (private to the 
 - Masons with gold to spare hang a gate's leaves back as fast as pikemen knock them off; bounties on a player's waves make a defender rich (6,734 gold in twelve minutes).
 - A tutor that sends every wave down the road you are not holding grinds an idle castle down in about ten minutes; sending only its first wave that way keeps the lesson and spares the castle (two were still enough to storm it on two seeds of five).
 - The checks share the machine: two runs of `tools/run-tests.mjs` share `node_modules/.keepfall-tests` (a second run rewrote the first's bundles, and five test files failed to load), and editing packages while a Vite page is open in a test breaks the page (a guided check failed after two checks). Run them one at a time.
+
+## Findings from the design review (November 9 and 10)
+
+Fifteen AI against AI matches on `main` after phase 2 M6 (`packages/ai/scripts/duel.ts`, each to its result), on a 4 core cloud machine with three or four running at once.
+
+| Castle 0 | Castle 1 | Seed | Ended | Winner | By | Gold unspent at the end (0 / 1) |
+|---|---|---|---|---|---|---|
+| Knight | Knight | 11 | 4:35 | 0 | keep | 446 / 397 |
+| Knight | Knight | 12 | 5:58 | 1 | keep | 1,427 / 1,387 |
+| Knight | Knight | 21 | 5:12 | 0 | keep | 1,005 / 404 |
+| Knight | Knight | 22 | 5:44 | 1 | keep | 847 / 1,403 |
+| Knight | Knight | 23 | 2:17 | 1 | keep | 166 / 274 |
+| Knight | Knight | 24 | 5:59 | 0 | keep | 2,242 / 1,206 |
+| Squire | Squire | 41 | 4:09 | 0 | keep | 1,499 / 888 |
+| Squire | Squire | 42 | 6:16 | 0 | keep | 2,647 / 2,552 |
+| Warlord | Warlord | 13 | 3:22 | 1 | keep | 174 / 226 |
+| Warlord | Warlord | 31 | 4:18 | 0 | keep | 631 / 222 |
+| Warlord | Warlord | 32 | 3:16 | 0 | keep | 149 / 382 |
+| Warlord | Knight | 51 | 3:57 | 0 | keep | 708 / 188 |
+| Knight | Warlord | 52 | 4:25 | 0 | keep | 370 / 211 |
+| Knight | Squire | 53 | 8:04 | 0 | storm | 3,971 / 2,129 |
+| Squire | Knight | 54 | 6:58 | 1 | storm | 1,376 / 2,715 |
+
+- Thirteen of fifteen ended by keep, in 2:17 to 6:16; the median of all fifteen is 4:35. The two storms were a Knight over a Squire. No match reached the 10 to 15 minutes the spec asks for.
+- The storm meter read zero at every 30 second sample of the thirteen keep matches. In the Knight mirror on seed 21 castle 0 stood at 95 men (the cap is 96) at 5:00 with its meter at zero.
+- A Knight's and a Warlord's six plots are full by about 3:00 to 3:30 (two more barracks, two mills and a Foundry). After that gold has little to buy: the Knight that stormed a Squire held 3,971.
+- Shots by hand ran at about eight a minute a side. Guns nobody mans fired little (0 to 60 shots a match).
+- Castle 0 won 7 of the 11 mirror matches, and from castle 0 a Knight beat a Warlord. Too few to call; phase 3's observatory settles it first (3.1).
+- The sim ran at 1.5 to 2.9 times real time for each match while three or four shared the machine: about 190 ten-minute matches a night on its 4 cores.
+- The worst single step in these matches was 36 to 95 ms on that machine (a collapse), against 1/60 s.
+- Traced for the specs: the match keeps no list of its inputs once they are applied and nothing snapshots a whole world (so replays by running the sim again need a log first); a frame holds only what moved (so a recorded stretch needs a keyframe of the renderer); gun crews are not figures; the renderer has one shadow map, no time of day, no fire and no recoil. The inventory is in `docs/phase-3/look.md` and `docs/phase-3/show.md`.
+- From the keep's own shape: the curtain wall (8 m, 14 m in front of the keep's face) hides the keep's lower half from flat fire from the far castle; its foot is seen only through the gateway or a low breach. Phase 3's 3.4 builds on this.
+
+## Findings from phase 3 3.1 (the observatory)
+
+On the cloud session's machine (4 cores, Xeon 2.1 GHz, Node 22), rules as of the 3.1 build (sim rules 11, match rules 8).
+
+- **The quick run** (24 matches, `quick-main`): Knight mirror median 5.2 min, 8% of matches between 6 and 16 min (T1 fails); every match ended by keep (T2 fails); Warlord beats Knight 83% (T4 passes); median time with unspent gold 38 s; hand shots aimed at the keep 72% of 916 (T7 fails); comebacks 2 of 12 (T8 fails); the worst step 225.7 ms and a median 50 steps over 33 ms a match (T9 fails). About 85 matches an hour on 4 workers, each match about 1.7 times real time.
+- **Side bias (T3)**: 400 Knight mirrors (`side-main`, 200 seeds, each from both castles). Castle 0 won 189 and castle 1 211: 47.3% for castle 0, give or take 4.9 points (95%). Inside 46% to 54%: no rules change. 387 ended by keep, 13 by storm (4 for castle 0, 9 for castle 1).
+- Paired per side over the same 400, the differences of castle 0 minus castle 1 in stones down, floors standing, men fallen, gold spent (at 1, 2, 3 and 4 minutes), shots, gold earned and stones rebuilt are all within noise (|t| under 2). One stands out: castle 0's AI aims about one hand shot a match less at the keep (t = -3.1, among about 40 tests, so it may be chance too).
+- Structural asymmetries found while tracing, none with a measured effect so far: the route names ("left" is +x) are castle 1's own left, and the AI's route choice and plans read them in that frame for both castles; plots sit at the same world x for both castles (castle 1's are mirrored only in their names) and both start barracks stand on plot 0 at x = -7.5; `Match.step` sends castle 1's waves first, `gunnery()` walks castle 1's slots first, and inputs apply team 0 first. If a later run shows castle 0 below 46%, these are the first suspects.

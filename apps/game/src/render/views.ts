@@ -89,7 +89,7 @@ export class Views {
     } else if (pose.mode === "free") {
       // The page places and smooths this camera itself; only the zoom eases here.
       this.fovTarget = pose.fov;
-      if (was !== "free" && was !== "sight") this.setFov(pose.fov);
+      if (pose.snap || (was !== "free" && was !== "sight")) this.setFov(pose.fov);
       cam.position.set(pose.x, pose.y, pose.z);
       cam.up.set(0, 1, 0);
       cam.lookAt(this.tmp.set(pose.tx, pose.ty, pose.tz));

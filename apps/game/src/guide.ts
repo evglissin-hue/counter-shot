@@ -5,7 +5,7 @@
 // every step is done (or it is hidden) it stays away, until the Controls
 // panel's "Show the guide" brings it back.
 
-export type GuideStep = "aim" | "fire" | "mortar" | "build" | "waves" | "others" | "overview";
+export type GuideStep = "aim" | "fire" | "mortar" | "mark" | "build" | "waves" | "others" | "overview";
 export type GuideKind = "match" | "practice";
 
 interface Step {
@@ -21,6 +21,7 @@ const STEPS: Record<GuideKind, Step[]> = {
     { id: "aim", title: "Take the gun", html: "Click the field: the mouse aims (or <span class=\"nw\"><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>)</span>" },
     { id: "fire", title: "Fire at the enemy keep", html: "<kbd>Space</kbd> or click. Correct from where it lands" },
     { id: "mortar", title: "Drop a mortar shell", html: "<kbd>2</kbd> takes the mortar: hold <kbd>Space</kbd> and a ring slides out along the ground; let go when it is on the enemy keep" },
+    { id: "mark", title: "Mark where a shot landed", html: "<kbd>T</kbd> right after it lands; then <kbd>F</kbd> and the mark's number: every gun that bears fires there" },
     { id: "build", title: "Spend your gold", html: "<kbd>B</kbd> opens the build menu: a Powder Mill earns more, a Barracks sends more waves" },
     { id: "waves", title: "Command your waves", html: "Pick a route and an order in the panel under the map (<kbd>L</kbd>, <kbd>Ctrl</kbd>+<kbd>1</kbd> to <kbd>3</kbd>)" },
   ],

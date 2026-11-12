@@ -211,6 +211,12 @@ export class Burst {
     for (const a of this.a) a.set(0, -100, 0, -1000);
   }
 
+  /** Keyframe (S3): empty, and the ring back at its first slot, so the same spawns land in the same slots (the particles draw their motion from the slot). */
+  reset() {
+    this.clear();
+    this.next = 0;
+  }
+
   dispose() {
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();

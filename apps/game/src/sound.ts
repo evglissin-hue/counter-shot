@@ -49,6 +49,8 @@ export class Sound {
   muted = false;
   private ctx: BaseAudioContext | null = null;
   private master!: GainNode;
+  private limiter: DynamicsCompressorNode | null = null;
+  private tap: MediaStreamAudioDestinationNode | null = null;
   private dry!: GainNode;
   private reverbIn!: GainNode;
   private white!: AudioBuffer;
@@ -121,6 +123,7 @@ export class Sound {
     comp.connect(this.master);
     this.master.connect(limit);
     limit.connect(ctx.destination);
+    this.limiter = limit;
     this.startAmbience();
     if (ctx.state === "suspended" && ctx instanceof AudioContext) void ctx.resume();
   }
@@ -139,6 +142,20 @@ export class Sound {
     try {
       localStorage.setItem("keepfall.muted", m ? "1" : "0");
     } catch {}
+  }
+
+  /**
+   * S5: the game's sound as a stream for the film's recording (the master chain's last node also feeds a stream destination), with
+   * the context to suspend and resume around each film frame; null when sound has not started or cannot be streamed.
+   */
+  recordFeed(): { stream: MediaStream; ctx: AudioContext } | null {
+    const ctx = this.ctx;
+    if (!(ctx instanceof AudioContext) || !this.limiter) return null;
+    if (!this.tap) {
+      this.tap = ctx.createMediaStreamDestination();
+      this.limiter.connect(this.tap);
+    }
+    return { stream: this.tap.stream, ctx };
   }
 
   /** The tab was hidden or shown. */
@@ -1386,6 +1403,14 @@ export class Sound {
     for (let i = 0; i < 5; i++) this.skin(c.input, c.t0 + i * 0.085, 0.22 + 0.06 * i);
     this.skin(c.input, c.t0 + 0.55, 0.5, true);
     this.skin(c.input, c.t0 + 0.9, 0.55, true);
+  }
+
+  /** 3.2: fire for effect is ordered: a drum roll that swells over the salvo's 1.5 s, ending on one heavy stroke, at your own castle. */
+  salvoRoll(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 45), 0.6, 3);
+    for (let i = 0; i < 14; i++) this.skin(c.input, c.t0 + i * 0.07, 0.16 + 0.025 * i);
+    this.skin(c.input, c.t0 + 1.05, 0.5, true);
   }
 
   /** The enemy's horn call from their gate: it keeps a floor of loudness so it carries to your walls. */
