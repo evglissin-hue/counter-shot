@@ -180,14 +180,14 @@ try {
       return { laid, dist, level: fine.level, err: fine.err };
     }
     console.log("before", JSON.stringify(await powderNow()));
-    let ox = 0, oz = 0, blown = false;
+    // Laid on the magazine once; the charge corrected by how far short or long each shell came down (range runs about 19 m + 150 m of the charge).
+    const L0 = await lay(TX, TZ);
+    let level = L0.level, blown = false;
     for (let attempt = 0; attempt < 6 && !blown; attempt++) {
-      const L = await lay(TX + ox, TZ + oz);
-      console.log("attempt", attempt, "aim point", (TX + ox).toFixed(1), (TZ + oz).toFixed(1), "laid", L.laid, "distance", L.dist.toFixed(1), "charge", L.level.toFixed(3));
+      console.log("attempt", attempt, "charge", level.toFixed(3));
       await wait(() => window.__sandbox.reload[1] === 0, undefined, 300000).catch(() => {});
-      const fired = await sb(() => (window.__booms = []).length);
-      void fired;
-      await sb((l) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, L.level);
+      await sb(() => { window.__booms = []; });
+      await sb((l) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, level);
       let boom = null;
       for (let k = 0; k < 60 && !blown && !boom; k++) {
         await adv(0.5);
@@ -196,8 +196,8 @@ try {
       }
       if (boom) {
         console.log("  burst at", boom.x.toFixed(1), boom.y.toFixed(1), boom.z.toFixed(1), "radius", boom.r.toFixed(1), "blown:", blown);
-        ox -= boom.x - TX;
-        oz -= boom.z - TZ;
+        // Castle 0 is to the +z side: a burst at a smaller z fell short.
+        level += (TZ - boom.z) / 150;
       } else console.log("  no burst seen; blown:", blown);
     }
     console.log("magazine blown:", blown);
