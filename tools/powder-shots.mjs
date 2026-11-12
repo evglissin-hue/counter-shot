@@ -201,9 +201,9 @@ try {
       } else console.log("  no burst seen; blown:", blown);
     }
     console.log("magazine blown:", blown);
-    await shot("05-magazine-blows", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
+    await shot("05-magazine-blows", { x: 20, y: 36, z: -18, tx: 9.3, ty: 1, tz: 5.6, fov: 42 });
     await adv(2);
-    await shot("05b-magazine-ruin", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
+    await shot("05b-magazine-ruin", { x: 20, y: 36, z: -18, tx: 9.3, ty: 1, tz: 5.6, fov: 42 });
   }
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
