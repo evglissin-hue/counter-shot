@@ -164,8 +164,8 @@ try {
   check("the follow-up names the F key", seen.f);
   check("the marks row is ringed", seen.ring);
   await expect("the mark shows as a chip", () => window.__sandbox.chips.length === 1 && window.__sandbox.chips[0].place === "Centre bridge");
-  await expect(...stepIs(8));
   await patch({ marks: undefined, order: undefined });
+  await expect(...stepIs(8));
   // ---- step 8: send your waves in ----
   await patch({ tutor: 2 });
   await expect("step 8 rings the route and order buttons", () => document.querySelectorAll('#command [data-route].coach-hl').length === 3 && document.querySelectorAll('#command [data-order].coach-hl').length === 3);
