@@ -12,6 +12,8 @@ import {
   keepDoor,
   magazineBurst,
   magazineDoor,
+  magazineLee,
+  PLOTS,
   mirrorZ,
   CASTLE_SHAPE,
   MATCH_EMPLACEMENTS,
@@ -140,19 +142,22 @@ test("without a powder store (the Practice range, a match with powder off) every
   off.free();
 });
 
-test("three boys per castle stand at the store's door (the magazine's lean-to) to start; a boy's keg fills a box from the store", () => {
+test("three boys per castle stand in the lee of the magazine to start, a little apart; a boy's keg fills a box from the store", () => {
   const sim = world();
   const c = sim.carriers!;
   for (const castle of [0, 1]) {
     const boys = boysOf(sim, castle);
     assert.equal(boys.length, POWDER.boys);
     assert.equal(c.status(castle).magazine, 5, "the magazine on plot 5 works");
-    const d = magazineDoor(castle, 5);
+    const d = magazineLee(castle, 5);
     for (const b of boys) {
       const m = sim.minions.list[b.minion];
       assert.equal(m.unit, Unit.PowderBoy);
       assert.equal(m.role, Role.Carrier);
-      assert.ok(Math.hypot(m.x - d.x, m.z - d.z) < 2, "at the magazine's door");
+      assert.ok(Math.hypot(m.x - d.x, m.z - d.z) < 2, "in the lee of the magazine");
+      assert.ok(Math.abs(m.x) > Math.abs(magazineDoor(castle, 5).x) + 3, "on the side away from the keep");
+      const k = sim.nav.kind[navCell(m.x, m.z)];
+      assert.ok(k === NavKind.Ground, "on open ground");
     }
   }
   const lg = gunOf(sim, 1, "longGun");
@@ -641,5 +646,20 @@ test("the plain way down a field leads to a neighbouring cell a walker can step 
   assert.ok(next === c || sim.nav.passable(c, next) || dir[0] * dir[1] !== 0, "towards a cell he can step to");
   assert.ok(local.cost(0, door.x, door.z, from.x + dir[0] * 0.6, from.z + dir[1] * 0.6) <= local.cost(0, door.x, door.z, from.x, from.z), "downhill");
   assert.equal(local.downhill(0, door.x, door.z, door.x, door.z, dir), false, "none at the goal's cell");
+  sim.free();
+});
+
+test("the lee of a magazine is open ground on every plot, on the side away from the keep", () => {
+  const sim = world();
+  for (const c of [0, 1]) {
+    for (let p = 0; p < PLOTS.length; p++) {
+      const l = magazineLee(c, p);
+      for (const off of [-1.2, 0, 1.2]) {
+        const k = sim.nav.kind[navCell(l.x, l.z + off)];
+        assert.ok(k === NavKind.Ground, `castle ${c} plot ${p}: ground (${k})`);
+      }
+      assert.ok(Math.abs(l.x) > Math.abs(PLOTS[p].x), "away from the keep");
+    }
+  }
   sim.free();
 });
