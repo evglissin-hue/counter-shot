@@ -16,12 +16,16 @@
 //
 // Pure maths and typed arrays, allocation free per frame, testable in Node.
 
+import { haulHands, HAUL_TICKS } from "./powderLogic";
+
 export const NPARTS = 11;
 export const PELVIS = 0, TORSO = 1, HEAD = 2, UARM_L = 3, LARM_L = 4, UARM_R = 5, LARM_R = 6, THIGH_L = 7, SHIN_L = 8, THIGH_R = 9, SHIN_R = 10;
 /** Upright actions (army.ts Action, specialists.ts). */
 export const WALK = 0, STAND = 1, FIGHT = 2, BATTER = 3, WORK = 4, CARRY = 5, CLIMB = 6, RAISE = 7, PLANT = 8, AIM = 9;
 /** Unit kinds (content's Unit). */
-export const PIKEMAN = 0, MASON = 1, CREW = 2, SAPPER = 3, MUSKETEER = 4;
+export const PIKEMAN = 0, MASON = 1, CREW = 2, SAPPER = 3, MUSKETEER = 4, POWDER_BOY = 5;
+/** A powder boy's actions (carriers.ts ACTION_KEG, ACTION_HOIST): a keg on his shoulder, hauling one up. */
+export const A_KEG = 10, A_HOIST = 11;
 /** Where in a mason's stroke the mallet strikes, and the stroke's length (ticks; works.ts STROKE, the page's knock). */
 export const MALLET_HIT = 14;
 export const MALLET_STROKE = 45;
@@ -89,7 +93,7 @@ export const XF_N = XF_ROD + XF_STRIDE;
 export const SHOW_KIT = 1, SHOW_KEG = 2, SHOW_ROD = 4;
 
 /** Pose families: a change of family blends from the last pose. */
-const F_LOCO = 0, F_FIGHT = 1, F_BATTER = 2, F_WORK = 3, F_CARRY = 4, F_RAISE = 5, F_LADDER = 6, F_ROPE = 7, F_PLANT = 8, F_AIM = 9, F_CHOP = 10, F_JAB = 11;
+const F_LOCO = 0, F_FIGHT = 1, F_BATTER = 2, F_WORK = 3, F_CARRY = 4, F_RAISE = 5, F_LADDER = 6, F_ROPE = 7, F_PLANT = 8, F_AIM = 9, F_CHOP = 10, F_JAB = 11, F_HOIST = 12;
 
 /** Blows: ticks between blows and from meeting an enemy to the first one (content's UNITS, by unit). */
 const BLOW_MIN = [70, 0, 60, 70, 70];
@@ -298,7 +302,7 @@ export class Rig {
       this.sp[sp] = this.sp[sp + 1] = this.sp[sp + 2] = this.sp[sp + 3] = 0;
       const v = s * VAR_N;
       const V = this.vars;
-      V[v + V_SCALE] = 0.94 + hash01(id, 1) * 0.12;
+      V[v + V_SCALE] = (0.94 + hash01(id, 1) * 0.12) * (unit === POWDER_BOY ? 0.9 : 1);
       V[v + V_BUILD] = 0.9 + hash01(id, 2) * 0.22;
       V[v + V_STRIDE] = 0.94 + hash01(id, 3) * 0.12;
       V[v + V_ARMS] = 0.75 + hash01(id, 4) * 0.5;
@@ -543,6 +547,9 @@ export class Rig {
       case F_PLANT:
         this.plant();
         break;
+      case F_HOIST:
+        this.hoist();
+        break;
       case F_AIM:
         this.aim();
         break;
@@ -576,6 +583,7 @@ export class Rig {
     if (a === CLIMB) return this.climbKind[this.s] === 2 ? F_ROPE : F_LADDER;
     if (a === CARRY) return F_CARRY;
     if (a === RAISE) return F_RAISE;
+    if (u === POWDER_BOY) return a === A_HOIST ? F_HOIST : F_LOCO;
     if (u === MASON) return a === WORK ? F_WORK : F_LOCO;
     if (a === FIGHT) return u === CREW || u === SAPPER ? F_CHOP : u === MUSKETEER ? F_JAB : F_FIGHT;
     if (a === BATTER) return F_BATTER;
@@ -732,7 +740,7 @@ export class Rig {
     const swayX = (0.022 * sn * (1 - r * 0.6)) * g + (0.028 * idle.sway + V[vo + V_LEAD] * 0.008) * (1 - g);
     const pTwist = -0.07 * (1 + r * 0.5) * c * g - clamp(this.cW * 0.02, -0.08, 0.08);
     const pRoll = 0.045 * sn * g * (1 - r * 0.5) + swayX * 1.4 * (1 - g);
-    const load = u === SAPPER && !this.kegless.has(this.id[s]) ? 1 : 0;
+    const load = (u === SAPPER && !this.kegless.has(this.id[s])) || (u === POWDER_BOY && this.a === A_KEG) ? 1 : 0;
     let lean = 0.035 + V[vo + V_LEAN] + 0.03 * Math.min(v, 2) * g + 0.14 * r + clamp(this.cAcc * 0.05, -0.1, 0.14) + load * 0.04;
     lean += 0.01 * idle.breath;
     let tTwist = 0.07 * (1 + r * 0.6) * c * g + clamp(this.cW * 0.06, -0.25, 0.25);
@@ -770,6 +778,9 @@ export class Rig {
       this.swingArm(-1, swingR * 0.7 + 0.05, bend + 0.35, 0.02);
       P[P_KIT_M] = KM_HAND;
       P[P_KIT_T] = u === MASON ? 0.3 : 0.2;
+    } else if (u === POWDER_BOY) {
+      // A powder boy: both arms free, nothing at his belt.
+      this.swingArm(-1, swingR, bend, 0);
     } else {
       // A sapper: a free right arm, his hatchet at his belt.
       this.swingArm(-1, swingR, bend, 0);
@@ -990,6 +1001,28 @@ export class Rig {
     P[P_KIT_M] = KM_HAND;
     P[P_KIT_T] = -0.35 - wind * 0.4;
     if (u === SAPPER && !this.kegless.has(this.id[this.s])) this.keg(0.2, P[P_TOR + 1] + 0.36, P[P_TOR + 2] - 0.05, 0, 0, 0);
+  }
+
+  // --- powder boys -------------------------------------------------------------------------------
+
+  /** A powder boy at the foot of a gun, hauling a keg up on its rope hand over hand: feet braced, leaning back, the hands one over the other at the rope, pulling down in turn (HAUL_TICKS a pull). */
+  private hoist() {
+    const P = this.P;
+    const act = this.cAct;
+    const u = (act % HAUL_TICKS) / HAUL_TICKS;
+    const hands = haulHands(act);
+    const V = this.vars, vo = this.cVar;
+    this.feet(0.16, 0.2, -0.16, -0.14);
+    const dip = 0.02 + 0.03 * Math.sin(TAU * u);
+    const lean = -0.12 + V[vo + V_LEAN];
+    this.trunk(0, PELVIS_Y - 0.05 - dip, -0.04, 0.05 * Math.sin(TAU * u), 0, -0.02, 0.1 * Math.sin(TAU * u), 0, lean, 0, 0, -0.35);
+    // The rope hangs in front of his face; each hand reaches up, takes it and pulls down to the hip.
+    this.shoulder(1);
+    this.hand(1, this.rx - 0.1, this.ry - 0.55 + hands.left * 0.75, this.rz + 0.3 - (1 - hands.left) * 0.05, 0.8, -0.8, -0.3);
+    this.shoulder(-1);
+    this.hand(-1, this.rx + 0.1, this.ry - 0.55 + hands.right * 0.75, this.rz + 0.3 - (1 - hands.right) * 0.05, -0.8, -0.8, -0.3);
+    P[P_KIT_M] = KM_NONE;
+    void P;
   }
 
   // --- the masons -----------------------------------------------------------------------------
@@ -1432,7 +1465,7 @@ export class Rig {
       this.put(X, xo + XF_KIT, bx, by, bz, this.qx, this.qy, this.qz, this.qw, false, sc, 1, 1, 1, x, y, z, hs, hc, ys, yc);
       shows |= SHOW_KIT;
     }
-    if (P[o + P_KEG_ON] > 0.5 && u === SAPPER && !this.kegless.has(this.id[s])) {
+    if (P[o + P_KEG_ON] > 0.5 && (u === POWDER_BOY || (u === SAPPER && !this.kegless.has(this.id[s])))) {
       euler(P[o + P_KEG_A], P[o + P_KEG_A + 1], P[o + P_KEG_A + 2], this);
       this.put(X, xo + XF_KEG, P[o + P_KEG], P[o + P_KEG + 1], P[o + P_KEG + 2], this.qx, this.qy, this.qz, this.qw, false, sc, 1, 1, 1, x, y, z, hs, hc, ys, yc);
       shows |= SHOW_KEG;

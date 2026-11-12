@@ -24,6 +24,7 @@ import {
   HEAD,
   LARM_L,
   MASON,
+  POWDER_BOY,
   MUSKETEER,
   NPARTS,
   PELVIS,
@@ -84,6 +85,12 @@ const C_CLOTH = lin(CLOTH);
 const C_LEGS = lin(LEGS);
 const C_SKIN = SKINS.map(lin);
 const C_APRON = lin(APRON);
+/** A powder boy's plain smock: undyed linen over his body and thighs. */
+const C_SMOCK = lin(0xcbbf9f);
+/** How a unit is dressed: 1 a mason (apron, cap), 2 a powder boy (smock, cap), 0 a soldier (helmet). */
+function dressOf(unit: number | undefined): number {
+  return unit === MASON ? 1 : unit === POWDER_BOY ? 2 : 0;
+}
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -643,7 +650,7 @@ export class Minions implements FigureSink {
       const kind = unit === PIKEMAN ? DROP_PIKE : unit === MUSKETEER ? DROP_MUSKET : unit === MASON ? DROP_MALLET : DROP_AXE;
       this.drop(kind, b.id, X, xo + XF_KIT, vx, vz);
     }
-    if (shows & SHOW_KEG && unit === SAPPER) {
+    if (shows & SHOW_KEG && (unit === SAPPER || unit === POWDER_BOY)) {
       let burst = false;
       const ev = f.events, ne = f.eventCount ?? 0;
       if (ev) {
@@ -722,7 +729,7 @@ export class Minions implements FigureSink {
 
   /** The rig's output for one upright figure: its parts, headgear and kit. */
   figure(s: number, _id: number, team: number, unit: number, shows: number, X: Float32Array, o: number) {
-    const dress = unit === MASON ? 1 : 0;
+    const dress = dressOf(unit);
     const tint = this.rig.tint(s), skin = this.rig.skin(s);
     for (let p = 0; p < NPARTS; p++) {
       const k = this.counts[p];
@@ -765,6 +772,10 @@ export class Minions implements FigureSink {
       f = 1;
     } else if (part >= THIGH_L) c = C_LEGS;
     if (dress === 1 && (part === PELVIS || part === THIGH_L || part === THIGH_R)) c = C_APRON;
+    else if (dress === 2 && (part === TORSO || part === PELVIS || part === THIGH_L || part === THIGH_R)) {
+      c = C_SMOCK;
+      f = 1 + (tint - 1) * 0.5;
+    }
     if (part === PELVIS) f *= 0.8;
     const a = mesh.instanceColor!.array as Float32Array;
     a[k * 3] = c[0] * f;
@@ -779,7 +790,7 @@ export class Minions implements FigureSink {
     for (let i = 0; i < this.bodyList.length; i++) {
       const b = this.bodyList[i];
       const team = this.teamOf.get(b.id) ?? 0;
-      const dress = this.unitOf.get(b.id) === MASON ? 1 : 0;
+      const dress = dressOf(this.unitOf.get(b.id));
       const s = b.hasPrev && b.dt > 0 && b.dt < 0.1 ? Math.min(1.5, since / b.dt) : 0;
       let w = 0;
       if (b.hand >= 0) {
@@ -880,7 +891,7 @@ export class Minions implements FigureSink {
     // Headgear rides on the head, along the head's own up.
     _q.set(qx, qy, qz, qw);
     _a.set(0, 0.05 * sy, 0).applyQuaternion(_q);
-    if (dress === 1) {
+    if (dress) {
       if (this.nCap < MAX_TOOLS) {
         writeMat(this.cap.instanceMatrix.array as Float32Array, this.nCap, px + _a.x, py + _a.y, pz + _a.z, qx, qy, qz, qw, sx, sy, sz);
         this.cap.setColorAt(this.nCap, _c.setHex(TEAM[team & 1]).multiplyScalar(0.75));
@@ -897,7 +908,7 @@ export class Minions implements FigureSink {
     this.nCap = 0;
     for (const [id, body] of this.frozen) {
       const team = this.teamOf.get(id) ?? 0;
-      const dress = this.unitOf.get(id) === MASON ? 1 : 0;
+      const dress = dressOf(this.unitOf.get(id));
       for (let k = 0; k < NPARTS; k++) {
         const o = k * PART_STRIDE;
         if (body[o + 2] !== body[o + 2]) continue;
