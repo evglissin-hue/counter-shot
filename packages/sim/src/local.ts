@@ -120,6 +120,29 @@ export class LocalFields {
     return true;
   }
 
+  /**
+   * 3.3: the way down the field from the cell (x, z) lies in, alone (not
+   * blended with its neighbours'): a unit vector into `out`, or false at the
+   * goal's cell, cut off, or outside the box. Every direction in it leads to a
+   * cell that can be stepped to, so a walker whose blended way pushed it into
+   * a step it cannot take (at the corner of a heap) follows this instead.
+   */
+  downhill(c: number, gx: number, gz: number, x: number, z: number, out: [number, number]): boolean {
+    const f = this.field(c, gx, gz);
+    if (!f) return false;
+    const G = NAV_GRID, b = this.boxes[c];
+    const i = Math.floor((x - G.x0) / G.cell) - b.i0, j = Math.floor((z - G.z0) / G.cell) - b.j0;
+    if (i < 1 || j < 1 || i >= b.ni - 1 || j >= b.nj - 1) return false;
+    const v: [number, number] = [0, 0];
+    this.cellDir(c, f, i, j, v);
+    const len2 = v[0] * v[0] + v[1] * v[1];
+    if (len2 < 1e-10) return false;
+    const inv = 1 / dsqrt(len2);
+    out[0] = v[0] * inv;
+    out[1] = v[1] * inv;
+    return true;
+  }
+
   /** Index of a point in castle c's box, or -1. */
   private index(c: number, x: number, z: number): number {
     const b = this.boxes[c];

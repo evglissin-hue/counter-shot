@@ -595,3 +595,51 @@ test("a boy with no way at all to the store (left on a wall top) finds his way r
   assert.ok(m.y < top - 2, "off the wall");
   sim.free();
 });
+
+test("a boy whose ground is no longer walkable (a post across it) steps off to open ground close by", () => {
+  const sim = world();
+  const army = sim.army!;
+  // A cell of the magazine's lean-to post (castle 0, plot 5): not walkable.
+  let post: { x: number; z: number } | null = null;
+  for (let x = 6.5; x <= 8.5 && !post; x += 0.25) {
+    for (let z = 3; z <= 8 && !post; z += 0.25) {
+      const c = navCell(x, z);
+      if (c >= 0 && sim.nav.kind[c] === NavKind.Blocked) post = { x, z };
+    }
+  }
+  assert.ok(post, "a blocked cell by the lean-to");
+  const to = army.stepOff(post!.x, post!.z, POWDER.stepOff)!;
+  assert.ok(to, "somewhere to step to");
+  const tc = navCell(to.x, to.z);
+  assert.ok(sim.nav.kind[tc] === NavKind.Ground || sim.nav.kind[tc] === NavKind.Raised || sim.nav.kind[tc] === NavKind.Rubble, "walkable");
+  assert.ok(Math.hypot(to.x - post!.x, to.z - post!.z) <= POWDER.stepOff + 1, "close by");
+  assert.equal(army.stepOff(to.x, to.z, POWDER.stepOff), null, "nothing to do on walkable ground");
+  // A boy put there steps off it on his next step.
+  const b = boysOf(sim, 0)[0];
+  const m = sim.minions.list[b.minion];
+  m.x = post!.x;
+  m.z = post!.z;
+  sim.minions.place(m);
+  run(sim, 1);
+  const k = sim.nav.kind[navCell(m.x, m.z)];
+  assert.ok(k === NavKind.Ground || k === NavKind.Raised || k === NavKind.Rubble, "he stands on walkable ground");
+  assert.equal(m.state, MinionState.Upright);
+  sim.free();
+});
+
+test("the plain way down a field leads to a neighbouring cell a walker can step to, and is false at the goal", () => {
+  const sim = world();
+  const local = sim.army!.local;
+  const door = magazineDoor(0, 5);
+  const dir: [number, number] = [0, 0];
+  // From the keep's door, round the keep to the magazine.
+  const from = keepDoor(0);
+  assert.ok(local.downhill(0, door.x, door.z, from.x, from.z, dir), "a way");
+  assert.ok(Math.abs(Math.hypot(dir[0], dir[1]) - 1) < 1e-9, "a unit vector");
+  const c = navCell(from.x, from.z);
+  const next = navCell(from.x + dir[0] * 0.6, from.z + dir[1] * 0.6);
+  assert.ok(next === c || sim.nav.passable(c, next) || dir[0] * dir[1] !== 0, "towards a cell he can step to");
+  assert.ok(local.cost(0, door.x, door.z, from.x + dir[0] * 0.6, from.z + dir[1] * 0.6) <= local.cost(0, door.x, door.z, from.x, from.z), "downhill");
+  assert.equal(local.downhill(0, door.x, door.z, door.x, door.z, dir), false, "none at the goal's cell");
+  sim.free();
+});

@@ -656,6 +656,42 @@ export class Army {
     return c >= 0 && navWalkable(this.nav.kind[c]) && m.y - this.surface(m.x, m.z, c) <= DROP;
   }
 
+  /**
+   * 3.3: where a figure whose cell is no longer walkable (a fallen post or
+   * beam across it) steps to: null while its cell is walkable; else the middle
+   * of the nearest walkable cell within `r` m (rings of cells outwards, each in
+   * a fixed order), or null when there is none.
+   */
+  stepOff(x: number, z: number, r: number): { x: number; z: number } | null {
+    const c = navCell(x, z);
+    if (c < 0 || navWalkable(this.nav.kind[c])) return null;
+    const G = NAV_GRID;
+    const ci = c % G.nx, cj = (c - ci) / G.nx;
+    const rings = Math.ceil(r / G.cell);
+    for (let k = 1; k <= rings; k++) {
+      let best = -1, bd = Infinity;
+      for (let dj = -k; dj <= k; dj++) {
+        for (let di = -k; di <= k; di++) {
+          if (di !== -k && di !== k && dj !== -k && dj !== k) continue;
+          const i = ci + di, j = cj + dj;
+          if (i < 0 || j < 0 || i >= G.nx || j >= G.nz) continue;
+          const n = j * G.nx + i;
+          if (!navWalkable(this.nav.kind[n])) continue;
+          const d = di * di + dj * dj;
+          if (d < bd) {
+            bd = d;
+            best = n;
+          }
+        }
+      }
+      if (best >= 0) {
+        const bi = best % G.nx, bj = (best - bi) / G.nx;
+        return { x: G.x0 + (bi + 0.5) * G.cell, z: G.z0 + (bj + 0.5) * G.cell };
+      }
+    }
+    return null;
+  }
+
   /** Turn towards a yaw at the turning rate. */
   turn(m: Minion, face: number) {
     let d = face - m.yaw;

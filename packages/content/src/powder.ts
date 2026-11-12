@@ -64,6 +64,8 @@ export const POWDER = {
   stuck: 20 * 60,
   reach: 6,
   skip: 30 * 60,
+  /** A boy whose ground is no longer walkable (a post or beam fell across it: the magazine's lean-to is timber) steps to the nearest walkable cell within this many metres. */
+  stepOff: 3,
   /**
    * The magazine blows when a burst comes inside it, or when it is wrecked (under BUILDING_WORKS standing) with powder
    * in it: everything in it goes up as one burst at its middle, reach `blowBase` m plus a metre for every `blowPer`
