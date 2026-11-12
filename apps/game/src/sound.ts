@@ -49,6 +49,8 @@ export class Sound {
   muted = false;
   private ctx: BaseAudioContext | null = null;
   private master!: GainNode;
+  private limiter: DynamicsCompressorNode | null = null;
+  private tap: MediaStreamAudioDestinationNode | null = null;
   private dry!: GainNode;
   private reverbIn!: GainNode;
   private white!: AudioBuffer;
@@ -121,6 +123,7 @@ export class Sound {
     comp.connect(this.master);
     this.master.connect(limit);
     limit.connect(ctx.destination);
+    this.limiter = limit;
     this.startAmbience();
     if (ctx.state === "suspended" && ctx instanceof AudioContext) void ctx.resume();
   }
@@ -139,6 +142,20 @@ export class Sound {
     try {
       localStorage.setItem("keepfall.muted", m ? "1" : "0");
     } catch {}
+  }
+
+  /**
+   * S5: the game's sound as a stream for the film's recording (the master chain's last node also feeds a stream destination), with
+   * the context to suspend and resume around each film frame; null when sound has not started or cannot be streamed.
+   */
+  recordFeed(): { stream: MediaStream; ctx: AudioContext } | null {
+    const ctx = this.ctx;
+    if (!(ctx instanceof AudioContext) || !this.limiter) return null;
+    if (!this.tap) {
+      this.tap = ctx.createMediaStreamDestination();
+      this.limiter.connect(this.tap);
+    }
+    return { stream: this.tap.stream, ctx };
   }
 
   /** The tab was hidden or shown. */

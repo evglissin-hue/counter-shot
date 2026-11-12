@@ -7,9 +7,11 @@
 
 import { ASHWRIGHT_EMPLACEMENTS, buildLayout, CASTLE_SHAPE, Earn, UNMANNED, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
-import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type RegisterHost } from "@keepfall/rules";
+import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type MatchOptions, type RegisterHost } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
 import { Lockstep, netHash } from "./lockstep";
+import { MatchLog, makeSetup, writeLog, type LoggedMode, type ReplayFile, type ReplaySetup } from "./matchLog";
+import { NET_VERSION } from "./net";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { placeName } from "./marks";
@@ -63,6 +65,12 @@ let practiceManned = -1;
 /** The bearing counts of the marks as last worked out (they cost a solve per gun, so a few times a second): by mark and the tick it was made. */
 const bearCache = new Map<string, number[]>();
 let bearAt = -1e9;
+/** S6: the log of the match being played (every input it applies), and its setup for the file. */
+let matchLog: MatchLog | null = null;
+let logSetup: ReplaySetup | null = null;
+/** S6: a replay being watched: the tick it stops at, and whether it has been reported (the file's hash is compared then). */
+let watching: ReplayFile | null = null;
+let watchSent = false;
 
 async function load(): Promise<Rapier> {
   if (R) return R;
@@ -88,7 +96,7 @@ function rehearse() {
   r.free();
 }
 
-function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}) {
+function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}, replay?: ReplayFile) {
   if (!R) return;
   sim?.free();
   const t0 = performance.now();
@@ -114,14 +122,32 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   bearAt = -1e9;
   me = Team.Player;
   matchSeed = seed;
-  if (mode === "guided") {
+  if (watching) speed = 1; // the speed of a replay does not carry into the next match
+  matchLog = null;
+  logSetup = null;
+  watching = null;
+  watchSent = false;
+  /** The options the match is built from: the log's setup records them as they were. */
+  let opts: MatchOptions | null = null;
+  if (mode === "watch" && replay) {
+    // S6: a saved match played again from its file: the same options, every logged input queued on its tick, nobody driving it.
+    watching = replay;
+    speed = 1;
+    opts = replay.setup.opts;
+    me = replay.setup.team === 0 ? Team.Enemy : Team.Player;
+    match = new Match(R, layout, opts);
+    sim = match.world;
+    for (const [tick, team, , input] of replay.inputs) match.queue(tick, team === 0 ? Team.Enemy : Team.Player, input);
+  } else if (mode === "guided") {
     // M6: the guided first match: the tutor commands the enemy castle (it starts without a barracks; your waves start on Hold).
-    match = new Match(R, layout, { ...GUIDED_OPTIONS, seed });
+    opts = { ...GUIDED_OPTIONS, seed };
+    match = new Match(R, layout, opts);
     sim = match.world;
     ai = new AiPlayer(match, TUTOR_TEAM, "tutor", seed);
   } else if (mode === "versus" || mode === "online") {
     // Someone commands the enemy castle now (the AI, or a friend): no fixed build order, no routes in turn.
-    match = new Match(R, layout, { seed, plan: false, rotate: false });
+    opts = { seed, plan: false, rotate: false };
+    match = new Match(R, layout, opts);
     sim = match.world;
     if (mode === "versus") ai = new AiPlayer(match, Team.Enemy, setup.difficulty ?? "knight", seed);
     else {
@@ -139,6 +165,12 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
       { world: range, emplacements: range.emplacements, owner: (id) => (id < ASHWRIGHT_EMPLACEMENTS.length ? Team.Player : -1), manned: (team) => (team === Team.Player ? practiceManned : -1), reloadScale: () => 1 },
       seed,
     );
+  }
+  if (match && opts && mode !== "watch") {
+    // S6: every match keeps a log of what it applied (Match.onInput changes nothing in it).
+    const log = (matchLog = new MatchLog());
+    match.onInput = (tick, team, input) => log.record(tick, team, input);
+    logSetup = makeSetup(mode as LoggedMode, opts, me as 0 | 1, NET_VERSION, layout, mode === "versus" ? (setup.difficulty ?? "knight") : undefined);
   }
   navSent = -1;
   bridgesSent = -1;
@@ -348,13 +380,15 @@ function tick(advanceMs = -1) {
     last = now;
     // After a slow step (a big collapse), fall a little behind real time rather
     // than stall and then rush through the backlog: at most two steps per tick (online, a little more to catch up).
-    const cap = net ? DT * 4 : DT * 2;
+    const cap = net ? DT * 4 : watching ? DT * 8 : DT * 2;
     if (acc > cap) acc = cap;
   }
   let steps = 0;
-  const most = manual ? 12 : net ? 4 : 2;
+  // A replay being watched has no wall to keep to but the page's speed (4x needs up to eight steps an interval).
+  const most = manual ? (watching ? 48 : 12) : net ? 4 : watching ? 8 : 2;
   while (acc >= DT && steps < most) {
     if (net && !net.canStep()) break; // waiting for the friend's inputs for this tick
+    if (watching && match!.tick >= watching.final.tick) break; // the saved match's last tick: stop here
     const t0 = performance.now();
     if (match) {
       ai?.step();
@@ -382,6 +416,12 @@ function tick(advanceMs = -1) {
     steps++;
   }
   if (net) postNet(steps > 0);
+  if (watching && !watchSent && match!.tick >= watching.final.tick) {
+    watchSent = true;
+    acc = 0;
+    const hash = match!.hash();
+    post({ t: "watchEnd", tick: match!.tick, hash, ok: hash.state === watching.final.hash.state && hash.world === watching.final.hash.world });
+  }
   if (!steps) return;
   const frame = sim.collect();
   const counts = sim.minionCounts();
@@ -466,12 +506,12 @@ async function handle(msg: ToWorker) {
         await load();
         layout ??= buildLayout(1, GAME_LAYOUT);
         rehearse();
-        build(msg.mode, msg.seed, msg.minions, msg.setup);
+        build(msg.mode, msg.seed, msg.minions, msg.setup, msg.replay);
         start();
         break;
       case "reset":
         gen = msg.gen;
-        build(msg.mode, msg.seed, msg.minions, msg.setup);
+        build(msg.mode, msg.seed, msg.minions, msg.setup, msg.replay);
         start();
         break;
       case "netStop":
@@ -481,6 +521,7 @@ async function handle(msg: ToWorker) {
         break;
       case "input": {
         const input = msg.input;
+        if (watching) break; // a replay is driven by its file alone
         if (match) {
           if (input.kind === "minions") break;
           // Online, an input goes out to the friend and both play it on the same tick, a few ticks ahead.
@@ -516,6 +557,10 @@ async function handle(msg: ToWorker) {
         break;
       case "speed":
         speed = msg.factor;
+        break;
+      case "saveLog":
+        // S6: the file as the match stands now (it goes on): its setup, the inputs it applied, and its tick and hash.
+        if (match && matchLog && logSetup) post({ t: "log", text: writeLog(logSetup, matchLog.entries(), match.tick, match.hash()) });
         break;
       case "pause":
         paused = msg.paused;

@@ -8,6 +8,7 @@ import * as THREE from "three/webgpu";
 import { CASTLE_SHAPE } from "@keepfall/content";
 import { LADDER_STRIDE } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
+import { applyCloudShadow } from "./clouds";
 
 const MAX = 32;
 /** Length of the ladder model (m): the sim's LADDER.length. */
@@ -43,6 +44,7 @@ export class Ladders {
     }
     for (const g of parts) g.deleteAttribute("uv");
     const wood = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(wood);
     wood.name = "ladder-wood";
     wood.color = new THREE.Color(0x6a6055);
     wood.roughness = 0.92;
@@ -52,6 +54,7 @@ export class Ladders {
     rope.deleteAttribute("uv");
     rope.translate(0, -0.5, 0);
     const hemp = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(hemp);
     hemp.name = "ladder-rope";
     hemp.color = new THREE.Color(0x8a7a5c);
     hemp.roughness = 0.95;

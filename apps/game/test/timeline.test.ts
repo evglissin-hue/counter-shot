@@ -120,3 +120,36 @@ test("a stalled worker slows the shell for a moment instead of making it jump", 
   assert.ok(Math.min(...moves) >= 0, "never moves backwards");
   assert.ok(Math.max(...moves) < expected * 3, `largest single move ${Math.max(...moves).toFixed(2)} m, normal ${expected.toFixed(2)} m`);
 });
+
+test("seek sets the clock at once and returns the frames due, with no delay behind the newest", () => {
+  const tl = new Timeline(layout);
+  for (const t of [10, 12, 14, 16]) tl.push(frame(t));
+  const due = tl.seek(13);
+  assert.deepEqual(due.map((f) => f.tick), [10, 12]);
+  assert.equal(tl.tick, 13);
+  assert.equal(tl.pending, 2);
+  assert.deepEqual(tl.seek(13).map((f) => f.tick), []);
+  assert.deepEqual(tl.seek(99).map((f) => f.tick), [14, 16]);
+});
+
+test("a seeded timeline draws the first frame from where the keyframe put the stones", () => {
+  const s = layout.stones[100];
+  const moved = new Float32Array(STONE_STRIDE);
+  // The keyframe has this stone 5 m off its built place; the next frame has it 7 m off.
+  moved.set([s.id, s.x + 5, s.y, s.z, s.q[0], s.q[1], s.q[2], s.q[3]]);
+  const next = frame(20);
+  next.stones.set([s.id, s.x + 7, s.y, s.z, s.q[0], s.q[1], s.q[2], s.q[3]]);
+  const draw = (seeded: boolean) => {
+    const tl = new Timeline(layout);
+    if (seeded) tl.seed(moved);
+    tl.push(next);
+    tl.seek(10);
+    tl.interpolate();
+    assert.equal(tl.stoneCount, 1);
+    return tl.stones[1] - s.x;
+  };
+  // Halfway from 5 to 7 m when seeded (the previous frame is 20 ticks away: a = 0.5 needs prevTick 0).
+  assert.ok(Math.abs(draw(true) - 6) < 1e-4, `seeded ${draw(true)}`);
+  // Unseeded it would start from the built place: halfway from 0 to 7 m. That is the fault seeding fixes.
+  assert.ok(Math.abs(draw(false) - 3.5) < 1e-4);
+});

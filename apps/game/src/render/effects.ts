@@ -47,6 +47,7 @@ import type { StyleName, StylePreset } from "./styles";
 import type { ClearView } from "./clearview";
 import { screenCap, type FlashLight } from "./bursts";
 import { N, qrot } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
 
 const SLOTS = 16;
 const CHIPS_PER = 64;
@@ -170,6 +171,7 @@ export class Effects {
 
   private chipMaterial(style: StylePreset): THREE.Material {
     const m = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(m);
     m.name = `${style.name}-chips`;
     m.flatShading = true;
     m.roughness = 0.9;
@@ -346,6 +348,15 @@ export class Effects {
     const bx = this.bias.x, bz = this.bias.z;
     const bl = Math.hypot(bx, bz) || 1;
     this.impB[k].set(s, Math.max(0, Math.min(1, dust)), bx / bl, bz / bl);
+  }
+
+  /** Keyframe (S3): no impacts in flight, and the ring back at its first slot (the chips draw their motion from the slot). */
+  reset() {
+    for (let k = 0; k < this.impA.length; k++) {
+      this.impA[k].set(0, -100, 0, -1000);
+      this.impB[k].set(0, 0, 0, 0);
+    }
+    this.nextSlot = 0;
   }
 
   private fillDots(points: Float32Array | null, arr: Float32Array, attr: THREE.InstancedBufferAttribute, mesh: THREE.Mesh, max: number, spacing: number, lenU: N) {

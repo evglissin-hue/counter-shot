@@ -11,6 +11,7 @@ import * as THREE from "three/webgpu";
 import { CASTLE_SHAPE, mirrorZ, type CastleLayout } from "@keepfall/content";
 import { WORKS_STRIDE } from "@keepfall/sim";
 import type { StoneSet } from "./stones";
+import { applyCloudShadow } from "./clouds";
 
 /** Seconds a stone takes from the hoist's foot to its place (the page times its sound to this). */
 export const LAY_SECONDS = 1.15;
@@ -43,6 +44,17 @@ interface Hoist {
   shown: boolean;
 }
 
+/** Fields per hoist and per lay in a captured state. */
+const HOIST_FIELDS = 7 + 4 * 10;
+const LAY_FIELDS = 18;
+
+/** What the masons' works remember, for a keyframe. */
+export interface WorksState {
+  hoists: Float64Array;
+  lays: Float64Array;
+  lastFoot: number[][];
+}
+
 const _q = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _v = new THREE.Vector3();
@@ -73,10 +85,12 @@ export class Works {
     rope.translate(0, -0.5, 0);
     this.geos.push(leg, bar, rope);
     const wood = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(wood);
     wood.name = "hoist-wood";
     wood.color = new THREE.Color(0x5d554b);
     wood.roughness = 0.9;
     const hemp = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(hemp);
     hemp.name = "hoist-rope";
     hemp.color = new THREE.Color(0x8a7a5c);
     hemp.roughness = 0.95;
@@ -236,6 +250,68 @@ export class Works {
       o[7] = qq.w;
       stones.updateBodies(o, 1);
     }
+  }
+
+  /**
+   * Keyframe (S3): per hoist whether it stands, its apex, foot and the transform of its four
+   * timbers (position, rotation, scale), the stones on their way (with their age), and where
+   * each castle's masons last worked.
+   */
+  captureState(now: number): WorksState {
+    const hoists = new Float64Array(this.hoists.length * HOIST_FIELDS);
+    this.hoists.forEach((h, i) => {
+      const r = i * HOIST_FIELDS;
+      hoists[r] = h.shown ? 1 : 0;
+      h.apex.toArray(hoists, r + 1);
+      h.foot.toArray(hoists, r + 4);
+      [...h.legs, h.bar, h.rope].forEach((m, k) => {
+        const o = r + 7 + k * 10;
+        m.position.toArray(hoists, o);
+        m.quaternion.toArray(hoists, o + 3);
+        m.scale.toArray(hoists, o + 7);
+      });
+    });
+    const lays = new Float64Array(this.lays.length * LAY_FIELDS);
+    this.lays.forEach((L, i) => {
+      lays.set([L.id, now - L.start, L.fx, L.fy, L.fz, L.hy, L.tx, L.ty, L.tz, L.q.x, L.q.y, L.q.z, L.q.w, L.q0.x, L.q0.y, L.q0.z, L.q0.w, L.castle], i * LAY_FIELDS);
+    });
+    return { hoists, lays, lastFoot: this.lastFoot.map((f) => (f ? [f.x, f.z] : [])) };
+  }
+
+  /** Keyframe (S3): hoists and stones in the lift as captured. */
+  restoreState(st: WorksState, now: number) {
+    this.clear();
+    this.hoists.forEach((h, i) => {
+      const r = i * HOIST_FIELDS;
+      h.shown = st.hoists[r] > 0.5;
+      h.group.visible = h.shown;
+      h.apex.fromArray(st.hoists, r + 1);
+      h.foot.fromArray(st.hoists, r + 4);
+      [...h.legs, h.bar, h.rope].forEach((m, k) => {
+        const o = r + 7 + k * 10;
+        m.position.fromArray(st.hoists, o);
+        m.quaternion.fromArray(st.hoists, o + 3);
+        m.scale.fromArray(st.hoists, o + 7);
+      });
+    });
+    for (let i = 0; i * LAY_FIELDS < st.lays.length; i++) {
+      const r = i * LAY_FIELDS, a = st.lays;
+      this.lays.push({
+        id: a[r],
+        start: now - a[r + 1],
+        fx: a[r + 2],
+        fy: a[r + 3],
+        fz: a[r + 4],
+        hy: a[r + 5],
+        tx: a[r + 6],
+        ty: a[r + 7],
+        tz: a[r + 8],
+        q: new THREE.Quaternion(a[r + 9], a[r + 10], a[r + 11], a[r + 12]),
+        q0: new THREE.Quaternion(a[r + 13], a[r + 14], a[r + 15], a[r + 16]),
+        castle: a[r + 17],
+      });
+    }
+    this.lastFoot = st.lastFoot.map((f) => (f.length ? { x: f[0], z: f[1] } : null)) as Array<{ x: number; z: number } | null>;
   }
 
   /** Show a hoist out of sight, so its shaders compile while loading. */

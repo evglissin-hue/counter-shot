@@ -4,13 +4,15 @@ import type { Difficulty, RepairKind, RouteName } from "@keepfall/content";
 import type { MatchInput, MatchResult, TeamStats } from "@keepfall/rules";
 import type { FrameData, SandboxInput, TerrainPatch } from "@keepfall/sim";
 import type { NetState } from "./lockstep";
+import type { ReplayFile } from "./matchLog";
 
 /**
  * The Practice range (the sandbox: target castle, a patrol, no rules), a match
  * against the AI castle, one against a friend online (M5), or the guided first
  * match against the tutor (M6: GUIDED_OPTIONS in @keepfall/rules).
  */
-export type Mode = "practice" | "versus" | "online" | "guided";
+/** "watch" (S6): a saved match played again from its log (no AI, no lockstep; the file rides in `replay`). */
+export type Mode = "practice" | "versus" | "online" | "guided" | "watch";
 
 /** How a match is set up: against the AI at a difficulty, or online as one team (the other is the friend's). */
 export interface MatchSetup {
@@ -23,10 +25,10 @@ export interface MatchSetup {
 
 export type ToWorker =
   /** A new world. `gen` numbers it: every message the worker sends carries the world's number, so the page drops what an old world said. */
-  | { t: "init"; gen: number; mode: Mode; seed: number; minions: number; setup?: MatchSetup }
+  | { t: "init"; gen: number; mode: Mode; seed: number; minions: number; setup?: MatchSetup; replay?: ReplayFile }
   /** The player's input; in a match it is the player's team's (shots, orders, the barracks' route, the gun you ride). */
   | { t: "input"; input: SandboxInput | MatchInput }
-  | { t: "reset"; gen: number; mode: Mode; seed: number; minions: number; setup?: MatchSetup }
+  | { t: "reset"; gen: number; mode: Mode; seed: number; minions: number; setup?: MatchSetup; replay?: ReplayFile }
   /** Online: the page left the match (the lobby, the menu): the old world stops and says nothing more to the friend. */
   | { t: "netStop" }
   /** Online (M5): what the friend's page said (its lockstep state), and a new input delay. */
@@ -37,6 +39,8 @@ export type ToWorker =
   /** Sim speed for the shot camera's slow motion (1 = real time). Practice range only. */
   | { t: "speed"; factor: number }
   | { t: "pause"; paused: boolean }
+  /** S6: write the match's replay file now (the match goes on); the worker answers with `log`. */
+  | { t: "saveLog" }
   /** Send the nav grid with frames while it changes (for the overlay). */
   | { t: "nav"; on: boolean }
   /** Test tools only: a wave of a team's pikemen at a point (not an input: a match with it does not replay). */
@@ -215,6 +219,10 @@ export type FromWorker = { gen?: number } & (
       nav: NavInfo | null;
     }
   | { t: "error"; message: string }
+  /** S6: the replay file asked for by saveLog. */
+  | { t: "log"; text: string }
+  /** S6: a replay being watched has reached the saved match's last tick; `ok`: its hash is the saved one. */
+  | { t: "watchEnd"; tick: number; hash: { state: string; world: string }; ok: boolean }
   /**
    * Online (M5): this side's lockstep state for the friend's page, how long the
    * match has been waiting for the friend (ms), the input delay, inputs not yet

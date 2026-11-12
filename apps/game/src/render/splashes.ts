@@ -136,6 +136,16 @@ export class Splashes {
     if (this.bodyY.size > 800) this.bodyY.clear();
   }
 
+  /** Keyframe (S3): nothing in flight, the memory of what crossed the water forgotten, every ring and counter at its start. */
+  reset() {
+    this.clear();
+    this.drops.reset();
+    this.spray.reset();
+    this.shotSeen.clear();
+    this.budget = PER_FRAME;
+    this.frame = 0;
+  }
+
   clear() {
     this.drops.clear();
     this.spray.clear();

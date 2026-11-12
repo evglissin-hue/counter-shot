@@ -12,6 +12,7 @@ import { PLOTS, plotCentre } from "@keepfall/content";
 import { KEG_STRIDE, PLOT_STRIDE } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
 import { TEAM_COLORS } from "./minions";
+import { applyCloudShadow } from "./clouds";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2;
@@ -20,6 +21,13 @@ const MAX_KEGS = 16;
 
 /** Something to puff: a small cloud of smoke or a spark, at a point (the renderer owns the particles). */
 export type Puff = (kind: "smoke" | "spark" | "dust", x: number, y: number, z: number, scale: number) => void;
+
+/** What the plots and kegs remember, for a keyframe. */
+export interface EstateState {
+  views: Float64Array;
+  kegs: Float32Array;
+  nextSpark: number;
+}
 
 interface PlotView {
   castle: number;
@@ -82,6 +90,7 @@ export class EstateView {
         this.add(barracks, this.box(0.95, 1.9, 0.06), doorMat, at(-out * 0.6, 0.95, -d / 2 - 0.04));
         this.add(barracks, this.box(0.08, 4.6, 0.08), wood, at(-out * (w / 2 - 0.4), 2.3, -d / 2 - 0.65));
         const cloth = new THREE.MeshStandardNodeMaterial();
+        applyCloudShadow(cloth);
         cloth.color = new THREE.Color(TEAM_COLORS[castle]);
         cloth.roughness = 0.9;
         cloth.side = THREE.DoubleSide;
@@ -181,6 +190,7 @@ export class EstateView {
 
   private mat(hex: number, roughness: number, metalness = 0): THREE.MeshStandardNodeMaterial {
     const m = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(m);
     m.color = new THREE.Color(hex);
     m.roughness = roughness;
     m.metalness = metalness;
@@ -239,6 +249,32 @@ export class EstateView {
     const n = Math.min(count, MAX_KEGS);
     this.kegData.set(data.subarray(0, n * KEG_STRIDE));
     this.kegCount = n;
+  }
+
+  /** Keyframe (S3): per plot [kind, state, share, wheel turn, seconds to its next puff], the kegs and the next spark. */
+  captureState(now: number): EstateState {
+    const views = new Float64Array(this.views.length * 5);
+    this.views.forEach((v, i) => views.set([v.kind, v.state, v.share, v.wheel ? v.wheel.rotation.x : 0, v.nextPuff - now], i * 5));
+    return { views, kegs: this.kegData.slice(0, this.kegCount * KEG_STRIDE), nextSpark: this.nextSpark - now };
+  }
+
+  /** Keyframe (S3): plots and kegs as captured. */
+  restoreState(st: EstateState, now: number) {
+    this.views.forEach((v, i) => {
+      const o = i * 5;
+      v.kind = st.views[o];
+      v.state = st.views[o + 1];
+      v.share = st.views[o + 2];
+      if (v.wheel) v.wheel.rotation.x = st.views[o + 3];
+      v.nextPuff = now + st.views[o + 4];
+      v.stakes.visible = v.state === EMPTY;
+      v.scaffold.visible = v.state === RISING;
+      v.props.forEach((g, k) => (g.visible = v.state === STANDING && v.kind === k));
+    });
+    this.kegData.fill(0);
+    this.kegData.set(st.kegs);
+    this.kegCount = st.kegs.length / KEG_STRIDE;
+    this.nextSpark = now + st.nextSpark;
   }
 
   /** Forget every plot (a new world). */

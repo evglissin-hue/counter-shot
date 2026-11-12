@@ -10,6 +10,14 @@ export interface Pressed {
   shotCam: boolean;
   /** The impact cam (K): an inset on where your shot lands, on or off. */
   impact: boolean;
+  /** Replay the last big moment while the match waits (X). */
+  replay: boolean;
+  /** Photo mode (O): in a replay or a waiting match, on or off. */
+  photo: boolean;
+  /** Photo mode: save a picture (C or Space), and step the clip back or forwards (comma or left, period or right). */
+  photoShot: boolean;
+  stepBack: boolean;
+  stepFwd: boolean;
   spin: boolean;
   fuseUp: boolean;
   fuseDown: boolean;
@@ -169,6 +177,11 @@ export class Input {
       overview: e.has("Tab") || edge(8),
       shotCam: e.has("KeyV") || edge(3),
       impact: e.has("KeyK"),
+      replay: e.has("KeyX"),
+      photo: e.has("KeyO"),
+      photoShot: e.has("KeyC") || e.has("Space"),
+      stepBack: e.has("Comma") || e.has("ArrowLeft"),
+      stepFwd: e.has("Period") || e.has("ArrowRight"),
       spin: e.has("KeyR") || edge(2),
       fuseUp: e.has("BracketRight") || edge(12),
       fuseDown: e.has("BracketLeft") || edge(13),

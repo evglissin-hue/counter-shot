@@ -64,6 +64,11 @@ export class Timeline {
     this.prevTick = 0;
     this.prevCount = 0;
     this.projCount = this.chainCount = this.stoneCount = 0;
+    this.resetStones();
+  }
+
+  /** Every stone's remembered transform back to where the castle was built. */
+  private resetStones() {
     for (const s of this.layout.stones) {
       const o = s.id * 7;
       this.stoneNow[o] = s.x;
@@ -113,8 +118,12 @@ export class Timeline {
     const n = Math.min(MAX_BALLS, f.projectileCount);
     this.prevProj.set(f.projectiles.subarray(0, n * PROJECTILE_STRIDE));
     this.prevCount = n;
-    const s = f.stones;
-    for (let i = 0; i < f.stoneCount; i++) {
+    this.noteStones(f.stones, f.stoneCount);
+  }
+
+  /** Remember the transforms a frame's stones carry (STONE_STRIDE each). */
+  private noteStones(s: Float32Array, count: number) {
+    for (let i = 0; i < count; i++) {
       const o = i * STONE_STRIDE;
       if (s[o + 2] < -100) continue; // turned to dust: the renderer removes it
       const id = s[o] | 0;
@@ -128,6 +137,32 @@ export class Timeline {
       this.stoneNow[k + 5] = s[o + 6];
       this.stoneNow[k + 6] = s[o + 7];
     }
+  }
+
+  /**
+   * Replays (S4): start from a keyframe's world. `moved` lists the stones that are not where the castle
+   * was built, in the frame's own layout (STONE_STRIDE each: id, position, rotation), so the first frame
+   * interpolated towards starts where the keyframe put the stones.
+   */
+  seed(moved: Float32Array) {
+    this.resetStones();
+    this.noteStones(moved, Math.floor(moved.length / STONE_STRIDE));
+  }
+
+  /**
+   * Replays (S4): set the clock to `tick` at once, with no easing and no delay behind the newest
+   * frame, and return the frames now due (oldest first). The caller applies them, then interpolate().
+   */
+  seek(tick: number): FrameData[] {
+    this.tick = tick;
+    this.fresh = false;
+    const due: FrameData[] = [];
+    while (this.queue.length && this.queue[0].tick <= tick) {
+      const f = this.queue.shift()!;
+      this.applied(f);
+      due.push(f);
+    }
+    return due;
   }
 
   /** Fill proj, chains and stones for the current clock. */

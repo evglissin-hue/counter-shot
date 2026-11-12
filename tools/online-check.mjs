@@ -118,6 +118,13 @@ for (const [who, page] of [["host", host], ["guest", guest]]) {
     fail(`${who}: the salvo order never reached its match`);
   }
 }
+// S4: X replays nothing against a friend (the impact cam serves): no replay, the world not held, no note.
+for (const p of [host, guest]) await p.keyboard.press("KeyX");
+await sleep(800);
+for (const [who, p] of [["host", host], ["guest", guest]]) {
+  const x = await p.evaluate(() => ({ playing: window.__sandbox.replay.playing, held: window.__sandbox.worldHeld, note: document.getElementById("note")?.textContent ?? "" }));
+  if (x.playing || x.held || /Nothing to replay/.test(x.note)) fail(`X did something online (${who}): ${JSON.stringify(x)}`);
+}
 await aimFire(host, 0);
 await aimFire(guest, 0.01);
 await guest.evaluate(() => window.__sandbox.input({ kind: "build", plot: 1, building: "mill" }));

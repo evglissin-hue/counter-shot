@@ -9,6 +9,7 @@ import { cameraPosition, color, float, mix, normalWorld, positionWorld, pow, smo
 import type { CastleLayout, Emplacement, WeaponKind } from "@keepfall/content";
 import { stoneBounds } from "@keepfall/content";
 import type { N } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
 
 interface Gun {
   em: Emplacement;
@@ -39,8 +40,22 @@ interface Gun {
   tipYaw: number;
 }
 
+/** One gun's share of a keyframe. */
+export interface GunState {
+  armed: string;
+  out: boolean;
+  fell: boolean;
+  dropY: number;
+  dropV: number;
+  tumble: number;
+  groundY: number;
+  yaw: number;
+  pitch: number;
+}
+
 function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMaterial {
   const m = new THREE.MeshStandardNodeMaterial();
+  applyCloudShadow(m);
   m.name = "gun-iron";
   const n: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z), positionWorld.y).mul(0.9)).r;
   m.colorNode = mix(color(0x262524), color(0x4b3123), smoothstep(0.55, 0.85, n).mul(0.6));
@@ -55,6 +70,7 @@ function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMa
 
 function woodMaterial(noise: THREE.Texture): THREE.MeshStandardNodeMaterial {
   const m = new THREE.MeshStandardNodeMaterial();
+  applyCloudShadow(m);
   m.name = "gun-wood";
   const g: N = texture(noise, vec2(positionWorld.x.add(positionWorld.z).mul(2.5), positionWorld.y.mul(0.4))).g;
   m.colorNode = mix(color(0x2b2824), color(0x4d4841), g.mul(0.8).add(0.1));
@@ -291,6 +307,33 @@ export class Guns {
       g.tip.position.set(0, 0, 0);
       g.tip.rotation.set(0, 0, 0);
     }
+  }
+
+  /** Keyframe (S3): per gun, what it holds, whether it is out or fell, how far its fall has gone, and where it points. */
+  captureState(): GunState[] {
+    return this.guns.map((g) => ({ armed: g.armed, out: g.out, fell: g.fell, dropY: g.dropY, dropV: g.dropV, tumble: g.tumble, groundY: g.groundY, yaw: g.curYaw, pitch: g.curPitch }));
+  }
+
+  /** Keyframe (S3): put every gun as captured, a fall standing where it had got to (not replayed). */
+  restoreState(states: GunState[]) {
+    states.forEach((st, i) => {
+      const g = this.guns[i];
+      if (!g) return;
+      if (st.armed !== g.armed) this.mount(g, st.armed === "" ? { ...g.em, empty: true } : { ...g.em, empty: false, weapon: st.armed as WeaponKind });
+      g.out = st.out;
+      g.fell = st.fell;
+      g.dropY = st.dropY;
+      g.dropV = st.dropV;
+      g.tumble = st.tumble;
+      g.groundY = st.groundY;
+      // Upright again, then (if out) where its fall had got to.
+      g.root.position.set(g.em.x, g.em.y, g.em.z);
+      g.root.rotation.set(0, 0, 0);
+      g.tip.position.set(0, 0, 0);
+      g.tip.rotation.set(0, 0, 0);
+      if (g.out) this.animateOut(g, 0);
+      this.setPose(g.em.id, st.yaw, st.pitch, g.activeTarget > 0);
+    });
   }
 
   /** Show the first n guns (the rest belong to a castle that has none in this mode). */

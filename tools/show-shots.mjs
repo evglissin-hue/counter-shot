@@ -6,7 +6,10 @@
 // inset opens about a second before the landing, closes 3 s after it, that K
 // turns it off, and that a click on it swaps the views. Writes
 // tools/.shots/S2-*.png and prints what the page reported.
-// Usage: PORT=5182 node tools/show-shots.mjs [longgun chain mortar keys]  (W and H set the window, default 1280 by 720)
+// S4 (name "replay", run only when asked for): a Versus AI match on the test clock fires at the enemy castle until clips of
+// the match are in the reel, then each director recipe that occurs is played and photographed three times (start, the slow
+// part, end): tools/.shots/S4-<recipe>-<kind>-<1..3>.png, with the take's numbers printed.
+// Usage: PORT=5182 node tools/show-shots.mjs [longgun chain mortar keys replay]  (W and H set the window, default 1280 by 720; MAKE is the longest game time spent making clips, default 240 s)
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -157,8 +160,112 @@ async function tour() {
   }
 }
 
+/** S4: the director's recipes on clips of a real match. */
+async function replayStills() {
+  for (let i = 0; i < 3; i++) {
+    try {
+      await page.goto("about:blank");
+      await page.goto(`http://127.0.0.1:${PORT}/index.html#versus=knight-webgl-low-fixed`, { waitUntil: "load" });
+      await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 180000 });
+      break;
+    } catch (e) {
+      if (i === 2) throw e;
+    }
+  }
+  const W = Number(process.env.W) || 1280, H = Number(process.env.H) || 720;
+  // Rendering is the slow part, the sim is not: make the clips on a small canvas and photograph on the big one.
+  await page.setViewportSize({ width: 192, height: 108 });
+  await frames(10);
+  const MAKE = Number(process.env.MAKE) || 240;
+  const wanted = new Set(["topple", "beside", "wide-close", "wide", "orbit"]);
+  const kindsOf = async () => {
+    await page.evaluate(() => window.__sandbox.flushRecorder());
+    return page.evaluate(() => window.__sandbox.recorder.reel.map((c) => ({ kind: c.kind, score: c.score, tick: c.tick })));
+  };
+  /** The recipe each reel clip would be filmed with (played at once and skipped: no frames needed). */
+  const recipes = async () => {
+    const reel = await kindsOf();
+    const out = [];
+    for (let i = 0; i < reel.length; i++) {
+      const r = await page.evaluate((k) => {
+        const ok = window.__sandbox.playClip(k, 10);
+        const rp = window.__sandbox.replay;
+        window.__sandbox.skipReplay();
+        return ok ? rp : null;
+      }, i);
+      if (r) out.push({ i, recipe: r.recipe, ...reel[i], start: r.start, end: r.end });
+    }
+    return out;
+  };
+  let have = [];
+  for (let t = 0; t < MAKE; t += 4) {
+    if (t % 12 === 0) {
+      const mortar = (t / 12) % 2 === 1;
+      await page.evaluate(([slot, y]) => {
+        const S = window.__sandbox;
+        S.select(slot);
+        if (S.aimAtPoint(slot, 0, y, 0)) S.fire();
+      }, mortar ? [1, 1] : [0, 9]);
+    }
+    const t0 = await page.evaluate(() => window.__sandbox.match.tick);
+    await page.evaluate(() => window.__sandbox.advance(4));
+    await page.waitForFunction((tick) => (window.__sandbox.match?.tick ?? 0) >= tick, t0 + 4 * 60 - 30, { timeout: 600000, polling: 200 });
+    await sleep(300);
+    if (t % 20 === 16) {
+      have = await recipes();
+      console.log(`   ${t + 4} s: ${have.map((h) => `${h.kind}/${h.recipe}`).join(", ") || "no clips yet"}`);
+      const got = new Set(have.map((h) => h.recipe));
+      if (got.has("topple") && got.has("beside")) break;
+    }
+  }
+  have = await recipes();
+  console.log(`   clips: ${have.map((h) => `#${h.i} ${h.kind} score ${h.score} -> ${h.recipe} (clip ticks ${h.start} to ${h.end})`).join("; ")}`);
+  check("clips were made", have.length > 0);
+  check("a topple and a beside take occur", have.some((h) => h.recipe === "topple") && have.some((h) => h.recipe === "beside"), `(recipes ${[...new Set(have.map((h) => h.recipe))].join(", ")})`);
+  await page.setViewportSize({ width: W, height: H });
+  await frames(5);
+  const done = new Set();
+  for (const h of have) {
+    if (done.has(h.recipe) || !wanted.has(h.recipe)) continue;
+    done.add(h.recipe);
+    const before = await page.evaluate(() => ({ tick: window.__sandbox.match.tick }));
+    await page.evaluate(([i]) => window.__sandbox.replayCheck(true) || window.__sandbox.playClip(i, 9), [h.i]);
+    const info = await page.evaluate(() => window.__sandbox.replay);
+    const len = info.end - info.start;
+    console.log(`   ${h.recipe} (${h.kind}): clip ticks ${info.start} to ${info.end}`);
+    const still = async (n, tick) => {
+      await page.evaluate((t) => window.__sandbox.replayFreezeAt(t), tick);
+      await page.waitForFunction((t) => window.__sandbox.replay.tick >= t, tick, { timeout: 600000, polling: 50 });
+      await sleep(500);
+      const r = await page.evaluate(() => window.__sandbox.replay);
+      await page.screenshot({ path: `${out}S4-${h.recipe}-${h.kind}-${n}.png` });
+      console.log(`shot S4-${h.recipe}-${h.kind}-${n}: clip tick ${r.tick.toFixed(1)}, speed ${r.speed}`);
+      await page.evaluate(() => window.__sandbox.freeze(false));
+      return r;
+    };
+    await still(1, info.start + Math.min(30, len * 0.1));
+    // The slow part: the first tick the take runs below real speed.
+    let slowAt = null;
+    for (let k = 0; k < 4000 && slowAt === null; k++) {
+      const r = await page.evaluate(() => window.__sandbox.replay);
+      if (!r.playing) break;
+      if (r.speed < 0.9) slowAt = r.tick;
+      else await sleep(40);
+    }
+    if (slowAt !== null) await still(2, slowAt + 6);
+    else console.log(`   ${h.recipe}: the take never slows down`);
+    await still(3, info.end - Math.min(20, len * 0.05));
+    await page.waitForFunction(() => !window.__sandbox.replay.playing, null, { timeout: 600000, polling: 100 });
+    const d = await page.evaluate(() => window.__sandbox.replayDiff);
+    check(`${h.recipe}: the live view is back after the replay`, Array.isArray(d) && d.length === 0, d && d.length ? `differs: ${d.join(", ")}` : "");
+    void before;
+  }
+  check("a still set was taken for every recipe that occurs", done.size > 0);
+}
+
 try {
-  await tour();
+  if (only.includes("replay")) await replayStills();
+  else await tour();
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   await browser.close();

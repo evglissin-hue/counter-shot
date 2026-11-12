@@ -32,10 +32,13 @@ import {
   vec3,
 } from "three/tsl";
 import type { CastleLayout } from "@keepfall/content";
+import { applyCloudShadow } from "./clouds";
 import { mergeGeometries } from "./geometry";
 import type { StoneSet } from "./stones";
 import type { StyleName, StylePreset } from "./styles";
 import { N, qrot } from "./tslUtils";
+import type { WindField } from "./windField";
+import { flagWindTarget } from "./windState";
 
 export class Flags {
   readonly mesh: THREE.Mesh;
@@ -47,14 +50,17 @@ export class Flags {
   private time: N;
   private noise: THREE.Texture;
   /** Wind heading about the pole (radians) and a 0..1 strength. */
-  private windAngle = uniform(0);
-  private windStrength = uniform(0.4);
-  private flutterPhase = uniform(0);
-  private angle = 0;
-  private targetAngle = 0;
-  private strength = 0.4;
-  private targetStrength = 0.4;
-  private phase = 0;
+  private windAngle = [uniform(0), uniform(0)];
+  private windStrength = [uniform(0.4), uniform(0.4)];
+  private flutterPhase = [uniform(0), uniform(0)];
+  private angle = [0, 0];
+  private targetAngle = [0, 0];
+  private strength = [0.4, 0.4];
+  private targetStrength = [0.4, 0.4];
+  private phase = [0, 0];
+  /** L3: the game's wind at each banner's own place (a gust front makes it snap and stream harder as it passes). */
+  private field: WindField | null = null;
+  private sample = { x: 0, z: 0 };
 
   constructor(layout: CastleLayout, time: N, noise: THREE.Texture) {
     this.layout = layout;
@@ -103,6 +109,7 @@ export class Flags {
     m.side = THREE.DoubleSide;
     m.metalness = 0;
     m.roughness = 0.8;
+    applyCloudShadow(m);
     const iPS: N = attribute("iPosShade", "vec4");
     const iQ: N = attribute("iQuat", "vec4");
     const kind: N = attribute("aKind", "float");
@@ -111,8 +118,11 @@ export class Flags {
     const u: N = g.x.div(w).clamp(0, 1);
     const v: N = g.y.negate().div(h);
     const k1 = 6.5;
-    const fp: N = this.flutterPhase;
-    const ws: N = this.windStrength;
+    // One banner's wind each: the instance index picks its uniforms.
+    const pick = (a: N, b: N): N => select(iPS.w.lessThan(0.5), a, b);
+    const fp: N = pick(this.flutterPhase[0], this.flutterPhase[1]);
+    const ws: N = pick(this.windStrength[0], this.windStrength[1]);
+    const windAngle: N = pick(this.windAngle[0], this.windAngle[1]);
     const ph: N = u.mul(k1).sub(fp.mul(4.6)).add(idx.mul(1.7));
     const ph2: N = u.mul(14.0).sub(fp.mul(7.1)).add(v.mul(2.3)).add(idx.mul(0.9));
     const amp: N = pow(u, 0.85).mul(mix(0.08, 0.24, ws));
@@ -127,8 +137,8 @@ export class Flags {
     const clothLocal: N = vec3(g.x.add(poleR), g.y.add(top).sub(droop), dz);
     const finialLocal: N = g.add(vec3(0, poleHy, 0));
     // Turn the cloth about the pole so it streams downwind.
-    const ca: N = cos(this.windAngle);
-    const sa: N = sin(this.windAngle);
+    const ca: N = cos(windAngle);
+    const sa: N = sin(windAngle);
     const rotY = (p: N): N => vec3(p.x.mul(ca).add(p.z.mul(sa)), p.y, p.z.mul(ca).sub(p.x.mul(sa)));
     const local: N = select(isCloth, rotY(clothLocal), finialLocal);
     const n: N = select(isCloth, rotY(normalize(vec3(dzdx.negate(), dzdy.negate(), 1.0))), normalGeometry);
@@ -174,24 +184,42 @@ export class Flags {
     this.mesh.material = this.material(style);
   }
 
-  /** Wind in m/s along x and z. */
+  /** The game's wind field: each banner then reads the wind at its own place. */
+  setWindField(field: WindField) {
+    this.field = field;
+  }
+
+  /** Wind in m/s along x and z (at the gun: what both banners follow when there is no wind field). */
   setWind(wx: number, wz: number) {
-    const s = Math.hypot(wx, wz);
-    if (s > 0.05) this.targetAngle = Math.atan2(-wz, wx);
-    this.targetStrength = Math.min(1, s / 10);
+    if (this.field) return;
+    for (let i = 0; i < 2; i++) this.target(i, wx, wz, 0);
+  }
+
+  private target(i: number, wx: number, wz: number, band: number) {
+    const t = flagWindTarget(wx, wz, band);
+    if (t.angle !== null) this.targetAngle[i] = t.angle;
+    this.targetStrength[i] = t.strength;
   }
 
   /** Copy the poles' current transforms into the flag instances and ease the wind. */
   update(stones: StoneSet, dt: number) {
-    let d = this.targetAngle - this.angle;
-    d = Math.atan2(Math.sin(d), Math.cos(d));
     const k = 1 - Math.exp(-dt * 1.5);
-    this.angle += d * k;
-    this.strength += (this.targetStrength - this.strength) * k;
-    this.phase += dt * (0.5 + this.strength * 1.2);
-    this.windAngle.value = this.angle;
-    this.windStrength.value = this.strength;
-    this.flutterPhase.value = this.phase;
+    for (let i = 0; i < 2; i++) {
+      if (this.field) {
+        stones.getTransform(this.layout.bannerIds[i], this.tmp);
+        this.field.sampleAt(this.tmp[0], this.tmp[2], this.sample);
+        this.target(i, this.sample.x, this.sample.z, this.field.bandAt(this.tmp[0], this.tmp[2]));
+      }
+      let d = this.targetAngle[i] - this.angle[i];
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      this.angle[i] += d * k;
+      // A front's band is already smooth in time; the strength itself follows it quickly, the heading slowly.
+      this.strength[i] += (this.targetStrength[i] - this.strength[i]) * (this.field ? 1 - Math.exp(-dt * 6) : k);
+      this.phase[i] += dt * (0.5 + this.strength[i] * 1.2);
+      this.windAngle[i].value = this.angle[i];
+      this.windStrength[i].value = this.strength[i];
+      this.flutterPhase[i].value = this.phase[i];
+    }
     for (let i = 0; i < 2; i++) {
       stones.getTransform(this.layout.bannerIds[i], this.tmp);
       const o = i * 8;

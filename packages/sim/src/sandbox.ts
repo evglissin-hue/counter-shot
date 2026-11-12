@@ -656,6 +656,7 @@ export class SandboxSim {
   /** Everything since the last call, for the renderer. Arrays are fresh copies (transferable). */
   collect(): FrameData {
     const b = this.bufs;
+    const lead = this.wind.lead(this.tick);
     const stoneCount = this.castle.collectMoving(b.stones);
     let pc = 0, cc = 0;
     for (const shot of this.shots) {
@@ -718,6 +719,9 @@ export class SandboxSim {
       terrain,
       windX: this.wind.x,
       windZ: this.wind.z,
+      gustX: lead.x,
+      gustZ: lead.z,
+      gustIn: lead.ticks,
     };
   }
 

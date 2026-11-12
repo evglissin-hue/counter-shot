@@ -12,17 +12,20 @@ import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@kee
 import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
+import { Haze } from "./haze";
+import { GroundMarks } from "./groundMarks";
 import { ClearView } from "./clearview";
-import { Decals } from "./decals";
+import { Decals, type DecalState } from "./decals";
 import { Effects } from "./effects";
-import { EstateView } from "./estate";
+import { EstateView, type EstateState } from "./estate";
 import { Flags } from "./flags";
-import { Guns } from "./guns";
+import { Guns, type GunState } from "./guns";
 import { Inset } from "./inset";
+import { eventChance, frameBytes, roughBytes, type KeyframePart, type RenderKeyframe } from "./keyframe";
 import { Ladders } from "./ladders";
 import { Markers } from "./markers";
 import { Chalk, type ChalkMark } from "./chalk";
-import { Minions } from "./minions";
+import { Minions, type MinionsState } from "./minions";
 import { MortarAim } from "./mortarAim";
 import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
@@ -35,13 +38,21 @@ import { Splashes } from "./splashes";
 import { fitShadowCamera, makeSoftShadowFilter } from "./shadows";
 import { Sky } from "./sky";
 import { SHADOW_LAYER, StoneSet } from "./stones";
+import { StoneWear } from "./wear";
+import { setWearChips } from "./wearShading";
 import { Storm } from "./storm";
 import { GRITTY } from "./styles";
 import { Terrain } from "./terrain";
 import { Views } from "./views";
-import { Works } from "./works";
+import { CLOUDS, setCloudNoise, updateClouds } from "./clouds";
+import { WindField } from "./windField";
+import { GrassTufts } from "./grass";
+import { Birds } from "./birds";
+import { Braziers } from "./braziers";
+import { Works, type WorksState } from "./works";
 
 export type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
+export type { KeyframePart, RenderKeyframe } from "./keyframe";
 
 const STYLE = GRITTY;
 
@@ -81,9 +92,13 @@ export class GameRenderer implements GameRendererApi {
   /** The ring on a courtyard being stormed (M4). */
   private storm = new Storm();
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark", Burst>;
+  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
   /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
   private estate = new EstateView();
+  /** L3: grass tufts near the camera (High and up), crows, and braziers on the castles. */
+  private grass!: GrassTufts;
+  private birds!: Birds;
+  private braziers!: Braziers;
   private raising = new Map<number, number>();
   private raiseBuf = new Float32Array(8);
   private shock: Shock;
@@ -117,6 +132,8 @@ export class GameRenderer implements GameRendererApi {
   private marker: THREE.Group;
   private markerOn = false;
   private stones: StoneSet | null = null;
+  /** L2: per-stone wear (fresh breaks, new stone, soot, cracks, dust). */
+  private wear: StoneWear | null = null;
   private flags: Flags | null = null;
   private layout: CastleLayout | null = null;
   private post: Post | null = null;
@@ -129,6 +146,13 @@ export class GameRenderer implements GameRendererApi {
   private noise: THREE.Texture;
   private time = uniform(0);
   private wind = uniform(new THREE.Vector2(0, 0));
+  /** L3: the game's wind over the land, with the coming gust's front (everything that sways reads it). */
+  readonly windField: WindField;
+  /** L2.5: dust that stays after a great collapse; L2.3 and L3.4: scorch, dust and trodden paths on the ground. */
+  haze!: Haze;
+  groundMarks!: GroundMarks;
+  /** Called once per haze when it starts (x, y, z at the ground, radius, dust amount 0..1): the page wires it to the stone wear's dustAround. */
+  onHazeSettle: ((x: number, y: number, z: number, radius: number, amount: number) => void) | null = null;
   private now = 0;
   private gore = true;
   private tier: QualityTier = "high";
@@ -145,7 +169,11 @@ export class GameRenderer implements GameRendererApi {
   private ndc = new THREE.Vector2();
   private tmpA = new THREE.Vector3();
   private tmpB = new THREE.Vector3();
-  private seed = 1;
+  /** S3: the parts a keyframe is made of (registration order), and the last frame applied (a keyframe re-applies it). */
+  private keyParts = new Map<string, KeyframePart>();
+  private lastFrame: FrameData | null = null;
+  /** The tick of the frame being applied (what chance drawn from an event is keyed by). */
+  private frameTick = 0;
 
   onDeviceLost: ((message: string) => void) | null = null;
 
@@ -154,6 +182,8 @@ export class GameRenderer implements GameRendererApi {
     // Everything that does not need the GPU is built here, so every API call
     // is safe before init() resolves.
     this.noise = getNoiseTexture();
+    this.windField = new WindField(this.time, this.noise);
+    setCloudNoise(this.noise);
     this.sky = new Sky(this.noise);
     this.scene.add(this.sky.mesh);
     this.scene.add(this.hemi);
@@ -162,10 +192,11 @@ export class GameRenderer implements GameRendererApi {
     this.flash.castShadow = false;
     this.scene.add(this.flash);
     this.scene.fogNode = this.sky.fogNode();
-    this.terrain = new Terrain(this.noise, this.sky, this.time);
+    this.terrain = new Terrain(this.noise, this.sky, this.time, this.windField);
     this.scene.add(this.terrain.ground, this.terrain.field, this.terrain.mountains, this.terrain.water);
+    this.groundMarks = new GroundMarks(this.terrain);
     this.views = new Views(canvas, (x, z) => this.terrain.heightAt(x, z));
-    this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir);
+    this.scatter = new Scatter(this.noise, this.time, this.sky.sunDir, this.windField);
     this.scene.add(this.scatter.root);
     const glow: FlashLight = {
       at: (p) => {
@@ -207,8 +238,21 @@ export class GameRenderer implements GameRendererApi {
       // M3: a Foundry's chimney smoke, and the sparks off a burning fuse.
       chimney: mk({ name: "chimney", slots: 40, per: 3, life: [3.5, 6], color: 0x2a2826, colorEnd: 0x56524c, additive: false, glow: 1, speed: [0.2, 0.6], size: [0.35, 1.8], grow: 0.7, gravity: 0, rise: 1.4, drag: 1.2, windScale: 0.9, spread: 0.5, opacity: 0.55, floor: true, lighting: 0.4, clearAim: true }),
       spark: mk({ name: "spark", slots: 32, per: 4, life: [0.12, 0.32], color: 0xffd28a, colorEnd: 0xff6a20, additive: true, glow: 3, speed: [0.8, 2.2], size: [0.03, 0.07], grow: 1, gravity: 4, rise: 0, drag: 2, windScale: 0, spread: 1.2, opacity: 1, floor: true }),
+      // L3: a brazier's thin thread of smoke.
+      brazier: mk({ name: "brazier", slots: 24, per: 2, life: [3, 5], color: 0x3a3836, colorEnd: 0x6a665f, additive: false, glow: 1, speed: [0.1, 0.3], size: [0.1, 0.9], grow: 0.6, gravity: 0, rise: 1.2, drag: 1.2, windScale: 0.9, spread: 0.3, opacity: 0.4, floor: true, lighting: 0.4, clearAim: true }),
     };
+    this.haze = new Haze(this.noise, this.sky.sunDir, this.clear);
+    this.haze.onSettle = (x, y, z, r, a) => {
+      this.groundMarks.dust(x, z, r, a * 0.6);
+      this.wear?.dustAround(x, y, z, r, a);
+      this.onHazeSettle?.(x, y, z, r, a);
+    };
+    this.scene.add(this.haze.mesh);
     this.scene.add(this.estate.root);
+    this.grass = new GrassTufts(this.windField, (x, z) => this.terrain.heightAt(x, z));
+    this.birds = new Birds(this.time, this.clear);
+    this.braziers = new Braziers(this.time);
+    this.scene.add(this.grass.root, this.birds.root, this.braziers.root);
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
     this.splashes = new Splashes(this.time, this.wind, this.sky.sunDir, this.noise, this.clear, glow);
@@ -222,6 +266,221 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.markers.root);
     this.scene.add(this.chalk.root);
     this.scene.add(this.ladders.root, this.storm.root);
+    this.registerBuiltInParts();
+  }
+
+  // --- keyframes (S3) ----------------------------------------------------------
+
+  /** Another module's share of a keyframe (registered once; the order of registration is the order of apply). */
+  registerKeyframePart(name: string, part: KeyframePart): void {
+    this.keyParts.set(name, part);
+  }
+
+  /** A picture of the renderer's world: every part's state, and the last frame applied. */
+  capture(): RenderKeyframe {
+    const parts = new Map<string, unknown>();
+    let bytes = this.lastFrame ? frameBytes(this.lastFrame) : 0;
+    for (const [name, part] of this.keyParts) {
+      const state = part.capture(this.now);
+      parts.set(name, state);
+      bytes += part.bytes(state);
+    }
+    return { tick: this.lastFrame ? this.lastFrame.tick : -1, parts, last: this.lastFrame, bytes };
+  }
+
+  /** Put the renderer exactly where a keyframe was taken: every part, then the last frame again (no events, no ground patches). */
+  apply(k: RenderKeyframe): void {
+    for (const [name, part] of this.keyParts) {
+      if (k.parts.has(name)) part.apply(k.parts.get(name), this.now);
+    }
+    this.lastFrame = null;
+    if (k.last) this.applyFrame({ ...k.last, eventCount: 0, terrain: [] });
+    this.lastFrame = k.last;
+    // The frame lays its own stones (exact, where the page had drawn them between frames) and places the masons' hoists
+    // afresh (their ropes are drawn in render): put both back as they were taken, so capture() gives the keyframe again.
+    for (const name of ["stones", "works"]) {
+      const part = this.keyParts.get(name);
+      if (part && k.parts.has(name)) part.apply(k.parts.get(name), this.now);
+    }
+  }
+
+  /** The renderer's clock in seconds (what sky, water, flags and every effect's age are measured against). */
+  get clock(): number {
+    return this.now;
+  }
+
+  /**
+   * Set the clock (S4): a replay sets it before it applies its keyframe, so the same clip draws the same picture each
+   * time (sky, water and flags depend on it), and puts it back before it gives the live keyframe back.
+   */
+  setClock(seconds: number): void {
+    this.now = seconds;
+    this.time.value = seconds;
+  }
+
+  private registerBuiltInParts() {
+    const part = <S,>(p: KeyframePart<S>) => p as KeyframePart;
+    this.registerKeyframePart(
+      "stones",
+      part<{ moved: Float32Array; raising: Float64Array }>({
+        capture: (now) => {
+          const raising = new Float64Array(this.raising.size * 2);
+          let i = 0;
+          for (const [id, t0] of this.raising) raising.set([id, now - t0], i++ * 2);
+          return { moved: this.stones ? this.stones.captureMoved() : new Float32Array(0), raising };
+        },
+        apply: (st, now) => {
+          this.stones?.restoreMoved(st.moved);
+          // The trickle memory starts again: the same frames from here shed the same dust.
+          this.prevTick.fill(-1);
+          this.prevPos.fill(0);
+          this.lastTrickle.fill(-100);
+          this.raising.clear();
+          for (let i = 0; i < st.raising.length; i += 2) this.raising.set(st.raising[i], now - st.raising[i + 1]);
+        },
+        bytes: (st) => st.moved.byteLength + st.raising.byteLength + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "terrain",
+      part<{ idx: Int32Array; h: Float32Array }>({
+        capture: () => this.terrain.captureHeights(),
+        apply: (st) => {
+          this.terrain.restoreHeights(st.idx, st.h);
+          this.grass.invalidate();
+        },
+        bytes: (st) => st.idx.byteLength + st.h.byteLength + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "minions",
+      part<MinionsState>({
+        capture: () => this.minions.captureState(),
+        apply: (st) => this.minions.restoreState(st),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    this.registerKeyframePart(
+      "guns",
+      part<GunState[]>({
+        capture: () => this.guns.captureState(),
+        apply: (st) => this.guns.restoreState(st),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    this.registerKeyframePart(
+      "estate",
+      part<EstateState>({
+        capture: (now) => this.estate.captureState(now),
+        apply: (st, now) => this.estate.restoreState(st, now),
+        bytes: (st) => st.views.byteLength + st.kegs.byteLength + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "works",
+      part<WorksState | null>({
+        capture: (now) => (this.works ? this.works.captureState(now) : null),
+        apply: (st, now) => {
+          if (st && this.works) this.works.restoreState(st, now);
+        },
+        bytes: (st) => (st ? roughBytes(st) : 0),
+      }),
+    );
+    this.registerKeyframePart(
+      "decals",
+      part<DecalState>({
+        capture: (now) => this.decals.captureState(now),
+        apply: (st, now) => this.decals.restoreState(st, now, this.gore),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    this.registerKeyframePart(
+      "storm",
+      part<Float64Array>({
+        capture: () => this.storm.captureState(),
+        apply: (st) => this.storm.restoreState(st),
+        bytes: (st) => st.byteLength + 16,
+      }),
+    );
+    // L2 and L3: what the stone, the ground and the air remember (wear.ts, groundMarks.ts, haze.ts own their state), and which braziers still burn.
+    this.registerKeyframePart(
+      "wear",
+      part<Float32Array | null>({
+        capture: () => (this.wear ? this.wear.capture() : null),
+        apply: (st) => {
+          if (st && this.wear) this.wear.apply(st);
+          else this.wear?.clear();
+        },
+        bytes: (st) => (st ? st.byteLength + 16 : 0),
+      }),
+    );
+    this.registerKeyframePart(
+      "groundMarks",
+      part<Float32Array>({
+        capture: () => this.groundMarks.capture(),
+        apply: (st) => this.groundMarks.apply(st),
+        bytes: (st) => st.byteLength + 16,
+      }),
+    );
+    this.registerKeyframePart(
+      "haze",
+      part<{ hazes: Float32Array; recent: number[] }>({
+        capture: (now) => this.haze.capture(now),
+        apply: (st, now) => this.haze.apply(st, now),
+        bytes: (st) => st.hazes.byteLength + st.recent.length * 8 + 32,
+      }),
+    );
+    this.registerKeyframePart(
+      "braziers",
+      part<Float32Array>({
+        capture: () => this.braziers.capture(),
+        apply: (st) => this.braziers.apply(st),
+        bytes: (st) => st.byteLength + 16,
+      }),
+    );
+    this.registerKeyframePart(
+      "birds",
+      part<ReturnType<Birds["capture"]>>({
+        capture: (now) => this.birds.capture(now),
+        apply: (st, now) => this.birds.apply(st, now),
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    // The wind's fronts and drift and the clouds' place build up frame by frame: kept, so a clip draws the same sky and grass each play.
+    this.registerKeyframePart(
+      "wind",
+      part<{ state: Record<string, number | boolean>; clouds: [number, number, number, number] }>({
+        capture: () => {
+          const c = CLOUDS.offset.value, d = this.sky.cloudDrift.value;
+          return { state: this.windField.state.capture(), clouds: [c.x, c.y, d.x, d.y] };
+        },
+        apply: (st) => {
+          this.windField.state.apply(st.state);
+          this.windField.sync();
+          CLOUDS.offset.value.set(st.clouds[0], st.clouds[1]);
+          this.sky.cloudDrift.value.set(st.clouds[2], st.clouds[3]);
+        },
+        bytes: (st) => roughBytes(st),
+      }),
+    );
+    // What is in the air only: nothing is captured. Cleared, with every ring back at its first slot, so the frames that follow lay the same particles in the same slots.
+    this.registerKeyframePart(
+      "transient",
+      part<null>({
+        capture: () => null,
+        apply: () => {
+          for (const b of Object.values(this.bursts)) b.reset();
+          this.effects.reset();
+          this.shock.reset();
+          this.splashes.reset();
+          this.marks.clear();
+          this.flashLevel = 0;
+          this.flash.intensity = 0;
+          this.flashGlow.value = 0;
+        },
+        bytes: () => 0,
+      }),
+    );
   }
 
   /** How far a courtyard's storm has gone (0..1, castle 0 the enemy's) and whether its attackers outnumber its defenders now. */
@@ -320,7 +579,9 @@ export class GameRenderer implements GameRendererApi {
       this.flags.dispose();
     }
     this.layout = layout;
+    this.wear?.dispose();
     this.stones = new StoneSet(layout, this.noise);
+    this.wear = new StoneWear(layout, this.stones);
     const n = layout.stones.length;
     this.prevPos = new Float32Array(n * 3);
     this.prevTick = new Int32Array(n).fill(-1);
@@ -329,6 +590,8 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.stones.root, this.flags.mesh);
     this.stones.setStyle(STYLE);
     this.flags.setStyle(STYLE);
+    this.braziers.build(layout);
+    this.flags.setWindField(this.windField);
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
     this.emplacementList = emplacements;
@@ -359,8 +622,11 @@ export class GameRenderer implements GameRendererApi {
   // --- per frame data ---------------------------------------------------------
 
   applyFrame(frame: FrameData): void {
+    this.lastFrame = frame;
+    this.frameTick = frame.tick;
     if (this.stones && frame.stoneCount > 0) {
       this.stones.updateBodies(frame.stones, frame.stoneCount);
+      this.braziers.bodies(frame.stones, frame.stoneCount);
       this.trickleDust(frame.stones, frame.stoneCount, frame.tick);
     }
     this.minions.update(frame);
@@ -371,15 +637,21 @@ export class GameRenderer implements GameRendererApi {
     // M3: the plots and the kegs at the walls.
     if (frame.plots && frame.plotCount) this.estate.setPlots(frame.plots, frame.plotCount);
     if (frame.kegs) this.estate.setKegs(frame.kegs, frame.kegCount);
-    if (frame.terrain && frame.terrain.length > 0) this.terrain.applyPatches(frame.terrain);
+    if (frame.terrain && frame.terrain.length > 0) {
+      this.terrain.applyPatches(frame.terrain);
+      this.grass.invalidate();
+    }
+    this.wear?.setKegs(frame.kegs, frame.kegCount);
     this.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.effects.wind.value.set(frame.windX || 0, frame.windZ || 0);
     this.flags?.setWind(frame.windX || 0, frame.windZ || 0);
+    this.windField.setFrame(frame.windX, frame.windZ, frame.gustX, frame.gustZ, frame.gustIn, frame.tick);
     const ev = frame.events;
     for (let i = 0; i < frame.eventCount; i++) {
       const o = i * EVENT_STRIDE;
       const kind = ev[o];
       const x = ev[o + 1], y = ev[o + 2], z = ev[o + 3], v = ev[o + 4];
+      this.wear?.event(kind, x, y, z, v);
       if (kind === EventKind.Impact) this.spawnImpact(x, y, z, v);
       else if (kind === EventKind.Explosion) this.spawnExplosion(x, y, z, v);
       else if (kind === EventKind.Muzzle) this.spawnMuzzle(x | 0);
@@ -395,6 +667,9 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Cracked) this.spawnImpact(y, z, v, 0.45, 0.35);
       // EventKind.Landed: the page handles the landing marker.
     }
+    // L2/L3: scorch, dust and trodden paths on the ground, and the haze of a great collapse.
+    this.groundMarks.frame(frame, this.groundHeight);
+    this.haze.frame(frame, this.layout, this.now, this.groundHeight);
   }
 
   /** M3: a building's piece rose into its place (it eases up the last half metre and settles in a puff); id -1: rubble carried off. */
@@ -449,15 +724,22 @@ export class GameRenderer implements GameRendererApi {
 
   applyTerrain(patches: TerrainPatch[]): void {
     this.terrain.applyPatches(patches);
+    this.grass.invalidate();
   }
 
   resetWorld(): void {
     this.estate.clear();
+    this.braziers.reset();
+    this.birds.reset();
+    this.grass.invalidate();
     this.raising.clear();
     this.stones?.resetStones();
+    this.wear?.clear();
     this.prevTick.fill(-1);
     this.lastTrickle.fill(-100);
     this.terrain.resetHeights();
+    this.groundMarks.clear();
+    this.haze.clear();
     this.decals.clear();
     this.minions.clear();
     this.splashes.clear();
@@ -515,6 +797,7 @@ export class GameRenderer implements GameRendererApi {
   /** A powder burst: fireball, a fountain of chips, dust thrown along the ground, a shock, a smoke column. */
   private spawnExplosion(x: number, y: number, z: number, radius: number) {
     const r = Math.max(0.5, radius || 3);
+    this.birds.noise(x, y, z, this.now);
     const g = this.terrain.heightAt(x, z);
     const nearGround = y - g < 4;
     // A shell bursting in the stream throws up a column of water.
@@ -537,6 +820,8 @@ export class GameRenderer implements GameRendererApi {
   private spawnMuzzle(em: number) {
     const p = this.tmpA, d = this.tmpB;
     if (!this.guns.muzzle(em, p, d)) return;
+    this.birds.noise(p.x, p.y, p.z, this.now);
+    this.wear?.muzzle(p.x, p.y, p.z, d.x, d.y, d.z);
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
     this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070, 14);
@@ -550,8 +835,8 @@ export class GameRenderer implements GameRendererApi {
       return;
     }
     this.bursts.spray.spawn(this.now, x, y, z, 0.6 + s * 0.8, 0, 0.6, 0);
-    this.seed = (this.seed * 16807) % 2147483647;
-    const r = this.seed / 2147483647;
+    // Chance from the event's own tick and place, so a replay lays the same splat as the match did.
+    const r = eventChance(this.frameTick, x, y, z);
     // Heavy hits on a ragdoll can take a limb off (cosmetic only).
     if (strength >= 0.8) this.minions.sever(x, y, z);
     // Masonry within reach takes a spray: the nearest stone face around the hit.
@@ -609,6 +894,8 @@ export class GameRenderer implements GameRendererApi {
 
   setWeaponPose(emplacement: number, yaw: number, pitch: number, active: boolean): void {
     this.guns.setPose(emplacement, yaw, pitch, active);
+    const em = active ? this.emplacementList.find((x) => x.id === emplacement) : undefined;
+    if (em) this.windField.setAnchor(em.x, em.z);
   }
 
   setCamera(pose: CameraPose): void {
@@ -765,6 +1052,16 @@ export class GameRenderer implements GameRendererApi {
     this.timeScale = Math.max(0.02, Math.min(1, scale));
   }
 
+  /** The camera's field of view now (degrees), for photo mode to start from. */
+  fov(): number {
+    return this.views.camera.fov;
+  }
+
+  /** The canvas the game draws on (the film's composite and the photo read it right after a render). */
+  get surface(): HTMLCanvasElement {
+    return this.canvas;
+  }
+
   listener(): Listener {
     const cam = this.views.camera;
     const e = cam.matrixWorld.elements;
@@ -893,6 +1190,9 @@ export class GameRenderer implements GameRendererApi {
     this.time.value = this.now;
     this.sky.time.value = this.now;
     this.effects.setTime(this.now);
+    this.windField.update(dt);
+    updateClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
+    this.sky.driftClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
     this.shock.update(this.now);
     this.views.update(real);
     const cam = this.views.camera;
@@ -913,6 +1213,9 @@ export class GameRenderer implements GameRendererApi {
     this.decals.follow(this.stones, this.now);
     this.sky.follow(cam);
     // M3: plots' trades at work, and building pieces easing into place.
+    this.grass.update(cam.position.x, cam.position.z, this.now);
+    this.birds.update(this.now, (x, z, out) => this.windField.sampleAt(x, z, out));
+    this.braziers.update(dt, (x, y, z) => this.bursts.brazier.spawn(this.now, x, y, z, 0.4, 0, 0.6, 0));
     this.estate.update(dt, this.now, (kind, x, y, z, s) => this.bursts[kind === "smoke" ? "chimney" : kind === "spark" ? "spark" : "dust"].spawn(this.now, x, y, z, s, 0, 0.6, 0));
     if (this.raising.size && this.stones && this.layout) {
       for (const [id, t0] of this.raising) {
@@ -932,11 +1235,14 @@ export class GameRenderer implements GameRendererApi {
         for (let k = 0; k + 3 < p.length; k += 4) this.bursts.dust.spawn(this.now, p[k], p[k + 1], p[k + 2], p[k + 3], 0, 0.6, 0);
         p.length = 0;
       }
+      this.wear?.update(this.now, dt);
       this.stones.flush();
       this.flags?.update(this.stones, dt);
     }
     this.storm.update(real, this.now);
     this.terrain.flush();
+    this.groundMarks.update();
+    this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.guns.update(dt);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
@@ -1073,9 +1379,11 @@ export class GameRenderer implements GameRendererApi {
   dispose(): void {
     this.post?.dispose();
     this.inset?.dispose();
+    this.wear?.dispose();
     this.stones?.dispose();
     this.flags?.dispose();
     this.terrain.dispose();
+    this.haze.dispose();
     this.scatter.dispose();
     this.effects.dispose();
     this.projectiles.dispose();
@@ -1087,6 +1395,9 @@ export class GameRenderer implements GameRendererApi {
     this.works?.dispose();
     this.storm.dispose();
     this.estate.dispose();
+    this.grass.dispose();
+    this.birds.dispose();
+    this.braziers.dispose();
     this.decals.dispose();
     for (const b of Object.values(this.bursts)) b.dispose();
     this.shock.dispose();
@@ -1139,6 +1450,8 @@ export class GameRenderer implements GameRendererApi {
       this.scene.add(l.target);
     }
     this.scatter.setHalfDensity(t.halfTrees);
+    this.grass.setEnabled(t.tufts);
+    setWearChips(t.chips);
     this.postDirty = true;
   }
 
@@ -1169,6 +1482,7 @@ export class GameRenderer implements GameRendererApi {
     this.sky.setStyle(style);
     this.terrain.setStyle(style);
     this.scatter.setStyle(style);
+    this.grass.setStyle(style);
     this.effects.setStyle(style);
     this.stones?.setStyle(style);
     this.flags?.setStyle(style);

@@ -61,6 +61,12 @@ import {
 import { Input } from "./input";
 import { Feats, bestText, type FeatDef } from "./feats";
 import { Moments } from "./moments";
+import { describeLog, readLog, replayFileName, type ReplayFile } from "./matchLog";
+import { downloadBlob, downloadText, readReplayFile, Watch } from "./watch";
+import { Recorder, type Clip, type FrameExtras } from "./recorder";
+import { ReplayPlayer, domView } from "./replay";
+import { FILM, Film, FilmRecorder, PhotoCam, drawOverlay, filmFileName, filmNote, filmView, photoFileName, stepTick, titleCard, type OverlayState } from "./film";
+import { keyframeDiff, type RenderKeyframe } from "./render/keyframe";
 import {
   bindImpactFrame,
   closeImpactCam,
@@ -99,7 +105,11 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const canvas = $<HTMLCanvasElement>("scene");
 const renderer = new GameRenderer(canvas);
 const worker = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "module" });
-const send = (m: ToWorker) => worker.postMessage(m);
+/** S6: in a replay (mode "watch") the page sends nothing into the match: no shots, orders or builds. */
+const send = (m: ToWorker) => {
+  if (m.t === "input" && mode === "watch") return;
+  worker.postMessage(m);
+};
 const input = new Input(canvas);
 const sound = new Sound();
 const layout = buildLayout(1, GAME_LAYOUT);
@@ -111,7 +121,7 @@ const estate = new Estate(renderer, sound, send, (text, ms) => showNote(text, ms
 const steward = createSteward({
   $,
   canvas,
-  available: () => ready && isMatch() && !!matchInfo && !matchInfo.result && !ride && !!$("menu").hidden && !!$("end").hidden && !!$("gone").hidden,
+  available: () => ready && isMatch() && !player.playing && !film.active && !photo && !!matchInfo && !matchInfo.result && !ride && !!$("menu").hidden && !!$("end").hidden && !!$("gone").hidden,
   view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing() }) : null),
   standingCtx: () => (matchInfo && isMatch() && !matchInfo.result ? { gateOpen: matchInfo.gateOpen[ME], gold: matchInfo.gold[ME], repairs: matchInfo.repairs, plots: estate.ownPlots() } : null),
   act: stewardAct,
@@ -173,7 +183,18 @@ const moments = new Moments({
   },
 });
 const feats = new Feats({ me: 1, onFirsts: (list) => showFeatToast(list) });
-moments.onMoment((m) => feats.observe(m));
+moments.onMoment((m) => {
+  if (mode !== "watch") feats.observe(m); // a replay earns no feats
+});
+/**
+ * Track S3: the last 40 s of frames with a keyframe of the renderer's world every 10 s, and the best moments copied out as clips
+ * into a reel (see recorder.ts). It records in every mode; what plays where is S4's.
+ */
+const recorder = new Recorder({ capture: () => renderer.capture() });
+moments.onMoment((m) => recorder.moment(m));
+recorder.onClip((c) => {
+  if (endFlow && !endFlow.clip && c.moment.kind === "lastBlow" && c.moment.tick === endFlow.tick) endFlow.clip = c;
+});
 /**
  * Track S2: a big moment in your own castle (a tower down, a breach, the gate
  * broken, a floor caved in, a shell among many of your men) that you are not
@@ -241,7 +262,9 @@ const FIXED = location.hash.includes("fixed");
 /** The mode being played (null while the start menu is up). #practice or #versus in the address skips the menu (tests use #fixed: the Practice range). */
 let mode: Mode | null = null;
 /** In a match (against the AI or a friend), not the Practice range. */
-const isMatch = () => mode === "versus" || mode === "online" || mode === "guided";
+const isMatch = () => mode === "versus" || mode === "online" || mode === "guided" || mode === "watch";
+/** In a match you play: a replay (S6) is looked at, never played. */
+const playing = () => isMatch() && mode !== "watch";
 /** A gun slot's match id, and its reload in ticks. */
 const gid = (i: number) => EMP[i]?.id ?? i;
 const rl = (i: number) => reload[gid(i)] ?? 0;
@@ -254,6 +277,24 @@ let matchInfo: MatchInfo | null = null;
 let matchPatch: Partial<MatchInfo> | null = null;
 let endShownFor = -1;
 let endTimer: ReturnType<typeof setTimeout> | undefined;
+/**
+ * S4: a match ended against the AI by a blow (the keep, the courtyard): the end screen waits while the world settles in front of
+ * the player, then the last blow's clip plays, then the end screen opens. `clip` is the lastBlow clip once the recorder has closed it.
+ */
+let endFlow: { tick: number; at: number; clip: Clip | null } | null = null;
+/** S4: the worker is held for a replay (X): the match waits, then goes on. */
+let replayHold = false;
+/** Test clock: freeze game time as a replay's clip tick reaches each of these (ascending). */
+let replayFreezeAt: number[] = [];
+/** Test only: after each replay, which renderer parts differ between the world as it stood before it and right after it (null: not checked). */
+let replayDiff: string[] | null = null;
+let replayCheck = false;
+/** S5 test hooks: a busy wait at the start of every page frame (ms), and freeze the test clock once the film has run this many seconds. */
+let slowMs = 0;
+let filmFreezeAt: number | null = null;
+/** S5 test hooks: skip the renderer's draw while a clip plays (the picture is junk, the timing of the fast path is real), and a trim for the film's sound (ms). */
+let skipRender = false;
+let audioTrim = 0;
 /** Can each bridge still be crossed (layout order), and is the walk overlay on. */
 let bridgesOpen: boolean[] = layout.bridges.map(() => true);
 let navOn = false;
@@ -442,7 +483,17 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     online.fromWorker(m.state, m.waiting, m.desync);
     return;
   }
+  if (m.t === "log") {
+    logWaiters.shift()?.(m.text);
+    return;
+  }
+  if (m.t === "watchEnd") {
+    lastWatchEnd = { tick: m.tick, hash: m.hash, ok: m.ok };
+    watch.end(m.ok);
+    return;
+  }
   if (m.t === "frame") {
+    if (m.match) watch.frame(m.match.tick, m.stepMs);
     const was = rl(current);
     reload = m.reload;
     onGunsOut(m.out);
@@ -462,6 +513,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     stats = { stepMs: m.stepMs, stepPeak: m.stepPeak, down: m.down, standing: m.standing, awake: m.awake };
     downAt.set(m.frame.tick, m.down);
     if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
+    recorder.note(m.frame, frameExtras(m));
     timeline.push(m.frame);
     if (m.match) onMatch(matchPatch ? { ...m.match, ...matchPatch } : m.match);
     practiceReg = m.reg;
@@ -472,6 +524,17 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   }
 };
 worker.onerror = (e) => showError(e.message || "The simulation worker failed to start.");
+
+/** What the page knows with a frame that the frame does not carry (for the recorder): barrels, guns out, the storm rings, bridges, arms. */
+function frameExtras(m: Extract<FromWorker, { t: "frame" }>): FrameExtras {
+  const info = m.match;
+  let storm: FrameExtras["storm"] = null;
+  if (info) {
+    const live = (c: number) => (info.attackers[c] > info.defenders[c] && info.attackers[c] >= 2 ? 1 : 0);
+    storm = [info.storm[0] / info.stormHold, live(0), info.storm[1] / info.stormHold, live(1)];
+  }
+  return { guns: info ? info.guns : null, out: m.out, storm, bridges: m.bridges, arms: info ? info.arms : null };
+}
 
 function onFrame(f: FrameData) {
   const now = clock();
@@ -696,6 +759,7 @@ function onFrame(f: FrameData) {
   for (let k = 0; k < f.eventCount; k++) if (f.events[k * EVENT_STRIDE] === EventKind.Keg) groupMarks.kegSet(f.events[k * EVENT_STRIDE + 1] | 0);
   groupMarks.update(f.minions, f.minionCount, f.tick);
   renderer.applyFrame(f);
+  recorder.frame(f);
 }
 /** The last frame applied (the screenshot tools read figures and ladders from it). */
 let lastApplied: FrameData | null = null;
@@ -949,7 +1013,7 @@ function applyMouse() {
 }
 
 function fire(charge = 1, pitch?: number) {
-  if (!ready || userPause || rl(current) > 0 || matchInfo?.result) return;
+  if (mode === "watch" || !ready || userPause || rl(current) > 0 || matchInfo?.result) return;
   if (!input.locked) playedFree = true;
   const e = EMP[current];
   if (e.empty) {
@@ -1238,7 +1302,7 @@ const ownSide = (r: RouteName): RouteName => (ME === 0 && r !== "centre" ? (r ==
 
 /** Orders for all your waves (Ctrl+1, 2, 3) and the route of your next ones (L). */
 function giveOrder(order: number) {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "order", order: order as Order } });
   sound.ui("order");
   guide.mark("waves");
@@ -1249,7 +1313,7 @@ function giveOrder(order: number) {
 }
 /** The route of your next waves, as you see it (your own left and right). */
 function setRoute(view: RouteName) {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   const route = ownSide(view);
   send({ t: "input", input: { kind: "route", route } });
   sound.ui("click");
@@ -1843,12 +1907,17 @@ hud.sound.addEventListener("click", () => {
   updateHud(true);
 });
 /** Start (or restart) a mode: the worker builds a fresh world for it. Online, `net` says which castle is yours and the host's seed. */
-function startMode(m: Mode, net?: OnlineStart) {
+function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   const first = mode === null;
   if (mode === "online" && m !== "online") void online.leave();
+  endFlow = null;
+  filmAbandon();
+  leavePhoto(false);
+  replayHold = false;
+  player.cancel();
   setPause(false);
   mode = m;
-  ME = m === "online" && net ? net.team : 1;
+  ME = m === "online" && net ? net.team : m === "watch" && replay ? replay.setup.team : 1;
   FOE = ME === 1 ? 0 : 1;
   BASE = ME === 1 ? 0 : SLOTS;
   friendName = net?.friend ?? "";
@@ -1858,21 +1927,25 @@ function startMode(m: Mode, net?: OnlineStart) {
   $("gone").hidden = true;
   document.body.classList.remove("title-screen");
   $("end").hidden = true;
-  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "guided" ? "Guided match" : m === "online" ? `Against ${friendName}` : "Practice range";
+  $("mode-name").textContent = m === "versus" ? `Versus AI: ${AI_LEVELS[difficulty].name}` : m === "guided" ? "Guided match" : m === "online" ? `Against ${friendName}` : m === "watch" && replay ? `Replay: ${describeLog(replay)}` : "Practice range";
   $("keep-theirs-name").textContent = m === "online" ? "Their keep" : "Enemy keep";
-  const match = m === "versus" || m === "online" || m === "guided";
+  const match = m === "versus" || m === "online" || m === "guided" || m === "watch";
   $("matchbar").hidden = !match;
-  $("command").hidden = !match;
+  $("command").hidden = !match || m === "watch";
   // The Practice range's command card holds only the marks row (it shows once there is a mark).
   $("command").classList.toggle("range", !match);
   resetRegister();
+  $("build-btn").hidden = m === "watch";
+  if (m === "watch" && replay) watch.begin(replay);
+  else watch.stop();
+  lastWatchEnd = null;
   threat.setVisible(match);
   threat.setSide(ME);
   groupMarks.reset();
   $("netline").hidden = m !== "online";
   $("more").hidden = m !== "practice";
   // Online, a restart would leave the friend's page behind: a new match goes through the lobby.
-  $("reset").hidden = m === "online";
+  $("reset").hidden = m === "online" || m === "watch";
   $("reset").textContent = match ? "Restart the match" : "Rebuild the castles";
   $("menu-back").hidden = false;
   matchInfo = null;
@@ -1880,19 +1953,20 @@ function startMode(m: Mode, net?: OnlineStart) {
   clearTimeout(endTimer);
   bridgesOpen = layout.bridges.map(() => true);
   moments.reset();
+  recorder.reset();
   feats.me = ME;
   updateBridges();
-  view = "sight";
+  view = m === "watch" ? "overview" : "sight";
   ready = false;
   if (rendererReady) $("loading").hidden = false;
   const setup: MatchSetup = m === "versus" ? { difficulty } : m === "online" && net ? { team: net.team, delay: net.delay } : {};
-  const seed = m === "online" && net ? net.seed : SEED;
+  const seed = m === "online" && net ? net.seed : m === "watch" && replay ? replay.setup.opts.seed : SEED;
   // A new world: what the old one still says (frames, the match, the lockstep) is dropped from here.
   gen++;
-  if (first) send({ t: "init", gen, mode: m, seed, minions: MINIONS, setup });
+  if (first) send({ t: "init", gen, mode: m, seed, minions: MINIONS, setup, replay });
   else {
     resetLocal();
-    send({ t: "reset", gen, mode: m, seed, minions: MINIONS, setup });
+    send({ t: "reset", gen, mode: m, seed, minions: MINIONS, setup, replay });
   }
   // M3: a match starts with its emplacements as built (empty slots empty); your guns are your castle's eight.
   MATCH_EMPLACEMENTS.forEach((e, i) => Object.assign(ALL_EMP[i], e, { upgrade: undefined }));
@@ -1922,7 +1996,7 @@ function startMode(m: Mode, net?: OnlineStart) {
   sound.setStorm(0, 0);
   // The first-match guide (the test clock's screenshots leave it out).
   // In the guided match the coach takes the checklist's place.
-  guide.start(FIXED || m === "guided" ? null : match ? "match" : "practice");
+  guide.start(FIXED || m === "guided" || m === "watch" ? null : match ? "match" : "practice");
   coach.start(m === "guided" && !FIXED, ME);
   keepsShown = [3, 3];
   floorShown = [1, 1];
@@ -1930,7 +2004,8 @@ function startMode(m: Mode, net?: OnlineStart) {
   showKeeps([3, 3], [1, 1], false);
   advice = { lastBuild: 0, at: -1e9, count: 0, built: 0 };
   if (!match) rangeMan();
-  if (match) {
+  if (m === "watch") showNote("Watching a replay: look around (Tab for the overview); nothing you do reaches the match", 5000);
+  else if (match) {
     send({ t: "input", input: { kind: "man", emplacement: gid(current) } });
     const goal = guide.open ? "" : ": bring down its keep or storm its courtyard";
     if (m === "online") showNote(`Versus ${friendName}: you hold the ${ME === 1 ? "oxblood" : "green"} castle`, 5000);
@@ -2027,6 +2102,7 @@ function resetLocal() {
   for (let i = 0; i < ALL_EMP.length; i++) renderer.setGunOut(i, false);
   tabs.forEach((b) => b.classList.remove("out"));
   renderer.resetWorld();
+  recorder.reset();
   timeline.reset();
   downAt.clear();
   foesAt.clear();
@@ -2126,7 +2202,8 @@ $("menu-btn").addEventListener("click", () => {
   $("menu").hidden = false;
   $("choices").hidden = false;
   $("online").hidden = true;
-  surrenderBtn.hidden = !isMatch() || !!matchInfo?.result || (mode === "online" && !online.active);
+  surrenderBtn.hidden = !playing() || !!matchInfo?.result || (mode === "online" && !online.active);
+  $("menu-save").hidden = !playing();
   $<HTMLButtonElement>("menu-btn").blur();
   document.exitPointerLock?.();
 });
@@ -2159,6 +2236,55 @@ $("end-again").addEventListener("click", () => {
   void online.open();
 });
 $("end-guided").addEventListener("click", () => startMode("guided"));
+// S6: the replay file. The worker keeps the match's log; a save asks it for the file as it stands (the match goes on).
+const logWaiters: Array<(text: string) => void> = [];
+let lastWatchEnd: { tick: number; hash: { state: string; world: string }; ok: boolean } | null = null;
+function saveLog(): Promise<string> {
+  return new Promise((resolve) => {
+    logWaiters.push(resolve);
+    send({ t: "saveLog" });
+  });
+}
+async function saveReplay() {
+  if (!playing()) return;
+  const text = await saveLog();
+  showNote((await downloadText(text, replayFileName())) ? "Replay saved" : "Replay not saved", 2500);
+}
+$("end-save").addEventListener("click", () => void saveReplay());
+$("menu-save").addEventListener("click", () => void saveReplay());
+/** "Watch a replay": the file's text, or the reason it is refused (shown in the menu). */
+function watchText(text: string): boolean {
+  const r = readLog(text);
+  const why = $("replay-why");
+  why.hidden = r.ok;
+  if (!r.ok) {
+    why.textContent = r.why;
+    return false;
+  }
+  startMode("watch", undefined, r.log);
+  return true;
+}
+$("replay-go").addEventListener("click", () => {
+  sound.ui("click");
+  $<HTMLInputElement>("replay-file").click();
+});
+$<HTMLInputElement>("replay-file").addEventListener("change", async (ev) => {
+  const el = ev.target as HTMLInputElement;
+  const file = el.files?.[0];
+  el.value = "";
+  if (!file) return;
+  const r = await readReplayFile(file);
+  const why = $("replay-why");
+  why.hidden = r.ok;
+  if (!r.ok) why.textContent = r.why;
+  else startMode("watch", undefined, r.log);
+});
+const watch = new Watch({
+  send,
+  pause: (on) => setPause(on),
+  back: () => $("menu-btn").click(),
+  gate: !FIXED,
+});
 $("end-practice").addEventListener("click", () => startMode("practice"));
 $("end-look").addEventListener("click", () => {
   $("end").hidden = true;
@@ -2183,7 +2309,7 @@ repairChips.forEach((b) =>
 
 /** Switch your masons on or off for one kind of section (Alt+1 to 4). */
 function toggleRepair(kind: RepairKind, on?: boolean) {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   const now = on ?? !matchInfo.repairs[kind];
   send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
   matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
@@ -2196,7 +2322,7 @@ function toggleRepair(kind: RepairKind, on?: boolean) {
 let surrenderArmed = 0;
 const surrenderBtn = $<HTMLButtonElement>("menu-surrender");
 surrenderBtn.addEventListener("click", () => {
-  if (!isMatch() || !matchInfo || matchInfo.result) return;
+  if (!playing() || !matchInfo || matchInfo.result) return;
   const now = performance.now();
   if (now - surrenderArmed > 3500) {
     surrenderArmed = now;
@@ -2359,11 +2485,15 @@ function onMatch(info: MatchInfo) {
   const r = info.result;
   $("match-note").textContent = r ? endLine(r).short : "";
   // The end screen a moment after the end, so the collapse (or the storm) can be seen.
-  if (r && endShownFor !== r.tick) {
+  if (r && endShownFor !== r.tick && mode !== "watch") {
     endShownFor = r.tick;
     clearTimeout(endTimer);
     if (r.reason === "keep" || r.reason === "storm") sound.matchEnd(r.winner === ME);
-    endTimer = setTimeout(showEnd, FIXED ? 0 : r.reason === "surrender" ? 300 : 2600);
+    // Against the AI a blow's last moment is shown before the end screen (S4); a surrender, the clock or a draw has no blow to show.
+    if ((mode === "versus" || mode === "guided") && r.winner !== -1 && (r.reason === "keep" || r.reason === "storm")) {
+      endFlow = { tick: r.tick, at: clock(), clip: null };
+      showNote("The last blow", 6000);
+    } else endTimer = setTimeout(showEnd, FIXED ? 0 : r.reason === "surrender" ? 300 : 2600);
   }
 }
 
@@ -2494,6 +2624,7 @@ function noteBuilt() {
   advice.lastBuild = matchInfo?.tick ?? 0;
 }
 function advise(info: MatchInfo) {
+  if (mode === "watch") return;
   const t = info.tick, gold = info.gold[ME];
   if (gold < 320 || t < 50 * 60 || t - advice.lastBuild < 45 * 60 || t - advice.at < 80 * 60 || advice.count >= 4 || estate.wheelOpen) return;
   // Only when there is something left to build or buy.
@@ -2520,10 +2651,11 @@ function nudgeBuild(info: MatchInfo) {
 /** Paused by the player (P, or the menu): Versus AI and the Practice range only (a friend's match never waits for a menu). */
 let userPause = false;
 function setPause(on: boolean) {
-  if (on && mode !== "versus" && mode !== "practice" && mode !== "guided") return;
+  if (on && mode !== "versus" && mode !== "practice" && mode !== "guided" && mode !== "watch") return;
   if (userPause === on) return;
   userPause = on;
-  send({ t: "pause", paused: on || document.hidden });
+  watch.setPaused(on);
+  send({ t: "pause", paused: on || document.hidden || replayHold });
   sound.setPaused(on || document.hidden);
   $("paused").hidden = !on || !$("menu").hidden;
   if (on) document.exitPointerLock?.();
@@ -2551,7 +2683,7 @@ function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: st
 
 function showEnd() {
   const info = matchInfo;
-  if (!info || !info.result || !isMatch()) return;
+  if (!info || !info.result || !playing()) return;
   const r = info.result;
   $("end-title").textContent = r.winner === ME ? "Victory" : r.winner === FOE ? "Defeat" : "Draw";
   $("end-them").textContent = mode === "online" ? friendName : "Enemy";
@@ -2611,6 +2743,12 @@ function showEnd() {
     li.append(b, m.text);
     log.appendChild(li);
   }
+  // S5: the film, from the reel (never against a friend, and not with an empty reel).
+  recorder.flush();
+  const clips = recorder.reel.length;
+  const filmOk = mode !== "online" && clips > 0;
+  $("end-film").hidden = $("end-film-save").hidden = !filmOk;
+  setFilmStatus(filmOk ? filmNote(clips) : "");
   $("end").hidden = false;
   document.exitPointerLock?.();
 }
@@ -3001,30 +3139,510 @@ function applyShake(pose: CameraPose, now: number) {
   }
 }
 
+// ---- replays (S4) --------------------------------------------------------------------
+/** What the page tells the renderer with a frame that the frame does not carry, for a replay: barrels, the storm rings, and (`full`) which guns are out. */
+function replayExtras(e: FrameExtras, full: boolean) {
+  if (e.guns) for (let i = 0; i < ALL_EMP.length && e.guns.length >= (i + 1) * 2; i++) renderer.setWeaponPose(i, e.guns[i * 2], e.guns[i * 2 + 1], false);
+  if (full && e.out) for (let i = 0; i < ALL_EMP.length && i * 2 < e.out.length; i++) renderer.setGunOut(ALL_EMP[i].id, e.out[i * 2] > 0);
+  if (e.storm) {
+    renderer.setStorm(0, e.storm[0], e.storm[1] > 0);
+    renderer.setStorm(1, e.storm[2], e.storm[3] > 0);
+  }
+}
+
+/**
+ * A frame of a replay is shown: what its events do to the renderer beyond applyFrame (a gun knocked out or back), and, when
+ * heard, the sounds of the clip's events (an explosion lower and longer at a slow speed, as a burst already is). Nothing of
+ * the match's own handling of a frame (moments, notes, tallies, feats, gold) happens here.
+ */
+function replaySounds(f: FrameData, speed: number, audible: boolean) {
+  let impacts = 0, cracked = 0;
+  for (let k = 0; k < f.eventCount; k++) {
+    const o = k * EVENT_STRIDE;
+    const kind = f.events[o];
+    const a = f.events[o + 1], b = f.events[o + 2], c = f.events[o + 3], d = f.events[o + 4];
+    if (kind === EventKind.GunOut) renderer.setGunOut(a, true, b === 1);
+    else if (kind === EventKind.GunBack) renderer.setGunOut(a, false);
+    if (!audible) continue;
+    if (kind === EventKind.Muzzle) {
+      const e = ALL_EMP[a];
+      if (e) sound.fire(e.weapon, e.x, e.y, e.z, false);
+    } else if (kind === EventKind.Explosion) sound.explosion(a, b, c, d, speed);
+    else if (kind === EventKind.Impact) soundscape.impact(a, b, c, d, impacts++ < 3);
+    else if (kind === EventKind.Landed) soundscape.landed(b, c, d, ALL_EMP[a >= 0 ? a : -a - 1]?.weapon ?? null);
+    else if (kind === EventKind.Ladder) {
+      if (b === 2) sound.ladderUp(c, 7.5, d);
+      else sound.ladderDown(c, 1, d);
+    } else if (kind === EventKind.Cracked && cracked++ < 2) sound.woodHit(b, c, d, 0.8);
+  }
+}
+
+
+// ---- the film and the photo (S5) ----------------------------------------------------------
+const filmCanvas = $<HTMLCanvasElement>("film-view");
+const filmG = filmCanvas.getContext("2d");
+/** The recording's composite canvas (the game's canvas plus the overlay), and its recorder, while a film is being saved. */
+let composite: { canvas: HTMLCanvasElement; g: CanvasRenderingContext2D } | null = null;
+let filmRec: FilmRecorder | null = null;
+/** The slot of the last film frame recorded, which the loop waits for before the next frame. */
+let filmWait: Promise<void> | null = null;
+let filmBefore: RenderKeyframe | null = null;
+let filmQuiet = false;
+let filmStarted = 0;
+let lastFilmBlob: Blob | null = null;
+interface FilmResult {
+  ok: boolean;
+  size: number;
+  type: string;
+  seconds: number;
+  frames: number;
+  wallMs: number;
+  name: string;
+  pauses?: number;
+  late?: number;
+  why?: string;
+}
+let filmResolve: ((r: FilmResult) => void) | null = null;
+
+function setFilmStatus(text: string) {
+  const el = $("film-status");
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+/** One picture for the page and the recording: the overlay on the page's canvas, and the game canvas plus the overlay on the composite. */
+function paintFilm(st: OverlayState, world: boolean) {
+  if (filmG) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.round(filmCanvas.clientWidth * dpr)), h = Math.max(1, Math.round(filmCanvas.clientHeight * dpr));
+    if (filmCanvas.width !== w || filmCanvas.height !== h) {
+      filmCanvas.width = w;
+      filmCanvas.height = h;
+    }
+    filmG.clearRect(0, 0, w, h);
+    if (!world) {
+      filmG.fillStyle = "#000";
+      filmG.fillRect(0, 0, w, h);
+    }
+    drawOverlay(filmG, w, h, st);
+  }
+  const c = composite;
+  if (c && filmRec) {
+    const { canvas: cv, g } = c;
+    if (world) g.drawImage(renderer.surface, 0, 0, cv.width, cv.height);
+    else {
+      g.fillStyle = "#000";
+      g.fillRect(0, 0, cv.width, cv.height);
+    }
+    drawOverlay(g, cv.width, cv.height, st);
+    filmWait = filmRec.frame();
+  }
+}
+
+const film = new Film({
+  playClip: (clip, budget, onEnd) => playReplay(clip, { hold: false, budget, onEnd }),
+  cancelClip: () => player.cancel(),
+  updateClip: (dt) => replayLoop(dt, false),
+  show: (on) => {
+    document.body.classList.toggle("replaying", on);
+    document.body.classList.toggle("filming", on);
+    $("replay").hidden = !on;
+    filmCanvas.hidden = !on;
+  },
+  paint: paintFilm,
+  done: (completed) => filmEnded(completed),
+});
+
+function filmEnded(completed: boolean) {
+  const rec = filmRec, saving = film.saving, resolve = filmResolve;
+  filmRec = null;
+  composite = null;
+  filmWait = null;
+  filmResolve = null;
+  filmFreezeAt = null;
+  if (filmBefore) replayDiff = keyframeDiff(filmBefore, renderer.capture());
+  filmBefore = null;
+  replayHold = false;
+  send({ t: "pause", paused: paused || userPause });
+  const quiet = filmQuiet;
+  filmQuiet = false;
+  const base = { seconds: film.elapsed, frames: film.frames, wallMs: performance.now() - filmStarted, size: 0, type: "", name: "", pauses: rec?.pauses, late: rec?.lateMs };
+  if (!quiet && $("menu").hidden && matchInfo?.result) {
+    $("end").hidden = false;
+    setFilmStatus(completed ? "The film is over." : "Film stopped.");
+  }
+  if (!rec) {
+    resolve?.({ ok: false, ...base, why: saving ? "no recorder" : "not saving" });
+    return;
+  }
+  if (!completed) {
+    rec.abort();
+    setFilmStatus("The film was stopped: nothing saved.");
+    resolve?.({ ok: false, ...base, why: "stopped" });
+    return;
+  }
+  setFilmStatus("Saving the film...");
+  void rec
+    .finish()
+    .then((blob) => {
+      lastFilmBlob = blob;
+      const name = filmFileName(rec.type.ext);
+      void downloadBlob(blob, name).then((ok) => setFilmStatus(ok ? `Film saved: ${name} (${(blob.size / 1048576).toFixed(1)} MB, ${base.seconds.toFixed(0)} s).` : "Film not saved."));
+      resolve?.({ ok: true, ...base, size: blob.size, type: blob.type, name });
+    })
+    .catch((err) => {
+      setFilmStatus("The film could not be saved.");
+      resolve?.({ ok: false, ...base, why: String(err) });
+    });
+}
+
+/** The film is dropped without the end screen coming back (a new match starts). */
+function filmAbandon() {
+  if (!film.active) return;
+  filmQuiet = true;
+  film.cancel();
+}
+
+/** Watch (or save) the film of the reel. `scale` shrinks its times (tests). */
+function startFilm(saving: boolean, scale = 1): boolean {
+  if (film.active || player.playing || photo || mode === null) return false;
+  recorder.flush();
+  const reel = recorder.reel;
+  if (!reel.length) return false;
+  const r = matchInfo?.result ?? null;
+  const card = titleCard({
+    me: { name: "You", team: ME },
+    foe: { name: mode === "online" ? friendName : "Enemy", team: FOE },
+    winner: r ? r.winner : null,
+    short: r ? endLine(r).short : "The match goes on",
+    clock: clockText(r ? r.tick : (matchInfo?.tick ?? 0)),
+    date: new Date(),
+  });
+  if (saving) {
+    try {
+      const cw = renderer.surface;
+      const w = Math.min(cw.width || 1280, 1280) & ~1;
+      const h = Math.round((w * (cw.height || 720)) / (cw.width || 1280)) & ~1;
+      const cv = document.createElement("canvas");
+      cv.width = w;
+      cv.height = h;
+      const g = cv.getContext("2d");
+      if (!g) throw new Error("no 2D canvas");
+      composite = { canvas: cv, g };
+      filmRec = new FilmRecorder(cv, sound.recordFeed());
+      filmRec.audioTrimMs = audioTrim;
+    } catch (err) {
+      composite = null;
+      filmRec = null;
+      setFilmStatus(`This browser cannot save a film (${err instanceof Error ? err.message : String(err)}).`);
+      return false;
+    }
+  }
+  endRide();
+  cancelCharge();
+  follow = null;
+  replayHold = true;
+  send({ t: "pause", paused: true });
+  filmBefore = replayCheck ? renderer.capture() : null;
+  filmStarted = performance.now();
+  $("end").hidden = true;
+  document.exitPointerLock?.();
+  if (!film.start(reel, card, { scale, saving })) {
+    replayHold = false;
+    send({ t: "pause", paused: paused || userPause });
+    filmRec?.abort();
+    filmRec = null;
+    composite = null;
+    $("end").hidden = false;
+    return false;
+  }
+  return true;
+}
+
+/** One page frame of the film (the title card, or a clip through the replay player); the loop waits for the recorder's slot when saving. */
+function filmLoop(dt: number, p: { skip: boolean; mute: boolean }) {
+  if (p.skip) {
+    film.cancel();
+    requestAnimationFrame(frame);
+    return;
+  }
+  input.mouseX = input.mouseY = 0;
+  input.wheel = input.wheelAlt = 0;
+  if (p.mute) {
+    sound.setMuted(!sound.muted);
+    updateHud(true);
+  }
+  film.update(film.saving ? FILM.frame : dt);
+  if (film.phase === "title") {
+    sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: 1 });
+    soundscape.update(dt, renderer.listener());
+  }
+  if (filmFreezeAt !== null && film.elapsed >= filmFreezeAt) {
+    frozen = true;
+    filmFreezeAt = null;
+  }
+  const w = filmWait;
+  filmWait = null;
+  if (w) void w.then(() => requestAnimationFrame(frame));
+  else requestAnimationFrame(frame);
+}
+
+/** Photo mode: a free camera over a paused replay or a waiting match. */
+let photo: { cam: PhotoCam; kind: "replay" | "match"; tick: number } | null = null;
+let photoSaved = 0;
+
+function photoKind(): "replay" | "match" | null {
+  if (film.active) return null;
+  if (player.playing) return "replay";
+  if (mode === null || mode === "online") return null;
+  if (!$("menu").hidden || !$("end").hidden || !$("gone").hidden || endFlow !== null) return null;
+  return userPause || replayHold ? "match" : null;
+}
+
+function enterPhoto(): boolean {
+  const kind = photoKind();
+  if (!kind || photo) return false;
+  endRide();
+  cancelCharge();
+  photo = { cam: PhotoCam.from(renderer.listener(), renderer.fov()), kind, tick: kind === "replay" ? player.at : -1 };
+  if (kind === "match") {
+    closeImpactCam();
+    renderer.setInset(null, { x: 0, y: 0, w: 0, h: 0 }, false);
+    $("impact").hidden = true;
+    renderer.setAimArc(null);
+    renderer.setGhostTrail(null);
+    renderer.setLandingMarker(null);
+    renderer.setMortarAim(null, null, 0, true);
+  }
+  document.body.classList.add("photoing");
+  $("photo").hidden = false;
+  // There is no clip to step in a waiting match.
+  for (const id of ["photo-back", "photo-fwd", "photo-step-hint"]) $(id).hidden = kind !== "replay";
+  return true;
+}
+
+/** Leave photo mode: the replay goes back to the tick it was at, the live camera comes back on the next frame. */
+function leavePhoto(restore = true) {
+  const ph = photo;
+  if (!ph) return;
+  photo = null;
+  document.body.classList.remove("photoing");
+  $("photo").hidden = true;
+  if (restore && ph.kind === "replay" && player.playing) player.scrub(ph.tick);
+}
+
+function photoStep(n: number) {
+  const ph = photo, take = player.current;
+  if (!ph || ph.kind !== "replay" || !take || !player.playing) return;
+  player.scrub(stepTick(player.at, n, take.start, take.end));
+}
+
+/** The picture: the canvas right after a render, as a PNG (no bars, no HUD). */
+function savePhoto(): Promise<{ size: number; type: string; name: string } | null> {
+  const ph = photo;
+  if (!ph) return Promise.resolve(null);
+  renderer.setCamera(ph.cam.pose());
+  renderer.render(0);
+  return new Promise((resolve) => {
+    renderer.surface.toBlob((blob) => {
+      if (!blob) return resolve(null);
+      const name = photoFileName();
+      photoSaved++;
+      void downloadBlob(blob, name).then((ok) => showNote(ok ? `Picture saved (${name})` : "Picture not saved", 2500));
+      resolve({ size: blob.size, type: blob.type, name });
+    }, "image/png");
+  });
+}
+
+function photoLoop(dt: number, p: { photo: boolean; skip: boolean; photoShot: boolean; stepBack: boolean; stepFwd: boolean; mute: boolean }) {
+  const ph = photo!;
+  if (p.photo || p.skip) {
+    leavePhoto();
+    return;
+  }
+  if (p.mute) {
+    sound.setMuted(!sound.muted);
+    updateHud(true);
+  }
+  if (input.locked) ph.cam.look(input.mouseX, input.mouseY);
+  input.mouseX = input.mouseY = 0;
+  ph.cam.zoom(input.wheel);
+  input.wheel = input.wheelAlt = 0;
+  ph.cam.move(dt, { x: input.axis("KeyA", "KeyD"), z: input.axis("KeyS", "KeyW"), y: input.axis("KeyQ", "KeyE"), fast: input.down("ShiftLeft") || input.down("ShiftRight") });
+  if (p.stepBack) photoStep(-1);
+  if (p.stepFwd) photoStep(1);
+  if (p.photoShot) void savePhoto();
+  $("photo-fov").textContent = `${ph.cam.fov.toFixed(0)}°`;
+  renderer.setCamera(ph.cam.pose());
+  if (!paused) renderer.render(0);
+  sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: 1 });
+  soundscape.update(dt, renderer.listener());
+}
+$("photo-back").addEventListener("click", () => photoStep(-1));
+$("photo-fwd").addEventListener("click", () => photoStep(1));
+$("photo-save").addEventListener("click", () => void savePhoto());
+$("photo-leave").addEventListener("click", () => leavePhoto());
+$("end-film").addEventListener("click", () => void startFilm(false));
+$("end-film-save").addEventListener("click", () => void startFilm(true));
+
+const player = new ReplayPlayer(
+  {
+    layout,
+    capture: () => renderer.capture(),
+    apply: (k) => renderer.apply(k),
+    clock: () => renderer.clock,
+    setClock: (t) => renderer.setClock(t),
+    applyFrame: (f) => renderer.applyFrame(f),
+    setProjectiles: (p, n, c, nc) => renderer.setProjectiles(p, n, c, nc),
+    setStones: (s, n) => renderer.setStones(s, n),
+    setCamera: (pose) => renderer.setCamera(pose),
+    render: (dt) => {
+      if (!skipRender) renderer.render(dt);
+      film.afterRender();
+    },
+    // 1 means the page's own pace (slow motion at an impact may be on when a replay is asked for).
+    setTimeScale: (s) => renderer.setTimeScale(s === 1 ? timeScale : s),
+    sightBlocked: (ax, ay, az, bx, by, bz) => renderer.sightBlocked(ax, ay, az, bx, by, bz),
+    groundAt: (x, z) => renderer.groundAt(x, z),
+    closeInset: () => {
+      closeImpactCam();
+      renderer.setInset(null, { x: 0, y: 0, w: 0, h: 0 }, false);
+      $("impact").hidden = true;
+    },
+    // The live loop lays them again each frame once the replay is over.
+    hideAids: () => {
+      renderer.setAimArc(null);
+      renderer.setGhostTrail(null);
+      renderer.setLandingMarker(null);
+      renderer.setMortarAim(null, null, 0, true);
+    },
+    extras: replayExtras,
+    frame: replaySounds,
+  },
+  filmView(film, domView(document)),
+);
+$("replay-skip").addEventListener("click", () => (film.active ? film.cancel() : player.skip()));
+
+/** Play a clip over the field. `hold`: the worker waits for it (a match still going); the match goes on after. */
+function playReplay(clip: Clip, opts: { hold: boolean; budget?: number; onEnd?: () => void }) {
+  if (player.playing) return;
+  endRide();
+  cancelCharge();
+  follow = null;
+  if (opts.hold) {
+    replayHold = true;
+    send({ t: "pause", paused: true });
+  }
+  const before = replayCheck ? renderer.capture() : null;
+  player.play(clip, {
+    budget: opts.budget,
+    onEnd: () => {
+      if (before) replayDiff = keyframeDiff(before, renderer.capture());
+      if (opts.hold) {
+        replayHold = false;
+        send({ t: "pause", paused: paused || userPause });
+      }
+      replayFreezeAt = [];
+      opts.onEnd?.();
+    },
+  });
+}
+
+/** X: replay the last clip in the Practice range, Versus AI and the guided match, never against a friend. */
+function replayKey(blocked: boolean) {
+  if (mode !== "practice" && mode !== "versus" && mode !== "guided") return;
+  if (blocked || player.playing || ride) return;
+  const clip = recorder.lastClip();
+  if (!clip) {
+    showNote("Nothing to replay yet", 2500);
+    return;
+  }
+  playReplay(clip, { hold: true });
+}
+
+/** A match ended by a blow: when its last blow's clip has closed (6 s after the result), play it, then open the end screen; no clip after 8 s, no replay. */
+function endFlowUpdate(now: number) {
+  const f = endFlow;
+  if (!f || player.playing || !$("menu").hidden) return;
+  if (!f.clip && now - f.at >= 8000) recorder.flush();
+  if (f.clip) {
+    endFlow = null;
+    playReplay(f.clip, { hold: false, budget: 12, onEnd: showEnd });
+  } else if (now - f.at >= 8000) {
+    endFlow = null;
+    showEnd();
+  }
+}
+
+/** One page frame of a replay: the player draws; sound goes on; nothing else of the match runs. */
+function replayLoop(dt: number, mute: boolean) {
+  input.mouseX = input.mouseY = 0;
+  input.wheel = input.wheelAlt = 0;
+  if (mute) {
+    sound.setMuted(!sound.muted);
+    updateHud(true);
+  }
+  if (!paused) player.update(dt);
+  if (replayFreezeAt.length && player.at >= replayFreezeAt[0]) {
+    frozen = true;
+    replayFreezeAt.shift();
+  }
+  sound.update(renderer.listener(), dt, { wind: Math.hypot(wind.x, wind.z), awake: stats.awake, slow: player.speed });
+  soundscape.update(dt, renderer.listener());
+}
+
 // ---- main loop ----------------------------------------------------------------------
 let last = performance.now();
 /** Is the build wheel open, as the page's layout last knew (notes move under it). */
 let wheelShown = false;
 function frame(wall: number) {
+  if (slowMs) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < slowMs) {
+      // test only: a machine too slow to draw in time
+    }
+  }
   let dt = Math.min(0.1, (wall - last) / 1000);
   last = wall;
   if (FIXED) {
     dt = frozen ? 0 : 1 / 30;
     if (!frozen) {
       vclock += 1000 / 30;
-      send({ t: "advance", seconds: dt });
+      if (!replayHold) send({ t: "advance", seconds: dt });
       frames++;
     }
   } else frames++;
   const now = clock();
   const p = input.read();
   // Behind the menu, the end screen or the friend-gone dialog the field takes no keys (only M and H).
-  const blocked = !$("menu").hidden || !$("end").hidden || !$("gone").hidden;
+  const blocked = !$("menu").hidden || !$("end").hidden || !$("gone").hidden || endFlow !== null;
   if (blocked) {
     const keep = { mute: p.mute, help: p.help };
     for (const k of Object.keys(p) as Array<keyof typeof p>) (p as unknown as Record<string, unknown>)[k] = typeof p[k] === "number" ? -1 : false;
     Object.assign(p, keep);
     keyVel.yaw = keyVel.pitch = 0;
+  }
+  // S4: the end of a match shows its last blow before the end screen; X replays the last moment.
+  endFlowUpdate(now);
+  if (p.replay) replayKey(blocked);
+  // S5: photo mode (O) over a replay or a waiting match; the film.
+  if (p.photo && !photo && enterPhoto()) p.photo = false;
+  if (photo) {
+    photoLoop(dt, p);
+    requestAnimationFrame(frame);
+    return;
+  }
+  if (film.active) {
+    filmLoop(dt, p);
+    return;
+  }
+  if (player.playing) {
+    if (p.skip) player.skip();
+    else {
+      replayLoop(dt, p.mute);
+      requestAnimationFrame(frame);
+      return;
+    }
   }
   // M3: while the build wheel is open, numbers, Backspace and Esc are its own; B opens and closes it.
   // 3.2: F then a mark's number orders fire for effect (F twice: the newest mark); T marks where your shot landed. The number is the salvo's, not a gun's.
@@ -3165,7 +3783,7 @@ window.addEventListener("blur", () => cancelCharge());
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) cancelCharge();
   paused = document.hidden;
-  send({ t: "pause", paused: paused || userPause });
+  send({ t: "pause", paused: paused || userPause || replayHold });
   sound.setPaused(paused || userPause);
   // Online, the friend's match waits for this page while it is hidden: say so.
   if (mode === "online") online.setPaused(paused);
@@ -3291,11 +3909,161 @@ else {
     return bridgesOpen.slice();
   },
   startMode,
+  /** Test tools only (look rounds L2 and L3): the renderer, to stage a haze or read the ground marks. */
+  get renderer() {
+    return renderer;
+  },
+  /** S6: the replay file of the match as it stands (the worker's log), start watching a file's text (false: refused, its reason is in the menu), and the last end the worker reported. */
+  saveLog,
+  watch: watchText,
+  get watchEnd() {
+    return lastWatchEnd;
+  },
+  get watchBar() {
+    return { active: watch.active, speed: watch.speed, ended: watch.ended };
+  },
   /** S1: every moment found this match, and the book (tests read them; fakeMoment feeds one in as if the match had made it). */
   get moments() {
     return moments.log.slice();
   },
   feats,
+  /** S3: the recorder's numbers and the reel (kind, score, window, bytes, frames, the keyframe's tick). */
+  get recorder() {
+    return {
+      stats: recorder.stats(),
+      reel: recorder.reel.map((c) => ({ kind: c.moment.kind, score: c.moment.score, tick: c.moment.tick, from: c.from, to: c.to, bytes: c.bytes, entries: c.entries.length, keyTick: c.keyframe.tick })),
+    };
+  },
+  /** S4: the replay player's state; play the reel's i-th clip (-1: the last one closed) with the worker held, as X does; skip; freeze the test clock once the clip tick reaches a value. */
+  get replay() {
+    const t = player.current;
+    return { playing: player.playing, tick: player.at, recipe: t ? t.recipe : null, start: t ? t.start : -1, end: t ? t.end : -1, speed: player.speed };
+  },
+  playClip(i: number, budget?: number) {
+    const c = i < 0 ? recorder.lastClip() : (recorder.reel[i] ?? null);
+    if (!c || player.playing) return false;
+    playReplay(c, { hold: true, budget });
+    return true;
+  },
+  /** S5: the film's state; play it (a scale shrinks its times; false: nothing to show); save it (the file's size and type, and the game seconds and frames it ran); freeze the test clock once it has run so many game seconds; the last saved file's bytes (base64). */
+  get film() {
+    return { active: film.active, phase: film.phase, index: film.index, saving: film.saving, elapsed: film.elapsed, frames: film.frames, planned: film.planned.total, count: film.planned.clips, played: film.played.slice(), replay: player.playing, held: replayHold, endShown: !$("end").hidden, status: $("film-status").textContent, buttons: [!$("end-film").hidden, !$("end-film-save").hidden], overlay: { ...film.overlay, card: !!film.overlay.card } };
+  },
+  playFilm(budgetScale = 1) {
+    return startFilm(false, budgetScale);
+  },
+  saveFilm(budgetScale = 1): Promise<FilmResult> {
+    return new Promise((resolve) => {
+      filmResolve = resolve;
+      if (!startFilm(true, budgetScale)) {
+        filmResolve = null;
+        resolve({ ok: false, size: 0, type: "", seconds: 0, frames: 0, wallMs: 0, name: "", why: "could not start" });
+      }
+    });
+  },
+  skipFilm() {
+    film.cancel();
+  },
+  filmFreezeAt(t: number | null) {
+    filmFreezeAt = t;
+  },
+  filmBlob() {
+    const b = lastFilmBlob;
+    if (!b) return Promise.resolve(null);
+    return b.arrayBuffer().then((buf) => {
+      let bin = "";
+      const u = new Uint8Array(buf);
+      for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000));
+      return { type: b.type, base64: btoa(bin) };
+    });
+  },
+  /** S5 tests: skip drawing while a clip plays; trim the film's sound by this many ms in a slow slot. */
+  skipRender(on: boolean) {
+    skipRender = on;
+  },
+  audioTrim(ms: number) {
+    audioTrim = ms;
+  },
+  /** S5: slow every page frame by a busy wait of this many ms (0: off). */
+  slowFrames(ms: number) {
+    slowMs = ms;
+  },
+  /** S5: photo mode on or off (true: whether it is on now), where the free camera is, a step through the clip, a look, and the picture. */
+  photo(on: boolean) {
+    if (on) enterPhoto();
+    else leavePhoto();
+    return !!photo;
+  },
+  get photoState() {
+    return photo ? { kind: photo.kind, fov: photo.cam.fov, x: photo.cam.x, y: photo.cam.y, z: photo.cam.z, yaw: photo.cam.yaw, pitch: photo.cam.pitch, tick: player.at, saved: photoSaved, stepHint: !$("photo-step-hint").hidden } : null;
+  },
+  photoStep(n: number) {
+    photoStep(n);
+  },
+  photoLook(yaw: number, pitch: number) {
+    if (!photo) return;
+    photo.cam.yaw = yaw;
+    photo.cam.pitch = pitch;
+  },
+  photoMove(x: number, y: number, z: number) {
+    if (!photo) return;
+    photo.cam.x = x;
+    photo.cam.y = y;
+    photo.cam.z = z;
+  },
+  savePhoto() {
+    return savePhoto();
+  },
+  /** The camera as the renderer has it (photo mode puts it back). */
+  get camera() {
+    const l = renderer.listener();
+    return { x: l.x, y: l.y, z: l.z, fx: l.fx, fy: l.fy, fz: l.fz, fov: renderer.fov() };
+  },
+  skipReplay() {
+    player.skip();
+  },
+  replayFreezeAt(t: number | number[] | null) {
+    replayFreezeAt = t === null ? [] : Array.isArray(t) ? t.slice() : [t];
+  },
+  /** S4: have every replay compare the world before it with the world right after it; the parts that differ (empty: none). */
+  replayCheck(on: boolean) {
+    replayCheck = on;
+    replayDiff = null;
+  },
+  get replayDiff() {
+    return replayDiff;
+  },
+  /** S4: the end of a match by a blow (waiting for its clip) as it stands. */
+  get endFlow() {
+    return endFlow ? { tick: endFlow.tick, waitedMs: clock() - endFlow.at, clip: !!endFlow.clip } : null;
+  },
+  get endShown() {
+    return !$("end").hidden;
+  },
+  get worldHeld() {
+    return replayHold;
+  },
+  /** S3: close the clips still waiting for their frames. */
+  flushRecorder() {
+    recorder.flush();
+  },
+  /** S3: the renderer's keyframe now; put one back; and capture, apply and capture again (which parts differ, if any). */
+  capture() {
+    return renderer.capture();
+  },
+  apply(k: RenderKeyframe) {
+    renderer.apply(k);
+  },
+  /** S3: the parts whose state now differs from a keyframe (none: the renderer is exactly where it was taken). */
+  diff(k: RenderKeyframe) {
+    return keyframeDiff(k, renderer.capture());
+  },
+  roundTrip() {
+    const a = renderer.capture();
+    renderer.apply(a);
+    const parts = keyframeDiff(a, renderer.capture());
+    return { equal: parts.length === 0, parts, bytes: a.bytes, tick: a.tick };
+  },
   /** Test hook: how long a feat's toast stays (ms), so a slow software-rendered screenshot can catch it. */
   setFeatToastMs(ms: number) {
     featToastMs = ms;

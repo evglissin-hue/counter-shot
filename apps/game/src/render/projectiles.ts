@@ -26,6 +26,7 @@ import {
 import { CHAIN_STRIDE, PROJECTILE_STRIDE, ProjectileKind } from "@keepfall/sim";
 import type { StylePreset } from "./styles";
 import type { N } from "./tslUtils";
+import { applyCloudShadow } from "./clouds";
 
 const MAX_BALLS = 256;
 const MAX_SPARKS = 32;
@@ -64,6 +65,7 @@ export class Projectiles {
     g.setAttribute("iKind", this.kindAttr);
     g.instanceCount = 0;
     const bm = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(bm);
     bm.name = "projectiles";
     const b: N = attribute("iBall", "vec4");
     const kind: N = attribute("iKind", "float");
@@ -120,6 +122,7 @@ export class Projectiles {
     // Chains: thin dark cylinders between the two balls.
     const cyl = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
     const cm = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(cm);
     cm.name = "chains";
     cm.colorNode = color(0x1c1b1a).mul(hash(positionWorld.y.mul(40.0).floor()).mul(0.4).add(0.8));
     cm.metalness = 0.5;

@@ -31,10 +31,15 @@ function u3(hex: number) {
   return uniform(new THREE.Color(hex));
 }
 
+/** Noise units the sky's clouds move per metre of wind. */
+const CLOUD_UV_PER_M = 0.0004;
+
 export class Sky {
   readonly mesh: THREE.Mesh;
   readonly sunDir = uniform(new THREE.Vector3(0, 1, 0));
   readonly time = uniform(0);
+  /** Where the clouds overhead have drifted to (noise units): they ride the game's wind, as their shadows on the land do. */
+  readonly cloudDrift = uniform(new THREE.Vector2(0, 0));
   private readonly u = {
     zenith: u3(0x5f97d6),
     horizon: u3(0xf6e3c4),
@@ -103,7 +108,7 @@ export class Sky {
       if (withSun) {
         // Clouds on a plane, fading out towards the horizon.
         const k = float(1).div(max(y, 0.0).add(0.09));
-        const cuv = vec2(dir.x, dir.z).mul(k).mul(u.cloudScale.mul(0.055)).add(vec2(this.time.mul(0.0015), this.time.mul(0.0006)));
+        const cuv = vec2(dir.x, dir.z).mul(k).mul(u.cloudScale.mul(0.055)).sub(this.cloudDrift);
         const n1 = texture(noise, cuv).r;
         const n2 = texture(noise, cuv.mul(2.7).add(0.31)).g;
         const n = clamp(n1.mul(0.72).add(n2.mul(0.28)).sub(0.5).mul(2.4).add(0.5), 0.0, 1.0);
@@ -184,5 +189,12 @@ export class Sky {
   /** Keep the dome centred on the camera. */
   follow(camera: THREE.Camera) {
     this.mesh.position.copy(camera.position);
+  }
+
+  /** Drift the clouds overhead with the wind (m/s at the ground): about the old fixed crawl at 4 m/s. */
+  driftClouds(windX: number, windZ: number, dt: number) {
+    const d = this.cloudDrift.value;
+    d.x += windX * CLOUD_UV_PER_M * dt;
+    d.y += windZ * CLOUD_UV_PER_M * dt;
   }
 }

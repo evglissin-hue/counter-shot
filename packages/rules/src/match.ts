@@ -294,6 +294,11 @@ export class Match {
   readonly economy: Economy;
   readonly estate: Estate;
   private inputs = new Map<number, Array<{ team: Team; input: MatchInput }>>();
+  /**
+   * An observer (the page's replay log): told of every input that reaches `apply`, on the tick it is applied, in the order applied.
+   * It changes no state; the match plays out the same with or without it.
+   */
+  onInput: ((tick: number, team: Team, input: MatchInput) => void) | null = null;
   private garrison: boolean;
   private autoFire: [boolean, boolean];
   private suddenAt: number;
@@ -431,6 +436,7 @@ export class Match {
       for (const { team, input } of list) {
         if (!wellFormed(input)) continue;
         if (this.result && input.kind !== "surrender") continue;
+        this.onInput?.(tick, team, input);
         this.apply(team, input, tick);
       }
     }
