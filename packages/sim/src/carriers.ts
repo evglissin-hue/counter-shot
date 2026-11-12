@@ -57,9 +57,9 @@
 // Build notes: a boy's errand is kept in his Boy record (gun, keg, what
 // he reserved at the store) and mirrored into his minion (task, cool: the
 // countdown of a take or a hoist, aux: his gun) for the page. A boy who has
-// chosen a gun but not yet taken his keg reserves what he will take, so two
-// boys do not go for the same charges; "charges on their way" counts kegs and
-// reservations alike. The stuck timer counts ticks without getting closer to
+// chosen a gun but not yet taken his keg records what he expects to take
+// (want); only kegs already taken count as charges on their way, and the take
+// looks again at the gun's room. The stuck timer counts ticks without getting closer to
 // the gun's foot.
 
 
@@ -368,10 +368,10 @@ export class Carriers {
 
   // ---- Choosing a gun -----------------------------------------------------
 
-  /** Charges on their way to a gun in other boys' kegs (and what they have reserved at the store). */
+  /** Charges on their way to a gun in other boys' kegs (a boy who has not yet taken his keg has none on his way: the take looks again). */
   private inbound(emp: number, castle: number, except: Boy): number {
     let n = 0;
-    for (const o of this.boys[castle]) if (o !== except && o.emp === emp) n += o.keg > 0 ? o.keg : o.want;
+    for (const o of this.boys[castle]) if (o !== except && o.emp === emp) n += o.keg;
     return n;
   }
 
@@ -679,7 +679,8 @@ export class Carriers {
           for (const c of [0, 1] as const) {
             for (let p = 0; p < PLOTS.length; p++) {
               const s = this.structures.slot(c, p);
-              if (s.kind !== MAGAZINE || (s.state !== PlotState.Standing && s.state !== PlotState.Ruined)) continue;
+              // Only a standing magazine holds the stock: a ruin's powder went up when it was wrecked, and what the castle has since is in the cellar.
+              if (s.kind !== MAGAZINE || s.state !== PlotState.Standing) continue;
               if (this.stock[c] > 0 && this.within(c, p, bu.x, bu.y, bu.z) && this.blow(c, p, bu.shot)) any = true;
             }
           }

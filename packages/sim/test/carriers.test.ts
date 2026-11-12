@@ -394,6 +394,13 @@ test("the magazine's burst grows with its stock; an empty one makes none", () =>
   burstNow(sim, at.x, 1.0, at.z, 32);
   assert.equal(sim.bursts.filter((x) => x.radius > 3.5).length, 0, "an empty magazine makes no burst");
   assert.equal(events(sim).filter((e) => e[0] === EventKind.MagazineBlew).length, 0);
+  // The cellar fills a little (the rules pay it in); a shell in the ruin must not blow it: only a standing magazine holds the stock.
+  assert.equal(sim.structures!.slot(1, 5).state, PlotState.Ruined);
+  c.store(1, 10);
+  events(sim);
+  burstNow(sim, at.x, 1.0, at.z, 33);
+  assert.equal(events(sim).filter((e) => e[0] === EventKind.MagazineBlew).length, 0, "a ruin does not blow");
+  assert.equal(c.status(1).stock, 10, "the stock stays");
   sim.free();
 });
 
