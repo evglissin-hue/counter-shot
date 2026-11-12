@@ -315,7 +315,7 @@ async function tour() {
       S.fire();
     });
     try {
-      await page.waitForFunction(() => window.__hit.done, null, { timeout: 150000, polling: 100 });
+      await page.waitForFunction(() => window.__hit.done, null, { timeout: 900000, polling: 100 });
     } catch (e) {
       console.log("impacts seen:", JSON.stringify(await page.evaluate(() => window.__hit.log)));
       await page.evaluate(() => window.__hitRestore());

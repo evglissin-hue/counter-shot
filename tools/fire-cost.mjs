@@ -85,6 +85,23 @@ try {
   await page.evaluate(() => window.__sandbox.setFov(0, 14));
   await frames(40);
   const glass = await cost();
+  // The same zoom with the glass held off (only where the renderer has one): what the telescope's look costs by itself.
+  let plain = null;
+  if (await page.evaluate(() => typeof window.__sandbox.renderer.setGlass === "function")) {
+    await page.evaluate(() => {
+      const R = window.__sandbox.renderer;
+      R.__setGlass = R.setGlass;
+      R.setGlass = () => {};
+      R.glassTarget = 0;
+      R.glass = 0;
+    });
+    await frames(20);
+    plain = await cost();
+    await page.evaluate(() => {
+      const R = window.__sandbox.renderer;
+      R.setGlass = R.__setGlass;
+    });
+  }
   await page.evaluate(() => window.__sandbox.setFov(0, 44));
   await frames(20);
   await ready();
@@ -94,7 +111,7 @@ try {
   await frames(42);
   const later = await cost();
   const x = (v) => `${v.toFixed(0)} ms (${(v / calm).toFixed(2)}x)`;
-  console.log(`${tier}: calm ${calm.toFixed(0)} ms/frame, zoomed in ${x(glass)}, fire +0.1 s ${x(fresh)}, +1.5 s ${x(later)}`);
+  console.log(`${tier}: calm ${calm.toFixed(0)} ms/frame, zoomed in ${x(glass)}${plain === null ? "" : `, zoomed in with the glass held off ${x(plain)}`}, fire +0.1 s ${x(fresh)}, +1.5 s ${x(later)}`);
 } finally {
   await browser.close();
   await server.close();
