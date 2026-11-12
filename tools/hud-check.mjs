@@ -356,6 +356,105 @@ try {
   await expect("Esc closes the line", () => document.getElementById("steward-row").hidden);
   await expect("the Controls panel lists Enter and the refused lines", () => [...document.querySelectorAll("#help dt")].some((d) => d.textContent === "Enter") && !document.getElementById("steward-refused-head").hidden);
 
+  // ---- 3.3: powder on the page (a Squire match on the test clock, the page at 1280x720 for the screenshots) ----
+  await page.goto("about:blank");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await load("versus=squire-webgl-low-fixed");
+  await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 30, null, { timeout: 180000, polling: 200 });
+  const shots = "tools/.shots/powder";
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(shots, { recursive: true });
+  const shot = (name, clip) => page.screenshot({ path: `${shots}/${name}.png`, ...(clip ? { clip } : {}) });
+  const topBar = { x: 0, y: 0, width: 1280, height: 150 };
+  const card = { x: 0, y: 520, width: 520, height: 200 };
+  /** Lay a box's numbers over the report (box, size, cost, eta, hoist) for one emplacement. */
+  const patchBox = (emp, v) => page.evaluate(([emp, v]) => {
+    const m = window.__sandbox.match;
+    const b = Float32Array.from(m.boxes);
+    for (let k = 0; k < 5; k++) if (v[k] !== null) b[emp * 5 + k] = v[k];
+    window.__sandbox.patchMatch({ boxes: b });
+  }, [emp, v]);
+  await expect("the report carries powder: both stores, a box for every emplacement, three boys a castle", () => { const m = window.__sandbox.match; return !!m.powder && m.powder.length === 2 && m.boxes.length === 16 * 5 && m.boys.length === 6 * 4; });
+  await expect("#powder shows the stock and its rate by the gold", () => { const e = document.getElementById("powder"); return !e.hidden && /^\d+ \+\d\.\d\/s$/.test(document.getElementById("powder-text").textContent) && /^Powder: \d+ in the magazine \(holds 120\), \+0\.4 a second from the cellar and no mills$/.test(e.title) && !e.classList.contains("full"); });
+  await expect("it sits by the gold, in the same row", () => { const g = document.getElementById("gold").getBoundingClientRect(), p = document.getElementById("powder").getBoundingClientRect(); return Math.abs(g.top - p.top) < 14 && p.left > g.right; });
+  await shot("topbar-normal", topBar);
+  await expect("the weapon card shows the long gun's box as 3 lit pips", () => { const p = document.getElementById("w-pips"); return !p.hidden && p.querySelectorAll("i").length === 3 && p.querySelectorAll("i.on").length === 3 && !p.classList.contains("dry"); });
+  await shot("card-full", card);
+  // The mortar holds two shells, the swivel six.
+  await press('#weapons [data-weapon="1"]');
+  await expect("mortar: 2 pips lit", () => document.querySelectorAll("#w-pips i").length === 2 && document.querySelectorAll("#w-pips i.on").length === 2);
+  await press('#weapons [data-weapon="3"]');
+  await expect("swivel: 6 pips lit", () => document.querySelectorAll("#w-pips i").length === 6 && document.querySelectorAll("#w-pips i.on").length === 6);
+  await press('#weapons [data-weapon="0"]');
+  // One shot left (patched in), then dry with a keg on its way: the card, the tab, the keg mark.
+  await patchBox(0, [4, null, null, -1, -1]);
+  await expect("a box with one shot left: 1 of 3 pips lit, the tab not dry", () => document.querySelectorAll("#w-pips i.on").length === 1 && !document.querySelector('#weapons [data-weapon="0"]').classList.contains("dry"));
+  await shot("card-one-left", card);
+  await patchBox(0, [0, null, null, 360, -1]);
+  await expect("a dry box: no pips lit, the pips outlined as dry, the tab dims (class dry) with a keg mark (class kegged)", () => { const t = document.querySelector('#weapons [data-weapon="0"]'); return document.querySelectorAll("#w-pips i.on").length === 0 && document.getElementById("w-pips").classList.contains("dry") && t.classList.contains("dry") && t.classList.contains("kegged"); });
+  await shot("card-dry", card);
+  await shot("tabs-dry-keg", { x: 0, y: 4, width: 540, height: 52 });
+  await page.evaluate(() => { const b = Float32Array.from(window.__sandbox.match.boxes); b[0 * 5 + 3] = -1; window.__sandbox.patchMatch({ boxes: b }); });
+  await expect("no keg on its way: the keg mark goes, the tab stays dry", () => { const t = document.querySelector('#weapons [data-weapon="0"]'); return t.classList.contains("dry") && !t.classList.contains("kegged"); });
+  await page.evaluate(() => window.__sandbox.patchMatch(null));
+  // Magazine full, and the cellar form, laid over the report.
+  await page.evaluate(() => { const m = window.__sandbox.match; const p = m.powder.map((x) => ({ ...x })); p[1] = { ...p[1], stock: 120, rate: 1.4 }; p[0] = { ...p[0], stock: 120, rate: 1.4 }; window.__sandbox.patchMatch({ powder: p }); });
+  await expect("at the cap with powder still coming in it reads Magazine full, in amber, and says so once", () => { const e = document.getElementById("powder"); return document.getElementById("powder-text").textContent === "Magazine full" && e.classList.contains("full") && /Magazine full: powder made now is lost/.test(document.getElementById("note").textContent); });
+  await shot("topbar-full", topBar);
+  await page.evaluate(() => { const m = window.__sandbox.match; const p = m.powder.map((x) => ({ ...x })); p[1] = { stock: 24, cap: 30, rate: 0.4, magazine: -1, lost: 0 }; p[0] = { ...p[1] }; window.__sandbox.patchMatch({ powder: p }); });
+  await expect("with no working magazine it reads the cellar form", () => document.getElementById("powder-text").textContent === "Cellar 24/30 +0.4/s" && /in the keep's cellar \(holds 30\)/.test(document.getElementById("powder").title));
+  await shot("topbar-cellar", topBar);
+  await page.evaluate(() => window.__sandbox.patchMatch(null));
+  // The build menu: the Magazine (we have one) and Powder, with their states.
+  await page.keyboard.press("KeyB");
+  await expect("Magazine: greyed with You have one, its cost 140", () => { const r = [...document.querySelectorAll("#build .choice2")].find((b) => b.querySelector("b").textContent === "Magazine"); return !!r && r.classList.contains("no") && /You have one/.test(r.textContent) && /140/.test(r.textContent); });
+  await expect("Powder, 20 for 60 gold: open, cost 60", () => { const r = [...document.querySelectorAll("#build .choice2")].find((b) => b.querySelector("b").textContent === "Powder, 20 for 60 gold"); return !!r && !r.classList.contains("no") && /60/.test(r.querySelector(".c").textContent); });
+  await shot("build-menu");
+  const why = (stock, cap, magazine, gold) => page.evaluate(([stock, cap, magazine, gold]) => { const m = window.__sandbox.match; const p = m.powder.map((x) => ({ ...x })); p[1] = { ...p[1], stock, cap, magazine }; p[0] = { ...p[1] }; window.__sandbox.patchMatch({ powder: p, gold: [gold, gold] }); }, [stock, cap, magazine, gold]);
+  const powderRow = () => page.evaluate(() => { const r = [...document.querySelectorAll("#build .choice2")].find((b) => b.querySelector("b").textContent === "Powder, 20 for 60 gold"); return r ? { no: r.classList.contains("no"), d: r.querySelector(".d")?.textContent ?? "" } : null; });
+  const waitRow = async (name, want) => { let got = null; for (let i = 0; i < 60; i++) { got = await powderRow(); if (got && got.no === want.no && got.d === want.d) break; await page.waitForTimeout(100); } check(`Powder choice ${name}: ${JSON.stringify(want)}`, !!got && got.no === want.no && got.d === want.d); };
+  await why(50, 30, -1, 200);
+  await waitRow("with no working magazine", { no: true, d: "Needs a working magazine" });
+  await why(110, 120, 5, 200);
+  await waitRow("with the magazine full", { no: true, d: "The magazine is full" });
+  await why(50, 120, 5, 30);
+  await waitRow("with the gold short", { no: true, d: "Not enough gold: 30 short" });
+  await shot("build-menu-short");
+  await why(50, 120, 5, 200);
+  await waitRow("when it can be bought", { no: false, d: "Into the magazine at once" });
+  await page.evaluate(() => window.__sandbox.patchMatch(null));
+  await page.keyboard.press("Escape");
+  await expect("closed again", () => document.getElementById("build").hidden);
+  // The real thing: the swivel fired six times empties its box, and the dry note says why.
+  await press('#weapons [data-weapon="3"]');
+  await expect("the swivel is up, six pips lit", () => document.getElementById("w-name").textContent === "Swivel gun" && document.querySelectorAll("#w-pips i.on").length === 6);
+  for (let k = 0; k < 6; k++) {
+    await page.waitForFunction(() => document.getElementById("w-reload").textContent === "Ready", null, { timeout: 60000, polling: 100 });
+    await page.evaluate(() => window.__sandbox.fire());
+    await adv(2.1);
+  }
+  await expect("six shots later the swivel's box is empty: no pip lit, the tab dims", () => { const t = document.querySelector('#weapons [data-weapon="3"]'); return document.querySelectorAll("#w-pips i.on").length === 0 && document.getElementById("w-pips").classList.contains("dry") && t.classList.contains("dry"); });
+  await expect("a boy is on his way with a keg: the tab carries the keg mark", () => document.querySelector('#weapons [data-weapon="3"]').classList.contains("kegged"), null, 60000);
+  await page.evaluate(() => window.__sandbox.fire());
+  await expect("firing the dry swivel says why: a boy is some seconds away (or on his way)", () => /^No powder at the swivel gun: a boy is (\d+ s away|on his way)$/.test(document.getElementById("note").textContent));
+  await shot("dry-note");
+  const shotsBefore = await page.evaluate(() => window.__sandbox.match.shots[1]);
+  await page.evaluate(() => window.__sandbox.fire());
+  await adv(0.5);
+  await expect("nothing was fired: the shot count is where it was", (n) => window.__sandbox.match.shots[1] === n, shotsBefore);
+  // The tip is the coach's (guided-check). Stock 0 says the magazine is empty.
+  await page.evaluate(() => { const m = window.__sandbox.match; const p = m.powder.map((x) => ({ ...x })); p[1] = { ...p[1], stock: 0 }; const b = Float32Array.from(m.boxes); const o = 3 * 5; b[o] = 0; b[o + 3] = -1; b[o + 4] = -1; const y = Int16Array.from(m.boys); for (let i = 0; i < y.length; i += 4) if (y[i] === 1) y[i + 3] = -1; window.__sandbox.patchMatch({ powder: p, boxes: b, boys: y }); });
+  await page.waitForTimeout(2200);
+  await page.evaluate(() => window.__sandbox.fire());
+  await expect("with the magazine empty and no boy sent: the magazine is empty", () => document.getElementById("note").textContent === "No powder at the swivel gun: the magazine is empty");
+  await page.evaluate(() => window.__sandbox.patchMatch(null));
+  // A magazine going up: the note and the log.
+  await expect("#powder keeps reading after all that", () => !document.getElementById("powder").hidden);
+  // The Practice range has no powder: no #powder, no pips, every gun fires.
+  await page.goto("about:blank");
+  await load("practice-webgl-low-fixed");
+  await expect("the Practice range has no powder element showing and no pips", () => document.getElementById("powder").hidden && document.getElementById("w-pips").hidden);
+
 } finally {
   if (errors.length) console.log("page errors:\n  " + errors.slice(0, 20).join("\n  "));
   console.log(failed ? `${failed} failed` : "all passed");

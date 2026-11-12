@@ -8,6 +8,7 @@ import type { StandingId } from "./types";
 export const STANDING_ORDERS: Record<StandingId, { name: string; blurb: string }> = {
   gateFirst: { name: "Keep the gate mended first", blurb: "While your gate is open, masons work only on the gate" },
   rebuild: { name: "Rebuild what falls", blurb: "A wrecked building is rebuilt for half as soon as the gold is there" },
+  powder: { name: "Buy powder under twenty", blurb: "Powder is bought whenever the stock is under 20 and the gold is there" },
 };
 
 /** Words that carry nothing: dropped before the grammar looks. ("by" is not one: it names a plot.) */
@@ -74,6 +75,7 @@ export const BUILDING_WORDS: Array<{ kind: BuildingKind; phrases: string[] }> = 
   { kind: "mill", phrases: ["powder mill", "gold mill", "mill"] },
   { kind: "barracks", phrases: ["barracks"] },
   { kind: "foundry", phrases: ["foundry"] },
+  { kind: "magazine", phrases: ["magazine"] },
 ];
 /** Plot place words. A plot is also named by "plot N" (1-based). */
 export const PLOT_WORDS = new Set(["front", "back", "left", "right", "keep", "by"]);
@@ -140,5 +142,10 @@ export const REPAIR_FILLER = new Set(["all", "every", "everything", "mason", "re
 export const STANDING_TRIGGERS = new Set(["standing", "always", "mended", "mending", "rebuilding", "falls", "fall", "forget", "cancel"]);
 export const STANDING_OFF = new Set(["stop", "cancel", "forget", "off", "no", "none", "drop", "end", "never", "clear"]);
 /** Which standing order a word names. */
-export const STANDING_IDS: Record<string, StandingId> = { gate: "gateFirst", rebuild: "rebuild", rebuilding: "rebuild", falls: "rebuild", fall: "rebuild" };
-export const STANDING_FILLER = new Set(["standing", "order", "orders", "always", "keep", "mended", "mend", "mending", "first", "o1", "what", "all", "rebuild", "rebuilding", "falls", "fall", "gate", "stop", "cancel", "forget", "off", "no", "none", "drop", "end", "never", "clear", "everything"]);
+export const STANDING_IDS: Record<string, StandingId> = { gate: "gateFirst", rebuild: "rebuild", rebuilding: "rebuild", falls: "rebuild", fall: "rebuild", powder: "powder" };
+export const STANDING_FILLER = new Set(["standing", "order", "orders", "always", "keep", "mended", "mend", "mending", "first", "o1", "what", "all", "rebuild", "rebuilding", "falls", "fall", "gate", "stop", "cancel", "forget", "off", "no", "none", "drop", "end", "never", "clear", "everything", "powder", "buy", "buying", "more", "under", "below", "whenever", "twenty", "20"]);
+
+/** Powder (3.3): "powder", "buy powder", "more powder" buy at once; with one of these words it is a standing order ("buy powder under twenty"). */
+export const POWDER_STANDING = new Set(["under", "below", "whenever", "always", "standing", "stop", "cancel", "forget", "off", "no", "none", "drop", "end", "never", "clear"]);
+/** The words a powder part may hold besides "powder". */
+export const POWDER_FILLER = new Set([...BUY_VERBS, "powder", "more", "some", "buying", "magazine", "charges", "keg", "kegs", "20", "twenty"]);
