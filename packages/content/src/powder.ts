@@ -33,17 +33,17 @@ export const POWDER = {
   buy: { charges: 20, gold: 60 },
   /** Sudden death (until 3.8 replaces it) multiplies powder made by this. */
   sudden: 2,
-  /** Powder boys per castle, and the ticks before one who falls is replaced at the keep's door (20 s). */
+  /** Powder boys per castle, and the ticks before one who falls is replaced at the keep's door (10 s: the master's tuning; at 20 s shells in the courtyard kept two of three down). */
   boys: 3,
-  respawn: 20 * 60,
-  /** A keg holds at most this many charges (a boy takes what the gun has room for, up to this). */
+  respawn: 10 * 60,
+  /** A keg holds this many charges: a boy takes a full one (or what the store has); what is left after a hoist goes on to the next gun in need, or back to the store. */
   keg: 12,
   /** Ticks to take a keg from the store, and to hoist it up to the gun (set down beside a mortar pit) (3 s). */
   take: 60,
   hoist: 3 * 60,
-  /** Walking speed (m/s): a boy with a keg on his shoulder, and without. */
-  speedLoaded: 1.6,
-  speedEmpty: 2.0,
+  /** Running speed (m/s): a boy with a keg on his shoulder, and without (the master's tuning: at 1.6 and 2.0 three boys carried about 40 charges a minute from a back plot, half the spec's 80; at 2.2 and 2.8 about 50). */
+  speedLoaded: 2.5,
+  speedEmpty: 3.0,
   /** Boys run from enemy men within `flee` m, as masons do, and go back once none has been within `calm` m for `calmTicks`. */
   flee: 7,
   calm: 10,
@@ -54,7 +54,12 @@ export const POWDER = {
    * the emptiest first.
    */
   topUp: 0.5,
-  /** A boy who has not reached a gun's foot for this long (ticks) hoists from where he stands if he is within `reach` m of it; otherwise he takes the keg to the next gun in need, and that gun is passed over for `skip` ticks. */
+  /**
+   * A boy whose way to the store's door or a gun's foot is cut off (rubble, a ruin) walks to the nearest point within
+   * `reach` m of it that he can get to, and takes or hoists from there. One who has still not got there after `stuck`
+   * ticks hoists from where he stands if he is within `reach` m; otherwise he takes the keg to the next gun in need,
+   * and that gun is passed over for `skip` ticks.
+   */
   stuck: 20 * 60,
   reach: 6,
   skip: 30 * 60,

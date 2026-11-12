@@ -22,18 +22,21 @@
 //   keepDoor(). Each repeats an errand: choose the gun most in need (POWDER.topUp
 //   order: the gun the team rides, then a gun that cannot fire, then the
 //   emptiest under topUp), walk to the store (magazineDoor of the working
-//   magazine, else keepDoor), take a keg (POWDER.take ticks; the amount is
-//   what the gun has room for with what is already on its way, at most
-//   POWDER.keg, at most the stock, taken out of the stock then), walk to
-//   powderFoot(e), hoist it (POWDER.hoist ticks; then the box gains it, up to
-//   its size), and go back. The team that rides a gun is asked through the
+//   magazine, else keepDoor), take a full keg (POWDER.take ticks; POWDER.keg
+//   charges, or what the stock has, taken out of the stock then), walk to
+//   powderFoot(e), hoist it (POWDER.hoist ticks; the box takes what it has
+//   room for), and take what is left in the keg straight to the next gun in
+//   need, or back into the store. When his way to a door or a foot is cut off
+//   he makes for the nearest point within POWDER.reach of it he can get to.
+//   The team that rides a gun is asked through the
 //   policy. They run from enemy men within POWDER.flee as masons do, with their
 //   kegs. A boy who falls is replaced at keepDoor after POWDER.respawn ticks.
 //   A boy who cannot reach a gun's foot for POWDER.stuck ticks hoists from
 //   where he stands within POWDER.reach of it, or takes the keg to the next
 //   gun in need (that gun passed over for POWDER.skip ticks).
-// - Kegs burst: a boy knocked down while he carries a keg, by anything but a
-//   blow (a ball, a burst, falling masonry), sets it off where he lies: a
+// - Kegs burst: a boy knocked down while he carries a keg, by a ball,
+//   falling masonry, or a burst whose radius reaches him (its farther knock
+//   only throws him down: the keg rolls away unlit), sets it off where he lies: a
 //   sapper's keg (KEG.burst) through SandboxSim.explode, credited to the shot
 //   that knocked him down. Knocked down by a blow, the keg drops unlit and is
 //   lost. A boy on his way back carries nothing and sets nothing off. A burst
@@ -83,6 +86,7 @@ import {
 import { dsqrt } from "@keepfall/core";
 import type { Action, Army } from "./army";
 import { EventKind } from "./frame";
+import { LOCAL_INF } from "./local";
 import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
 import { PlotState, type Structures } from "./structures";
 
@@ -156,9 +160,18 @@ interface Boy {
   emp: number;
   keg: number;
   want: number;
-  /** Ticks without getting closer to the gun's foot, and the closest he has been. */
+  /** Ticks without getting closer to where he is going, the closest he has been, and the errand that is for (task * 100 + gun). */
   stuck: number;
   best: number;
+  goal: number;
+  /** A burst's fire reached his keg this tick (burstNear): if it throws him down, the keg goes off. */
+  lit: boolean;
+  /** The place he makes for (tx, tz) for the goal at (gx, gz): the goal itself, or the nearest point within POWDER.reach of it he can get to when the way is cut off; looked at again from tick `seek`. */
+  tx: number;
+  tz: number;
+  gx: number;
+  gz: number;
+  seek: number;
 }
 
 const MAGAZINE = BUILDING_KINDS.indexOf("magazine");
@@ -171,6 +184,19 @@ const LOOK = 5;
 const PROGRESS = 0.4;
 /** Rounds of bursts setting off bursts in one tick. */
 const ROUNDS = 8;
+/** Ticks between looks for a way round when a boy's goal is cut off. */
+const SEEK = 120;
+/** Directions tried around a goal that is cut off (unit vectors in a fixed order). */
+const RING: Array<[number, number]> = [
+  [1, 0],
+  [0.7071067811865476, 0.7071067811865476],
+  [0, 1],
+  [-0.7071067811865476, 0.7071067811865476],
+  [-1, 0],
+  [-0.7071067811865476, -0.7071067811865476],
+  [0, -1],
+  [0.7071067811865476, -0.7071067811865476],
+];
 
 export class Carriers {
   /** Set by the match; without one, no gun is served first. */
@@ -203,7 +229,7 @@ export class Carriers {
     this.skipUntil = emps.map(() => 0);
     for (const e of emps) this.gunsOf[castleOfEmp(e)].push(e.id);
     for (const c of [0, 1] as const) {
-      for (let k = 0; k < POWDER.boys; k++) this.boys[c].push({ castle: c, slot: k, minion: -1, due: -1, emp: -1, keg: 0, want: 0, stuck: 0, best: Infinity });
+      for (let k = 0; k < POWDER.boys; k++) this.boys[c].push({ castle: c, slot: k, minion: -1, due: -1, emp: -1, keg: 0, want: 0, stuck: 0, best: Infinity, goal: -1, lit: false, tx: 0, tz: 0, gx: NaN, gz: NaN, seek: 0 });
       for (let p = 0; p < PLOTS.length; p++) this.prev[c].push(this.structures ? this.structures.slot(c, p).state : PlotState.Empty);
     }
   }
@@ -233,6 +259,10 @@ export class Carriers {
     b.want = 0;
     b.stuck = 0;
     b.best = Infinity;
+    b.goal = -1;
+    b.lit = false;
+    b.gx = b.gz = NaN;
+    b.seek = 0;
   }
 
   // ---- The store ----------------------------------------------------------
@@ -422,6 +452,7 @@ export class Carriers {
         const m = this.minions.list[b.minion];
         // A fallen boy is dealt with after the physics step (his keg may go off).
         if (m.state !== MinionState.Upright) continue;
+        b.lit = false;
         this.think(b, m, tick);
         m.aux = b.emp;
       }
@@ -436,6 +467,73 @@ export class Carriers {
 
   private stand(m: Minion, face: number, action: number) {
     this.army.move(m, 0, 0, 0, face, action as Action);
+  }
+
+  /**
+   * Where a boy makes for to reach a goal (a store's door, a gun's foot): the
+   * goal itself while he can get to it; when the way is cut off (rubble, a
+   * ruin, a crater), the nearest point within POWDER.reach of it that he can
+   * get to (rings a metre apart, eight directions in a fixed order), looked at
+   * again every SEEK ticks. The goal itself when nothing nearer can be reached.
+   */
+  private target(b: Boy, m: Minion, gx: number, gz: number, tick: number): { x: number; z: number } {
+    if (b.gx === gx && b.gz === gz && tick < b.seek) return { x: b.tx, z: b.tz };
+    b.gx = gx;
+    b.gz = gz;
+    b.seek = tick + SEEK;
+    b.tx = gx;
+    b.tz = gz;
+    const local = this.army.local;
+    if (local.cost(m.home, gx, gz, m.x, m.z) < LOCAL_INF) return { x: gx, z: gz };
+    // Cut off: the nearest point round the goal from which there is a way to where he stands.
+    for (let r = 1; r <= POWDER.reach; r++) {
+      for (const [ux, uz] of RING) {
+        const cx = gx + ux * r, cz = gz + uz * r;
+        if (local.cost(m.home, m.x, m.z, cx, cz) < LOCAL_INF) {
+          b.tx = cx;
+          b.tz = cz;
+          return { x: cx, z: cz };
+        }
+      }
+    }
+    return { x: gx, z: gz };
+  }
+
+  /** Track a boy's progress towards his errand's place (reset when the errand changes); true once he has made none for POWDER.stuck ticks. */
+  private noProgress(b: Boy, m: Minion, d: number): boolean {
+    const key = m.task * 100 + b.emp;
+    if (b.goal !== key) {
+      b.goal = key;
+      b.best = Infinity;
+      b.stuck = 0;
+    }
+    if (d < b.best - PROGRESS) {
+      b.best = d;
+      b.stuck = 0;
+    } else b.stuck++;
+    return b.stuck >= POWDER.stuck;
+  }
+
+  /**
+   * Walk towards a goal by the way target() gives. True once he is there
+   * (within ARRIVED of the goal or of the place he makes for, which lies within
+   * POWDER.reach of the goal), or once he has made no progress for
+   * POWDER.stuck ticks within POWDER.reach of it.
+   */
+  private walkGoal(b: Boy, m: Minion, gx: number, gz: number, speed: number, action: number, standAction: number, tick: number): boolean {
+    const dx = gx - m.x, dz = gz - m.z;
+    const d = dsqrt(dx * dx + dz * dz);
+    if (d <= ARRIVED) return true;
+    const t = this.target(b, m, gx, gz, tick);
+    const tx = t.x - m.x, tz = t.z - m.z;
+    if (tx * tx + tz * tz <= ARRIVED * ARRIVED) return true;
+    if (this.noProgress(b, m, d) && d <= POWDER.reach) return true;
+    if (!this.walkTo(m, t.x, t.z, speed, action)) {
+      this.stand(m, NaN, standAction);
+      // No way from here: look round the goal again soon.
+      if (b.seek > tick + 30) b.seek = tick + 30;
+    }
+    return false;
   }
 
   private think(b: Boy, m: Minion, tick: number) {
@@ -454,9 +552,7 @@ export class Carriers {
     }
     if (m.task === BoyTask.Flee) {
       if (--m.cool <= 0) {
-        m.task = b.keg > 0 ? BoyTask.Carry : b.emp >= 0 ? BoyTask.ToStore : BoyTask.Back;
-        b.stuck = 0;
-        b.best = Infinity;
+        m.task = b.keg > 0 ? (b.emp >= 0 ? BoyTask.Carry : BoyTask.Back) : b.emp >= 0 ? BoyTask.ToStore : BoyTask.Back;
         m.cool = 0;
       } else {
         const r = masonRefuge(castle);
@@ -471,28 +567,37 @@ export class Carriers {
         if ((tick + m.id) % LOOK === 0) {
           const g = this.pick(b, tick);
           if (g >= 0) {
-            this.choose(b, g);
-            m.task = BoyTask.ToStore;
+            b.emp = g;
+            // With powder still in his keg he takes it straight there; else to the store for a keg.
+            if (b.keg > 0) m.task = BoyTask.Carry;
+            else {
+              this.choose(b, g);
+              m.task = BoyTask.ToStore;
+            }
             return;
           }
         }
         const d = this.storeDoor(castle);
-        const dx = d.x - m.x, dz = d.z - m.z;
-        if (dx * dx + dz * dz > ARRIVED * ARRIVED && this.walkTo(m, d.x, d.z, speed, walkAction)) {
+        if (!this.walkGoal(b, m, d.x, d.z, speed, walkAction, standAction, tick)) {
           m.task = BoyTask.Back;
           return;
         }
-        m.task = dx * dx + dz * dz > ARRIVED * ARRIVED * 4 ? BoyTask.Back : BoyTask.Idle;
-        this.stand(m, NaN, standAction);
+        // At the store: powder he brought back goes back in (what does not fit is lost).
+        if (b.keg > 0) {
+          const back = b.keg;
+          b.keg = 0;
+          const room = this.capOf(castle) - this.stock[castle];
+          const put = room > 0 ? (back < room ? back : room) : 0;
+          this.stock[castle] += put;
+          this.lostN[castle] += back - put;
+        }
+        m.task = BoyTask.Idle;
+        this.stand(m, NaN, 1);
         return;
       }
       case BoyTask.ToStore: {
         const d = this.storeDoor(castle);
-        const dx = d.x - m.x, dz = d.z - m.z;
-        if (dx * dx + dz * dz > ARRIVED * ARRIVED) {
-          if (!this.walkTo(m, d.x, d.z, speed, walkAction)) this.stand(m, NaN, standAction);
-          return;
-        }
+        if (!this.walkGoal(b, m, d.x, d.z, speed, walkAction, standAction, tick)) return;
         m.task = BoyTask.Take;
         m.cool = POWDER.take;
         m.act = 0;
@@ -502,27 +607,26 @@ export class Carriers {
       case BoyTask.Take: {
         const d = this.storeDoor(castle);
         const dx = d.x - m.x, dz = d.z - m.z;
-        if (dx * dx + dz * dz > ARRIVED * ARRIVED * 4) {
+        if (dx * dx + dz * dz > (POWDER.reach + 1) * (POWDER.reach + 1)) {
           // The store moved (a magazine went up or came down): walk to the new door.
           m.task = BoyTask.ToStore;
           return;
         }
         if (m.cool > 0) m.cool--;
-        if (m.cool <= 0) this.takeKeg(b, m);
+        if (m.cool <= 0) this.takeKeg(b, m, tick);
         this.stand(m, NaN, b.keg > 0 ? ACTION_KEG : 1);
         return;
       }
       case BoyTask.Carry: {
         const e = this.emps[b.emp];
         if (!e) {
-          // Nothing to carry to (cannot happen: slots never vanish): hold the keg.
+          // Nothing to carry to (cannot happen: slots never vanish): take the keg back.
+          b.emp = -1;
           m.task = BoyTask.Back;
           return;
         }
         const f = powderFoot(e);
-        const dx = f.x - m.x, dz = f.z - m.z;
-        const d = dsqrt(dx * dx + dz * dz);
-        if (d <= ARRIVED || (b.stuck >= POWDER.stuck && d <= POWDER.reach)) {
+        if (this.walkGoal(b, m, f.x, f.z, speed, ACTION_KEG, ACTION_KEG, tick)) {
           m.task = BoyTask.Hoist;
           m.cool = POWDER.hoist;
           m.act = 0;
@@ -530,28 +634,25 @@ export class Carriers {
           this.stand(m, this.faceGun(m, e), ACTION_HOIST);
           return;
         }
-        if (d < b.best - PROGRESS) {
-          b.best = d;
-          b.stuck = 0;
-        } else b.stuck++;
         if (b.stuck >= POWDER.stuck) {
-          // He cannot get there: the keg goes to the next gun in need, and this one is passed over for a while.
+          // He cannot get there: the keg goes to the next gun in need (or back to the store), and this one is passed over for a while.
           this.skipUntil[b.emp] = tick + POWDER.skip;
           const g = this.pick(b, tick, b.emp);
-          b.stuck = 0;
-          b.best = Infinity;
-          if (g >= 0) b.emp = g;
+          b.emp = g;
+          if (g < 0) m.task = BoyTask.Back;
         }
-        if (!this.walkTo(m, f.x, f.z, speed, ACTION_KEG)) this.stand(m, NaN, ACTION_KEG);
         return;
       }
       case BoyTask.Hoist: {
         const e = this.emps[b.emp];
         if (--m.cool <= 0 || !e) {
           if (e) this.hoisted(b, e);
-          m.task = BoyTask.Back;
+          // Powder left in his keg goes on to the next gun in need, or back to the store.
+          const g = b.keg > 0 ? this.pick(b, tick) : -1;
+          b.emp = g;
+          m.task = g >= 0 ? BoyTask.Carry : BoyTask.Back;
           m.cool = 0;
-          this.stand(m, NaN, 1);
+          this.stand(m, NaN, b.keg > 0 ? ACTION_KEG : 1);
           return;
         }
         this.stand(m, this.faceGun(m, e), ACTION_HOIST);
@@ -563,43 +664,42 @@ export class Carriers {
     }
   }
 
-  /** He has chosen a gun: he reserves what he will take for it. */
+  /** He has chosen a gun to fetch a keg for (a full keg: what the gun has no room for goes on to the next). */
   private choose(b: Boy, g: number) {
-    const e = this.emps[g];
-    const room = boxSize(e) - this.boxes[g] - this.inbound(g, b.castle, b);
     b.emp = g;
-    b.want = room < POWDER.keg ? room : POWDER.keg;
+    b.want = POWDER.keg;
     b.keg = 0;
   }
 
-  /** Fleeing with only a reservation: it is given up (he looks again when he is back); a keg he keeps. */
+  /** Fleeing with only an errand: it is given up (he looks again when he is back); a keg he keeps. */
   private leave(b: Boy) {
     if (b.keg > 0) return;
     b.emp = -1;
     b.want = 0;
   }
 
-  /** The keg's time is up: take what the gun has room for (with what is on its way) from the store, or wait at the door if it is empty. */
-  private takeKeg(b: Boy, m: Minion) {
+  /**
+   * The keg's time is up: a full keg (or what the store has) for the gun he
+   * fetches for, if it still needs one; else for the gun most in need now; else
+   * he leaves empty handed. He waits at the door while the store is empty.
+   */
+  private takeKeg(b: Boy, m: Minion, tick: number) {
     const e = this.emps[b.emp];
-    if (!e || boxSize(e) <= 0) {
-      this.release(b, m);
-      return;
-    }
-    const room = boxSize(e) - this.boxes[b.emp] - this.inbound(b.emp, b.castle, b);
+    const room = e ? boxSize(e) - this.boxes[b.emp] - this.inbound(b.emp, b.castle, b) : 0;
     if (room <= 0) {
-      this.release(b, m);
-      return;
+      const g = this.pick(b, tick);
+      if (g < 0) {
+        this.release(b, m);
+        return;
+      }
+      b.emp = g;
     }
     const have = this.stock[b.castle];
     if (have <= 0) return;
-    let n = room < POWDER.keg ? room : POWDER.keg;
-    if (n > have) n = have;
+    const n = POWDER.keg < have ? POWDER.keg : have;
     this.stock[b.castle] -= n;
     b.keg = n;
     b.want = 0;
-    b.stuck = 0;
-    b.best = Infinity;
     m.task = BoyTask.Carry;
     m.cool = 0;
   }
@@ -612,15 +712,13 @@ export class Carriers {
     m.cool = 0;
   }
 
-  /** The hoist is done: the box gains the keg (capped at its size; any excess is lost). */
+  /** The hoist is done: the box takes what it has room for; the rest stays in his keg. */
   private hoisted(b: Boy, e: Emplacement) {
-    const size = boxSize(e);
-    const room = size - this.boxes[e.id];
+    const room = boxSize(e) - this.boxes[e.id];
     const add = b.keg < room ? b.keg : room > 0 ? room : 0;
     this.boxes[e.id] += add;
     this.emit(EventKind.Boxed, e.id, add, 0, 0);
-    b.keg = 0;
-    b.emp = -1;
+    b.keg -= add;
     b.want = 0;
   }
 
@@ -721,6 +819,20 @@ export class Carriers {
   }
 
   /** A boy is down: his keg goes off where he lies (unless a blow felled him), and a replacement is due. Returns whether a burst went off. */
+  /** A burst at a point (SandboxSim.explode, before it knocks men down): a boy with a keg within its radius has his keg lit. */
+  burstNear(x: number, y: number, z: number, radius: number): void {
+    const r2 = radius * radius;
+    for (const c of [0, 1] as const) {
+      for (const b of this.boys[c]) {
+        if (b.minion < 0 || b.keg <= 0) continue;
+        const m = this.minions.list[b.minion];
+        const p = m.parts.length > 1 ? m.parts[1].translation() : { x: m.x, y: m.y + 1, z: m.z };
+        const dx = p.x - x, dy = p.y - y, dz = p.z - z;
+        if (dx * dx + dy * dy + dz * dz <= r2) b.lit = true;
+      }
+    }
+  }
+
   private fell(b: Boy, m: Minion, tick: number): boolean {
     const keg = b.keg > 0;
     b.minion = -1;
@@ -732,6 +844,11 @@ export class Carriers {
     b.best = Infinity;
     if (!keg || m.downCause === Cause.Blow) return false;
     const p = m.parts.length > 1 ? m.parts[1].translation() : { x: m.x, y: m.y + 1, z: m.z };
+    // Thrown down by a burst, his keg goes off only if the burst's fire reached it (its radius, not the farther shove of
+    // its knock: burstNear marks him): a shell bursting on the keep 10 m away knocks him down, and the keg rolls away unlit.
+    const lit = b.lit;
+    b.lit = false;
+    if (m.downCause === Cause.Burst && !lit) return false;
     this.emit(EventKind.KegBurst, m.id, p.x, p.y, p.z);
     this.explode(p.x, p.y, p.z, KEG.burst, m.downShot ?? -1);
     return true;
@@ -743,7 +860,7 @@ export class Carriers {
       out.push(...this.prev[c]);
       for (const b of this.boys[c]) {
         const m = b.minion >= 0 ? this.minions.list[b.minion] : null;
-        out.push(b.minion, b.due, m ? m.task : -1, b.emp, b.keg, b.want, m ? m.cool : -1, b.stuck, b.best === Infinity ? -1 : b.best);
+        out.push(b.minion, b.due, m ? m.task : -1, b.emp, b.keg, b.want, m ? m.cool : -1, b.stuck, b.best === Infinity ? -1 : b.best, b.goal, b.lit ? 1 : 0, b.tx, b.tz, b.gx === b.gx ? b.gx : -1e9, b.gz === b.gz ? b.gz : -1e9, b.seek);
       }
     }
   }

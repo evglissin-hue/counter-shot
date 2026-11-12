@@ -170,21 +170,32 @@ test("three boys per castle stand at the keep's door to start; a boy's keg fills
   sim.free();
 });
 
-test("a keg is only what the gun has room for, at most 12; a full box is not served", () => {
+test("a boy takes a full keg; the box takes what it has room for and the rest goes on to the next gun or back to the store; a full box is not served", () => {
   const sim = world();
   const c = sim.carriers!;
   const sw = gunOf(sim, 1, "swivel");
-  c.pay(sw.id); // 6 -> 5: under topUp? no: 5 of 6 is not in need
+  c.pay(sw.id); // 6 -> 5: 5 of 6 is not in need
   run(sim, 8 * 60);
   assert.equal(boysOf(sim, 1).every((b) => b.emplacement < 0), true, "a box at five of six is left alone");
   assert.equal(c.status(1).stock, POWDER.start, "no keg taken");
   while (c.canPay(sw.id)) c.pay(sw.id);
-  let taken = -1;
-  run(sim, 30 * 60, () => {
+  let taken = -1, boy = -1, after = -1;
+  run(sim, 40 * 60, () => {
     const b = boysOf(sim, 1).find((x) => x.emplacement === sw.id && x.keg > 0);
-    if (b && taken < 0) taken = b.keg;
+    if (b && taken < 0) {
+      taken = b.keg;
+      boy = b.minion;
+    }
+    const same = boysOf(sim, 1).find((x) => x.minion === boy);
+    if (taken > 0 && after < 0 && same && same.emplacement !== sw.id) after = same.keg;
   });
-  assert.equal(taken, 6, "a swivel's empty box takes six charges, not a full keg");
+  assert.equal(taken, POWDER.keg, "a full keg for the swivel's empty box");
+  assert.equal(c.box(sw.id), c.boxCap(sw.id), "the box is full");
+  assert.equal(after, POWDER.keg - c.boxCap(sw.id), "the six it had no room for stay in his keg as he leaves it");
+  run(sim, 40 * 60);
+  // Every box but the swivel's was full: the rest went back to the store.
+  const total = c.status(1).stock + boysOf(sim, 1).reduce((n, b) => n + b.keg, 0);
+  assert.equal(total, POWDER.start - c.boxCap(sw.id), "nothing lost but what the swivel took (no powder is made in a bare world)");
   sim.free();
 });
 
@@ -363,6 +374,29 @@ test("a burst that knocks down a boy with a keg sets his keg off in the same tic
   assert.ok(kegs.length >= 1, "a keg went off");
   assert.ok(kegs.every((k) => k.shot === 55), "credited to the shell that set it going");
   void b;
+  sim.free();
+});
+
+test("a burst whose knock throws a boy down but whose radius does not reach his keg leaves it unlit (lost); a burst's own radius lights it", () => {
+  const sim = world();
+  for (const e of sim.emplacements) if (!e.empty && castleOfEmp(e) === 1) drain(sim, e.id);
+  let guard = 0;
+  const carrying = () => boysOf(sim, 1).filter((b) => b.keg > 0 && b.task === BoyTask.Carry);
+  while (carrying().length < 1 && guard++ < 60 * 60) sim.step();
+  const first = carrying()[0];
+  assert.ok(first, "a boy carries a keg");
+  const m = sim.minions.list[first.minion];
+  const stock = sim.carriers!.status(1).stock;
+  // A burst with a short radius and a long knock, 5 m off: it throws him down; its fire does not reach the keg.
+  const far: BurstDef = { ...KEG.burst, radius: 1, knock: 12, knockSpeed: 14 };
+  let lit = 0;
+  sim.explode(m.x + 5, m.y + 1, m.z, far, 77);
+  run(sim, 2, () => {
+    for (const e of events(sim)) if (e[0] === EventKind.KegBurst) lit++;
+  });
+  assert.notEqual(sim.minions.list[first.minion].state, MinionState.Upright, "he was thrown down");
+  assert.equal(lit, 0, "his keg did not go off");
+  assert.equal(sim.carriers!.status(1).stock, stock, "and its powder is lost, not returned");
   sim.free();
 });
 
