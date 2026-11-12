@@ -15,6 +15,7 @@
 // The parts that never change between reports (panel, ground, roads, stream,
 // the glow under each castle) are drawn once into a cache.
 
+import { stockShare } from "./render/powderLogic";
 import { BRIDGES, CASTLE_SHAPE, DIST, MID_Z, PLOTS, plotCentre, ROUTE_NAMES, routeAt, streamOffset, type Stone } from "@keepfall/content";
 import { MINION_STRIDE, PLOT_STRIDE } from "@keepfall/sim";
 
@@ -154,6 +155,8 @@ export interface MinimapState {
   stormOn: [boolean, boolean];
   /** In a match (labels and the plots; the Practice range has its target castle). */
   match: boolean;
+  /** 3.3: each castle's powder store (charges) and what it holds at most: the bar under a magazine's keg sign. Null: no powder in this match. */
+  stores?: [{ stock: number; cap: number }, { stock: number; cap: number }] | null;
   /** 3.2: your team's marks (world x, z and number): a chalk-white circled number. Never the other side's. */
   marks?: Array<{ n: number; x: number; z: number }>;
 }
@@ -176,9 +179,11 @@ const GROUP_CELL = 26;
 const FLASH_MS = 700, PLATE_MS = 260;
 
 // Signs for the buildings, drawn about their centre.
-let signs: { pikes: Path2D; heads: Path2D; wheel: Path2D; spokes: Path2D; flame: Path2D; flag: Path2D } | null = null;
+let signs: { keg: Path2D; hoops: Path2D; pikes: Path2D; heads: Path2D; wheel: Path2D; spokes: Path2D; flame: Path2D; flag: Path2D } | null = null;
 function getSigns() {
   return (signs ??= {
+    keg: new Path2D("M-3.6 -4.6 C-5.2 -1.6 -5.2 1.6 -3.6 4.6 L3.6 4.6 C5.2 1.6 5.2 -1.6 3.6 -4.6 Z"),
+    hoops: new Path2D("M-4.9 -2.1 H4.9 M-4.9 2.1 H4.9"),
     pikes: new Path2D("M-5 5.5 L5 -5.5 M5 5.5 L-5 -5.5"),
     heads: new Path2D("M3.2 -5.8 L5.6 -6.2 L5.2 -3.8 M-3.2 -5.8 L-5.6 -6.2 L-5.2 -3.8"),
     wheel: new Path2D("M5.2 0 A5.2 5.2 0 1 1 -5.2 0 A5.2 5.2 0 1 1 5.2 0 Z"),
@@ -732,8 +737,33 @@ export class Minimap {
         ctx.stroke(sg.spokes);
         circle(ctx, 0, 0, 1.1);
       } else if (k === 2) ctx.fill(sg.flame);
+      else if (k === 3) {
+        // A magazine: a keg, and under it a thin bar for the store (a working magazine only: a rising or ruined one holds none).
+        ctx.translate(0, -1.6);
+        ctx.lineWidth = 1.5;
+        ctx.stroke(sg.keg);
+        ctx.lineWidth = 1.1;
+        ctx.stroke(sg.hoops);
+      }
       ctx.restore();
+      if (k === 3 && s === 2) this.stockBar(st, c, a, b + hd - 3.4, hw - 3);
     }
+  }
+
+  /** The stock bar of a magazine tile: a dark track and a fill by the share of the cap (red when it is nearly dry). */
+  private stockBar(st: MinimapState, c: 0 | 1, a: number, y: number, half: number) {
+    const store = st.stores?.[c];
+    if (!store) return;
+    const share = stockShare(store.stock, store.cap);
+    if (share < 0) return;
+    const ctx = this.ctx!;
+    ctx.fillStyle = "#100f0c";
+    rrect(ctx, a - half, y - 1.3, half * 2, 2.6, 1.2);
+    ctx.fill();
+    if (share <= 0) return;
+    ctx.fillStyle = share < 0.25 ? RED : BRASS;
+    rrect(ctx, a - half, y - 1.3, Math.max(2.4, half * 2 * share), 2.6, 1.2);
+    ctx.fill();
   }
 
   /** The keep: a square of stone round a dark floor, its banner in the team's colour, a pip for each floor still under it. */

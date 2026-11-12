@@ -1235,6 +1235,7 @@ function drawMap() {
     storm: [stormOf(0), stormOf(1)],
     stormOn: info ? [info.attackers[0] > info.defenders[0] && info.attackers[0] >= 2, info.attackers[1] > info.defenders[1] && info.attackers[1] >= 2] : [false, false],
     match,
+    stores: info?.powder ? [info.powder[0], info.powder[1]] : null,
     marks: regInfo()?.marks.map((m) => ({ n: m.n, x: m.x, z: m.z })),
     ...mapPatch,
   });
