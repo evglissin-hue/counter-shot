@@ -57,6 +57,7 @@ const powderNow = () => sb(() => {
 });
 async function shot(name, cam) {
   if (!want(name)) return;
+  await page.setViewportSize({ width: 1280, height: 720 });
   await sb((c) => window.__sandbox.look(c), cam ?? null);
   await frames(4);
   await page.screenshot({ path: `${out}${name}.png` });
@@ -140,6 +141,8 @@ try {
 
   // ---- the enemy magazine blowing: a mortar shell into it (castle 0, plot 5 at 9.3, 5.6) ----
   if (want("05-magazine-blows")) {
+    // A small window while the sim runs and the charge is searched (a software renderer draws the mortar's view slowly); full size for the shots.
+    await page.setViewportSize({ width: 256, height: 144 });
     await sb(() => {
       window.__sandbox.select(1);
       const c = document.getElementById("shotcam");
@@ -149,7 +152,7 @@ try {
     // The charge whose range is the distance to the magazine.
     const dist = await sb(() => { const e = window.__sandbox.renderer.powderView.emps[1]; return Math.hypot(9.3 - e.x, 5.6 - e.z); });
     let best = { level: 0.9, err: Infinity };
-    for (let lv = 0.3; lv <= 1.0001; lv += 0.02) {
+    for (let lv = 0.3; lv <= 1.0001; lv += 0.05) {
       await sb((l) => window.__sandbox.holdCharge(l), lv);
       await frames(1);
       const r = await sb(() => window.__sandbox.chargeRange);
