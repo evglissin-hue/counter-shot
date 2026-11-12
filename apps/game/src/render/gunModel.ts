@@ -667,7 +667,7 @@ export function bronzeMaterial(noise: THREE.Texture, active: N): THREE.MeshStand
   m.name = "gun-bronze";
   const n: N = texture(noise, localUV(1.5)).r;
   const fine: N = texture(noise, localUV(5.5)).g;
-  const base: N = mix(color(0x6a4420), color(0x4a2f15), smoothstep(0.35, 0.8, n).mul(0.7));
+  const base: N = mix(color(0x6d4e22), color(0x4b3417), smoothstep(0.35, 0.8, n).mul(0.7));
   // Patina gathers on the down-facing side and wherever the noise is deep.
   const low: N = smoothstep(0.15, -0.8, normalWorld.y);
   const green: N = clamp(low.mul(0.55).add(smoothstep(0.62, 0.95, n).mul(0.35)).add(smoothstep(0.85, 1.0, fine).mul(0.1)), 0, 1);
