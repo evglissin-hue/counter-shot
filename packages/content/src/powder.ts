@@ -33,7 +33,7 @@ export const POWDER = {
   buy: { charges: 20, gold: 60 },
   /** Sudden death (until 3.8 replaces it) multiplies powder made by this. */
   sudden: 2,
-  /** Powder boys per castle, and the ticks before one who falls is replaced at the store's door (the magazine's lean-to, or the keep's door without one) (10 s: the master's tuning; at 20 s shells in the courtyard kept two of three down; at the keep's door they were walled in by its rubble late in a match). */
+  /** Powder boys per castle, and the ticks before one who falls is replaced where boys wait (see `lee`) (10 s: the master's tuning; at 20 s shells in the courtyard kept two of three down; at the keep's door they were walled in by its rubble late in a match). */
   boys: 3,
   respawn: 10 * 60,
   /** A keg holds this many charges: a boy takes a full one (or what the store has); what is left after a hoist goes on to the next gun in need, or back to the store. */
@@ -64,6 +64,12 @@ export const POWDER = {
   stuck: 20 * 60,
   reach: 6,
   skip: 30 * 60,
+  /**
+   * Boys with nothing to do wait this far out from the magazine's plot on the side away from the keep, in the lee of its
+   * vault (by the keep's door without a magazine), a little apart, and new boys come out there. (The master's tuning:
+   * waiting at the door, beside the keep, one shell aimed at the keep took all three again and again.)
+   */
+  lee: 1.0,
   /** A boy whose ground is no longer walkable (a post or beam fell across it: the magazine's lean-to is timber) steps to the nearest walkable cell within this many metres. */
   stepOff: 3,
   /**
@@ -137,7 +143,7 @@ export function powderFoot(e: Emplacement): { x: number; z: number } {
   return { x: fx, z: mirrorZ(c, fz) };
 }
 
-/** The keep's door (world x, z): the cellar's powder is taken here without a magazine (and boys who fall are replaced here then). Behind the keep, out of the gate's line. */
+/** The keep's door (world x, z): the cellar's powder is taken here without a magazine (and boys wait and are replaced beside it then). Behind the keep, out of the gate's line. */
 export function keepDoor(castle: number): { x: number; z: number } {
   return { x: 0, z: mirrorZ(castle, S.keepZ + S.keepHalf + 1.2) };
 }
@@ -146,6 +152,12 @@ export function keepDoor(castle: number): { x: number; z: number } {
 export function magazineDoor(castle: number, plot: number): { x: number; z: number } {
   const p = PLOTS[plot];
   return { x: p.x > 0 ? p.x - p.w / 2 - 0.9 : p.x + p.w / 2 + 0.9, z: mirrorZ(castle, p.z) };
+}
+
+/** Where boys with nothing to do wait by a magazine on a plot (world x, z), and where new ones come out: in the lee of its stone vault, on the side of the plot away from the keep (the door faces the keep, where shells aimed at it fall). */
+export function magazineLee(castle: number, plot: number): { x: number; z: number } {
+  const p = PLOTS[plot];
+  return { x: p.x > 0 ? p.x + p.w / 2 + POWDER.lee : p.x - p.w / 2 - POWDER.lee, z: mirrorZ(castle, p.z) };
 }
 
 /** The magazine going up with this much powder in it: a shell's burst, wider with the stock and thrown harder (null when it is empty: an empty one makes none). */
