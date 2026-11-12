@@ -33,9 +33,31 @@ import {
   yokeGeos,
   type BarrelSpec,
 } from "./gunModel";
+import { crewSizeFor } from "./crewLogic";
 import { BOX_KEGS, RECOIL_BACK, kegCount, kick, newStage, stageFeed, stageFire, stageStep, type Kick, type StageState } from "./recoilLogic";
 
 type Geo = THREE.BufferGeometry;
+
+/** What a gun tells its crew (see `Guns.crewInfo`). */
+export interface CrewInfo {
+  kind: WeaponKind;
+  x: number;
+  y: number;
+  z: number;
+  floorY: number;
+  yaw: number;
+  baseYaw: number;
+  pitch: number;
+  barrel: number;
+  ridden: boolean;
+  stage: number;
+  slide: number;
+  age: number;
+}
+
+export function newCrewInfo(): CrewInfo {
+  return { kind: "longGun", x: 0, y: 0, z: 0, floorY: 0, yaw: 0, baseYaw: 0, pitch: 0, barrel: 1, ridden: false, stage: 1, slide: 0, age: 1e6 };
+}
 
 interface Gun {
   em: Emplacement;
@@ -491,6 +513,47 @@ export class Guns {
     const g = this.find(i);
     if (!g || g.armed === "") return 0;
     return g.em.weapon === "mortar" ? g.down : g.back;
+  }
+
+  /** Seconds since the gun's last shot on the renderer clock (1e6 for a gun that never fired, or an empty slot). */
+  shotAge(i: number): number {
+    const g = this.find(i);
+    return g && g.armed !== "" ? g.st.age : 1e6;
+  }
+
+  /**
+   * What its crew needs (look round L1): false when no crew stands there (an empty slot, a gun knocked out and swept
+   * away, a gun not shown now). Else fills the gun's weapon, where its pivot is, the world y of its floor, which way it
+   * points and its rest aim, the barrel's length from the pivot, whether it is the one you ride, and its stage, slide
+   * and shot age.
+   */
+  crewInfo(i: number, o: CrewInfo): boolean {
+    const g = this.find(i);
+    if (!g || crewSizeFor(g.armed, g.out, g.root.visible) === 0 || g.floorY === null) return false;
+    o.kind = g.em.weapon;
+    o.x = g.em.x;
+    o.y = g.em.y;
+    o.z = g.em.z;
+    o.floorY = g.floorY;
+    o.yaw = g.curYaw;
+    o.baseYaw = g.em.baseYaw;
+    o.pitch = g.curPitch;
+    o.barrel = g.em.barrel;
+    o.ridden = g.activeTarget > 0;
+    o.stage = g.st.stage;
+    o.slide = g.em.weapon === "mortar" ? g.down : g.back;
+    o.age = g.st.age;
+    return true;
+  }
+
+  /** How many guns (slots) there are. */
+  count(): number {
+    return this.guns.length;
+  }
+
+  /** The match id of the gun in slot k. */
+  idAt(k: number): number {
+    return this.guns[k].em.id;
   }
 
   /** The world y the crew and the props stand on; null for an empty slot. */

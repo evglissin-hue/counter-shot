@@ -20,6 +20,7 @@ import { Effects } from "./effects";
 import { EstateView, type EstateState } from "./estate";
 import { Flags } from "./flags";
 import { Guns, type GunState } from "./guns";
+import { Crews } from "./crews";
 import { JOLT_END, joltAt, type Jolt } from "./recoilCam";
 import { Inset } from "./inset";
 import { eventChance, frameBytes, roughBytes, type KeyframePart, type RenderKeyframe } from "./keyframe";
@@ -90,6 +91,7 @@ export class GameRenderer implements GameRendererApi {
   private glassTarget = 0;
   private minions: Minions;
   private guns: Guns;
+  private crews: Crews;
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
   /** 3.2: your team's marks, as chalk crosses with their numbers. */
@@ -232,6 +234,8 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.minions.root);
     this.guns = new Guns(this.noise);
     this.scene.add(this.guns.root);
+    this.crews = new Crews();
+    this.scene.add(this.crews.root);
     this.decals = new Decals(this.time, this.noise);
     this.scene.add(this.decals.mesh);
     const mk = (cfg: ConstructorParameters<typeof Burst>[0]) => {
@@ -1346,6 +1350,8 @@ export class GameRenderer implements GameRendererApi {
     this.groundMarks.update();
     this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.guns.update(dt, this.now, cam.quaternion);
+    // L1: the men at the guns, drawn from the guns' own state (nothing of their own to keep).
+    this.crews.update(this.guns, this.now, cam);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
     if (this.flashLevel < 0.01) this.flashLevel = 0;
@@ -1504,6 +1510,7 @@ export class GameRenderer implements GameRendererApi {
     this.blink.dispose();
     this.minions.dispose();
     this.guns.dispose();
+    this.crews.dispose();
     this.markers.dispose();
     this.chalk.dispose();
     this.ladders.dispose();
