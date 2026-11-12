@@ -92,6 +92,7 @@ import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { LAY_SECONDS } from "./render/works";
+import { glassFromFov } from "./render/glassLogic";
 import { Sound } from "./sound";
 import { Soundscape } from "./soundscape";
 import { Pacer, SCALES } from "./pacing";
@@ -3748,6 +3749,8 @@ function frame(wall: number) {
   if (!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride))) pose.fov = shownFov;
   applyShake(pose, now);
   renderer.setCamera(pose);
+  // L1.6: the sight, and the mortar's spotter, are a telescope when zoomed well in (not in a test camera; replays and photo mode never reach here).
+  renderer.setGlass(!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride && EMP[current].weapon === "mortar")) ? glassFromFov(shownFov, w.fov[0], w.fov[1]) : 0);
   {
     const ic = updateImpactCam(now, dt);
     renderer.setInset(ic.pose, placeImpactFrame(ic, canvas), ic.swapped);

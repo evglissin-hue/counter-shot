@@ -31,6 +31,8 @@ import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
 import { Post, TIERS } from "./post";
 import { Projectiles } from "./projectiles";
+import { Trails } from "./trails";
+import { Blink } from "./blink";
 import { Scatter } from "./scatter";
 import { Shock } from "./shock";
 import { Marks } from "./marks";
@@ -79,6 +81,12 @@ export class GameRenderer implements GameRendererApi {
   private scatter: Scatter;
   private effects: Effects;
   private projectiles: Projectiles;
+  /** L1.4: the streak behind a ball and the thread behind a shell. L1.7: the blink of a hit. */
+  private trails: Trails;
+  private blink: Blink;
+  /** L1.6: the gunner's glass, eased towards what the page last asked for (0..1). */
+  private glass = 0;
+  private glassTarget = 0;
   private minions: Minions;
   private guns: Guns;
   /** Where each team's waves stop on Hold. */
@@ -210,6 +218,10 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.effects.root);
     this.projectiles = new Projectiles(STYLE, this.time, this.noise);
     this.scene.add(this.projectiles.root);
+    this.trails = new Trails();
+    this.scene.add(this.trails.root);
+    this.blink = new Blink(this.time);
+    this.scene.add(this.blink.mesh);
     this.minions = new Minions();
     this.scene.add(this.minions.root);
     this.guns = new Guns(this.noise);
@@ -463,6 +475,18 @@ export class GameRenderer implements GameRendererApi {
         bytes: (st) => roughBytes(st),
       }),
     );
+    // L1.4: the live trails behind shots (their points and ages), so a replay draws the same streaks and threads each play.
+    this.registerKeyframePart(
+      "trails",
+      part<Float64Array>({
+        capture: (now) => this.trails.set.capture(now),
+        apply: (st, now) => {
+          this.trails.set.apply(st, now);
+          this.trails.draw(now, this.wind.value.x, this.wind.value.y);
+        },
+        bytes: (st) => st.byteLength + 16,
+      }),
+    );
     // What is in the air only: nothing is captured. Cleared, with every ring back at its first slot, so the frames that follow lay the same particles in the same slots.
     this.registerKeyframePart(
       "transient",
@@ -472,6 +496,7 @@ export class GameRenderer implements GameRendererApi {
           for (const b of Object.values(this.bursts)) b.reset();
           this.effects.reset();
           this.shock.reset();
+          this.blink.reset();
           this.splashes.reset();
           this.marks.clear();
           this.flashLevel = 0;
@@ -707,6 +732,7 @@ export class GameRenderer implements GameRendererApi {
 
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void {
     this.projectiles.update(proj, count, chains, chainCount);
+    this.trails.update(proj, count, this.now, this.wind.value.x, this.wind.value.y);
     this.splashes.begin();
     this.splashes.projectiles(this.now, proj, count, (x, z) => this.terrain.heightAt(x, z));
   }
@@ -749,6 +775,8 @@ export class GameRenderer implements GameRendererApi {
     this.storm.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
+    this.blink.clear();
+    this.trails.clear();
   }
 
   /** Readability rule 5: slow-moving masonry (settling, about to go) sheds a thin dust trickle. */
@@ -792,6 +820,7 @@ export class GameRenderer implements GameRendererApi {
     const cz = this.layout ? this.layout.castleZ[this.side] : -150;
     this.effects.bias.set(0 - x, 0, cz - z);
     this.effects.spawnImpact(x, y, z, strength, dust);
+    this.blink.spawn(this.now, x, y, z, strength);
   }
 
   /** A powder burst: fireball, a fountain of chips, dust thrown along the ground, a shock, a smoke column. */
@@ -900,8 +929,14 @@ export class GameRenderer implements GameRendererApi {
 
   setCamera(pose: CameraPose): void {
     this.views.setPose(pose);
+    // The glass belongs to the sight: any view the page does not ask it for has none (the page calls setGlass after this).
+    this.glassTarget = 0;
     this.clear.crosshair.value = pose.mode === "sight" ? 1 : 0;
     this.marks.mesh.visible = pose.mode === "overview";
+  }
+
+  setGlass(target: number): void {
+    this.glassTarget = Math.max(0, Math.min(1, target || 0));
   }
 
   setAimArc(points: Float32Array | null): void {
@@ -1195,6 +1230,9 @@ export class GameRenderer implements GameRendererApi {
     this.sky.driftClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
     this.shock.update(this.now);
     this.views.update(real);
+    // The glass eases at the rate the field of view does.
+    this.glass += (this.glassTarget - this.glass) * (1 - Math.exp(-real * 8));
+    if (Math.abs(this.glass - this.glassTarget) < 0.002) this.glass = this.glassTarget;
     const cam = this.views.camera;
     cam.updateMatrixWorld();
     // Impact cam swapped in: the main pass draws from the inset's view and the inset from the gun's, then the gun's is restored.
@@ -1267,12 +1305,17 @@ export class GameRenderer implements GameRendererApi {
       this.primeFrames--;
       this.shock.prime(true);
       this.projectiles.prime(true);
+      this.trails.prime(true);
       this.decals.prime(true);
       this.minions.prime(true);
       this.ladders.prime(true);
       this.works?.prime(true);
       this.storm.prime(true);
     }
+    // With the impact cam swapped in, the main pass is not the gun's sight: no glass.
+    const glass = swapped ? 0 : this.glass;
+    post.setGlass(glass);
+    this.sky.glass.value = glass;
     post.render(this.now);
     // The impact cam: a second pass (while priming, a tiny one, so its shaders compile at load).
     if (this.inset && (this.insetPose || priming)) this.drawInset(swapped, priming);
@@ -1289,6 +1332,7 @@ export class GameRenderer implements GameRendererApi {
     if (priming) {
       this.shock.prime(false);
       this.projectiles.prime(false);
+      this.trails.prime(false);
       this.decals.prime(false);
       this.minions.prime(false);
       this.ladders.prime(false);
@@ -1349,6 +1393,9 @@ export class GameRenderer implements GameRendererApi {
     else this.aimCamera(ic, { x: 0, y: 40, z: -40, tx: 0, ty: 0, tz: -75, fov: 45 });
     this.sky.follow(ic);
     this.clear.suspend();
+    // The haze's cut inside the telescope is the main view's: the inset's pass is not through the glass.
+    const glassWas = this.sky.glass.value;
+    this.sky.glass.value = 0;
     const hide = [this.marker, this.blastRing, this.mortarAim.root, this.effects.root.getObjectByName("aim-arc"), this.effects.root.getObjectByName("ghost-trail")];
     const was = hide.map((o) => !!o && o.visible);
     for (const o of hide) if (o) o.visible = false;
@@ -1358,6 +1405,7 @@ export class GameRenderer implements GameRendererApi {
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
     inset.draw(priming && !this.insetPose ? { x: 0, y: 0, w: 16, h: 9 } : this.insetRect, w, h, this.now);
     if (shadow) shadow.autoUpdate = auto;
+    this.sky.glass.value = glassWas;
     hide.forEach((o, i) => {
       if (o) o.visible = was[i];
     });
@@ -1387,6 +1435,8 @@ export class GameRenderer implements GameRendererApi {
     this.scatter.dispose();
     this.effects.dispose();
     this.projectiles.dispose();
+    this.trails.dispose();
+    this.blink.dispose();
     this.minions.dispose();
     this.guns.dispose();
     this.markers.dispose();
