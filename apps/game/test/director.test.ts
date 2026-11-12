@@ -151,7 +151,7 @@ test("a toppling tower is filmed side on, slow from release to ground", () => {
 test("every kind gets its recipe", () => {
   const sight = world([TOWER]);
   const frames = toppleFrames();
-  const topple: MomentKind[] = ["towerDown", "breachOpened", "buildingWrecked", "gateDown", "floorCaved", "bannerDown", "collapseKill", "bridgeDown", "lastBlow"];
+  const topple: MomentKind[] = ["towerDown", "breachOpened", "buildingWrecked", "magazine", "gateDown", "floorCaved", "bannerDown", "collapseKill", "bridgeDown", "lastBlow"];
   for (const k of topple) assert.equal(direct(clipOf(moment(k), frames), sight).recipe, "topple", k);
   for (const k of ["kegChain", "kegBack"] as const) assert.equal(direct(clipOf(moment(k), frames), sight).recipe, "wide-close", k);
   for (const k of ["stormBegun", "stormBeaten"] as const) assert.equal(direct(clipOf(moment(k), frames), sight).recipe, "wide", k);

@@ -127,6 +127,7 @@ const TOPPLE_KINDS: readonly MomentKind[] = [
   "towerDown",
   "breachOpened",
   "buildingWrecked",
+  "magazine",
   "gateDown",
   "floorCaved",
   "bannerDown",

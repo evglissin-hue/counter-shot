@@ -74,6 +74,7 @@ export const MOMENT_NAMES: Record<MomentKind, string> = {
   kegBack: "Sent back",
   gunSilenced: "Gun silenced",
   buildingWrecked: "Building wrecked",
+  magazine: "Magazine blown",
   gateDown: "Gate down",
   breachOpened: "Breach",
   towerDown: "Tower down",
