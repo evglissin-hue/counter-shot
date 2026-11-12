@@ -304,7 +304,7 @@ export function carriageGeos(ch: number, chain: boolean, r0: number, z0: number)
     shank.rotateZ(Math.PI / 2);
     shank.translate(sx * (CX + CT / 2 + 0.01), yb, zb);
     iron.push(shank);
-    bolts.push({ a: new THREE.Vector3(sx * (CX + CT / 2 + 0.06), yb, zb), b: new THREE.Vector3(sx * 0.92, F, 1.2) });
+    bolts.push({ a: new THREE.Vector3(sx * (CX + CT / 2 + 0.06), yb, zb), b: new THREE.Vector3(sx * 0.82, F, 1.1) });
   }
   return { wood, iron, bolts, bedTop, quoinS: z0 + (chain ? 0.3 : 0.33) };
 }
@@ -641,10 +641,10 @@ function localUV(k: number): N {
   return vec2(positionLocal.z.mul(1.7).add(positionLocal.x.mul(0.6)), positionLocal.y.mul(1.3).add(positionLocal.x.mul(0.45))).mul(k);
 }
 
-function rimOf(active: N): N {
+function rimOf(active: N, k = 0.12, base = 0.01): N {
   const v: N = positionWorld.sub(cameraPosition).normalize();
   const rim: N = pow(float(1).sub(normalWorld.dot(v.negate()).abs()), 3.0);
-  return color(0xb8c8d8).mul(rim.mul(0.12).add(0.01)).mul(active);
+  return color(0xb8c8d8).mul(rim.mul(k).add(base)).mul(active);
 }
 
 export function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandardNodeMaterial {
@@ -652,10 +652,11 @@ export function ironMaterial(noise: THREE.Texture, active: N): THREE.MeshStandar
   applyCloudShadow(m);
   m.name = "gun-iron";
   const n: N = texture(noise, localUV(0.9)).r;
-  m.colorNode = mix(color(0x262524), color(0x4b3123), smoothstep(0.55, 0.85, n).mul(0.6)).mul(vc().rgb);
+  m.colorNode = mix(color(0x2d2b2a), color(0x4b3123), smoothstep(0.55, 0.85, n).mul(0.6)).mul(vc().rgb);
   m.metalness = 0.65;
   m.roughness = 0.5;
-  m.emissiveNode = rimOf(active);
+  // The cold rim of the gun you ride, and a trace of the sky's bounce so iron in shade is not a hole in the picture.
+  m.emissiveNode = rimOf(active).add(vec3(0.011, 0.011, 0.012));
   return m;
 }
 
@@ -666,15 +667,16 @@ export function bronzeMaterial(noise: THREE.Texture, active: N): THREE.MeshStand
   m.name = "gun-bronze";
   const n: N = texture(noise, localUV(1.5)).r;
   const fine: N = texture(noise, localUV(5.5)).g;
-  const base: N = mix(color(0x7b5223), color(0x52341a), smoothstep(0.35, 0.8, n).mul(0.7));
+  const base: N = mix(color(0x6a4420), color(0x4a2f15), smoothstep(0.35, 0.8, n).mul(0.7));
   // Patina gathers on the down-facing side and wherever the noise is deep.
   const low: N = smoothstep(0.15, -0.8, normalWorld.y);
   const green: N = clamp(low.mul(0.55).add(smoothstep(0.62, 0.95, n).mul(0.35)).add(smoothstep(0.85, 1.0, fine).mul(0.1)), 0, 1);
-  const col: N = mix(base, color(0x3d4c33), green);
+  const col: N = mix(base, color(0x34432b), green);
   m.colorNode = col.mul(vc().rgb);
-  m.metalness = 0.8;
-  m.roughness = 0.5;
-  m.emissiveNode = rimOf(active).add(vec3(0.012, 0.007, 0.003).mul(vc().r));
+  m.metalness = 0.75;
+  m.roughness = 0.58;
+  // A fainter rim than the iron's: looking down the barrel its top is seen at a graze, and a strong rim would wash the bronze out.
+  m.emissiveNode = rimOf(active, 0.03, 0).add(vec3(0.012, 0.007, 0.003).mul(vc().r));
   return m;
 }
 
@@ -685,9 +687,12 @@ export function woodMaterial(noise: THREE.Texture): THREE.MeshStandardNodeMateri
   m.name = "gun-wood";
   const g: N = texture(noise, vec2(positionLocal.x.add(positionLocal.z).mul(2.5), positionLocal.y.mul(0.4))).g;
   const grain: N = texture(noise, vec2(positionLocal.z.mul(0.5).add(positionLocal.x.mul(0.3)), positionLocal.y.mul(5.0))).b;
-  const base: N = mix(color(0x3b352d), color(0x645b50), g.mul(0.7).add(grain.mul(0.25)).add(0.05));
+  const base: N = mix(color(0x342e27), color(0x575047), g.mul(0.7).add(grain.mul(0.25)).add(0.05));
   const top: N = smoothstep(0.55, 0.95, normalWorld.y);
-  m.colorNode = mix(base, color(0x7d7465), top.mul(0.22)).mul(vc().rgb);
+  const col: N = mix(base, color(0x7d7465), top.mul(0.22)).mul(vc().rgb);
+  m.colorNode = col;
+  // A little of the sky's bounce, so a face turned from the sun is still timber and not a black shape.
+  m.emissiveNode = col.mul(0.045);
   m.roughness = 0.92;
   m.metalness = 0;
   return m;

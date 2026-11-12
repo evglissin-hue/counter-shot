@@ -119,7 +119,7 @@ try {
   await closeup("long-side", -3.2, 9.9, -131.4, 0, 9.4, -134, 40);
   await closeup("long-above-behind", 1.2, 12.0, -137.2, 0, 9.4, -133.4, 55);
   await closeup("long-box-rack", -2.6, 9.6, -139.6, 0.6, 9.3, -134.2, 48);
-  await closeup("mortar-side", -6, 2.6, -144, 0, 1.0, -146.5, 45);
+  await closeup("mortar-side", -3.6, 4.6, -142.6, 0.2, 1.1, -146.2, 46);
   await closeup("chain-side", -13.4, 14.6, -129.8, -15, 13.7, -135, 42);
   await closeup("chain-above-behind", -16.7, 15.9, -138.7, -15, 13.4, -134.4, 50);
   await closeup("swivel-side", 14.2, 14.7, -131.6, 15, 13.8, -135, 38);

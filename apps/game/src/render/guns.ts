@@ -353,11 +353,16 @@ export class Guns {
       g.rope.mesh.castShadow = false;
       yaw.add(g.rope.mesh);
       if (drop > ch + 0.05) {
-        // A timber platform makes up the rest of the height to the wall walk.
+        // A timber platform makes up the rest of the height to the wall walk: courses of beams, each a little proud or shy of the next.
         const h = drop - ch;
-        const p = new THREE.BoxGeometry(2.2, h, 2.8);
-        p.translate(0, -ch - h / 2, 0);
-        rootWood.push(p);
+        const n = Math.max(1, Math.round(h / 0.3));
+        const t = h / n;
+        for (let i = 0; i < n; i++) {
+          const inset = (i % 2) * 0.04 + (i % 3) * 0.015;
+          const p = new THREE.BoxGeometry(2.0 - inset * 2, t - 0.014, 2.6 - inset * 2);
+          p.translate(0, -ch - (i + 0.5) * t, 0);
+          rootWood.push(p);
+        }
       }
     } else if (kind === "mortar") {
       // Squat, wide bore; the bed sits under the trunnions.
