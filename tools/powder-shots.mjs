@@ -148,40 +148,59 @@ try {
       const c = document.getElementById("shotcam");
       if (c && c.checked) c.click();
     });
-    const laid = await sb(() => window.__sandbox.aimAtPoint(1, 9.3, 1, 5.6));
-    // The charge whose range is the distance to the magazine.
-    const dist = await sb(() => { const e = window.__sandbox.renderer.powderView.emps[1]; return Math.hypot(9.3 - e.x, 5.6 - e.z); });
-    let best = { level: 0.9, err: Infinity };
-    for (let lv = 0.3; lv <= 1.0001; lv += 0.05) {
-      await sb((l) => window.__sandbox.holdCharge(l), lv);
-      await frames(1);
-      const r = await sb(() => window.__sandbox.chargeRange);
-      const range = typeof r === "number" ? r : r?.range ?? r?.max ?? NaN;
-      if (Math.abs(range - dist) < best.err) best = { level: lv, err: Math.abs(range - dist) };
+    // Record every burst the renderer is told of, to see where the shells come down.
+    await sb(() => {
+      const rd = window.__sandbox.renderer;
+      window.__booms = [];
+      const orig = rd.applyFrame.bind(rd);
+      rd.applyFrame = (f) => {
+        for (let i = 0; i < f.eventCount; i++) if (f.events[i * 5] === 1 && f.events[i * 5 + 4] >= 2.5) window.__booms.push({ x: f.events[i * 5 + 1], y: f.events[i * 5 + 2], z: f.events[i * 5 + 3], r: f.events[i * 5 + 4], tick: f.tick });
+        return orig(f);
+      };
+    });
+    const TX = 9.3, TZ = 5.6;
+    const mortar = await sb(() => { const e = window.__sandbox.renderer.powderView.emps[1]; return { x: e.x, z: e.z }; });
+    /** Lay the mortar on a point and find the charge whose range is the distance to it. */
+    async function lay(px, pz) {
+      const laid = await sb(([x, z]) => window.__sandbox.aimAtPoint(1, x, 1, z), [px, pz]);
+      const dist = Math.hypot(px - mortar.x, pz - mortar.z);
+      const scan = async (from, to, step) => {
+        let best = { level: from, err: Infinity };
+        for (let lv = from; lv <= to + 1e-9; lv += step) {
+          await sb((l) => window.__sandbox.holdCharge(l), lv);
+          await frames(1);
+          const r = await sb(() => window.__sandbox.chargeRange);
+          const range = typeof r === "number" ? r : r?.range ?? r?.max ?? NaN;
+          if (Math.abs(range - dist) < best.err) best = { level: lv, err: Math.abs(range - dist) };
+        }
+        return best;
+      };
+      const coarse = await scan(0.3, 1.0, 0.05);
+      const fine = await scan(Math.max(0.1, coarse.level - 0.05), Math.min(1, coarse.level + 0.05), 0.005);
+      return { laid, dist, level: fine.level, err: fine.err };
     }
-    const coarse = best.level;
-    best = { level: coarse, err: Infinity };
-    for (let lv = coarse - 0.05; lv <= coarse + 0.0501; lv += 0.005) {
-      await sb((l) => window.__sandbox.holdCharge(l), lv);
-      await frames(1);
-      const r = await sb(() => window.__sandbox.chargeRange);
-      const range = typeof r === "number" ? r : r?.range ?? r?.max ?? NaN;
-      if (Math.abs(range - dist) < best.err) best = { level: lv, err: Math.abs(range - dist) };
-    }
-    console.log("mortar laid:", laid, "distance", dist.toFixed(1), "charge", JSON.stringify(best));
     console.log("before", JSON.stringify(await powderNow()));
-    // Shells until the magazine goes up (a shell has to come down inside it): the charge nudged each time.
-    let blown = false;
-    for (const nudge of [0, -0.003, 0.003, -0.006, 0.006, -0.009]) {
-      if (blown) break;
+    let ox = 0, oz = 0, blown = false;
+    for (let attempt = 0; attempt < 6 && !blown; attempt++) {
+      const L = await lay(TX + ox, TZ + oz);
+      console.log("attempt", attempt, "aim point", (TX + ox).toFixed(1), (TZ + oz).toFixed(1), "laid", L.laid, "distance", L.dist.toFixed(1), "charge", L.level.toFixed(3));
       await wait(() => window.__sandbox.reload[1] === 0, undefined, 300000).catch(() => {});
-      await sb(([l]) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, [best.level + nudge]);
-      for (let k = 0; k < 40 && !blown; k++) {
+      const fired = await sb(() => (window.__booms = []).length);
+      void fired;
+      await sb((l) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, L.level);
+      let boom = null;
+      for (let k = 0; k < 60 && !blown && !boom; k++) {
         await adv(0.5);
         blown = await sb(() => (window.__sandbox.match?.powder?.[0].stock ?? 1) === 0 || window.__sandbox.match?.powder?.[0].magazine === -1);
+        boom = await sb(([tx, tz]) => window.__booms.find((b) => Math.hypot(b.x - tx, b.z - tz) < 40) ?? null, [TX, TZ]);
       }
-      console.log("shell", nudge, "blown:", blown);
+      if (boom) {
+        console.log("  burst at", boom.x.toFixed(1), boom.y.toFixed(1), boom.z.toFixed(1), "radius", boom.r.toFixed(1), "blown:", blown);
+        ox -= boom.x - TX;
+        oz -= boom.z - TZ;
+      } else console.log("  no burst seen; blown:", blown);
     }
+    console.log("magazine blown:", blown);
     await shot("05-magazine-blows", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
     await adv(2);
     await shot("05b-magazine-ruin", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
