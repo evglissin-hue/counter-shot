@@ -5,10 +5,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, Unit, type AiLevel, type Difficulty } from "@keepfall/content";
+import { AI_LEVELS, BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, Unit, type AiLevel, type Difficulty } from "@keepfall/content";
 import type { Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput } from "@keepfall/rules";
-import { AiPlayer } from "@keepfall/ai";
+import { AiPlayer, frontFaceZ } from "@keepfall/ai";
 
 await RD.init();
 const R = RD as unknown as Rapier;
@@ -64,7 +64,8 @@ test("a Knight against an idle castle marks the road near a bridge and the groun
   const gate = made.filter((k) => Math.abs(k.x) < REGISTER.radius && k.z < -19.5 - 5 && k.z > -19.5 - 40);
   assert.ok(nearBridge.length >= 1, `marks near a bridge: ${JSON.stringify(made)}`);
   assert.ok(gate.length >= 1, `marks before its gate: ${JSON.stringify(made)}`);
-  for (const k of made) assert.ok(k.z > -75, "all on its own side of the stream");
+  // (Marks on its own side of the stream, but for the enemy gate it holds for its waves.)
+  for (const k of made) assert.ok(k.z > -75 || Math.hypot(k.x, k.z - frontFaceZ(Team.Player)) <= REGISTER.radius + 1, "on its own side of the stream, or on the enemy gate");
   m.free();
 
   const s = setup("squire", team, 11);
@@ -78,7 +79,7 @@ test("a Knight against an idle castle marks the road near a bridge and the groun
 });
 
 function AI_WARM(): number {
-  return 30 * 60; // a Knight's warm-up is at most this (the level's own is checked against the first shot in ai.test.ts)
+  return AI_LEVELS.knight.warmup; // no shot by hand (so no mark) before its warm-up is over
 }
 
 test("with enemy men on a mark a Knight orders a salvo, not twice in 20 s; a Squire (and a Knight with salvo off) never does", () => {
@@ -142,4 +143,45 @@ test("a Knight with a bridge down sends a wave down that road", () => {
   }
   assert.ok(sent.some((x) => x.input.kind === "barracks" && x.input.route === ROUTE_NAMES[1]), "a barracks was sent down the road of the downed bridge");
   m.free();
+});
+
+test("A2: a Knight holds a mark on the enemy gate and orders the salvo (mortar included) at it as its own wave arrives, not before and not twice in 20 s; with marks off or salvo off it does not", () => {
+  for (const [over, marks, salvo] of [[undefined, true, true], [{ marks: 0 }, false, false], [{ salvo: false }, true, false]] as const) {
+    const team = Team.Enemy, foe = Team.Player;
+    const { m, ai, sent } = setup("knight", team, 11, over as Partial<AiLevel> | undefined);
+    const gateZ = frontFaceZ(foe);
+    const gateMark = () => m.register.list(team).find((k) => Math.hypot(k.x, k.z - gateZ) <= REGISTER.radius);
+    for (let i = 0; i < 6 * 60 * 60 && !gateMark(); i++) {
+      ai.step();
+      m.step();
+    }
+    const label = JSON.stringify(over ?? {});
+    assert.equal(!!gateMark(), marks, `${label}: a mark on the enemy gate iff it marks`);
+    if (!marks) {
+      assert.equal(sent.filter((s) => s.input.kind === "mark").length, 0, `${label}: no mark input`);
+      m.free();
+      continue;
+    }
+    const mark = gateMark()!;
+    assert.equal(sent.filter((s) => s.input.kind === "salvo").length, 0, "no salvo before its waves arrive");
+    // Its wave arrives: five men 22 m short of the mark (clear of the guns' own-men guard), guns loaded.
+    const dir = -1;
+    const wv = m.army.newWave(team, 1, true);
+    for (let k = 0; k < 5; k++) m.army.spawnAt(team, wv, Unit.Pikeman, mark.x - 4 + k * 2, mark.z - dir * 22, 0).speed = 0;
+    const before = sent.length;
+    for (let i = 0; i < 50 * 60; i++) {
+      for (const e of m.emplacements) m.world.reload[e.id] = 0;
+      ai.step();
+      m.step();
+    }
+    const salvos = sent.slice(before).filter((s) => s.input.kind === "salvo");
+    if (salvo) {
+      assert.ok(salvos.length >= 1, "a salvo at its gate mark as its wave arrives");
+      const first = salvos[0].input as { mark: number; mortar?: boolean };
+      assert.equal(first.mortar, true, "the mortar is in it");
+      assert.ok(first.mark >= 1 && first.mark <= REGISTER.max);
+      for (let k = 1; k < salvos.length; k++) assert.ok(salvos[k].tick - salvos[k - 1].tick >= REGISTER.salvoEvery, "never twice within 20 s");
+    } else assert.equal(salvos.length, 0, `${label}: sends no salvo`);
+    m.free();
+  }
 });
