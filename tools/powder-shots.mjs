@@ -82,7 +82,7 @@ try {
 
   // ---- fire the long gun a few times so the boys have errands ----
   await sb(() => { window.__sandbox.select(0); return window.__sandbox.aimAtPoint(0, 0, 0, -62); });
-  for (let k = 0; k < 4; k++) {
+  for (let k = 0; k < (want("02") || want("03") || want("04") ? 4 : 0); k++) {
     await wait(() => window.__sandbox.reload[0] === 0, undefined, 300000).catch(() => {});
     await sb(() => window.__sandbox.fire());
     await adv(5);
@@ -104,7 +104,7 @@ try {
       if (c) {
         gotCarry = true;
         const [, x, , z] = c;
-        await shot("02-boy-carrying", { x: x - 4.5, y: 2.4, z: z - 1.2, tx: x, ty: 0.9, tz: z, fov: 50 });
+        await shot("02-boy-carrying", { x: x + 1, y: 8, z: z + 3, tx: x, ty: 0.8, tz: z, fov: 40 });
       }
     }
     if (!gotHoist && hoisting === 0) {
@@ -112,11 +112,10 @@ try {
       const share = await sb(() => window.__sandbox.match.boxes[4]);
       if (share >= 0.4 && share <= 0.6) {
         gotHoist = true;
-        await sb(() => window.__sandbox.freeze(true));
         // The foot and the gun (the renderer's own numbers): the eye a few metres out from the foot, looking up the rope.
         const g = await sb(() => { const v = window.__sandbox.renderer.powderView; const e = v.emps[0], f = v.feet[0]; return { fx: f.x, fz: f.z, gx: e.x, gy: e.y, gz: e.z }; });
         const dx = g.fx - g.gx, dz = g.fz - g.gz, d = Math.hypot(dx, dz) || 1;
-        await shot("03-hoist-long-gun", { x: g.fx + (dx / d) * 5 - (dz / d) * 2, y: 3.2, z: g.fz + (dz / d) * 5 + (dx / d) * 2, tx: (g.fx + g.gx) / 2, ty: g.gy * 0.45, tz: (g.fz + g.gz) / 2, fov: 62 });
+        await shot("03-hoist-long-gun", { x: g.fx + (dx / d) * 9 - (dz / d) * 3, y: 4, z: g.fz + (dz / d) * 9 + (dx / d) * 3, tx: (g.fx + g.gx) / 2, ty: g.gy * 0.45, tz: (g.fz + g.gz) / 2, fov: 62 });
       }
     }
   }
@@ -141,26 +140,35 @@ try {
 
   // ---- the enemy magazine blowing: a mortar shell into it (castle 0, plot 5 at 9.3, 5.6) ----
   if (want("05-magazine-blows")) {
-    await sb(() => { window.__sandbox.select(1); });
-    let laid = await sb(() => window.__sandbox.aimAtPoint(1, 9.3, 1, 5.6));
-    console.log("mortar laid on the magazine:", laid);
+    await sb(() => {
+      window.__sandbox.select(1);
+      const c = document.getElementById("shotcam");
+      if (c && c.checked) c.click();
+    });
+    const laid = await sb(() => window.__sandbox.aimAtPoint(1, 9.3, 1, 5.6));
+    // The charge whose range is the distance to the magazine.
+    const dist = await sb(() => { const e = window.__sandbox.renderer.powderView.emps[1]; return Math.hypot(9.3 - e.x, 5.6 - e.z); });
+    let best = { level: 0.9, err: Infinity };
+    for (let lv = 0.3; lv <= 1.0001; lv += 0.02) {
+      await sb((l) => window.__sandbox.holdCharge(l), lv);
+      await frames(1);
+      const r = await sb(() => window.__sandbox.chargeRange);
+      const range = typeof r === "number" ? r : r?.range ?? r?.max ?? NaN;
+      if (Math.abs(range - dist) < best.err) best = { level: lv, err: Math.abs(range - dist) };
+    }
+    console.log("mortar laid:", laid, "distance", dist.toFixed(1), "charge", JSON.stringify(best));
     await wait(() => window.__sandbox.reload[1] === 0, undefined, 300000).catch(() => {});
-    await sb(() => window.__sandbox.holdCharge(0.95));
-    await sleep(300);
-    await sb(() => window.__sandbox.holdCharge(null));
-    // Watch for the burst: the enemy's store drops to 0 when it blows.
+    await sb((l) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, best.level);
     const before = await powderNow();
     console.log("before", JSON.stringify(before));
     let blown = false;
-    for (let k = 0; k < 120 && !blown; k++) {
-      await adv(0.25);
+    for (let k = 0; k < 80 && !blown; k++) {
+      await adv(0.5);
       blown = await sb(() => (window.__sandbox.match?.powder?.[0].stock ?? 1) === 0 || window.__sandbox.match?.powder?.[0].magazine === -1);
       if (blown) break;
     }
     console.log("magazine blown:", blown);
-    await sb(() => window.__sandbox.freeze(true));
     await shot("05-magazine-blows", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
-    await sb(() => window.__sandbox.freeze(false));
     await adv(2);
     await shot("05b-magazine-ruin", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
   }
