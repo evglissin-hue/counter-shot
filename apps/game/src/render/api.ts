@@ -115,6 +115,12 @@ export interface GameRendererApi {
    */
   setReadyBox(emplacement: number, charges: number, capacity: number): void;
   setCamera(pose: CameraPose): void;
+  /**
+   * The gunner's glass (L1.6): how much the view is a telescope, 0 (none) to 1 (full): the haze cut by a third inside it,
+   * a soft dark ring round it, the edge blurred a little. The renderer eases towards `target` at the rate the field of view
+   * eases. Call it after setCamera: a setCamera without a setGlass after it takes the glass back to 0.
+   */
+  setGlass(target: number): void;
 
   /** Aim help, as xyz triples; null hides. Partial predicted arc (cold white, outlined). */
   setAimArc(points: Float32Array | null): void;

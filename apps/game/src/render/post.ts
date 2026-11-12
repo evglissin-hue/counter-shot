@@ -12,6 +12,7 @@ import {
   dot,
   float,
   hash,
+  If,
   length,
   mix,
   mrt,
@@ -21,6 +22,7 @@ import {
   renderOutput,
   sample,
   screenCoordinate,
+  screenSize,
   screenUV,
   smoothstep,
   uniform,
@@ -74,6 +76,8 @@ export class Grade {
     vignette: uniform(0),
     grain: uniform(0),
     time: uniform(0),
+    /** L1.6: the gunner's glass (0..1): a soft dark ring outside the sight's circle and a touch more contrast inside it. Only the main view sets it. */
+    glass: uniform(0),
   };
 
   apply(style: StylePreset) {
@@ -93,10 +97,15 @@ export class Grade {
       c.assign(c.mul(u.gain).add(u.lift.mul(float(1).sub(c))));
       const l = dot(c, vec3(0.2126, 0.7152, 0.0722));
       c.assign(mix(vec3(l), c, u.saturation));
-      c.assign(c.sub(0.5).mul(u.contrast).add(0.5));
+      // The telescope's circle: r is the distance from the centre in half screen heights (1 at the top and bottom edges).
+      const r = length(uvNode.sub(0.5).mul(vec2(screenSize.x.div(screenSize.y).mul(2.0), 2.0)));
+      const inside = float(1).sub(smoothstep(0.85, 1.05, r));
+      c.assign(c.sub(0.5).mul(u.contrast).mul(float(1).add(u.glass.mul(inside).mul(0.05))).add(0.5));
       const p = uvNode.sub(0.5).mul(vec2(1.25, 1.0));
       const vig = float(1).sub(smoothstep(0.35, 0.95, length(p)).mul(u.vignette));
       c.mulAssign(vig);
+      // Outside the circle at most 45% darker, from r = 0.92 (the ring never touches the sight), never black.
+      c.mulAssign(float(1).sub(smoothstep(0.92, 1.3, r).mul(u.glass).mul(0.45)));
       const g = hash(screenCoordinate.x.add(screenCoordinate.y.mul(4096.0)).add(u.time.mul(60.0).floor().mul(7919.0)).add(1.0)).sub(0.5);
       c.addAssign(g.mul(u.grain));
       return vec4(c.clamp(0.0, 1.0), 1.0);
@@ -128,11 +137,14 @@ export class Post {
     this.scenePass = scenePass;
     this.disposables.push(scenePass);
     let colorNode: N;
+    // L1.6: the glass blurs the scene's edge a little (the rest of the pipeline reads this instead of the raw pass).
+    const rawColor: N = scenePass.getTextureNode("output");
+    const glassed: N = this.glassBlur(rawColor);
     if (tier.ao !== "off") {
       scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }));
       const normalTex = scenePass.getTexture("normal");
       normalTex.type = THREE.UnsignedByteType;
-      const sceneColor: N = scenePass.getTextureNode("output");
+      const sceneColor: N = glassed;
       const normalNode: N = scenePass.getTextureNode("normal");
       const sceneNormal: N = sample((uvNode: N) => unpackRGBToNormal(normalNode.sample(uvNode)));
       const sceneDepth: N = scenePass.getTextureNode("depth");
@@ -145,7 +157,7 @@ export class Post {
       const aoTex: N = aoPass.getTextureNode();
       colorNode = vec4(sceneColor.rgb.mul(mix(float(1), aoTex.r, this.u.aoStrength)), sceneColor.a);
     } else {
-      colorNode = scenePass.getTextureNode("output");
+      colorNode = glassed;
     }
     if (tier.bloom && style.bloom.strength > 0) {
       const b: N = bloom(colorNode, style.bloom.strength, style.bloom.radius, style.bloom.threshold);
@@ -161,6 +173,36 @@ export class Post {
     this.pipeline.outputNode = graded;
     this.pipeline.needsUpdate = true;
     this.applyStyle(style);
+  }
+
+  /**
+   * The edge of the gunner's glass: four taps of the scene diagonally round each pixel, a radius that grows from the ring's inner
+   * edge to about 3 px at the corners, all scaled by the glass. With no glass it is the pixel itself (and the taps are skipped).
+   * It blurs the scene before the occlusion, bloom, tone map and anti-aliasing (the anti-aliased image cannot be sampled at offsets here).
+   */
+  private glassBlur(tex: N): N {
+    const g = this.grade.u.glass;
+    return Fn(() => {
+      const c: N = vec4(tex).toVar();
+      If(g.greaterThan(0.001), () => {
+        const size = screenSize;
+        const r = length(screenUV.sub(0.5).mul(vec2(size.x.div(size.y).mul(2.0), 2.0)));
+        const px = smoothstep(0.92, 1.45, r).mul(g).mul(3.0);
+        const o = vec2(px.div(size.x), px.div(size.y));
+        const acc: N = c.mul(0.36).toVar();
+        acc.addAssign(tex.sample(screenUV.add(vec2(o.x, o.y))).mul(0.16));
+        acc.addAssign(tex.sample(screenUV.add(vec2(o.x.negate(), o.y))).mul(0.16));
+        acc.addAssign(tex.sample(screenUV.add(vec2(o.x, o.y.negate()))).mul(0.16));
+        acc.addAssign(tex.sample(screenUV.add(vec2(o.x.negate(), o.y.negate()))).mul(0.16));
+        c.assign(acc);
+      });
+      return c;
+    })();
+  }
+
+  /** L1.6: the gunner's glass for the main view (0..1). */
+  setGlass(v: number) {
+    this.grade.u.glass.value = v;
   }
 
   /** Style values that are plain uniforms (no rebuild). */
