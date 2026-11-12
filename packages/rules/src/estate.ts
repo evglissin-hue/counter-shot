@@ -22,6 +22,7 @@ import {
   WEAPON_KINDS,
   BARREL,
   GUN_HITS,
+  POWDER,
   type BuildingKind,
   type Emplacement,
   type MixName,
@@ -73,6 +74,13 @@ export class Estate {
   build(team: number, plot: number, kind: BuildingKind, tick: number): boolean {
     if (plot < 0 || plot >= PLOTS.length || !BUILDINGS[kind]) return false;
     const s = this.structures.slot(team, plot);
+    // 3.3: a team holds one magazine, standing or rising (a ruin does not count): another is refused, and so is rebuilding a ruin beside one.
+    if (kind === "magazine") {
+      for (let p = 0; p < PLOTS.length; p++) {
+        const o = this.structures.slot(team, p);
+        if (p !== plot && BUILDING_KINDS[o.kind] === "magazine" && (o.state === PlotState.Standing || o.state === PlotState.Rising)) return false;
+      }
+    }
     if (s.state === PlotState.Empty) {
       if (!this.economy.pay(team, BUILDINGS[kind].cost)) return false;
       return this.structures.build(team, plot, BUILDING_KINDS.indexOf(kind), tick);
@@ -93,6 +101,23 @@ export class Estate {
     e.weapon = weapon;
     e.empty = false;
     e.barrel = BARREL[weapon];
+    // 3.3: a gun bought later arrives with its box full.
+    this.world.carriers?.armed(e);
+    return true;
+  }
+
+  /** The plot of the team's working magazine (-1: none). */
+  magazine(team: number): number {
+    for (let p = 0; p < PLOTS.length; p++) if (this.kindOn(team, p) === "magazine" && this.structures.works(team, p)) return p;
+    return -1;
+  }
+
+  /** Buy powder at the working magazine: POWDER.buy.charges for POWDER.buy.gold, at once; refused without a working magazine, without room for all of it, or without the gold. */
+  buyPowder(team: number): boolean {
+    const c = this.world.carriers;
+    if (!c || this.magazine(team) < 0 || c.room(team) < POWDER.buy.charges) return false;
+    if (!this.economy.pay(team, POWDER.buy.gold)) return false;
+    c.store(team, POWDER.buy.charges);
     return true;
   }
 
@@ -150,8 +175,8 @@ export class Estate {
    * plot is taken, the slot armed) is passed over.
    */
   followPlan(team: number, tick: number) {
-    // A ruin comes first: rebuild it (a barracks before anything else) as soon as it can be paid for.
-    for (const kind of ["barracks", "mill", "foundry"] as BuildingKind[]) {
+    // A ruin comes first: rebuild it (a magazine, then a barracks, before anything else) as soon as it can be paid for.
+    for (const kind of ["magazine", "barracks", "mill", "foundry"] as BuildingKind[]) {
       for (let p = 0; p < PLOTS.length; p++) {
         const s = this.structures.slot(team, p);
         if (s.state !== PlotState.Ruined || BUILDING_KINDS[s.kind] !== kind) continue;

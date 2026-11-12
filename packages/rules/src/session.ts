@@ -30,7 +30,7 @@ export const MATCH_HASH = { state: "edd989a0", world: "7f743abe" } as const;
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
 /** The keep match is about the keep: no barracks, no build order, and the enemy's masons kept home, so it comes down to shells alone. */
-export const MATCH_OPTIONS: Partial<MatchOptions> = { masons: false, barracks: false, plan: false };
+export const MATCH_OPTIONS: Partial<MatchOptions> = { masons: false, barracks: false, plan: false, powder: false };
 
 export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [30, Team.Player, fire(1, 0, 0.9078)],
