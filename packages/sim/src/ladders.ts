@@ -146,7 +146,7 @@ export class Ladders {
    * true if it did.
    */
   claim(m: Minion, wayIn: boolean): boolean {
-    if (wayIn || m.role !== Role.March || m.task !== Climb.None || m.unit === Unit.Mason) return false;
+    if (wayIn || m.role !== Role.March || m.task !== Climb.None || m.unit === Unit.Mason || m.unit === Unit.PowderBoy) return false;
     let best = -1, bd = LADDER.pull * LADDER.pull;
     for (const L of this.list) {
       if (L.state !== LadderState.Planted || L.team !== m.team || L.claims >= LADDER.queue) continue;

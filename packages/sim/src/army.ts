@@ -44,7 +44,7 @@ import { FLOW_INF, FLOW_REGION, FlowFields, type FieldSpec } from "./flow";
 import type { Ladders } from "./ladders";
 import type { Gangs } from "./gangs";
 import { LocalFields } from "./local";
-import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import { Cause, MinionState, Role, isWorker, yawOf, type Minion, type Minions } from "./minions";
 import type { Specialists, Steer } from "./specialists";
 import { NAV_GRID, NavKind, navCell, navWalkable, type NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
@@ -375,7 +375,7 @@ export class Army {
    * their keg's errand (their task and aux are their own until then).
    */
   private climbs(m: Minion): boolean {
-    if (m.role === Role.Gang || m.unit === Unit.Mason || m.unit === Unit.Musketeer) return false;
+    if (m.role === Role.Gang || m.unit === Unit.Mason || m.unit === Unit.PowderBoy || m.unit === Unit.Musketeer) return false;
     return !(this.specialists !== null && this.specialists.busy(m));
   }
 
@@ -413,7 +413,7 @@ export class Army {
   /** Upright minions of a team (masons do not count). */
   standing(team: number): number {
     let n = 0;
-    for (const m of this.minions.list) if (m.team === team && m.wave >= 0 && m.state === MinionState.Upright && m.role !== Role.Mason) n++;
+    for (const m of this.minions.list) if (m.team === team && m.wave >= 0 && m.state === MinionState.Upright && !isWorker(m)) n++;
     return n;
   }
 
@@ -430,7 +430,7 @@ export class Army {
     const counted = new Int32Array(this.waves);
     for (const m of list) {
       if (m.state !== MinionState.Upright || m.wave < 0) continue;
-      if (m.role !== Role.Mason && !onWall(m)) {
+      if (!isWorker(m) && !onWall(m)) {
         for (let c = 0; c < 2; c++) {
           if (!inCourtyard(c, m.x, m.z)) continue;
           if (m.team === c) this.defenders[c]++;
@@ -454,7 +454,7 @@ export class Army {
   }
 
   private think(m: Minion, tick: number) {
-    if (m.role === Role.Mason) return; // works.ts
+    if (isWorker(m)) return; // works.ts and carriers.ts
     if (this.ladders && this.ladders.controls(m)) return;
     if (this.gangs && this.gangs.controls(m)) return; // gangs.ts
     const unit = UNIT_DEFS[m.unit] ?? UNITS.pikeman;
@@ -782,7 +782,7 @@ export class Army {
   private nearestIntruder(m: Minion): Minion | null {
     let best: Minion | null = null, bd = Infinity;
     for (const n of this.minions.list) {
-      if (n.team === m.team || n.state !== MinionState.Upright || n.wave < 0 || n.role === Role.Mason || climbing(n)) continue;
+      if (n.team === m.team || n.state !== MinionState.Upright || n.wave < 0 || isWorker(n) || climbing(n)) continue;
       if (!inCourtyard(m.home, n.x, n.z)) continue;
       const d = (n.x - m.x) * (n.x - m.x) + (n.z - m.z) * (n.z - m.z);
       if (d < bd) {
@@ -807,7 +807,7 @@ export class Army {
         if (i < 0 || i >= this.bnx) continue;
         for (let k = this.head[j * this.bnx + i]; k >= 0; k = this.next[k]) {
           const n = list[k];
-          if (n.team === m.team || n.state !== MinionState.Upright) continue;
+          if (n.team === m.team || n.state !== MinionState.Upright || n.role === Role.Carrier) continue;
           if (inside >= 0 && !inCourtyard(inside, n.x, n.z)) continue;
           const dx = n.x - m.x, dz = n.z - m.z;
           if (dx * dx + dz * dz <= s2) near.push(k);
@@ -899,7 +899,7 @@ export class Army {
         if (i < 0 || i >= this.bnx) continue;
         for (let k = this.head[j * this.bnx + i]; k >= 0; k = this.next[k]) {
           const n = list[k];
-          if (n.team === team || n.state !== MinionState.Upright || n.role === Role.Mason) continue;
+          if (n.team === team || n.state !== MinionState.Upright || isWorker(n)) continue;
           const d = (n.x - x) * (n.x - x) + (n.z - z) * (n.z - z);
           if (d < bd || (d === bd && best !== null && n.id < best.id)) {
             bd = d;
