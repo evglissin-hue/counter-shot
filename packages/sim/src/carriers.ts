@@ -190,6 +190,8 @@ const ARRIVED = 1.0;
 const LOOK = 5;
 /** A boy gains ground when he gets this much closer (m). */
 const PROGRESS = 0.4;
+/** Ticks without getting closer after which a boy follows his own cell's way down the field (LocalFields.downhill), not the blended way. */
+const STALL = 30;
 /** Rounds of bursts setting off bursts in one tick. */
 const ROUNDS = 8;
 /** Ticks between looks for a way round when a boy's goal is cut off. */
@@ -479,10 +481,11 @@ export class Carriers {
     }
   }
 
-  private walkTo(m: Minion, x: number, z: number, speed: number, action: number): boolean {
+  private walkTo(m: Minion, x: number, z: number, speed: number, action: number, slow = false): boolean {
     const local = this.army.local;
-    // When his last step went nowhere (the blended way pushed him into a heap he cannot step onto), he follows his own cell's way down.
-    const stalled = m.vx * m.vx + m.vz * m.vz < 0.01;
+    // When his last step went nowhere, or he has not got closer for a while (the blended way pushes him into a heap he
+    // cannot step onto, or rocks him between two cells at its corner), he follows his own cell's way down.
+    const stalled = slow || m.vx * m.vx + m.vz * m.vz < 0.01;
     if (!(stalled && local.downhill(m.home, x, z, m.x, m.z, this.dir)) && !local.steer(m.home, x, z, m.x, m.z, this.dir)) return false;
     this.army.move(m, this.dir[0], this.dir[1], speed, NaN, action as Action);
     return true;
@@ -551,7 +554,7 @@ export class Carriers {
     const tx = t.x - m.x, tz = t.z - m.z;
     if (tx * tx + tz * tz <= ARRIVED * ARRIVED) return true;
     if (this.noProgress(b, m, d) && d <= POWDER.reach) return true;
-    if (!this.walkTo(m, t.x, t.z, speed, action)) {
+    if (!this.walkTo(m, t.x, t.z, speed, action, b.stuck >= STALL)) {
       this.stand(m, NaN, standAction);
       // No way from here: look round the goal again soon.
       if (b.seek > tick + 30) b.seek = tick + 30;
