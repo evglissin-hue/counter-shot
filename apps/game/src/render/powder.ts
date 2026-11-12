@@ -104,7 +104,8 @@ export class PowderView {
       const door = magazineDoor(c, plot);
       for (let i = 0; i < n; i++) {
         const slot = stackSlot(i);
-        p.set(door.x, slot.y, door.z + slot.along);
+        // A little in towards the plot's wall, so the stack sits under the lean-to's roof.
+        p.set(door.x + (door.x > 0 ? -0.3 : 0.3), slot.y, door.z + slot.along);
         m.compose(p, q, one);
         this.stacks.setMatrixAt(k++, m);
       }
