@@ -40,7 +40,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   /** Steps slower than 16 ms and 33 ms (one slow step on a busy machine says little; many say more). */
   const slow: [number, number] = [0, 0];
   /** 3.2: marks made (each is a new object in the register) and salvos fired (a new salvoAt), by castle. */
-  const marksMade: [number, number] = [0, 0], salvos: [number, number] = [0, 0];
+  const marksMade: [number, number] = [0, 0], salvos: [number, number] = [0, 0], salvoGuns: [number, number] = [0, 0];
   const seenMarks = new WeakSet<object>();
   const salvoAt: [number, number] = [m.register.salvoAt[0], m.register.salvoAt[1]];
   const sample = (tick: number) => {
@@ -78,7 +78,12 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     if (ms > 33) slow[1]++;
     for (const c of [0, 1] as const) {
       for (const k of m.register.marks[c]) if (k && !seenMarks.has(k)) (seenMarks.add(k), marksMade[c]++);
-      if (m.register.salvoAt[c] !== salvoAt[c]) (salvoAt[c] = m.register.salvoAt[c], salvos[c]++);
+      if (m.register.salvoAt[c] !== salvoAt[c]) {
+        salvoAt[c] = m.register.salvoAt[c];
+        salvos[c]++;
+        // The shots a salvo queues all go in on the tick it is ordered (the one before had long fired).
+        for (const q of m.register.queued) if (q.team === c) salvoGuns[c]++;
+      }
     }
     if (i % 10 === 0) {
       moving = m.world.castle.awakeCount();
@@ -113,6 +118,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     slowSteps: slow,
     marks: marksMade,
     salvos,
+    salvoGuns,
     autoOnMark: [m.autoOnMark[0], m.autoOnMark[1]],
     bridgesUp: m.army.bridgeOpen.filter(Boolean).length,
   };

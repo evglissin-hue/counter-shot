@@ -85,6 +85,8 @@ export interface Totals {
   marks?: [number, number];
   salvos?: [number, number];
   autoOnMark?: [number, number];
+  /** 3.2 (A2): guns that fired in salvos, by castle (salvos x guns). Older lines lack it. */
+  salvoGuns?: [number, number];
   bridgesUp?: number;
 }
 
