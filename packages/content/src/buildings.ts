@@ -121,11 +121,12 @@ export interface BuildingPiece {
 }
 
 /**
- * 3.3: the magazine's stone vault is hard masonry (a burst reaches half as far
- * into it), so it is wrecked by a shell on it, not by every shell that falls
- * near it: the best target in the game takes a good shot.
+ * 3.3: the magazine's stone vault is hard masonry (a burst reaches a third as
+ * far into it), so it is wrecked by a shell on it, not by every shell that
+ * falls near it: the best target in the game takes a good shot. (At 2, shells
+ * that missed plots in front of it by a few metres still wrecked it.)
  */
-export const MAGAZINE_HARD = 2;
+export const MAGAZINE_HARD = 3;
 
 const GAP = 0.004;
 const IDENTITY: Quat = [0, 0, 0, 1];

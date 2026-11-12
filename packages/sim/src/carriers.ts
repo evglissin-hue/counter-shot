@@ -19,7 +19,7 @@
 //   by hand, by its crew or in a salvo; it refuses a fire canPay refuses).
 // - Boys: POWDER.boys per castle, Unit.PowderBoy minions with Role.Carrier in
 //   the minion list (a wave of their own, like the masons' crew), spawned at
-//   keepDoor(). Each repeats an errand: choose the gun most in need (POWDER.topUp
+//   the store's door. Each repeats an errand: choose the gun most in need (POWDER.topUp
 //   order: the gun the team rides, then a gun that cannot fire, then the
 //   emptiest under topUp), walk to the store (magazineDoor of the working
 //   magazine, else keepDoor), take a full keg (POWDER.take ticks; POWDER.keg
@@ -30,10 +30,13 @@
 //   he makes for the nearest point within POWDER.reach of it he can get to.
 //   The team that rides a gun is asked through the
 //   policy. They run from enemy men within POWDER.flee as masons do, with their
-//   kegs. A boy who falls is replaced at keepDoor after POWDER.respawn ticks.
-//   A boy who cannot reach a gun's foot for POWDER.stuck ticks hoists from
-//   where he stands within POWDER.reach of it, or takes the keg to the next
-//   gun in need (that gun passed over for POWDER.skip ticks).
+//   kegs. A boy who falls is replaced at the store's door after
+//   POWDER.respawn ticks. A boy who cannot reach a gun's foot for
+//   POWDER.stuck ticks hoists from where he stands within POWDER.reach of it,
+//   or takes the keg to the next gun in need (that gun passed over for
+//   POWDER.skip ticks). One with no way at all to the store for POWDER.stuck
+//   ticks (walled in by rubble, left on a ledge) finds his way round to its
+//   door (findWay).
 // - Kegs burst: a boy knocked down while he carries a keg, by a ball,
 //   falling masonry, or a burst whose radius reaches him (its farther knock
 //   only throws him down: the keg rolls away unlit), sets it off where he lies: a
@@ -87,6 +90,7 @@ import { dsqrt } from "@keepfall/core";
 import type { Action, Army } from "./army";
 import { EventKind } from "./frame";
 import { LOCAL_INF } from "./local";
+import { navCell } from "./nav";
 import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
 import { PlotState, type Structures } from "./structures";
 
@@ -234,7 +238,7 @@ export class Carriers {
     }
   }
 
-  /** Both castles' boys, at the keep's door (the start of a match). */
+  /** Both castles' boys, at the store's door (the start of a match). */
   spawnAll() {
     for (const c of [0, 1] as const) {
       if (this.wave[c] < 0) this.wave[c] = this.army.newWave(c, 1, true);
@@ -243,8 +247,11 @@ export class Carriers {
   }
 
   private spawn(b: Boy) {
-    const d = keepDoor(b.castle);
-    const x = d.x + (b.slot - (POWDER.boys - 1) / 2) * 1.2, z = d.z;
+    // At the store's door: along the magazine's lean-to (its door faces x = 0), or beside the keep's door.
+    const p = this.magazinePlot(b.castle);
+    const d = p >= 0 ? magazineDoor(b.castle, p) : keepDoor(b.castle);
+    const off = (b.slot - (POWDER.boys - 1) / 2) * 1.2;
+    const x = p >= 0 ? d.x : d.x + off, z = p >= 0 ? d.z + off : d.z;
     const m = this.army.spawnAt(b.castle, this.wave[b.castle], Unit.PowderBoy, x, z, b.castle === 0 ? 3.141592653589793 / 2 : 0);
     m.role = Role.Carrier;
     m.home = b.castle;
@@ -536,6 +543,27 @@ export class Carriers {
     return false;
   }
 
+  /**
+   * A boy with no way at all to the store (walled in by rubble, left on a
+   * ledge a burst carved out) who has made no progress for POWDER.stuck ticks
+   * finds his way round: he is at its door.
+   */
+  private findWay(b: Boy, m: Minion, d: { x: number; z: number }) {
+    if (b.stuck < POWDER.stuck) return;
+    const local = this.army.local;
+    if (local.cost(m.home, d.x, d.z, m.x, m.z) < LOCAL_INF || local.cost(m.home, b.tx, b.tz, m.x, m.z) < LOCAL_INF) return;
+    m.x = d.x;
+    m.z = d.z;
+    const c = navCell(d.x, d.z);
+    if (c >= 0) m.y = this.army.surface(d.x, d.z, c);
+    this.minions.place(m);
+    b.stuck = 0;
+    b.best = Infinity;
+    b.goal = -1;
+    b.gx = b.gz = NaN;
+    b.seek = 0;
+  }
+
   private think(b: Boy, m: Minion, tick: number) {
     const castle = b.castle;
     const loaded = b.keg > 0;
@@ -580,6 +608,7 @@ export class Carriers {
         const d = this.storeDoor(castle);
         if (!this.walkGoal(b, m, d.x, d.z, speed, walkAction, standAction, tick)) {
           m.task = BoyTask.Back;
+          this.findWay(b, m, d);
           return;
         }
         // At the store: powder he brought back goes back in (what does not fit is lost).
@@ -597,7 +626,10 @@ export class Carriers {
       }
       case BoyTask.ToStore: {
         const d = this.storeDoor(castle);
-        if (!this.walkGoal(b, m, d.x, d.z, speed, walkAction, standAction, tick)) return;
+        if (!this.walkGoal(b, m, d.x, d.z, speed, walkAction, standAction, tick)) {
+          this.findWay(b, m, d);
+          return;
+        }
         m.task = BoyTask.Take;
         m.cool = POWDER.take;
         m.act = 0;
