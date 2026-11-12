@@ -116,7 +116,17 @@ export interface BuildingPiece {
   z: number;
   q: Quat;
   course: number;
+  /** Hard masonry (Stone.hard): a burst reaches only 1/hard as far into it. */
+  hard?: number;
 }
+
+/**
+ * 3.3: the magazine's stone vault is hard masonry (a burst reaches a third as
+ * far into it), so it is wrecked by a shell on it, not by every shell that
+ * falls near it: the best target in the game takes a good shot. (At 2, shells
+ * that missed plots in front of it by a few metres still wrecked it.)
+ */
+export const MAGAZINE_HARD = 3;
 
 const GAP = 0.004;
 const IDENTITY: Quat = [0, 0, 0, 1];
@@ -237,6 +247,7 @@ export function buildingPieces(kind: BuildingKind, plot: Plot): BuildingPiece[] 
         for (const side of [-1, 1]) run("z", cz - d / 2 + WALL, cz + d / 2 - WALL, vx + side * (vw / 2 - WALL / 2), y, !odd, k);
       }
       for (const side of [-1, 1]) add("house", "stone", vw / 2, 0.1, d / 4, vx, 1.6 + 0.1, cz + side * (d / 4), n);
+      for (const p of out) if (p.material === "stone") p.hard = MAGAZINE_HARD;
     }
     // The lean-to: three wood posts along its open edge and one sloped plank roof, rising towards the vault.
     {

@@ -650,6 +650,8 @@ export class SandboxSim {
     this.ladders?.blast(x, y, z, E.knock * 0.5, this.tick);
     // M3: kegs set within its reach go off with it.
     this.specialists?.burstNear(x, y, z, E.radius * 1.3, shot, this.tick);
+    // 3.3: a powder boy's keg within its radius is lit (it goes off if the burst throws him down).
+    this.carriers?.burstNear(x, y, z, E.radius);
     for (const n of this.minions.near(x, y, z, E.knock)) {
       const d = n.d + 0.3;
       const f = E.knockSpeed * (1 - n.d / E.knock);

@@ -37,10 +37,18 @@ test("the same setup gives the same line; a variant differs; undo leaves the bas
   assert.equal(a.result.winner, null);
   for (const side of [0, 1] as const) {
     const sum = AIM_KINDS.reduce((n, k) => n + a.totals.byHand[side][k], 0);
-    // 3.3: a fire the gunner chose for a box that cannot pay is refused by the match (shots counts what was fired); the gunner learns to look first.
-    assert.ok(sum >= a.totals.shots[side] && sum <= a.totals.shots[side] + 3, `${sum} chosen, ${a.totals.shots[side]} fired`);
+    assert.equal(sum, a.totals.shots[side], "the gunner never sends a fire the rules refuse for want of powder");
   }
   assert.ok(a.totals.shots[0] + a.totals.shots[1] > 0, "shots were fired");
+  // 3.3: the powder fields: spent is the cost of the shots that left (by hand and by crews), the stock is sampled, no magazine blew in 40 s.
+  const t = a.totals;
+  for (const side of [0, 1] as const) {
+    assert.ok(t.powderSpent![side] >= t.shots[side] + t.auto[side], `${t.powderSpent![side]} charges spent on ${t.shots[side] + t.auto[side]} shots`);
+    assert.ok(t.powderMade![side] >= 0 && t.powderBought![side] % 20 === 0 && t.powderLost![side] >= 0 && t.dryRideSecs![side] <= 40);
+    assert.equal(t.magazineBlown![side], -1);
+    assert.equal(t.magazinesBlown![side], 0);
+  }
+  assert.ok(a.samples.every((x) => x.stock!.every((n) => n >= 0)) && a.samples.every((x) => x.plots.every((p) => p[5] === "K")), "the magazine stands on plot 5 (K)");
   assert.ok(a.totals.build.length > 0 && a.totals.build.every((e) => /^(build|buy|upgrade) /.test(e[2])));
   assert.equal(a.rules.match > 0, true);
 });
