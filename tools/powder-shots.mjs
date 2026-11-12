@@ -159,18 +159,29 @@ try {
       const range = typeof r === "number" ? r : r?.range ?? r?.max ?? NaN;
       if (Math.abs(range - dist) < best.err) best = { level: lv, err: Math.abs(range - dist) };
     }
-    console.log("mortar laid:", laid, "distance", dist.toFixed(1), "charge", JSON.stringify(best));
-    await wait(() => window.__sandbox.reload[1] === 0, undefined, 300000).catch(() => {});
-    await sb((l) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, best.level);
-    const before = await powderNow();
-    console.log("before", JSON.stringify(before));
-    let blown = false;
-    for (let k = 0; k < 80 && !blown; k++) {
-      await adv(0.5);
-      blown = await sb(() => (window.__sandbox.match?.powder?.[0].stock ?? 1) === 0 || window.__sandbox.match?.powder?.[0].magazine === -1);
-      if (blown) break;
+    const coarse = best.level;
+    best = { level: coarse, err: Infinity };
+    for (let lv = coarse - 0.05; lv <= coarse + 0.0501; lv += 0.005) {
+      await sb((l) => window.__sandbox.holdCharge(l), lv);
+      await frames(1);
+      const r = await sb(() => window.__sandbox.chargeRange);
+      const range = typeof r === "number" ? r : r?.range ?? r?.max ?? NaN;
+      if (Math.abs(range - dist) < best.err) best = { level: lv, err: Math.abs(range - dist) };
     }
-    console.log("magazine blown:", blown);
+    console.log("mortar laid:", laid, "distance", dist.toFixed(1), "charge", JSON.stringify(best));
+    console.log("before", JSON.stringify(await powderNow()));
+    // Shells until the magazine goes up (a shell has to come down inside it): the charge nudged each time.
+    let blown = false;
+    for (const nudge of [0, -0.003, 0.003, -0.006, 0.006, -0.009]) {
+      if (blown) break;
+      await wait(() => window.__sandbox.reload[1] === 0, undefined, 300000).catch(() => {});
+      await sb(([l]) => { window.__sandbox.holdCharge(l); window.__sandbox.holdCharge(null); }, [best.level + nudge]);
+      for (let k = 0; k < 40 && !blown; k++) {
+        await adv(0.5);
+        blown = await sb(() => (window.__sandbox.match?.powder?.[0].stock ?? 1) === 0 || window.__sandbox.match?.powder?.[0].magazine === -1);
+      }
+      console.log("shell", nudge, "blown:", blown);
+    }
     await shot("05-magazine-blows", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
     await adv(2);
     await shot("05b-magazine-ruin", { x: 38, y: 24, z: -26, tx: 8, ty: 3, tz: 5, fov: 55 });
