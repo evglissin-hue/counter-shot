@@ -82,7 +82,40 @@ export interface AiLevel {
   salvo: boolean;
   /** 3.2: when a bridge is down it sends a wave down that road, so a gang relays it (REGISTER.gang*). */
   gangs: boolean;
+  /**
+   * Its orders (the Knight and up; the Squire and the tutor never hold). It holds when the real threat (enemy marchers on its
+   * side of the stream or near its gate) is over `holdRatio` times its own marchers plus `holdMargin`; a Hold lasts at most
+   * `holdMax` ticks and none returns for `holdRest`. It pushes once a way in has stayed open `pushAfter` ticks and leaves Push
+   * once it has stayed shut `pushLeave`. An order stands `orderDwell` ticks (a Push may come after `pushDwell`), and at
+   * most `orderCap` changes in `orderSpan` ticks. With `holdNever` of the standing cap to spare it never holds (men to send).
+   */
+  holdRatio: number;
+  holdMargin: number;
+  holdMax: number;
+  holdRest: number;
+  pushAfter: number;
+  pushLeave: number;
+  orderDwell: number;
+  pushDwell: number;
+  orderCap: number;
+  orderSpan: number;
+  holdNever: number;
 }
+
+/** The numbers every level's orders share. */
+const ORDERS = {
+  holdRatio: 1.6,
+  holdMargin: 4,
+  holdMax: 45 * 60,
+  holdRest: 60 * 60,
+  pushAfter: 4 * 60,
+  pushLeave: 10 * 60,
+  orderDwell: 20 * 60,
+  pushDwell: 10 * 60,
+  orderCap: 6,
+  orderSpan: 5 * 60 * 60,
+  holdNever: 8,
+};
 
 export const AI_LEVELS: Record<AiName, AiLevel> = {
   squire: {
@@ -110,6 +143,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 0,
     salvo: false,
     gangs: false,
+    ...ORDERS,
   },
   knight: {
     name: "Knight",
@@ -136,6 +170,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 1,
     salvo: true,
     gangs: true,
+    ...ORDERS,
   },
   warlord: {
     name: "Warlord",
@@ -162,6 +197,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 2,
     salvo: true,
     gangs: true,
+    ...ORDERS,
   },
   // M6: the guided first match's castle. Placeholder numbers (a slower,
   // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
@@ -190,6 +226,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 0,
     salvo: false,
     gangs: false,
+    ...ORDERS,
   },
 };
 

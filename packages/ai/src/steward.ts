@@ -11,13 +11,13 @@ import {
   BUILDINGS,
   GUN_HITS,
   MIX_NAMES,
-  MUSTER,
   PLOTS,
   POWDER,
   REGISTER,
   ROUTE_NAMES,
   TUTOR,
   UPGRADES,
+  WAVES,
   WEAPON_COST,
   type AiLevel,
   type AiStep,
@@ -354,22 +354,62 @@ export class Steward {
     return best >= 0 ? ROUTE_NAMES[best] : null;
   }
 
-  /** Orders: push through a way in; hold at the markers while the enemy in the field far outnumbers its own; else advance. */
+  /** The tick a Hold began, until when none may begin, the ticks of its recent order changes, and since when a way in has stood open or shut. */
+  private holdAt = -1e9;
+  private holdBan = -1e9;
+  private changes: number[] = [];
+  private openSince = -1;
+  private shutSince = -1;
+
+  /**
+   * Orders: push through a way in that stays open; hold at the markers only against a real threat (enemy men on its side of
+   * the stream or at its gate, far more than its own), for a while at most; else advance. The tutor and the Squire keep the
+   * old rules (a way in pushes, nothing holds).
+   */
   private orders(tick: number) {
-    const m = this.m, team = this.team, foe = 1 - team;
-    let order: Order = Order.Advance;
-    if (this.stage) order = Order.Advance; // the tutor never pushes or holds
-    else if (V.wayIn(m, team)) order = Order.Push;
-    else if (this.L.adapts) {
-      const mine = V.marchers(m, team), theirs = V.marchers(m, foe, MUSTER[team].x, MUSTER[team].z, 120);
-      if (theirs > mine * 1.6 + 4) order = Order.Hold;
+    const m = this.m, team = this.team, L = this.L;
+    if (this.stage || !L.adapts) {
+      let order: Order = Order.Advance;
+      if (!this.stage && V.wayIn(m, team)) order = Order.Push;
+      if (order !== this.order && tick - this.orderAt >= (this.order === Order.Push ? 20 : 10) * 60) this.change(tick, order);
+      return;
     }
-    // An order holds for a while (a way in that opens and closes as rubble settles does not swing the waves about).
-    if (order !== this.order && tick - this.orderAt >= (this.order === Order.Push ? 20 : 10) * 60) {
-      this.order = order;
-      this.orderAt = tick;
-      this.send(tick, { kind: "order", order });
+    const way = V.wayIn(m, team);
+    if (way) {
+      this.shutSince = -1;
+      if (this.openSince < 0) this.openSince = tick;
+    } else {
+      this.openSince = -1;
+      if (this.shutSince < 0) this.shutSince = tick;
     }
+    let want: Order;
+    if (this.order === Order.Push) {
+      const left = !way && this.shutSince >= 0 && tick - this.shutSince >= L.pushLeave;
+      want = left ? Order.Advance : Order.Push;
+    } else if (way && this.openSince >= 0 && tick - this.openSince >= L.pushAfter) want = Order.Push;
+    else want = Order.Advance;
+    if (want === Order.Advance) {
+      const mine = V.marchers(m, team), theirs = V.threat(m, team);
+      const grave = theirs > mine * L.holdRatio + L.holdMargin && V.standing(m, team) < WAVES.maxStanding - L.holdNever;
+      if (this.order === Order.Hold) {
+        if (grave && tick - this.holdAt < L.holdMax) want = Order.Hold;
+      } else if (grave && tick >= this.holdBan) want = Order.Hold;
+    }
+    if (want === this.order) return;
+    const dwell = want === Order.Push ? L.pushDwell : L.orderDwell;
+    if (tick - this.orderAt < dwell) return;
+    this.changes = this.changes.filter((t) => tick - t < L.orderSpan);
+    if (this.changes.length >= L.orderCap) return;
+    this.change(tick, want);
+  }
+
+  private change(tick: number, order: Order) {
+    if (this.order === Order.Hold) this.holdBan = tick + this.L.holdRest;
+    if (order === Order.Hold) this.holdAt = tick;
+    this.order = order;
+    this.orderAt = tick;
+    this.changes.push(tick);
+    this.send(tick, { kind: "order", order });
   }
 
   /** Repairs: the keep and the gate always; walls and towers while there is gold for them. */
