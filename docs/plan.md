@@ -70,6 +70,7 @@ A browser game where two castles face each other across a field. You fire siege 
 | Kept for later (November 10) | The Castle Architect with sieges by post, and the March (a campaign): the owner likes both and finds them too ambitious for now. They are written down in `docs/future.md`. |
 | Dropped (November 10) | The counter-shot idea (shooting shells out of the air, guns hidden until they fire, woolsacks over a wall): the owner said no. Smoke, pitched with it, stays as part of phase 3's elements. |
 | Who builds phase 3 | Other sessions and models than the one that wrote its specs (the owner expects Opus for the master). So each spec says the rules and where they live, and the master still traces the code before it briefs. |
+| Phase 3 answers (November 13) | Powder (3.3): the gun you ride does not always have powder; every gun pays and the gun you ride is served first (the spec's default). Marks (3.2): the enemy does not see your marks. Tuning 3.3 (magazines blowing in 46% of matches, the ridden gun dry about a third of a match) is put off until later; 3.4 goes ahead first. |
 
 ## Race proposals (for review)
 

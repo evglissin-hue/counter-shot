@@ -33,7 +33,8 @@ async function open(hash, name) {
   for (let i = 0; i < 3; i++) {
     try {
       await page.goto(`http://127.0.0.1:${PORT}/index.html#${hash}`, { waitUntil: "load", timeout: 180000 });
-      await page.waitForFunction(() => !!window.__sandbox, null, { timeout: 60000 });
+      // The page is busy compiling for a while after load (about 40 s in software rendering since L1); reloading a busy page hangs, so wait long.
+      await page.waitForFunction(() => !!window.__sandbox, null, { timeout: 180000, polling: 1000 });
       break;
     } catch (e) {
       if (i === 2) throw e;

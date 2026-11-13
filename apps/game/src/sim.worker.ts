@@ -5,7 +5,7 @@
 // page sends inputs; the worker tags each with a tick, steps the sim and posts
 // what changed.
 
-import { ASHWRIGHT_EMPLACEMENTS, buildLayout, CASTLE_SHAPE, Earn, UNMANNED, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
+import { ASHWRIGHT_EMPLACEMENTS, boxSize, buildLayout, CASTLE_SHAPE, Earn, UNMANNED, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, shotCost, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
 import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type MatchOptions, type RegisterHost } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
@@ -15,7 +15,7 @@ import { NET_VERSION } from "./net";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { placeName } from "./marks";
-import { EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
+import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
 
 /** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
 let gen = 0;
@@ -230,6 +230,7 @@ function matchInfo(): MatchInfo | null {
     tutor: ai && ai.difficulty === "tutor" ? ai.stage : -1,
     ...registerInfo(match.register, match.world, match.tick, (e) => teamOf(e) === me),
     ...estateInfo(match),
+    ...powderInfo(match),
   };
   if (info.masonry) endSent = true;
   return info;
@@ -366,6 +367,22 @@ function estateInfo(m: Match): Pick<MatchInfo, "income" | "earned" | "goldEarned
   };
 }
 
+/** 3.3: the stores, every ready box and every powder boy's errand (all null when the match plays without powder). */
+function powderInfo(m: Match): Pick<MatchInfo, "powder" | "boxes" | "boys"> {
+  const c = m.world.carriers;
+  if (!c) return { powder: null, boxes: null, boys: null };
+  const store = (team: 0 | 1) => {
+    const s = c.status(team);
+    return { stock: s.stock, cap: s.cap, rate: m.powderRate(team), magazine: s.magazine, lost: s.lost };
+  };
+  const boxes = new Float32Array(m.emplacements.length * BOX_STRIDE);
+  m.emplacements.forEach((e, i) => boxes.set([c.box(i), boxSize(e), shotCost(e), c.eta(i), c.hoisting(i)], i * BOX_STRIDE));
+  const errands = c.errands();
+  const boys = new Int16Array(errands.length * BOY_STRIDE);
+  errands.forEach((b, i) => boys.set([b.team, b.minion, b.task, b.emplacement], i * BOY_STRIDE));
+  return { powder: [store(0), store(1)], boxes, boys };
+}
+
 function tick(advanceMs = -1) {
   if (!sim || paused || stopped) return;
   if (manual) {
@@ -431,6 +448,7 @@ function tick(advanceMs = -1) {
   const transfer: Transferable[] = [out.buffer, frame.stones.buffer, frame.projectiles.buffer, frame.chains.buffer, frame.minions.buffer, frame.parts.buffer, frame.settled.buffer, frame.gone.buffer, frame.events.buffer, frame.ladders.buffer, frame.works.buffer, frame.plots.buffer, frame.kegs.buffer];
   const info = matchInfo();
   if (info) transfer.push(info.guns.buffer, info.earned.buffer, info.barracks.buffer, info.arms.buffer);
+  if (info?.boxes && info.boys) transfer.push(info.boxes.buffer, info.boys.buffer);
   for (const p of frame.terrain) transfer.push(p.h.buffer);
   // Bridges: whenever the nav grid changed.
   let bridges: boolean[] | null = null;

@@ -94,6 +94,24 @@ export interface RegisterInfo {
   gangs: GangInfo[];
 }
 
+/** 3.3: one castle's powder store (charges), as the page shows it by the gold. */
+export interface PowderInfo {
+  stock: number;
+  /** What the store holds now (the magazine's, or the cellar's without a working one). */
+  cap: number;
+  /** Charges a second coming in (the cellar and the mills). */
+  rate: number;
+  /** The plot of the working magazine, or -1 (the cellar holds the powder). */
+  magazine: number;
+  /** Charges lost because the store was full, since the match began. */
+  lost: number;
+}
+
+/** Numbers per emplacement in MatchInfo.boxes: box now, box size, a shot's cost, ticks until the next keg reaches it (-1: none on its way), share of a hoist done at its foot (-1: none at work). */
+export const BOX_STRIDE = 5;
+/** Numbers per powder boy in MatchInfo.boys: team, minion id (-1 fallen), task (sim BoyTask), emplacement served (-1 none). */
+export const BOY_STRIDE = 4;
+
 /** A match's state for the HUD. Pairs are by team (castle): the page's own is `team`. */
 export interface MatchInfo extends RegisterInfo {
   /** The team this page plays. */
@@ -167,6 +185,10 @@ export interface MatchInfo extends RegisterInfo {
   lanes: Int16Array;
   /** M6: the guided match's tutor: its stage (AiPlayer.stage: 0 asleep, higher as it wakes); -1 in any other match. */
   tutor: number;
+  /** 3.3: each castle's powder store by team (null when the match plays without powder: every box is then full), every emplacement's ready box (BOX_STRIDE each, match order) and every powder boy's errand (BOY_STRIDE each). */
+  powder: [PowderInfo, PowderInfo] | null;
+  boxes: Float32Array | null;
+  boys: Int16Array | null;
 }
 
 export interface MasonInfo {

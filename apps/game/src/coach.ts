@@ -6,10 +6,14 @@
 // player's own input events): it never sends an input and never changes the
 // match. All its text is fixed, never taken from the match or a friend.
 
-import { CASTLE_SHAPE, DIST, Earn, holdMarker } from "@keepfall/content";
+import { castleOfEmp, CASTLE_SHAPE, DIST, Earn, holdMarker, MATCH_EMPLACEMENTS } from "@keepfall/content";
 import { MINION_STRIDE, PLOT_STRIDE, type FrameData } from "@keepfall/sim";
 import { EARN_STRIDE, type MatchInfo } from "./protocol";
 import type { GuideStep } from "./guide";
+import { anyDry } from "./powder";
+
+/** The tip, once, the first time any of your boxes cannot pay a shot (3.3). */
+export const DRY_TIP = "Out of powder: a boy brings a keg from the magazine. Powder Mills make more.";
 
 type MarkKind = "keep" | "gate" | "wave" | "hold" | "road";
 
@@ -85,7 +89,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Crack a floor with the mortar",
-    how: `${KBD("2")} takes the mortar. Hold ${KBD("Space")}: a ring slides out. Let go when it is on the keep.`,
+    how: `${KBD("2")} takes the mortar. Hold ${KBD("Space")}: a ring slides out. Let go when it is on the keep. Each shell burns 10 powder from the box beside the gun.`,
     test: (c) => c.info.keepFloor[c.foe] < 1 || c.info.keeps[c.foe] < 3,
     follow: () => "Three floors hold up their banner. Break them all to win.",
     followHighlights: ["#keep-theirs"],
@@ -212,6 +216,7 @@ export class Coach {
   private foeBarracks = false;
   private tips = new Set<number>();
   private downTip = false;
+  private dryTip = false;
   private enemy: [number, number, number] | null = null;
   private hlKey = "";
   private hlEls: Element[] = [];
@@ -263,7 +268,7 @@ export class Coach {
     this.resume = null;
     this.askedTick = 0;
     this.info = null;
-    this.aimed = this.overviewed = this.barracks2 = this.foeBarracks = this.downTip = false;
+    this.aimed = this.overviewed = this.barracks2 = this.foeBarracks = this.downTip = this.dryTip = false;
     this.keepHits = 0;
     this.tips.clear();
     this.enemy = null;
@@ -365,6 +370,10 @@ export class Coach {
 
   /** Tutor tips and the first stone down, once each, through the page's note column. */
   private tips_(info: MatchInfo) {
+    if (!this.dryTip && anyDry(info, (i) => !!MATCH_EMPLACEMENTS[i] && castleOfEmp(MATCH_EMPLACEMENTS[i]) === this.me)) {
+      this.dryTip = true;
+      this.host.note(DRY_TIP, 6000);
+    }
     const stage = info.tutor;
     let top = 0;
     for (let s = 1; s <= 3; s++) {

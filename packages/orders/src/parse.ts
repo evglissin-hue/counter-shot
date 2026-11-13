@@ -2,6 +2,7 @@ import {
   BUILDING_REBUILD,
   BUILDINGS,
   plotName,
+  POWDER,
   REPAIR_KINDS,
   UPGRADES,
   upgradesFor,
@@ -39,6 +40,8 @@ import {
   ORDINAL_WORDS,
   OVERVIEW_WORDS,
   PLOT_WORDS,
+  POWDER_FILLER,
+  POWDER_STANDING,
   REBUILD_WORDS,
   REPAIR_CUES,
   REPAIR_FILLER,
@@ -194,6 +197,7 @@ function work(v: OrdersView): OrdersView {
     barracks: v.barracks.map((b) => (b ? { ...b } : null)),
     repairs: { ...v.repairs },
     standing: [...v.standing],
+    powder: v.powder ? { ...v.powder } : null,
   };
 }
 
@@ -225,6 +229,9 @@ function apply(w: OrdersView, s: Step): void {
       w.barracks[i.plot] = { mix: i.mix ?? cur?.mix ?? "pikemen", route: i.route ?? cur?.route ?? "centre" };
       break;
     }
+    case "powder":
+      if (w.powder) w.powder = { ...w.powder, stock: w.powder.stock + POWDER.buy.charges };
+      break;
     case "repair":
       w.repairs[i.repair] = i.on;
       break;
@@ -308,6 +315,11 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (t.some((x) => SURRENDER_WORDS.includes(x)) || SURRENDER_PHRASES.some((ph) => phraseAt(t, ph) >= 0) || (t.includes("leave") && !gunish)) return fail(R_SURRENDER);
   if (t.some((x) => FIRE_WORDS.includes(x))) return fail(R_FIRE);
 
+  // Powder: "powder" is bought at once; with "under", "always" and the like it is the standing order (not the Powder Mill: that is a building).
+  if (t.includes("powder") && !hasPhrase(t, "powder mill")) {
+    if (t.some((x) => POWDER_STANDING.has(x) || STANDING_TRIGGERS.has(x))) return standing(t, w, notUnderstood);
+    return powder(t, w, notUnderstood);
+  }
   if (t.some((x) => STANDING_TRIGGERS.has(x))) return standing(t, w, notUnderstood);
   if (isBarracksSetting(t)) return barracksSetting(t, w, notUnderstood);
   if (hasBuilding(t) || t.some((x) => REBUILD_WORDS.has(x))) return build(t, w, notUnderstood);
@@ -349,6 +361,21 @@ function standing(t: Tokens, w: OrdersView, nope: () => Res): Res {
   return { ok: true, steps };
 }
 
+// Powder
+
+/** Buy powder at the working magazine: the same refusals the match would make, said first. */
+function powder(t: Tokens, w: OrdersView, nope: () => Res): Res {
+  if (t.some((x) => !POWDER_FILLER.has(x))) return nope();
+  const p = w.powder;
+  if (!p || p.magazine < 0) return fail("No working magazine");
+  if (p.cap - p.stock < POWDER.buy.charges) return fail("The magazine is full");
+  if (POWDER.buy.gold > w.gold) return fail(`Not enough gold: ${POWDER.buy.gold - w.gold} short`);
+  return ok(input({ kind: "powder" }, `Powder: ${POWDER.buy.charges} for ${POWDER.buy.gold} gold`, POWDER.buy.gold));
+}
+
+/** Does the team hold a magazine, standing or rising? (The match allows one.) */
+const magazineUp = (w: OrdersView) => w.plots.some((p) => p.kind === "magazine" && (p.state === "standing" || p.state === "rising"));
+
 // Building
 
 function build(t: Tokens, w: OrdersView, nope: () => Res): Res {
@@ -369,12 +396,14 @@ function build(t: Tokens, w: OrdersView, nope: () => Res): Res {
     if (ruins.length === 0) return fail(named ? "No ruin there to rebuild" : "Nothing ruined to rebuild");
     const i = ruins[0];
     const k = w.plots[i].kind as BuildingKind;
+    if (k === "magazine" && magazineUp(w)) return fail("You have a magazine already");
     const cost = Math.round(BUILDINGS[k].cost * BUILDING_REBUILD);
     if (cost > w.gold) return fail(`Not enough gold: ${cost - w.gold} short`);
     return ok(input({ kind: "build", plot: i, building: k }, `Rebuild the ${BUILDINGS[k].name} on ${plotSay(i)}: ${cost} gold`, cost));
   }
 
   if (!kind) return nope();
+  if (kind === "magazine" && magazineUp(w)) return fail("You have a magazine already");
   const eligible = matches.filter((i) => w.plots[i].state === "empty" || (named && w.plots[i].state === "ruined" && w.plots[i].kind === kind));
   if (eligible.length === 0) {
     if (!named) return fail("No free plot");

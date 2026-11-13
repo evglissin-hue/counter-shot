@@ -7,7 +7,7 @@
 
 import * as THREE from "three/webgpu";
 import { float, uniform } from "three/tsl";
-import type { CastleLayout, Emplacement } from "@keepfall/content";
+import type { CastleLayout, Emplacement, WeaponKind } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type FrameData, type TerrainPatch } from "@keepfall/sim";
 import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
@@ -18,8 +18,12 @@ import { ClearView } from "./clearview";
 import { Decals, type DecalState } from "./decals";
 import { Effects } from "./effects";
 import { EstateView, type EstateState } from "./estate";
+import { PowderView } from "./powder";
+import { BOX_STRIDE, type PowderInfo } from "../protocol";
 import { Flags } from "./flags";
-import { Guns, type GunState } from "./guns";
+import { Guns, newCrewInfo, type CrewInfo, type GunState } from "./guns";
+import { Crews } from "./crews";
+import { JOLT_END, joltAt, type Jolt } from "./recoilCam";
 import { Inset } from "./inset";
 import { eventChance, frameBytes, roughBytes, type KeyframePart, type RenderKeyframe } from "./keyframe";
 import { Ladders } from "./ladders";
@@ -31,6 +35,8 @@ import { NavOverlay } from "./navOverlay";
 import { getNoiseTexture } from "./noiseTexture";
 import { Post, TIERS } from "./post";
 import { Projectiles } from "./projectiles";
+import { Trails } from "./trails";
+import { Blink } from "./blink";
 import { Scatter } from "./scatter";
 import { Shock } from "./shock";
 import { Marks } from "./marks";
@@ -79,8 +85,16 @@ export class GameRenderer implements GameRendererApi {
   private scatter: Scatter;
   private effects: Effects;
   private projectiles: Projectiles;
+  /** L1.4: the streak behind a ball and the thread behind a shell. L1.7: the blink of a hit. */
+  private trails: Trails;
+  private blink: Blink;
+  /** L1.6: the gunner's glass, eased towards what the page last asked for (0..1). */
+  private glass = 0;
+  private glassTarget = 0;
   private minions: Minions;
   private guns: Guns;
+  private crews: Crews;
+  private crewInfo: CrewInfo = newCrewInfo();
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
   /** 3.2: your team's marks, as chalk crosses with their numbers. */
@@ -92,9 +106,10 @@ export class GameRenderer implements GameRendererApi {
   /** The ring on a courtyard being stormed (M4). */
   private storm = new Storm();
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
+  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "bank" | "ring" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
   /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
   private estate = new EstateView();
+  private powderView = new PowderView();
   /** L3: grass tufts near the camera (High and up), crows, and braziers on the castles. */
   private grass!: GrassTufts;
   private birds!: Birds;
@@ -143,6 +158,11 @@ export class GameRenderer implements GameRendererApi {
   private insetRect: InsetRect = { x: 0, y: 0, w: 0, h: 0 };
   private insetSwapped = false;
   private readonly savedPose = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 50 };
+  /** Look round L1: the gun you ride fired at `at` (the renderer's clock); the camera's jolt is laid over the picture only (see applyJolt). */
+  private jolt: { kind: WeaponKind; at: number } | null = null;
+  private joltTmp: Jolt = { back: 0, up: 0, pitch: 0, fov: 0 };
+  private readonly joltSaved = { on: false, pos: new THREE.Vector3(), quat: new THREE.Quaternion(), fov: 50 };
+  private readonly joltDir = new THREE.Vector3();
   private noise: THREE.Texture;
   private time = uniform(0);
   private wind = uniform(new THREE.Vector2(0, 0));
@@ -210,10 +230,16 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.effects.root);
     this.projectiles = new Projectiles(STYLE, this.time, this.noise);
     this.scene.add(this.projectiles.root);
+    this.trails = new Trails();
+    this.scene.add(this.trails.root);
+    this.blink = new Blink(this.time);
+    this.scene.add(this.blink.mesh);
     this.minions = new Minions();
     this.scene.add(this.minions.root);
     this.guns = new Guns(this.noise);
     this.scene.add(this.guns.root);
+    this.crews = new Crews();
+    this.scene.add(this.crews.root);
     this.decals = new Decals(this.time, this.noise);
     this.scene.add(this.decals.mesh);
     const mk = (cfg: ConstructorParameters<typeof Burst>[0]) => {
@@ -232,6 +258,9 @@ export class GameRenderer implements GameRendererApi {
       // Dust thrown out along the ground by the blast.
       skirt: mk({ name: "skirt", slots: 4, per: 24, life: [2.2, 4.2], color: 0x857762, colorEnd: 0x9a8f80, additive: false, glow: 1, speed: [10, 22], size: [0.8, 3.2], grow: 1.4, gravity: 0, rise: 0.35, drag: 2.6, windScale: 0.5, spread: 1.0, opacity: 0.62, floor: true, lighting: 0.6, clearAim: true }),
       muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true, clearAim: true }),
+      // L1, the blast: a bank of grey-white powder smoke that stands before the sight and drifts off with the wind (eye only; it thins near the aim line), and a low ring of pale dust thrown up from the wall walk round a gun (settling in a second or two; it never sinks below where it was thrown from). Sized for a salvo of 8 guns.
+      bank: mk({ name: "bank", slots: 16, per: 20, life: [3, 5], color: 0xb4b2ac, colorEnd: 0x94928d, additive: false, glow: 1, speed: [1.2, 5], size: [0.9, 3.6], grow: 0.8, gravity: 0, rise: 0.35, drag: 1.7, windScale: 0.9, spread: 0.8, opacity: 0.34, floor: true, lighting: 0.55, clearAim: true }),
+      ring: mk({ name: "ring", slots: 64, per: 6, life: [1.0, 1.9], color: 0xaa9e8a, colorEnd: 0x948a78, additive: false, glow: 1, speed: [1.4, 3.4], size: [0.25, 0.95], grow: 2.2, gravity: 1.6, rise: 0.15, drag: 2.6, windScale: 0.5, spread: 0.5, opacity: 0.5, floor: true, floorAtSpawn: true, lighting: 0.8, clearAim: true }),
       dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
       trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
       spray: mk({ name: "spray", slots: 24, per: 14, life: [0.5, 0.9], color: 0x2c0d0a, additive: false, glow: 0.6, speed: [1.5, 4.5], size: [0.06, 0.12], grow: 3, gravity: 9.8, rise: 0, drag: 1, windScale: 0, spread: 0.9, opacity: 0.95, floor: true }),
@@ -248,7 +277,7 @@ export class GameRenderer implements GameRendererApi {
       this.onHazeSettle?.(x, y, z, r, a);
     };
     this.scene.add(this.haze.mesh);
-    this.scene.add(this.estate.root);
+    this.scene.add(this.estate.root, this.powderView.root);
     this.grass = new GrassTufts(this.windField, (x, z) => this.terrain.heightAt(x, z));
     this.birds = new Birds(this.time, this.clear);
     this.braziers = new Braziers(this.time);
@@ -463,6 +492,18 @@ export class GameRenderer implements GameRendererApi {
         bytes: (st) => roughBytes(st),
       }),
     );
+    // L1.4: the live trails behind shots (their points and ages), so a replay draws the same streaks and threads each play.
+    this.registerKeyframePart(
+      "trails",
+      part<Float64Array>({
+        capture: (now) => this.trails.set.capture(now),
+        apply: (st, now) => {
+          this.trails.set.apply(st, now);
+          this.trails.draw(now, this.wind.value.x, this.wind.value.y);
+        },
+        bytes: (st) => st.byteLength + 16,
+      }),
+    );
     // What is in the air only: nothing is captured. Cleared, with every ring back at its first slot, so the frames that follow lay the same particles in the same slots.
     this.registerKeyframePart(
       "transient",
@@ -472,6 +513,7 @@ export class GameRenderer implements GameRendererApi {
           for (const b of Object.values(this.bursts)) b.reset();
           this.effects.reset();
           this.shock.reset();
+          this.blink.reset();
           this.splashes.reset();
           this.marks.clear();
           this.flashLevel = 0;
@@ -518,6 +560,18 @@ export class GameRenderer implements GameRendererApi {
   /** M3: where an upright sapper or musketeer stood in the last frame (for a musket's report), or null. */
   minionAt(id: number): [number, number, number, number] | null {
     return this.minions.positionOf(id);
+  }
+
+  /** 3.3: each castle's store and every gun's box (match order), for the kegs under the magazines and the hoists at the guns' feet. */
+  setPowder(powder: [PowderInfo, PowderInfo] | null, boxes: Float32Array | null): void {
+    this.powderView.set(powder, boxes);
+    // L1: the powder box at each gun shows its ready box (box now of box size; no powder in the match: a full box).
+    const list = this.emplacementList;
+    for (let k = 0; k < list.length; k++) {
+      const o = k * BOX_STRIDE;
+      if (!boxes) this.guns.setReadyBox(list[k].id, 1, 0);
+      else if (o + 2 < boxes.length && boxes[o + 2] > 0) this.guns.setReadyBox(list[k].id, boxes[o], boxes[o + 1]);
+    }
   }
 
   /** 3.2: draw your team's marks (none: clear them). */
@@ -595,6 +649,7 @@ export class GameRenderer implements GameRendererApi {
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
     this.emplacementList = emplacements;
+    this.powderView.setEmplacements(emplacements);
     if (this.works) {
       this.scene.remove(this.works.root);
       this.works.dispose();
@@ -707,6 +762,7 @@ export class GameRenderer implements GameRendererApi {
 
   setProjectiles(proj: Float32Array, count: number, chains: Float32Array, chainCount: number): void {
     this.projectiles.update(proj, count, chains, chainCount);
+    this.trails.update(proj, count, this.now, this.wind.value.x, this.wind.value.y);
     this.splashes.begin();
     this.splashes.projectiles(this.now, proj, count, (x, z) => this.terrain.heightAt(x, z));
   }
@@ -729,6 +785,7 @@ export class GameRenderer implements GameRendererApi {
 
   resetWorld(): void {
     this.estate.clear();
+    this.powderView.clear();
     this.braziers.reset();
     this.birds.reset();
     this.grass.invalidate();
@@ -749,6 +806,8 @@ export class GameRenderer implements GameRendererApi {
     this.storm.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
+    this.blink.clear();
+    this.trails.clear();
   }
 
   /** Readability rule 5: slow-moving masonry (settling, about to go) sheds a thin dust trickle. */
@@ -792,6 +851,7 @@ export class GameRenderer implements GameRendererApi {
     const cz = this.layout ? this.layout.castleZ[this.side] : -150;
     this.effects.bias.set(0 - x, 0, cz - z);
     this.effects.spawnImpact(x, y, z, strength, dust);
+    this.blink.spawn(this.now, x, y, z, strength);
   }
 
   /** A powder burst: fireball, a fountain of chips, dust thrown along the ground, a shock, a smoke column. */
@@ -817,14 +877,46 @@ export class GameRenderer implements GameRendererApi {
     this.pulseLight(x, y + 2, z, Math.min(6, r * 1.2), 0xffa050, 5);
   }
 
+  /** The blast of a shot (look round L1), by weapon: [light's level, its decay, bank of smoke, ring's puffs and their size, how far the light stands back and up]. */
+  private static readonly BLAST: Record<WeaponKind, { light: number; decay: number; bank: number; ring: number; ringScale: number; back: number; up: number }> = {
+    longGun: { light: 1.4, decay: 14, bank: 1, ring: 6, ringScale: 1, back: 1.7, up: 1.7 },
+    chainShot: { light: 1.4, decay: 14, bank: 1.1, ring: 6, ringScale: 1.15, back: 1.7, up: 1.7 },
+    mortar: { light: 1.3, decay: 14, bank: 0.9, ring: 4, ringScale: 0.8, back: 0.4, up: 1.5 },
+    swivel: { light: 0.7, decay: 18, bank: 0.35, ring: 2, ringScale: 0.35, back: 0.5, up: 0.7 },
+  };
+
   private spawnMuzzle(em: number) {
+    // Look round L1: the gun rolls back; if it is the one you ride, the camera jolts with it (replays pose every gun as not ridden).
+    const fired = this.guns.fire(em);
+    if (fired && fired.active) this.jolt = { kind: fired.kind, at: this.now };
     const p = this.tmpA, d = this.tmpB;
     if (!this.guns.muzzle(em, p, d)) return;
+    const kind: WeaponKind = fired ? fired.kind : "longGun";
+    const blast = GameRenderer.BLAST[kind];
     this.birds.noise(p.x, p.y, p.z, this.now);
     this.wear?.muzzle(p.x, p.y, p.z, d.x, d.y, d.z);
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
-    this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070, 14);
+    // The bank: a larger, slower cloud a little ahead of the muzzle, standing before the sight (3 to 5 s), led on by the wind.
+    this.bursts.bank.spawn(this.now, p.x + d.x * 1.6, p.y + d.y * 1.6 + 0.2, p.z + d.z * 1.6, blast.bank, d.x, d.y * 0.6 + 0.15, d.z);
+    // The flash lights the wall and the crew: the light stands back from the muzzle and over the carriage. The gun you
+    // ride is right under the sight's camera, where a light over the carriage bleaches the barrel white: its light stays a
+    // metre ahead of the muzzle (as before L1) and lasts a little longer.
+    const ridden = !!fired && fired.active;
+    if (ridden) this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, blast.light, 0xffb070, blast.decay * 0.78);
+    else this.pulseLight(p.x - d.x * blast.back, p.y - d.y * blast.back + blast.up, p.z - d.z * blast.back, blast.light, 0xffb070, blast.decay);
+    // The ring: dust jumps from the floor round the carriage.
+    const info = this.crewInfo;
+    if (this.guns.crewInfo(em, info)) {
+      const n = blast.ring;
+      const a0 = (em * 2.399 + this.frameTick * 0.37) % (Math.PI * 2);
+      for (let k = 0; k < n; k++) {
+        const a = a0 + (k * Math.PI * 2) / n;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const r = kind === "swivel" ? 0.5 : 0.95;
+        this.bursts.ring.spawn(this.now, info.x + ca * r, info.floorY + 0.05, info.z + sa * r, blast.ringScale, ca, 0.28, sa);
+      }
+    }
   }
 
   private spawnBlood(x: number, y: number, z: number, strength: number) {
@@ -898,10 +990,24 @@ export class GameRenderer implements GameRendererApi {
     if (em) this.windField.setAnchor(em.x, em.z);
   }
 
+  setReloads(left: ArrayLike<number>): void {
+    this.guns.setReloads(left);
+  }
+
+  setReadyBox(emplacement: number, charges: number, capacity: number): void {
+    this.guns.setReadyBox(emplacement, charges, capacity);
+  }
+
   setCamera(pose: CameraPose): void {
     this.views.setPose(pose);
+    // The glass belongs to the sight: any view the page does not ask it for has none (the page calls setGlass after this).
+    this.glassTarget = 0;
     this.clear.crosshair.value = pose.mode === "sight" ? 1 : 0;
     this.marks.mesh.visible = pose.mode === "overview";
+  }
+
+  setGlass(target: number): void {
+    this.glassTarget = Math.max(0, Math.min(1, target || 0));
   }
 
   setAimArc(points: Float32Array | null): void {
@@ -1182,6 +1288,53 @@ export class GameRenderer implements GameRendererApi {
     cam.updateProjectionMatrix();
   }
 
+  /**
+   * Look round L1: the camera's jolt when the gun you ride fires, laid over the gun's camera after Views has eased it
+   * (a kick back and up, a tip and a punch of the field of view). It is the picture only: the pose is put back after the
+   * frame and the inset are drawn, so Views' own easing and the page's aim never see it.
+   */
+  private applyJolt(cam: THREE.PerspectiveCamera) {
+    const jl = this.jolt;
+    if (!jl) return;
+    const age = this.now - jl.at;
+    if (age < 0 || age >= JOLT_END) {
+      this.jolt = null;
+      return;
+    }
+    const mode = this.views.mode;
+    if (mode !== "sight" && mode !== "free") return;
+    const j = joltAt(jl.kind, mode, age, this.joltTmp);
+    if (j.back === 0 && j.up === 0 && j.pitch === 0 && j.fov === 0) return;
+    const sv = this.joltSaved;
+    sv.on = true;
+    sv.pos.copy(cam.position);
+    sv.quat.copy(cam.quaternion);
+    sv.fov = cam.fov;
+    cam.getWorldDirection(this.joltDir);
+    cam.position.addScaledVector(this.joltDir, -j.back);
+    cam.position.y += j.up;
+    cam.rotateX(j.pitch);
+    if (j.fov !== 0) {
+      cam.fov = sv.fov + j.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
+  }
+
+  /** Take the jolt off again (a no-op when none is on). */
+  private undoJolt(cam: THREE.PerspectiveCamera) {
+    const sv = this.joltSaved;
+    if (!sv.on) return;
+    sv.on = false;
+    cam.position.copy(sv.pos);
+    cam.quaternion.copy(sv.quat);
+    if (cam.fov !== sv.fov) {
+      cam.fov = sv.fov;
+      cam.updateProjectionMatrix();
+    }
+    cam.updateMatrixWorld();
+  }
+
   render(dtSeconds: number): void {
     if (!this.initialized) return;
     const real = Math.max(0, Math.min(0.25, dtSeconds || 0));
@@ -1195,6 +1348,9 @@ export class GameRenderer implements GameRendererApi {
     this.sky.driftClouds(this.windField.now.value.x, this.windField.now.value.y, dt);
     this.shock.update(this.now);
     this.views.update(real);
+    // The glass eases at the rate the field of view does.
+    this.glass += (this.glassTarget - this.glass) * (1 - Math.exp(-real * 8));
+    if (Math.abs(this.glass - this.glassTarget) < 0.002) this.glass = this.glassTarget;
     const cam = this.views.camera;
     cam.updateMatrixWorld();
     // Impact cam swapped in: the main pass draws from the inset's view and the inset from the gun's, then the gun's is restored.
@@ -1205,7 +1361,7 @@ export class GameRenderer implements GameRendererApi {
       sp.quat.copy(cam.quaternion);
       sp.fov = cam.fov;
       this.aimCamera(cam, this.insetPose!);
-    }
+    } else this.applyJolt(cam);
     this.clear.update(cam);
     this.mortarAim.update(cam);
     this.chalk.face(cam);
@@ -1216,6 +1372,7 @@ export class GameRenderer implements GameRendererApi {
     this.grass.update(cam.position.x, cam.position.z, this.now);
     this.birds.update(this.now, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.braziers.update(dt, (x, y, z) => this.bursts.brazier.spawn(this.now, x, y, z, 0.4, 0, 0.6, 0));
+    this.powderView.update(dt);
     this.estate.update(dt, this.now, (kind, x, y, z, s) => this.bursts[kind === "smoke" ? "chimney" : kind === "spark" ? "spark" : "dust"].spawn(this.now, x, y, z, s, 0, 0.6, 0));
     if (this.raising.size && this.stones && this.layout) {
       for (const [id, t0] of this.raising) {
@@ -1243,7 +1400,9 @@ export class GameRenderer implements GameRendererApi {
     this.terrain.flush();
     this.groundMarks.update();
     this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
-    this.guns.update(dt);
+    this.guns.update(dt, this.now, cam.quaternion);
+    // L1: the men at the guns, drawn from the guns' own state (nothing of their own to keep).
+    this.crews.update(this.guns, this.now, cam);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
     if (this.flashLevel < 0.01) this.flashLevel = 0;
@@ -1267,12 +1426,17 @@ export class GameRenderer implements GameRendererApi {
       this.primeFrames--;
       this.shock.prime(true);
       this.projectiles.prime(true);
+      this.trails.prime(true);
       this.decals.prime(true);
       this.minions.prime(true);
       this.ladders.prime(true);
       this.works?.prime(true);
       this.storm.prime(true);
     }
+    // With the impact cam swapped in, the main pass is not the gun's sight: no glass.
+    const glass = swapped ? 0 : this.glass;
+    post.setGlass(glass);
+    this.sky.glass.value = glass;
     post.render(this.now);
     // The impact cam: a second pass (while priming, a tiny one, so its shaders compile at load).
     if (this.inset && (this.insetPose || priming)) this.drawInset(swapped, priming);
@@ -1286,9 +1450,11 @@ export class GameRenderer implements GameRendererApi {
       }
       cam.updateMatrixWorld();
     }
+    this.undoJolt(cam);
     if (priming) {
       this.shock.prime(false);
       this.projectiles.prime(false);
+      this.trails.prime(false);
       this.decals.prime(false);
       this.minions.prime(false);
       this.ladders.prime(false);
@@ -1349,6 +1515,9 @@ export class GameRenderer implements GameRendererApi {
     else this.aimCamera(ic, { x: 0, y: 40, z: -40, tx: 0, ty: 0, tz: -75, fov: 45 });
     this.sky.follow(ic);
     this.clear.suspend();
+    // The haze's cut inside the telescope is the main view's: the inset's pass is not through the glass.
+    const glassWas = this.sky.glass.value;
+    this.sky.glass.value = 0;
     const hide = [this.marker, this.blastRing, this.mortarAim.root, this.effects.root.getObjectByName("aim-arc"), this.effects.root.getObjectByName("ghost-trail")];
     const was = hide.map((o) => !!o && o.visible);
     for (const o of hide) if (o) o.visible = false;
@@ -1358,6 +1527,7 @@ export class GameRenderer implements GameRendererApi {
     const w = this.canvas.clientWidth || 1, h = this.canvas.clientHeight || 1;
     inset.draw(priming && !this.insetPose ? { x: 0, y: 0, w: 16, h: 9 } : this.insetRect, w, h, this.now);
     if (shadow) shadow.autoUpdate = auto;
+    this.sky.glass.value = glassWas;
     hide.forEach((o, i) => {
       if (o) o.visible = was[i];
     });
@@ -1387,14 +1557,18 @@ export class GameRenderer implements GameRendererApi {
     this.scatter.dispose();
     this.effects.dispose();
     this.projectiles.dispose();
+    this.trails.dispose();
+    this.blink.dispose();
     this.minions.dispose();
     this.guns.dispose();
+    this.crews.dispose();
     this.markers.dispose();
     this.chalk.dispose();
     this.ladders.dispose();
     this.works?.dispose();
     this.storm.dispose();
     this.estate.dispose();
+    this.powderView.dispose();
     this.grass.dispose();
     this.birds.dispose();
     this.braziers.dispose();

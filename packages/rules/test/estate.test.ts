@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MATCH, MUSTER, PLOTS, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
+import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MATCH, MUSTER, PLOTS, POWDER, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
 import { Action, Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Role, Spin, type Rapier } from "@keepfall/sim";
 import { ESTATE_MATCH_HASH, Match, runEstateMatch, Team } from "@keepfall/rules";
 
@@ -46,7 +46,8 @@ test("a building rises from the ground up, works once finished, stops when knock
   });
   assert.equal(s.state, PlotState.Standing);
   assert.equal(m.estate.mills(1), 1);
-  assert.equal(m.economy.incomeRate(m.estate.mills(1)), MATCH.keepIncome + BUILDINGS.mill.income);
+  assert.equal(m.economy.incomeRate(), MATCH.keepIncome, "gold is the keep's alone now");
+  assert.equal(m.powderRate(1), POWDER.cellar + POWDER.mill, "a working mill makes powder");
   // The other kinds ready on this plot never came into the world.
   const foundry = layout.plots.find((r) => r.castle === 1 && r.plot === 1 && r.kind === FOUNDRY)!;
   for (let id = foundry.first; id < foundry.first + foundry.count; id++) assert.equal(m.world.castle.shattered[id], 1);
@@ -74,10 +75,10 @@ test("gold: the keep and each working mill through one income function, a bounty
   run(m, 10 * 60);
   assert.deepEqual(m.gold, [MATCH.startGold + 10 * MATCH.keepIncome, MATCH.startGold + 10 * MATCH.keepIncome]);
   assert.equal(mills, 0);
-  // A working mill adds its income, fractions carried: 1.5 a second over 10 s is 15.
+  // A working mill pays no gold now (it makes powder): both gold sums stay level.
   m.world.structures!.place(1, 2, MILL);
   run(m, 10 * 60);
-  assert.equal(m.gold[1] - m.gold[0], 10 * BUILDINGS.mill.income);
+  assert.equal(m.gold[1] - m.gold[0], 0);
   // A burst among enemy pikemen: a bounty each for the other side.
   const g = [m.gold[0], m.gold[1]];
   m.army.spawnWave(Team.Enemy, 1, 8, { x: 0, z: -75 });

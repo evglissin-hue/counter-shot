@@ -26,6 +26,7 @@ import {
   type FrameData,
   type TerrainPatch,
 } from "./frame";
+import { Carriers } from "./carriers";
 import { Ladders } from "./ladders";
 import { Cause, Minions, MinionState } from "./minions";
 import { Mounts } from "./mounts";
@@ -39,7 +40,7 @@ import { Gangs } from "./gangs";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 12;
+export const RULES_VERSION = 13;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -101,6 +102,8 @@ export interface SandboxOptions {
   army?: boolean;
   /** M3: what stands on the plots at the start (with plots in the layout): the Practice range's set in both castles unless given. */
   buildings?: Array<{ castle: number; plot: number; kind: BuildingKind }>;
+  /** 3.3: powder (a match's default): every shot burns charges from its gun's box, and powder boys keep the boxes filled. False: no Carriers, every fire is paid for. */
+  powder?: boolean;
 }
 
 const MAX_STONES = 12000;
@@ -127,6 +130,10 @@ export class SandboxSim {
   readonly works: Works | null;
   /** Bridge gangs (matches only): read `gangs.status()`. */
   readonly gangs: Gangs | null;
+  /** 3.3: each castle's powder store, the ready box beside every gun and the powder boys (matches with powder; null: shots are free). */
+  readonly carriers: Carriers | null;
+  /** 3.3: every burst of the step being run (cleared when a step begins), for the carriers to see what burst inside a magazine. */
+  readonly bursts: Array<{ x: number; y: number; z: number; radius: number; shot: number }> = [];
   /** M3: the plots' buildings (with plots in the layout), and sappers' kegs and musketeers' shots (matches). */
   readonly structures: Structures | null;
   readonly specialists: Specialists | null;
@@ -212,6 +219,9 @@ export class SandboxSim {
       ? new Specialists(this.minions, this.nav, this.terrain, (hashString("specialists") ^ opts.seed) >>> 0, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot))
       : null;
     if (this.army) this.army.specialists = this.specialists;
+    // 3.3: powder boys and the boxes by the guns.
+    this.carriers = this.army && opts.powder !== false ? new Carriers(this.minions, this.army, this.structures, this.emplacements, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot), this.bursts) : null;
+    this.carriers?.spawnAll();
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -231,6 +241,7 @@ export class SandboxSim {
   step() {
     const tick = this.tick;
     this.landings.length = 0;
+    this.bursts.length = 0;
     // After M5: guns knocked out and put back during this step, for the match to read after it.
     this.mounts.outs.length = 0;
     this.mounts.backs.length = 0;
@@ -247,12 +258,14 @@ export class SandboxSim {
     this.ladders?.step(tick);
     this.works?.step(tick);
     this.gangs?.step();
+    this.carriers?.step(tick);
     this.structures?.step(tick);
     this.terrain.rebuild();
     this.notePositions();
     this.castle.step();
     this.afterStep();
     this.specialists?.afterStep(tick);
+    this.carriers?.afterStep(tick);
     if (tick % 60 === 0) this.pruneShots(tick);
     if (tick % NAV_EVERY === NAV_EVERY - 1) this.nav.update();
     for (let i = 0; i < this.reload.length; i++) if (this.reload[i] > 0) this.reload[i]--;
@@ -273,6 +286,8 @@ export class SandboxSim {
     if (!e || e.empty || this.reload[e.id] > 0) return;
     // After M5: a knocked-out gun cannot fire until its crew has it back on its mount.
     if (!this.mounts.up(e.id)) return;
+    // 3.3: every shot burns powder from its gun's box: a box that cannot pay refuses the fire (no shot, no reload, no event).
+    if (this.carriers && !this.carriers.pay(e.id)) return;
     // The gun's own weapon, its Foundry upgrade worked in (the same object as WEAPONS[kind] without one).
     const w = weaponOf(e);
     const aim = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
@@ -627,6 +642,7 @@ export class SandboxSim {
   /** A powder burst: masonry, minions, a crater if it is near the ground. `shot` is the shell's (-1: none, a keg left to burn). */
   explode(x: number, y: number, z: number, burst: BurstDef = SHELL_BURST, shot = -1) {
     const E = burst;
+    this.bursts.push({ x, y, z, radius: E.radius, shot });
     this.castle.burst(x, y, z, E.radius, E.shatter, E.power, E.lift);
     this.event(EventKind.Explosion, x, y, z, E.radius);
     // After M5: a gun beside the burst is blown off its bed.
@@ -634,6 +650,8 @@ export class SandboxSim {
     this.ladders?.blast(x, y, z, E.knock * 0.5, this.tick);
     // M3: kegs set within its reach go off with it.
     this.specialists?.burstNear(x, y, z, E.radius * 1.3, shot, this.tick);
+    // 3.3: a powder boy's keg within its radius is lit (it goes off if the burst throws him down).
+    this.carriers?.burstNear(x, y, z, E.radius);
     for (const n of this.minions.near(x, y, z, E.knock)) {
       const d = n.d + 0.3;
       const f = E.knockSpeed * (1 - n.d / E.knock);
@@ -743,6 +761,7 @@ export class SandboxSim {
     this.gangs?.hashInto(extra);
     this.structures?.hashInto(extra);
     this.specialists?.hashInto(extra);
+    this.carriers?.hashInto(extra);
     this.mounts.hashInto(extra);
     for (const s of this.shots) {
       extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);

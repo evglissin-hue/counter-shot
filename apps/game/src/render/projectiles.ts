@@ -25,7 +25,7 @@ import {
 } from "three/tsl";
 import { CHAIN_STRIDE, PROJECTILE_STRIDE, ProjectileKind } from "@keepfall/sim";
 import type { StylePreset } from "./styles";
-import type { N } from "./tslUtils";
+import { noAoNormal, type N } from "./tslUtils";
 import { applyCloudShadow } from "./clouds";
 
 const MAX_BALLS = 256;
@@ -98,6 +98,7 @@ export class Projectiles {
     sm.transparent = true;
     sm.depthWrite = false;
     sm.blending = THREE.AdditiveBlending;
+    noAoNormal(sm);
     sm.fog = false;
     const sp: N = attribute("iSpark", "vec4");
     const dist: N = sp.xyz.sub(cameraPosition).length();

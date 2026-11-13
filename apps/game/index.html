@@ -194,6 +194,8 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .yard .gatemark { left: 40%; width: 20%; top: -9px; height: 16px; background: var(--ground); border: 1px solid var(--line); border-radius: 3px; }
 .yard .plot, .yard .gunpick { position: absolute; display: grid; align-content: center; justify-items: center; gap: 2px; padding: 2px; border: 1px solid rgba(201,154,70,0.55); background: rgba(201,154,70,0.12); border-radius: 3px; font: 500 11px/1.1 var(--ui); text-align: center; overflow: hidden; }
 .yard .plot b, .yard .gunpick b { font: 500 13px/1 var(--mono); color: var(--brass); }
+.yard .plot { gap: 1px; }
+.yard .plot span { font-size: 10px; line-height: 1; }
 .yard .plot.empty { border-style: dashed; background: transparent; color: var(--ink-dim); }
 .yard .plot.ruin { border-color: var(--bad); color: var(--bad); }
 .yard .plot.sel, .yard .gunpick.sel { outline: 2px solid var(--aim); outline-offset: 1px; }
@@ -377,6 +379,19 @@ button[aria-pressed="true"] { background: rgba(201, 154, 70, 0.17); color: #ecc5
 .matchbar .econ { gap: 4px 10px; align-items: center; }
 .matchbar .gold { font: 600 15px/1 var(--ui); font-variant-numeric: tabular-nums; min-width: 5.6em; text-align: right; }
 .matchbar .rate { font-variant-numeric: tabular-nums; min-width: 4.4em; }
+/* Powder (3.3): the store by the gold, the box as pips on the weapon card, a dry tab and a keg on its way. */
+.matchbar .powder { display: inline-flex; align-items: center; gap: 5px; font: 600 13px/1 var(--ui); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.matchbar .powder.full { color: #e0a43a; }
+.keg { display: inline-block; width: 9px; height: 11px; border-radius: 3px / 4px; background: linear-gradient(180deg, transparent 22%, rgba(0,0,0,0.55) 22% 30%, transparent 30% 68%, rgba(0,0,0,0.55) 68% 76%, transparent 76%), #9a6a32; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.35); }
+.weapon .pips { display: inline-flex; gap: 3px; align-items: center; margin-left: auto; }
+.weapon .pips[hidden] { display: none; }
+.weapon .pips i { width: 7px; height: 9px; border-radius: 2px; border: 1px solid rgba(236, 228, 210, 0.35); background: transparent; }
+.weapon .pips i.on { background: var(--brass); border-color: var(--brass); }
+.weapon .pips.dry i { border-color: var(--bad); }
+#weapons button.dry { color: rgba(181, 171, 149, 0.5); }
+#weapons button.dry .n { color: rgba(181, 171, 149, 0.4); }
+#weapons button.dry[aria-pressed="true"] { color: rgba(236, 228, 210, 0.7); box-shadow: inset 0 -2px 0 var(--bad); }
+#weapons button.kegged::after { content: ""; display: inline-block; width: 6px; height: 8px; margin-left: 5px; vertical-align: -1px; border-radius: 2px; background: #c99a46; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
 .buildbtn { padding: 4px 6px 4px 10px; gap: 7px; }
 .buildbtn kbd { height: 16px; min-width: 16px; font-size: 10px; color: var(--ink-dim); }
 /* The right-hand column: the map, your waves' and masons' commands, the wind. */
@@ -583,6 +598,7 @@ body.photoing #replay { visibility: hidden; }
     <div class="line econ">
       <span class="gold" id="gold">150 gold</span>
       <span class="rate" id="gold-rate"></span>
+      <span class="powder" id="powder" hidden title="Powder"><i class="keg" aria-hidden="true"></i><span id="powder-text"></span></span>
       <button id="build-btn" class="buildbtn" title="Spend your gold: buildings, guns for empty slots, upgrades (B)">Build <kbd>B</kbd></button>
       <span class="badge" id="sudden" hidden>Sudden death</span>
     </div>
@@ -604,7 +620,7 @@ body.photoing #replay { visibility: hidden; }
   <div class="weapon glass">
     <div class="title"><b id="w-name">Long gun</b><span id="w-slot">1</span></div>
     <div class="bar"><i id="w-reload-fill"></i></div>
-    <div class="wline"><span id="w-reload" aria-live="polite">Ready</span><span class="target" id="w-target"></span></div>
+    <div class="wline"><span id="w-reload" aria-live="polite">Ready</span><span class="pips" id="w-pips" hidden></span><span class="target" id="w-target"></span></div>
     <div class="wline set"><span id="w-extra"></span><label class="check shotcam" title="Shot camera: follow your shot (V)"><input type="checkbox" id="shotcam"> Shot cam</label></div>
     <div class="mono" id="minions"></div>
   </div>

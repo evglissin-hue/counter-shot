@@ -8,6 +8,7 @@ import {
   ASHWRIGHT_EMPLACEMENTS,
   ASHWRIGHT_SLOTS,
   BARREL,
+  castleOfEmp,
   CASTLE_SHAPE,
   DIFFICULTIES,
   DIST,
@@ -16,6 +17,7 @@ import {
   GAME_LAYOUT,
   KEEP_STOREYS,
   MATCH_EMPLACEMENTS,
+  plotCentre,
   REGISTER,
   REMOUNT,
   REPAIR_KINDS,
@@ -86,12 +88,13 @@ import {
   shotsGone,
   updateImpactCam,
 } from "./impactCam";
-import type { FromWorker, MasonInfo, MatchInfo, MatchSetup, Mode, RegisterInfo, ToWorker } from "./protocol";
+import { BOY_STRIDE, type FromWorker, type MasonInfo, type MatchInfo, type MatchSetup, type Mode, type RegisterInfo, type ToWorker } from "./protocol";
 import { bearWhy, MarkChips, newestMark, SalvoKeys, salvoLine } from "./marks";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
 import { GameRenderer } from "./render/GameRenderer";
 import { LAY_SECONDS } from "./render/works";
+import { glassFromFov } from "./render/glassLogic";
 import { Sound } from "./sound";
 import { Soundscape } from "./soundscape";
 import { Pacer, SCALES } from "./pacing";
@@ -99,6 +102,7 @@ import { Timeline } from "./timeline";
 import { ThreatStrip } from "./threat";
 import { OverviewMarks } from "./overviewMarks";
 import { buildView, createSteward } from "./steward";
+import { boxOf, canPay, drawPips, DryNotes, dryNote, dryState, boyServing, KEG_BOY_NOTE, magazineBlewNote, millBlewNote, markTabs, PowderBar } from "./powder";
 import type { MatchInput } from "@keepfall/rules";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -122,8 +126,8 @@ const steward = createSteward({
   $,
   canvas,
   available: () => ready && isMatch() && !player.playing && !film.active && !photo && !!matchInfo && !matchInfo.result && !ride && !!$("menu").hidden && !!$("end").hidden && !!$("gone").hidden,
-  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing() }) : null),
-  standingCtx: () => (matchInfo && isMatch() && !matchInfo.result ? { gateOpen: matchInfo.gateOpen[ME], gold: matchInfo.gold[ME], repairs: matchInfo.repairs, plots: estate.ownPlots() } : null),
+  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing(), powder: matchInfo.powder?.[ME] ?? null }) : null),
+  standingCtx: () => (matchInfo && isMatch() && !matchInfo.result ? { gateOpen: matchInfo.gateOpen[ME], gold: matchInfo.gold[ME], repairs: matchInfo.repairs, plots: estate.ownPlots(), powder: matchInfo.powder?.[ME] ?? null } : null),
   act: stewardAct,
   note: (text, ms) => showNote(text, ms),
   closeBuild: () => estate.wheel.close(),
@@ -505,6 +509,7 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
         else if (ALL_EMP[g]) reload[g] = weaponOf(ALL_EMP[g]).reload;
       }
     }
+    renderer.setReloads(reload);
     soundscape.reload(EMP[current].weapon, rl(current), WEAPONS[EMP[current].weapon].reload, view === "sight" && mode !== null);
     if (was > 0 && rl(current) === 0) {
       sound.ready(EMP[current].weapon);
@@ -533,7 +538,7 @@ function frameExtras(m: Extract<FromWorker, { t: "frame" }>): FrameExtras {
     const live = (c: number) => (info.attackers[c] > info.defenders[c] && info.attackers[c] >= 2 ? 1 : 0);
     storm = [info.storm[0] / info.stormHold, live(0), info.storm[1] / info.stormHold, live(1)];
   }
-  return { guns: info ? info.guns : null, out: m.out, storm, bridges: m.bridges, arms: info ? info.arms : null };
+  return { guns: info ? info.guns : null, out: m.out, storm, bridges: m.bridges, arms: info ? info.arms : null, reload: Int16Array.from(m.reload) };
 }
 
 function onFrame(f: FrameData) {
@@ -635,6 +640,8 @@ function onFrame(f: FrameData) {
       gunKnockedOut(a, b, c);
     } else if (kind === EventKind.GunBack) {
       gunBack(a);
+    } else if (kind === EventKind.MagazineBlew || kind === EventKind.MillBlew || kind === EventKind.Hoist || kind === EventKind.Boxed || kind === EventKind.KegBurst) {
+      powderEvent(kind, a, b, c, d, true);
     } else if (kind === EventKind.Cracked) {
       // M5: a shell cracked a keep floor board that held: timber splitting (the renderer throws splinters).
       if (cracks++ < 2) sound.woodHit(b, c, d, 0.8);
@@ -1012,6 +1019,22 @@ function applyMouse() {
   input.mouseX = input.mouseY = 0;
 }
 
+/**
+ * 3.3: a gun whose box cannot pay a shot does not fire: nothing is sent, a dry click and (at most every 2 s) a note
+ * that says why. The match refuses it as well; this is the page saying so.
+ */
+function powderRefused(): boolean {
+  if (!isMatch()) return false;
+  const b = boxOf(matchInfo, gid(current));
+  if (canPay(b)) return false;
+  sound.dryClick();
+  if (b && dryNotes.take(performance.now())) {
+    const p = matchInfo?.powder?.[ME];
+    showNote(dryNote(WEAPONS[EMP[current].weapon].name, b, p?.stock ?? 0, boyServing(matchInfo, ME, gid(current)), !!p && p.magazine < 0), 3000);
+  }
+  return true;
+}
+
 function fire(charge = 1, pitch?: number) {
   if (mode === "watch" || !ready || userPause || rl(current) > 0 || matchInfo?.result) return;
   if (!input.locked) playedFree = true;
@@ -1024,6 +1047,7 @@ function fire(charge = 1, pitch?: number) {
     showNote(`${outShort(current)}: Q or E for another gun`, 3200);
     return;
   }
+  if (powderRefused()) return;
   const a = aims[current];
   if (pitch !== undefined) aims[current] = { yaw: a.yaw, pitch };
   send({ t: "input", input: { kind: "fire", emplacement: gid(current), yaw: a.yaw, pitch: pitch ?? a.pitch, charge, fuse: fuseTicks, spin: e.weapon === "longGun" ? spin : Spin.None } });
@@ -1213,6 +1237,7 @@ function drawMap() {
     storm: [stormOf(0), stormOf(1)],
     stormOn: info ? [info.attackers[0] > info.defenders[0] && info.attackers[0] >= 2, info.attackers[1] > info.defenders[1] && info.attackers[1] >= 2] : [false, false],
     match,
+    stores: info?.powder ? [info.powder[0], info.powder[1]] : null,
     marks: regInfo()?.marks.map((m) => ({ n: m.n, x: m.x, z: m.z })),
     ...mapPatch,
   });
@@ -1669,6 +1694,51 @@ function gunKnockedOut(emp: number, cause: number, shot: number) {
   }
 }
 
+/**
+ * 3.3: what powder does in the world. A rope creaks as your boy hoists a keg to your gun, a keg is set down in a box,
+ * a magazine blows (the loudest sound in the game: heard from anywhere in the valley), a mill bursts. With `notes`
+ * the page also says so and logs it (a replay only has the sounds).
+ */
+function powderEvent(kind: number, a: number, b: number, c: number, d: number, notes: boolean) {
+  if (kind === EventKind.Hoist || kind === EventKind.Boxed) {
+    const e = ALL_EMP[a];
+    if (!e || castleOfEmp(e) !== ME) return;
+    if (kind === EventKind.Hoist) sound.hoist(e.x, e.y, e.z);
+    else sound.kegSet(e.x, e.y, e.z);
+  } else if (kind === EventKind.MagazineBlew || kind === EventKind.MillBlew) {
+    // [castle, plot, stock, shot]
+    const at = plotCentre(a, b);
+    const mine = a === ME;
+    if (kind === EventKind.MagazineBlew) {
+      sound.magazineBlow(at.x, 2, at.z, c / 120);
+      if (notes) {
+        const n = magazineBlewNote(mine, c);
+        showNote(n.note, 5000);
+        logMoment(n.log, mine);
+      }
+    } else {
+      sound.millBlow(at.x, 2, at.z);
+      if (notes) {
+        const n = millBlewNote(mine);
+        showNote(n.note, 4000);
+        logMoment(n.log, mine);
+      }
+    }
+  } else if (kind === EventKind.KegBurst) {
+    // The burst itself is an Explosion event (heard and shaken there); a note when it is one of your boys.
+    if (notes && matchInfo?.boys) {
+      const bs = matchInfo.boys;
+      for (let o = 0; o + BOY_STRIDE <= bs.length; o += BOY_STRIDE) {
+        if (bs[o] === ME && bs[o + 1] === a) {
+          showNote(KEG_BOY_NOTE, 3500);
+          logMoment(KEG_BOY_NOTE, true);
+          break;
+        }
+      }
+    }
+  }
+}
+
 /** A knocked-out gun's crew has it back. */
 function gunBack(emp: number) {
   const e = ALL_EMP[emp];
@@ -1686,6 +1756,7 @@ const hud = {
   name: $("w-name"),
   slot: $("w-slot"),
   reload: $("w-reload"),
+  pips: $("w-pips"),
   reloadFill: $("w-reload-fill"),
   target: $("w-target"),
   extra: $("w-extra"),
@@ -1699,6 +1770,9 @@ const hud = {
   shotCam: $<HTMLInputElement>("shotcam"),
   sound: $<HTMLButtonElement>("sound-btn"),
 };
+/** 3.3: the powder store by the gold, and the limit on notes about a dry gun. */
+const powderBar = new PowderBar($("powder"), $("powder-text"));
+const dryNotes = new DryNotes();
 /** M3: one tab per gun you can ride (eight in a match, the empty ones dimmed), rebuilt when a gun is bought. */
 let tabs: HTMLButtonElement[] = [];
 function buildTabs() {
@@ -1798,15 +1872,20 @@ function updateHud(force = false) {
     hud.reload.textContent = "No gun";
     hud.reloadFill.style.transform = "scaleX(0)";
     hud.target.textContent = "";
+    drawPips(hud.pips, null);
     setExtra("<kbd>Space</kbd> buys one");
     hud.reticle.hidden = true;
     return;
   }
   const r = rl(current);
   const out = isOut(current);
-  hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
+  const box = boxOf(matchInfo, gid(current));
+  // 3.3: a loaded gun whose box cannot pay is not ready: it waits for powder.
+  const dry = r === 0 && !out ? dryState(box) : "";
+  hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : dry || "Ready";
   hud.reloadFill.style.transform = `scaleX(${out ? 0 : 1 - r / w.reload})`;
-  weaponPanel.classList.toggle("loaded", r === 0 && !out);
+  drawPips(hud.pips, box);
+  weaponPanel.classList.toggle("loaded", r === 0 && !out && !dry);
   weaponPanel.classList.toggle("out", out);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).
@@ -1949,6 +2028,9 @@ function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   $("reset").textContent = match ? "Restart the match" : "Rebuild the castles";
   $("menu-back").hidden = false;
   matchInfo = null;
+  renderer.setPowder(null, null);
+  powderBar.reset();
+  dryNotes.reset();
   endShownFor = -1;
   clearTimeout(endTimer);
   bridgesOpen = layout.bridges.map(() => true);
@@ -2448,6 +2530,7 @@ function onMatch(info: MatchInfo) {
   soundscape.match(info, ME, FOE);
   updateRepairs();
   updateStorm();
+  renderer.setPowder(info.powder, info.boxes);
   if (!info.result) {
     const was = prevGate;
     if (was) {
@@ -2480,6 +2563,8 @@ function onMatch(info: MatchInfo) {
   // M3: the rate it comes in, what was earned since, the guns as built and bought.
   $("gold-rate").textContent = `+${info.income[ME].toFixed(1)}/s`;
   syncArms(info.arms);
+  powderBar.update(info, ME, (text) => showNote(text, 4500));
+  markTabs(tabs, info, gid);
   // After M5: by slot, whether the masonry a gun would stand on is down (none can be bought for it until rebuilt).
   estate.onMatch(info, EMP[current] ?? null, current, EMP, EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2));
   const r = info.result;
@@ -3143,6 +3228,7 @@ function applyShake(pose: CameraPose, now: number) {
 /** What the page tells the renderer with a frame that the frame does not carry, for a replay: barrels, the storm rings, and (`full`) which guns are out. */
 function replayExtras(e: FrameExtras, full: boolean) {
   if (e.guns) for (let i = 0; i < ALL_EMP.length && e.guns.length >= (i + 1) * 2; i++) renderer.setWeaponPose(i, e.guns[i * 2], e.guns[i * 2 + 1], false);
+  if (e.reload) renderer.setReloads(e.reload);
   if (full && e.out) for (let i = 0; i < ALL_EMP.length && i * 2 < e.out.length; i++) renderer.setGunOut(ALL_EMP[i].id, e.out[i * 2] > 0);
   if (e.storm) {
     renderer.setStorm(0, e.storm[0], e.storm[1] > 0);
@@ -3174,6 +3260,7 @@ function replaySounds(f: FrameData, speed: number, audible: boolean) {
       if (b === 2) sound.ladderUp(c, 7.5, d);
       else sound.ladderDown(c, 1, d);
     } else if (kind === EventKind.Cracked && cracked++ < 2) sound.woodHit(b, c, d, 0.8);
+    else if (kind === EventKind.MagazineBlew || kind === EventKind.MillBlew) powderEvent(kind, a, b, c, d, false);
   }
 }
 
@@ -3701,7 +3788,9 @@ function frame(wall: number) {
   } else if (EMP[current].weapon === "mortar" && !EMP[current].empty) {
     // The mortar: the press starts the charge, letting go fires it (a knocked-out one says when it is back).
     if (p.fire && !charging) {
-      if (canFire()) charging = { start: now, slot: current, ticks: 0 };
+      if (canFire()) {
+        if (!powderRefused()) charging = { start: now, slot: current, ticks: 0 };
+      }
       else if (isOut(current)) fire();
     }
     if (charging) {
@@ -3748,6 +3837,8 @@ function frame(wall: number) {
   if (!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride))) pose.fov = shownFov;
   applyShake(pose, now);
   renderer.setCamera(pose);
+  // L1.6: the sight, and the mortar's spotter, are a telescope when zoomed well in (not in a test camera; replays and photo mode never reach here).
+  renderer.setGlass(!testCamera && (pose.mode === "sight" || (pose.mode === "free" && !ride && EMP[current].weapon === "mortar")) ? glassFromFov(shownFov, w.fov[0], w.fov[1]) : 0);
   {
     const ic = updateImpactCam(now, dt);
     renderer.setInset(ic.pose, placeImpactFrame(ic, canvas), ic.swapped);

@@ -30,6 +30,8 @@ export interface FrameExtras {
   bridges: boolean[] | null;
   /** Every emplacement's weapon and upgrade (two bytes each). */
   arms: Int8Array | null;
+  /** Every gun's reload as the match reported it (ticks left, indexed by match emplacement id), for the guns' recoil and run out in a replay (look round L1). */
+  reload: Int16Array | null;
 }
 
 export interface RecEntry {
@@ -71,11 +73,11 @@ export const CLIP_AFTER = 360;
 export const CLIP_MAX = 960;
 
 const TICKS_PER_SECOND = 60;
-const NO_EXTRAS: FrameExtras = { guns: null, out: null, storm: null, bridges: null, arms: null };
+const NO_EXTRAS: FrameExtras = { guns: null, out: null, storm: null, bridges: null, arms: null, reload: null };
 
 /** Bytes of what a frame's extras hold. */
 export function extrasBytes(e: FrameExtras): number {
-  return (e.guns ? e.guns.byteLength : 0) + (e.out ? e.out.byteLength : 0) + (e.arms ? e.arms.byteLength : 0) + (e.storm ? 32 : 0) + (e.bridges ? e.bridges.length : 0);
+  return (e.guns ? e.guns.byteLength : 0) + (e.out ? e.out.byteLength : 0) + (e.arms ? e.arms.byteLength : 0) + (e.reload ? e.reload.byteLength : 0) + (e.storm ? 32 : 0) + (e.bridges ? e.bridges.length : 0);
 }
 
 interface Pending {

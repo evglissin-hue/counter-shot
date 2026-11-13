@@ -10,7 +10,7 @@ import { CLOCK_BASE, LEAD_TICKS, MOMENT_NAMES, ReplayPlayer, quiet, speedLabel, 
 
 const layout = buildLayout(1, GAME_LAYOUT);
 const empty = new Float32Array(0);
-const noExtras: FrameExtras = { guns: null, out: null, storm: null, bridges: null, arms: null };
+const noExtras: FrameExtras = { guns: null, out: null, storm: null, bridges: null, arms: null, reload: null };
 
 function frame(tick: number, events: number[][] = []): FrameData {
   const ev = new Float32Array(events.length * EVENT_STRIDE);
@@ -110,7 +110,7 @@ function rig(opts: { failRender?: number; failPlan?: boolean } = {}) {
 const DT = 1 / 30;
 
 test("every kind of moment has a short name, and nothing is empty", () => {
-  const kinds: MomentKind[] = ["multiKill", "ricochetKill", "collapseKill", "thrown", "kegChain", "kegBack", "gunSilenced", "buildingWrecked", "gateDown", "breachOpened", "towerDown", "floorCaved", "bannerDown", "bridgeDown", "stormBegun", "stormBeaten", "lastBlow"];
+  const kinds: MomentKind[] = ["multiKill", "ricochetKill", "collapseKill", "thrown", "kegChain", "kegBack", "gunSilenced", "buildingWrecked", "magazine", "gateDown", "breachOpened", "towerDown", "floorCaved", "bannerDown", "bridgeDown", "stormBegun", "stormBeaten", "lastBlow"];
   assert.equal(Object.keys(MOMENT_NAMES).length, kinds.length);
   for (const k of kinds) assert.ok(MOMENT_NAMES[k] && MOMENT_NAMES[k].length <= 20, k);
   assert.equal(MOMENT_NAMES.towerDown, "Tower down");

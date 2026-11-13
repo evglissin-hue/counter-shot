@@ -14,7 +14,7 @@ import { DPI, dsqrt } from "@keepfall/core";
 import { Action, type Army, type Emit } from "./army";
 import type { CastleSim } from "./castleSim";
 import { EventKind } from "./frame";
-import { MinionState, Role, type Minion, type Minions } from "./minions";
+import { isWorker, MinionState, Role, type Minion, type Minions } from "./minions";
 import type { NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
 
@@ -121,7 +121,7 @@ export class Gangs {
     for (const pass of [0, 1]) {
       for (const m of men) {
         if (pick.length >= REGISTER.gangMen) break;
-        if (m.state !== MinionState.Upright || m.role !== Role.March || m.unit === Unit.Ladder || m.unit === Unit.Mason || pick.includes(m)) continue;
+        if (m.state !== MinionState.Upright || m.role !== Role.March || m.unit === Unit.Ladder || m.unit === Unit.Mason || m.unit === Unit.PowderBoy || pick.includes(m)) continue;
         if (pass === 0 && m.unit !== Unit.Pikeman) continue;
         pick.push(m);
       }
@@ -232,7 +232,7 @@ export class Gangs {
     const mid = this.site(g.bridge).z;
     const r2 = r * r;
     for (const n of this.minions.list) {
-      if (n.team === g.team || n.state !== MinionState.Upright || n.role === Role.Mason) continue;
+      if (n.team === g.team || n.state !== MinionState.Upright || isWorker(n)) continue;
       if (g.team === 1 ? n.z >= mid : n.z <= mid) continue;
       const dx = n.x - x, dz = n.z - z;
       if (dx * dx + dz * dz < r2) return true;

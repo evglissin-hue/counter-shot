@@ -24,9 +24,11 @@ export const CHAIN_STRIDE = 6;
  * Feet at y. Action (army.ts): 0 walking, 1 standing, 2 fighting, 3
  * battering a gate, 4 a mason at work, 5 carrying a ladder, 6 climbing
  * (a ladder or the rope inside), 7 raising a ladder, 8 a sapper setting his
- * keg, 9 a musketeer with his musket up; act counts ticks since its last
- * blow (or mallet stroke, or shot) began. Unit is content's Unit (0 pikeman,
- * 1 mason, 2 ladder crew, 3 sapper, 4 musketeer).
+ * keg, 9 a musketeer with his musket up, 10 a powder boy with a keg on his
+ * shoulder (walking or standing), 11 a powder boy hoisting a keg up to its
+ * gun; act counts ticks since its last blow (or mallet stroke, or shot) began
+ * (a hoist: ticks into it). Unit is content's Unit (0 pikeman, 1 mason, 2
+ * ladder crew, 3 sapper, 4 musketeer, 5 powder boy).
  */
 export const MINION_STRIDE = 10;
 
@@ -96,6 +98,16 @@ export const enum EventKind {
   GangStart = 18,
   /** [kind, bridge, team, x, z]: a gang put the last piece of a bridge back; it stands for both sides again (3.2). */
   Relaid = 19,
+  /** [kind, castle, plot, stock, shot id (-1: none)]: a magazine blew up with this much powder in it (3.3). */
+  MagazineBlew = 20,
+  /** [kind, castle, plot, 0, shot id (-1: none)]: a Powder Mill that was working was wrecked and burst like a keg (3.3). */
+  MillBlew = 21,
+  /** [kind, emplacement, charges in the keg, boy (minion id), 0]: a boy began to hoist a keg up to a gun (3.3). */
+  Hoist = 22,
+  /** [kind, emplacement, charges, 0, 0]: a keg reached a gun's box (3.3). */
+  Boxed = 23,
+  /** [kind, boy (minion id), x, y, z]: a keg a boy carried went off where he fell (3.3). */
+  KegBurst = 24,
 }
 export const EVENT_STRIDE = 5;
 

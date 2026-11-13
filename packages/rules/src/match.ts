@@ -24,6 +24,7 @@ import {
   MIX_NAMES,
   MUSTER,
   PLOTS,
+  POWDER,
   REGISTER,
   REPAIR_KINDS,
   ROUTE_NAMES,
@@ -47,7 +48,7 @@ import {
   type WeaponKind,
 } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
-import { clearOfCastle, MinionState, Order, Role, SandboxSim, SapperTask, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
+import { clearOfCastle, isWorker, MinionState, Order, Role, SandboxSim, SapperTask, solveAim, Spin, stepAim, yawTowards, type Rapier, type SandboxInput } from "@keepfall/sim";
 import { Economy } from "./economy";
 import { Estate, firstSlot } from "./estate";
 import { Register } from "./register";
@@ -58,7 +59,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 9;
+export const MATCH_RULES_VERSION = 10;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -96,7 +97,9 @@ export type MatchInput =
   /** 3.2: mark where the last shot by hand from this emplacement of the team came down (within REGISTER.markWindow ticks; Register). */
   | { kind: "mark"; emplacement: number }
   /** 3.2: fire for effect at the team's mark n (1 to 6): every gun that bears, the mortar only with `mortar` (Register). */
-  | { kind: "salvo"; mark: number; mortar?: boolean };
+  | { kind: "salvo"; mark: number; mortar?: boolean }
+  /** 3.3: buy POWDER.buy.charges of powder for POWDER.buy.gold at the team's working magazine, at once (refused without one, without room for all of it, or without the gold). */
+  | { kind: "powder" };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
@@ -148,6 +151,8 @@ export interface MatchOptions {
   orders?: [Order, Order];
   /** M6: each team's route at the start, by team (default the centre road): in the guided match your waves wait on a flank, off the mortar's line to the enemy keep. */
   routes?: [RouteName, RouteName];
+  /** 3.3: shots burn powder and powder boys carry it (default); the keep match is about the keep alone and turns it off (every gun fires at its full rate). */
+  powder?: boolean;
 }
 
 /** What a team did in a match, for the end screen. */
@@ -251,6 +256,8 @@ function wellFormed(input: MatchInput): boolean {
       return int(input.emplacement, 0, slots);
     case "salvo":
       return int(input.mark, 1, REGISTER.max) && (input.mortar === undefined || typeof input.mortar === "boolean");
+    case "powder":
+      return true;
     default:
       return false;
   }
@@ -321,7 +328,7 @@ export class Match {
     // The match's own copies: empty slots fill in as guns are bought, upgrades are worked in.
     this.emplacements = (opts.emplacements ?? MATCH_EMPLACEMENTS).map((e) => ({ ...e }));
     const buildings = [0, 1].flatMap((castle) => (opts.startBuildings?.[castle] ?? START_BUILDINGS).map((b) => ({ castle, ...b })));
-    this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true, buildings });
+    this.world = new SandboxSim(R, layout, { seed: opts.seed, minions: 0, emplacements: this.emplacements, army: true, buildings, powder: opts.powder });
     this.owner = this.emplacements.map(teamOf);
     this.economy = new Economy(this.world, this.gold, (emp) => this.owner[emp] ?? -1);
     this.estate = new Estate(this.world, this.economy, this.emplacements, (emp) => this.owner[emp] ?? -1);
@@ -353,6 +360,8 @@ export class Match {
       pay: (team, cost) => !this.result && this.economy.pay(team, cost),
     };
     if (opts.masons !== false) for (const team of [Team.Enemy, Team.Player]) works.spawnCrew(team);
+    // 3.3: the powder boys serve the gun the team rides first.
+    if (this.world.carriers) this.world.carriers.policy = { riding: (team) => this.manned[team] };
     // After M5: a knocked-out gun's crew puts it back for gold, through the same books as everything else.
     this.world.mounts.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
     this.world.gangs!.policy = { pay: (team, cost) => !this.result && this.economy.pay(team, cost) };
@@ -392,7 +401,17 @@ export class Match {
    * goes through here.
    */
   income(team: Team): number {
-    return this.economy.incomeRate(this.estate.mills(team)) * (this.suddenDeath ? MATCH.suddenIncome : 1);
+    void team;
+    return this.economy.incomeRate() * (this.suddenDeath ? MATCH.suddenIncome : 1);
+  }
+
+  /**
+   * Charges of powder a second a team makes now: its keep's cellar and each
+   * working Powder Mill (Economy.powderRate), doubled in sudden death. All
+   * powder made goes through here.
+   */
+  powderRate(team: Team): number {
+    return this.economy.powderRate(this.estate.mills(team)) * (this.suddenDeath ? POWDER.sudden : 1);
   }
 
   get tick(): number {
@@ -456,7 +475,10 @@ export class Match {
     // M3: bounties, masonry and trick shots from this step; then income, through the one income function.
     this.economy.step(tick);
     if (tick % MATCH.incomeEvery === MATCH.incomeEvery - 1) {
-      for (const team of [Team.Enemy, Team.Player]) this.economy.payIncome(team, this.income(team));
+      for (const team of [Team.Enemy, Team.Player]) {
+        this.economy.payIncome(team, this.income(team));
+        this.economy.payPowder(team, this.powderRate(team));
+      }
     }
     // Storming: attackers inside a courtyard who outnumber its defenders, for STORM.hold ticks.
     const army = this.army;
@@ -505,6 +527,8 @@ export class Match {
         // After M5: a knocked-out gun does not fire until its crew has it back.
         if (!this.world.mounts.up(e.id)) return;
         if (!Number.isFinite(input.yaw) || !Number.isFinite(input.pitch) || !Number.isFinite(input.charge) || !Number.isFinite(input.fuse)) return;
+        // 3.3: a box that cannot pay for the shot refuses the fire.
+        if (this.world.carriers && !this.world.carriers.canPay(e.id)) return;
         this.shots[team]++;
         this.world.queue(tick, { ...input, auto: false, reload: this.reloadScale() });
         this.setGun(e.id, input.yaw, input.pitch);
@@ -564,6 +588,9 @@ export class Match {
         return;
       case "salvo":
         this.register.salvo(team, input.mark, input.mortar === true, tick);
+        return;
+      case "powder":
+        if (this.estate.buyPowder(team)) this.applied.push([tick, team, "powder"]);
         return;
     }
   }
@@ -632,6 +659,11 @@ export class Match {
       const U = UNMANNED[e.weapon];
       // After M5: a knocked-out gun's crew is busy getting it back on its mount. M6: a team whose crews are not at its guns.
       if (!U || e.empty || !this.autoFire[team] || this.manned[team] === e.id || !mounts.up(e.id)) continue;
+      // 3.3: a gun whose box cannot pay for a shot lays on nothing and fires nothing.
+      if (this.world.carriers && !this.world.carriers.canPay(e.id)) {
+        this.guns[e.id].target = -1;
+        continue;
+      }
       const g = this.guns[e.id];
       const w = weaponOf(e);
       if ((tick + e.id * 7) % LOOK_EVERY === 0 && this.world.reload[e.id] <= 60) this.lay(e, g, team, U);
@@ -738,8 +770,8 @@ export class Match {
     const standing: [number, number] = [0, 0], fallen: [number, number] = [0, 0], masonsFallen: [number, number] = [0, 0];
     for (const m of this.world.minions.list) {
       if (m.wave < 0) continue;
-      if (m.role === Role.Mason) {
-        if (m.state !== MinionState.Upright) masonsFallen[m.team]++;
+      if (isWorker(m)) {
+        if (m.role === Role.Mason && m.state !== MinionState.Upright) masonsFallen[m.team]++;
         continue;
       }
       if (m.state === MinionState.Upright) standing[m.team]++;

@@ -14,6 +14,7 @@ import {
   MIX_NAMES,
   PLOTS,
   plotName,
+  POWDER,
   ROUTE_NAMES,
   UPGRADES,
   upgradesFor,
@@ -29,10 +30,16 @@ import {
 } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { PLOT_STRIDE } from "@keepfall/sim";
+import { powderBuyWhy } from "./powder";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2, RUINED = 3;
 const KIND_NAMES = BUILDING_KINDS.map((k) => BUILDINGS[k].name);
+/**
+ * The names on the courtyard map's plots: short, with soft hyphens, so a narrow plot (by the keep, at the back) breaks
+ * a long word ("Maga-zine") instead of cutting it off. The list beside the map gives the full names.
+ */
+const TILE_NAMES = KIND_NAMES.map((n) => n.replace("Powder Mill", "Mill").replace("Magazine", "Maga\u00adzine").replace("Foundry", "Found\u00adry").replace("Barracks", "Bar\u00adracks"));
 const ROUTE_LABEL: Record<RouteName, string> = { left: "Left flank", centre: "Centre road", right: "Right flank" };
 
 interface PlotInfo {
@@ -74,6 +81,8 @@ export interface WheelState {
   guns: Emplacement[];
   /** After M5: by slot, the masonry it stands on is down (no gun can be bought for it until masons rebuild it). */
   mountDown?: boolean[];
+  /** 3.3: your store (charges, what it holds, the plot of the working magazine or -1), or null in a match without powder. */
+  powder?: { stock: number; cap: number; magazine: number } | null;
 }
 
 export class BuildWheel {
@@ -157,7 +166,7 @@ export class BuildWheel {
     }
     if (!c || !c.input) return;
     if (!c.ok) {
-      this.note(c.cost > this.state.gold ? `Not enough gold: ${c.cost} needed` : `${c.label}: not now`);
+      this.note(c.input.kind === "powder" ? c.detail : c.cost > this.state.gold ? `Not enough gold: ${c.cost} needed` : `${c.label}: not now`);
       return;
     }
     this.send(c.input);
@@ -199,7 +208,7 @@ export class BuildWheel {
       // The map is drawn as the player faces from the gate wall, the field ahead (up): their left on the left, the gate at the top.
       const x = s.team === 1 ? -p.x : p.x;
       const z = p.z;
-      const what = v.kind < 0 ? "Empty" : `${KIND_NAMES[v.kind]}${v.state === RISING ? ` ${Math.round(v.share * 100)}%` : v.state === RUINED ? " (ruined)" : ""}`;
+      const what = v.kind < 0 ? "Empty" : `${TILE_NAMES[v.kind]}${v.state === RISING ? ` ${Math.round(v.share * 100)}%` : v.state === RUINED ? " (ruined)" : ""}`;
       const cls = `plot${this.target === i ? " sel" : ""}${v.state === RUINED ? " ruin" : ""}${v.kind < 0 ? " empty" : ""}`;
       return `<button class="${cls}" data-pick="${i}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b><span>${what}</span></button>`;
     };
@@ -277,11 +286,21 @@ export class BuildWheel {
       out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `Plot ${i + 1}, ${plotName(s.team, i)}; half price`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
     });
     const free = PLOT_ORDER.find((p) => this.plots[p].state === EMPTY);
+    // The magazine: one a castle, standing or rising (a ruin is rebuilt from the list above).
+    const hasMagazine = this.plots.some((v) => v.kind >= 0 && BUILDING_KINDS[v.kind] === "magazine" && (v.state === STANDING || v.state === RISING));
     // Gold first (the cheapest and the one a new castle wants), then waves, then upgrades.
-    for (const k of ["mill", "barracks", "foundry"] as BuildingKind[]) {
+    for (const k of ["mill", "barracks", "foundry", "magazine"] as BuildingKind[]) {
       const b = BUILDINGS[k];
-      const ok = free !== undefined && s.gold >= b.cost;
-      out.push({ label: b.name, detail: free === undefined ? "Every plot is taken" : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`, cost: b.cost, ok, input: free === undefined ? null : { kind: "build", plot: free, building: k } });
+      if (k === "magazine" && s.powder === null) continue; // a match without powder has no use for one
+      const one = k === "magazine" && hasMagazine;
+      const ok = free !== undefined && s.gold >= b.cost && !one;
+      const detail = one ? "You have one" : free === undefined ? "Every plot is taken" : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`;
+      out.push({ label: b.name, detail, cost: b.cost, ok, input: free === undefined || one ? null : { kind: "build", plot: free, building: k } });
+    }
+    // Powder: bought at once at the working magazine.
+    if (s.powder !== null) {
+      const why = powderBuyWhy(s.powder ?? null, s.gold);
+      out.push({ label: `Powder, ${POWDER.buy.charges} for ${POWDER.buy.gold} gold`, detail: why || "Into the magazine at once", cost: POWDER.buy.gold, ok: !why, input: { kind: "powder" } });
     }
     s.guns.forEach((e, slot) => {
       if (!e.empty) return;

@@ -23,6 +23,8 @@ export interface ViewData {
   /** The slot ridden now, or -1 in the overview. */
   riding: number;
   standing: StandingId[];
+  /** 3.3: your store, or null (a match without powder). */
+  powder?: { stock: number; cap: number; magazine: number } | null;
 }
 
 export function buildView(d: ViewData): OrdersView {
@@ -42,5 +44,5 @@ export function buildView(d: ViewData): OrdersView {
     const mix = MIX_NAMES[d.barracks[i * 2]], route = ROUTE_NAMES[d.barracks[i * 2 + 1]];
     return mix && route ? { mix, route } : null;
   });
-  return { team: d.team, gold: d.gold, plots, guns, foundry: d.foundry, barracks, repairs: { ...d.repairs }, order: d.order, route: d.route, riding: d.riding, standing: d.standing };
+  return { team: d.team, gold: d.gold, plots, guns, foundry: d.foundry, barracks, repairs: { ...d.repairs }, order: d.order, route: d.route, riding: d.riding, standing: d.standing, powder: d.powder ?? null };
 }

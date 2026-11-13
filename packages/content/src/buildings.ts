@@ -16,9 +16,9 @@ import { DPI, dcos, dsin, quatYX } from "@keepfall/core";
 import type { Material, Part, Quat } from "./castle";
 import { DIST } from "./field";
 
-export type BuildingKind = "barracks" | "mill" | "foundry";
+export type BuildingKind = "barracks" | "mill" | "foundry" | "magazine";
 /** Building kinds in their fixed order (Stone.building and every list of kinds use it). */
-export const BUILDING_KINDS: BuildingKind[] = ["barracks", "mill", "foundry"];
+export const BUILDING_KINDS: BuildingKind[] = ["barracks", "mill", "foundry", "magazine"];
 
 export interface BuildingDef {
   kind: BuildingKind;
@@ -27,7 +27,7 @@ export interface BuildingDef {
   cost: number;
   /** Ticks it takes to rise from the ground. */
   buildTicks: number;
-  /** Gold a second while it works (Powder Mills). */
+  /** Gold a second while it works (no building pays gold now: the keep alone does; mills make powder). */
   income: number;
   /** What it does, for the build wheel. */
   blurb: string;
@@ -42,8 +42,9 @@ export interface BuildingDef {
  */
 export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
   barracks: { kind: "barracks", name: "Barracks", cost: 220, buildTicks: 18 * 60, income: 0, blurb: "Sends a wave of 8 every 25 s: set its mix and route" },
-  mill: { kind: "mill", name: "Powder Mill", cost: 160, buildTicks: 12 * 60, income: 1.5, blurb: "1.5 gold a second while it stands" },
+  mill: { kind: "mill", name: "Powder Mill", cost: 160, buildTicks: 12 * 60, income: 0, blurb: "Makes 0.5 powder a second while it stands" },
   foundry: { kind: "foundry", name: "Foundry", cost: 250, buildTicks: 15 * 60, income: 0, blurb: "Upgrades for your guns" },
+  magazine: { kind: "magazine", name: "Magazine", cost: 140, buildTicks: 12 * 60, income: 0, blurb: "Stores up to 120 powder for your boys; blows up if it is wrecked with powder in it" },
 };
 
 /** A building works while at least this share of its pieces stand; a ruin is rebuilt for this share of its cost. */
@@ -91,13 +92,14 @@ export function plotName(castle: number, plot: number): string {
   return castle === 0 ? n : n.replace(/left|right/, (m) => (m === "left" ? "right" : "left"));
 }
 
-/** What stands on each plot when a match starts (both castles): the barracks on the front left plot. */
-export const START_BUILDINGS: Array<{ plot: number; kind: BuildingKind }> = [{ plot: 0, kind: "barracks" }];
+/** What stands on each plot when a match starts (both castles): the barracks on the front left plot, the magazine on the back right one. */
+export const START_BUILDINGS: Array<{ plot: number; kind: BuildingKind }> = [{ plot: 0, kind: "barracks" }, { plot: 5, kind: "magazine" }];
 
 /** The Practice range's castles: lived in, with something of each kind to shoot at. */
 export const PRACTICE_BUILDINGS: Array<{ plot: number; kind: BuildingKind }> = [
   { plot: 0, kind: "barracks" },
   { plot: 1, kind: "foundry" },
+  { plot: 3, kind: "magazine" },
   { plot: 4, kind: "mill" },
   { plot: 5, kind: "barracks" },
 ];
@@ -114,7 +116,17 @@ export interface BuildingPiece {
   z: number;
   q: Quat;
   course: number;
+  /** Hard masonry (Stone.hard): a burst reaches only 1/hard as far into it. */
+  hard?: number;
 }
+
+/**
+ * 3.3: the magazine's stone vault is hard masonry (a burst reaches a third as
+ * far into it), so it is wrecked by a shell on it, not by every shell that
+ * falls near it: the best target in the game takes a good shot. (At 2, shells
+ * that missed plots in front of it by a few metres still wrecked it.)
+ */
+export const MAGAZINE_HARD = 3;
 
 const GAP = 0.004;
 const IDENTITY: Quat = [0, 0, 0, 1];
@@ -202,6 +214,52 @@ export function buildingPieces(kind: BuildingKind, plot: Plot): BuildingPiece[] 
     stone(0, 1.2, 2, 0);
     course("plaster", 1.2, 2.6, 2, 0);
     roof(2.6);
+  } else if (kind === "magazine") {
+    // A low stone vault on the outer two thirds of the plot (away from x = 0) with a timber lean-to on the inner third,
+    // under which the kegs stand (the page draws them).
+    const dir = cx > 0 ? 1 : -1;
+    const vw = (w * 2) / 3;
+    const vx = cx + dir * (w / 2 - vw / 2);
+    const lw = w - vw;
+    const lx = cx - dir * (w / 2 - lw / 2);
+    // The vault: stone courses to 1.6 m, then two flat slabs for its roof.
+    {
+      const n = 3, h = 1.6 / n, BLOCK = 2.2;
+      const run = (along: "x" | "z", from: number, to: number, fixed: number, y: number, odd: boolean, c: number) => {
+        const len = to - from;
+        const count = Math.max(1, Math.round(len / BLOCK));
+        const b = len / count;
+        const cuts: Array<[number, number]> = [];
+        if (odd && count > 1) {
+          cuts.push([from, from + b / 2]);
+          for (let i = 0; i < count - 1; i++) cuts.push([from + b / 2 + i * b, from + b / 2 + (i + 1) * b]);
+          cuts.push([to - b / 2, to]);
+        } else for (let i = 0; i < count; i++) cuts.push([from + i * b, from + (i + 1) * b]);
+        for (const [a0, a1] of cuts) {
+          const half = (a1 - a0) / 2, mid = (a0 + a1) / 2;
+          if (along === "x") add("house", "stone", half, h / 2, WALL / 2, mid, y, fixed, c);
+          else add("house", "stone", WALL / 2, h / 2, half, fixed, y, mid, c);
+        }
+      };
+      for (let k = 0; k < n; k++) {
+        const y = h * (k + 0.5), odd = (k & 1) === 1;
+        for (const side of [-1, 1]) run("x", vx - vw / 2, vx + vw / 2, cz + side * (d / 2 - WALL / 2), y, odd, k);
+        for (const side of [-1, 1]) run("z", cz - d / 2 + WALL, cz + d / 2 - WALL, vx + side * (vw / 2 - WALL / 2), y, !odd, k);
+      }
+      for (const side of [-1, 1]) add("house", "stone", vw / 2, 0.1, d / 4, vx, 1.6 + 0.1, cz + side * (d / 4), n);
+      for (const p of out) if (p.material === "stone") p.hard = MAGAZINE_HARD;
+    }
+    // The lean-to: three wood posts along its open edge and one sloped plank roof, rising towards the vault.
+    {
+      const post = 0.2, low = 1.5, tilt = 0.2;
+      const edge = lx - dir * (lw / 2 - post / 2);
+      for (const dz of [-1, 0, 1]) add("house", "wood", post / 2, low / 2, post / 2, edge, low / 2, cz + dz * (d / 2 - post / 2), 0);
+      const st = dsin(tilt), ct = dcos(tilt);
+      const thick = 0.06;
+      const hx = lw / 2 / ct - 0.07;
+      const a = dir * tilt;
+      out.push({ part: "roof", material: "wood", hx: hx - GAP, hy: thick - GAP, hz: d / 2 - 0.05 - GAP, x: lx, y: low + (lw * st) / ct / 2 + thick + 0.02, z: cz, q: [0, 0, dsin(a / 2), dcos(a / 2)], course: 9 });
+    }
   } else {
     // The foundry: stone throughout, and a tall stone chimney against the back wall.
     stone(0, 2.7, 4, 0);

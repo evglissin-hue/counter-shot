@@ -17,6 +17,8 @@ import {
   normalize,
   positionWorld,
   pow,
+  screenSize,
+  screenUV,
   select,
   smoothstep,
   texture,
@@ -38,6 +40,8 @@ export class Sky {
   readonly mesh: THREE.Mesh;
   readonly sunDir = uniform(new THREE.Vector3(0, 1, 0));
   readonly time = uniform(0);
+  /** L1.6: the gunner's glass (0..1). Inside the sight's circle the haze is cut by a third at full glass. The page's view sets it; the impact cam's inset pass sets it to 0. */
+  readonly glass = uniform(0);
   /** Where the clouds overhead have drifted to (noise units): they ride the game's wind, as their shadows on the land do. */
   readonly cloudDrift = uniform(new THREE.Vector2(0, 0));
   private readonly u = {
@@ -148,7 +152,10 @@ export class Sky {
     const k = u.fogFalloff.mul(dir.y).mul(dist);
     const kk = select(abs(k).greaterThan(0.001), float(1).sub(exp(k.negate())).div(k), float(1));
     const od = u.fogDensity.mul(exp(u.fogFalloff.mul(cameraPosition.y).negate())).mul(dist).mul(kk);
-    const f = float(1).sub(exp(od.negate()));
+    // The telescope's clear circle: r is the distance from the screen's centre in half screen heights.
+    const p = screenUV.sub(0.5).mul(vec2(screenSize.x.div(screenSize.y), 1.0)).mul(2.0);
+    const inside = float(1).sub(smoothstep(0.85, 1.05, p.length()));
+    const f = float(1).sub(exp(od.negate())).mul(float(1).sub(this.glass.mul(inside).mul(0.33)));
     const sd = max(dot(dir, sunDir), 0.0);
     const haze = mix(u.fogColor, u.fogSun, pow(sd, 6.0).mul(0.9));
     const horizonDir = normalize(vec3(dir.x, max(dir.y, 0.0).mul(0.25).add(0.015), dir.z));

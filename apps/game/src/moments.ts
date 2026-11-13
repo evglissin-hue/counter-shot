@@ -8,7 +8,7 @@
 // tested from synthetic streams. Consumers (the impact cam, the recorder, the
 // book of feats) call `onMoment`.
 
-import { Earn, repairSections, sectionOf, BUILDINGS, BUILDING_KINDS, type CastleLayout } from "@keepfall/content";
+import { Earn, repairSections, sectionOf, BUILDINGS, BUILDING_KINDS, plotCentre, type CastleLayout } from "@keepfall/content";
 import { Cause, EVENT_STRIDE, EventKind, MINION_STRIDE, PART_STRIDE, PLOT_STRIDE, type FrameData } from "@keepfall/sim";
 
 export type MomentKind =
@@ -20,6 +20,7 @@ export type MomentKind =
   | "kegBack"
   | "gunSilenced"
   | "buildingWrecked"
+  | "magazine"
   | "gateDown"
   | "breachOpened"
   | "towerDown"
@@ -70,6 +71,8 @@ export const SCORE: Record<MomentKind, { base: number; per: number }> = {
   kegBack: { base: 80, per: 30 },
   gunSilenced: { base: 80, per: 0 },
   buildingWrecked: { base: 70, per: 0 },
+  /** 3.3: a magazine blown up, sized by the charges in it: the biggest blast in the game (120 charges: 730). */
+  magazine: { base: 250, per: 4 },
   gateDown: { base: 120, per: 0 },
   breachOpened: { base: 90, per: 2 },
   towerDown: { base: 200, per: 1 },
@@ -324,6 +327,9 @@ export class Moments {
         case EventKind.GunOut:
           this.onGunOut(a | 0, b | 0, c | 0);
           break;
+        case EventKind.MagazineBlew:
+          this.onMagazine(a | 0, b | 0, c, d);
+          break;
       }
     }
     this.followThrown(f);
@@ -469,6 +475,14 @@ export class Moments {
 
   // ---- plots -------------------------------------------------------------------
 
+  /** Magazines that blew (castle * 16 + plot): their ruin is the blast's, not a building wrecked on its own. */
+  private blown = new Set<number>();
+  private onMagazine(castle: number, plot: number, stock: number, shot: number) {
+    const at = plotCentre(castle, plot);
+    this.blown.add(castle * 16 + plot);
+    this.emit({ tick: this.tick, x: at.x, y: 1.5, z: at.z, kind: "magazine", team: 1 - castle, size: Math.round(stock), shot: shot >= 0 ? shot : undefined, text: `Magazine blown up: ${Math.round(stock)} charges` });
+  }
+
   private plotState = new Map<number, number>();
   private plots(f: FrameData) {
     for (let i = 0; i < f.plotCount; i++) {
@@ -477,7 +491,7 @@ export class Moments {
       const key = castle * 16 + plot;
       const was = this.plotState.get(key) ?? 0;
       this.plotState.set(key, state);
-      if (state === 3 && was !== 3 && was !== 0) {
+      if (state === 3 && was !== 3 && was !== 0 && !this.blown.delete(key)) {
         const name = BUILDINGS[BUILDING_KINDS[kind]]?.name ?? "Building";
         const at = this.yardAt[castle];
         this.emit({ tick: f.tick, x: at[0], y: 3, z: at[2], kind: "buildingWrecked", team: 1 - castle, size: 1, text: `${name} wrecked` });

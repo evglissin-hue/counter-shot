@@ -23,7 +23,7 @@ import {
 import type { CastleLayout } from "@keepfall/content";
 import { BrazierFires, pickBraziers } from "./brazierLogic";
 import { mergeGeometries } from "./geometry";
-import type { N } from "./tslUtils";
+import { noAoNormal, type N } from "./tslUtils";
 
 /** Seconds between puffs of a lit brazier's smoke. */
 const PUFF_EVERY = 1.1;
@@ -120,6 +120,7 @@ export class Braziers {
     gm.transparent = true;
     gm.depthWrite = false;
     gm.blending = THREE.AdditiveBlending;
+    noAoNormal(gm);
     gm.fog = false;
     const P: N = attribute("aGlow", "vec4");
     const t: N = this.time;

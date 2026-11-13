@@ -130,7 +130,7 @@ export function replayFileName(d = new Date()): string {
   return `keepfall-replay-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.json`;
 }
 
-const KINDS = ["fire", "aim", "order", "route", "man", "repair", "surrender", "build", "buy", "upgrade", "barracks", "mark", "salvo"];
+const KINDS = ["fire", "aim", "order", "route", "man", "repair", "surrender", "build", "buy", "upgrade", "barracks", "mark", "salvo", "powder"];
 const MODES = ["versus", "guided", "online"];
 /** A bound against a file made to hang the page: no match is longer than this. */
 const MAX_TICKS = 200000;

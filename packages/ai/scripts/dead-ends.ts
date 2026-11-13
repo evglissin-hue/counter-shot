@@ -5,11 +5,15 @@
 // that cannot be bought because the masonry under it is down, a gunner who
 // stops firing, gold piling up unspent; and, before the match, every gun on a
 // wall or a tower must stand on masonry (or it could never fall with it).
+// 3.3 adds the powder hunts (each flagged once per gun, boy or castle, with the stock and the box): a gun whose box cannot pay
+// for 60 s while its store has stock and one of its boys stands; a castle whose powder rate is 0; a boy whose errand does not
+// advance for 60 s (same task, same gun, moved under 2 m); a magazine ruin that cannot be rebuilt (the gold was there and it is
+// still a ruin, or still rising with no piece raised, after 90 s).
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, sectionOf, WEAPON_COST, type Difficulty } from "@keepfall/content";
-import type { Rapier } from "@keepfall/sim";
+import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, sectionOf, WEAPON_COST, type Difficulty } from "@keepfall/content";
+import { MinionState, PlotState, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
 
@@ -55,6 +59,20 @@ const spells: [number, number][] = [];
 const cheapest = (i: number) => Math.min(...(m.emplacements[i].allowed ?? [m.emplacements[i].weapon]).map((k) => WEAPON_COST[k]));
 const WAIT = ["", "its crew", "its masonry", "gold"];
 
+// 3.3 powder hunts.
+const POW = { dry: 60, boy: 60, boyMoved: 2, ruin: 90 };
+const carriers = m.world.carriers;
+const TASKS = ["idle", "to store", "take", "carry", "hoist", "back", "flee"];
+const MAGAZINE = BUILDING_KINDS.indexOf("magazine");
+const drySince = new Int32Array(n).fill(-1), dryFlagged = new Uint8Array(n);
+const rateFlagged = [false, false];
+/** Per boy (castle 0's first): the errand he has been on (task and gun), since when, where he stood then, and whether it was flagged. */
+const boyKey = new Array<string>(6).fill(""), boySince = new Array<number>(6).fill(0), boyAt = new Array<{ x: number; z: number }>(6).fill({ x: 0, z: 0 }), boyFlagged = new Array<boolean>(6).fill(false);
+/** Per castle: since when its magazine has been a ruin (or rising with no piece up) while it could pay for the rebuild; -1 when not. */
+const magSince = [-1, -1], magFlagged = [false, false];
+const boxes = (c: number) => m.emplacements.map((e, i) => (castleOf(i) === c && !e.empty ? `${i}:${carriers!.box(i)}/${carriers!.boxCap(i)}` : "")).filter(Boolean).join(" ");
+const stockOf = (c: number) => (carriers ? carriers.status(c).stock : 0);
+
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   for (const ai of ais) ai?.step();
   m.step();
@@ -84,6 +102,62 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       outFlagged[i] = 1;
       flag(t, `castle ${c}'s ${e.weapon} (${i}, ${e.place ?? "slot"}) out for ${LIMIT.out} s, waiting for ${WAIT[st]} (${Math.round(M.standing(i) * 100)}% of its masonry stands; repairs ${JSON.stringify(m.repairs[c])})`);
     }
+  }
+  if (carriers) {
+    for (let i = 0; i < n; i++) {
+      const e = m.emplacements[i], c = castleOf(i);
+      // A gun whose box cannot pay while its store has stock and one of its boys stands (a gun out or empty is not waiting for powder).
+      const boyUp = carriers.errands().some((b) => b.team === c && b.minion >= 0 && m.world.minions.list[b.minion]?.state === MinionState.Upright);
+      const dry = !e.empty && M.up(i) && !carriers.canPay(i) && stockOf(c) > 0 && boyUp;
+      if (!dry) {
+        drySince[i] = -1;
+        continue;
+      }
+      if (drySince[i] < 0) drySince[i] = t;
+      if (!dryFlagged[i] && t - drySince[i] > POW.dry * 60) {
+        dryFlagged[i] = 1;
+        flag(t, `castle ${c}'s ${e.weapon} (${i}, ${e.place ?? "slot"}) could not pay for ${POW.dry} s with stock and a boy standing (stock ${stockOf(c)}, boxes ${boxes(c)}, boys ${carriers.errands().filter((b) => b.team === c).map((b) => `${TASKS[b.task]}${b.emplacement >= 0 ? "@" + b.emplacement : ""}`).join(",")})`);
+      }
+    }
+    for (const c of [0, 1] as const) {
+      if (!rateFlagged[c] && m.powderRate(c) <= 0) {
+        rateFlagged[c] = true;
+        flag(t, `castle ${c} makes no powder (rate ${m.powderRate(c)}; stock ${stockOf(c)}, boxes ${boxes(c)})`);
+      }
+      // The magazine: a ruin (or a rebuild with no piece raised) for 90 s while the gold for the rebuild was there, and no other magazine stands.
+      const st = m.world.structures!;
+      let bad = false, other = false;
+      for (let p = 0; p < 6; p++) {
+        const s = st.slot(c, p);
+        if (s.kind !== MAGAZINE) continue;
+        if (s.state === PlotState.Standing || (s.state === PlotState.Rising && s.up > 0)) other = true;
+        if (s.state === PlotState.Ruined || (s.state === PlotState.Rising && s.up === 0)) bad = true;
+      }
+      const paid = m.gold[c] >= Math.round(BUILDINGS.magazine.cost * BUILDING_REBUILD);
+      if (!bad || other || !paid || !ais[c]) magSince[c] = -1;
+      else if (magSince[c] < 0) magSince[c] = t;
+      if (!magFlagged[c] && magSince[c] >= 0 && t - magSince[c] > POW.ruin * 60) {
+        magFlagged[c] = true;
+        const mp = [0, 1, 2, 3, 4, 5].filter((p) => st.slot(c, p).kind === MAGAZINE).map((p) => `plot ${p} state ${st.slot(c, p).state} up ${st.slot(c, p).up}`).join("; ");
+        flag(t, `castle ${c}'s magazine could not be rebuilt for ${POW.ruin} s with the gold there (${mp}; gold ${m.gold[c]}; stock ${stockOf(c)}, boxes ${boxes(c)})`);
+      }
+    }
+    // A boy whose errand does not advance: the same task for the same gun, and he has moved under 2 m.
+    carriers.errands().forEach((b, k) => {
+      const mi = b.minion >= 0 ? m.world.minions.list[b.minion] : null;
+      const key = `${b.task}:${b.emplacement}`;
+      if (!mi || b.task === 0 || key !== boyKey[k] || Math.hypot(mi.x - boyAt[k].x, mi.z - boyAt[k].z) >= POW.boyMoved) {
+        boyKey[k] = mi && b.task !== 0 ? key : "";
+        boySince[k] = t;
+        boyAt[k] = mi ? { x: mi.x, z: mi.z } : { x: 0, z: 0 };
+        boyFlagged[k] = false;
+        return;
+      }
+      if (!boyFlagged[k] && t - boySince[k] > POW.boy * 60) {
+        boyFlagged[k] = true;
+        flag(t, `castle ${b.team}'s powder boy ${k % 3} stuck ${POW.boy} s on "${TASKS[b.task]}" for gun ${b.emplacement} at (${mi.x.toFixed(1)}, ${mi.z.toFixed(1)}) (stock ${stockOf(b.team)}, boxes ${boxes(b.team)})`);
+      }
+    });
   }
   for (const c of [0, 1]) {
     if (!ais[c]) continue;
