@@ -227,9 +227,8 @@ Startup (the owner's note: about 41 s from load to ready since L1, 25 s before i
 | L1 (cde131a) | 260 | 24.3 s, 24.2 s | 26.4 s, 26.4 s | 7.4 s, 7.2 s |
 | After (this branch) | 144 | 17.5 s, 19.5 s | 19.2 s, 22.2 s | 4.6 s, 5.0 s |
 
-- What L1 added: 64 programs, nearly all from one cause. Three draws an instanced mesh whose matrices fit in one uniform block (16 KB in software rendering, 64 KB on most GPUs) through a uniform buffer named after that mesh, so each such mesh links programs of its own (the main pass, the impact cam's priming pass, the shadow pass) even when many share one material. The crews' thirteen cloth parts and three tool meshes (64 men each) linked 53 of the 64. The new materials themselves (bronze, rope, kegs, the glows, trails, blink) cost little.
+- What L1 added: 64 programs, nearly all from one cause. Three draws an instanced mesh whose matrices fit in one uniform block (64 KB here, as on most laptop GPUs) through a uniform buffer named after that mesh, so each such mesh links programs of its own (the main pass, the impact cam's priming pass, the shadow pass) even when many share one material. The crews' thirteen cloth parts and three tool meshes (64 men each) linked 53 of the 64. The new materials themselves (bronze, rope, kegs, the glows, trails, blink) cost little.
 - The cut (`render/instancing.ts`): the crews, the minions, the scatter's rocks and bushes and the two match glows get room for 1,025 matrices (just past a 64 KB block), which takes three's per-instance attribute path, whose shader is the same for every mesh on a material; only the instances in use are sent each frame (update ranges), so the larger buffers cost about 64 KB of memory each and nothing per frame. Also one iron and one bronze material for every gun (each gun had its own; it saved node building, not programs, since three shares identical shaders).
-- On a laptop GPU (a 64 KB uniform block, reported to the page as such in the probe): {UBO}
 - Frames (`tools/burst-cost.mjs`, calm and a burst, the L1 tree against this branch back to back): {FRAMES}
 - A laptop should expect: {LAPTOP}
 

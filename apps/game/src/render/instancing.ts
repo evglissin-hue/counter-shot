@@ -4,7 +4,7 @@ import * as THREE from "three/webgpu";
  * Instanced meshes that share their programs.
  *
  * Three draws an instanced mesh whose matrices fit in one uniform block (64 KB on
- * most GPUs, 16 KB in software rendering) through a uniform buffer named after
+ * most GPUs, and in Chromium's software renderer) through a uniform buffer named after
  * that mesh's own node, so each such mesh links programs of its own (the main
  * pass, the impact cam's pass, the shadow pass) even when many meshes share one
  * material: the crews' thirteen cloth parts alone linked 26 programs at load. A
