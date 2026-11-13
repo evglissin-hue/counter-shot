@@ -156,6 +156,16 @@ export const UNITS: Record<UnitKind, UnitDef> = {
 /** UNITS by the sim's unit number. */
 export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer, UNITS.powderBoy];
 
+/** How minions choose whom to fight (army.ts). */
+export const TARGETING = {
+  /** A candidate's score is its distance (m) plus this for each man of the chooser's side already targeting it: the wave spreads over the enemy. */
+  spread: 2.5,
+  /** A man closing on a target out of reach switches to a candidate scoring better than his by more than this (m). */
+  switchMargin: 1.5,
+  /** Masons and powder boys are fought only this close (m); a worker target farther off is dropped. */
+  workerReach: 3,
+} as const;
+
 /** Unit numbers by kind. */
 export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer, powderBoy: Unit.PowderBoy };
 
