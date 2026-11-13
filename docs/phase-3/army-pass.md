@@ -28,7 +28,7 @@ Left for 3.10: waves marching as a blob and holding as one long thin rank; a hel
 
 Bearing on the lanes (the owner finds roads per wave manual and hectic; a change for later): the AI's road choices were wasted under Push (finding 5); a road change that leaves the men already out on their old road reads as disobedience (finding 4); the barracks' own roads and the team road could disagree on the card.
 
-Also seen, not changed: masons close a fresh two-shot breach in about 15 s, so Push often finds none (balance, for the observatory).
+Also seen, not changed: masons close a fresh two-shot breach in about 15 s, so Push often finds none (balance, for the observatory). After the pass: the AI keeps buying ladder crews while a way in stands open, and in Knight against Knight (seed 21) none of its 28 ladders reached the wall with no way in, so they go unused (what the AI buys, for its next pass); musketeers at a shut gate still shoot the masons mending it (the garrison is out of sight behind it); a spread fight on a bridge deck knocks a man or two into the stream more often than before.
 
 ## Fixes
 
@@ -58,7 +58,23 @@ Found and fixed in the master's round, after the merge: a loose gate leaf counte
 
 ## The observatory's quick run, before and after
 
-To be filled in.
+`npm run observe:quick`, 24 matches each (12 Knight against Knight, 12 Warlord against Knight), the code before the pass (`army-before`) and after it (`army-after`):
+
+| | Before | After |
+|---|---|---|
+| Length, all 24 (median, shortest, longest) | 5.6 min (3.7, 12.3) | 5.7 min (2.6, 12.5) |
+| Length, Knight against Knight (T1) | 6.7 min; 58% between 6 and 16 | 7.6 min; 67% between 6 and 16 |
+| Length, Warlord against Knight | 4.9 min | 4.0 min |
+| Won by storm, all 24 | 7 | 9 |
+| Won by storm, Knight against Knight (T2) | 2 of 12 (keep 83%) | 2 of 12 (keep 83%) |
+| Won by storm, Warlord against Knight | 5 of 12 | 7 of 12 |
+| Matches with a storm under way at some sample (every 30 s) | 12 | 13 |
+| T4 Warlord beats Knight | 83% | 92% |
+| T8 the side behind at half time wins | 42% (fail) | 33% (pass) |
+| T3 castle 0 wins (Knight against Knight) | 5 of 12 | 7 of 12 (too few to call) |
+| Men fallen a minute (median) | 51.8 | 52.7 |
+
+Storms come a little more often and the Warlord, whose waves now get where they are sent, wins more and sooner; Knight against Knight runs a minute longer, its endings unchanged. The match by match outcomes moved a lot (same seeds, different armies). T9 is left out of the table: the before run shared the machine with seven executors (worst step 4.7 s, 631 steps over 33 ms a match) and the after run did not (1.8 s, 102), so its numbers say more about the machine than the army. The magazine numbers (46% blown before, 33% after) move with the matches, not with anything the pass changed.
 
 ## The player's chair
 
