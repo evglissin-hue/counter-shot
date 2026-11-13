@@ -294,8 +294,8 @@ export const LADDER = {
   minWall: 6,
   /** A crew this close to the enemy wall with no usable spot for this long (s) drops its ladder and fights as pikemen. */
   giveUp: 20,
-  /** Men who reach the wall walk wait for this many of their side to be there, or for nobody else to be coming, or for this many seconds. */
-  group: 3,
+  /** Men who reach the wall walk wait for this many of their side to be there (parity with a four-man garrison, so a band lands and fights, not one at a time), or for nobody else to be coming, or for this many seconds. */
+  group: 4,
   groupWait: 6,
   /** Men going over a wall together start this far apart (m) along the wall walk. */
   groupGap: 0.8,
