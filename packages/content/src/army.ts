@@ -170,7 +170,7 @@ export const KEG = {
   /** He makes for the wall once he is this close to the enemy castle's front (m). */
   near: 32,
   /** He keeps this far (m) from the gate's middle and from the towers' middles along the wall. */
-  gateClear: 3.6,
+  gateClear: 9.5,
   towerClear: 4.6,
   /** Ticks to set it and light it, and how far (m) he runs before he waits for the burst. */
   plant: 75,
@@ -185,6 +185,8 @@ export const KEG = {
   into: 0.7,
   up: 0.7,
   burst: { radius: 3.0, shatter: 0.78, power: 10, lift: 0.2, bite: 0, knock: 7, knockSpeed: 12, crater: 1.8, depth: 0.6 } as BurstDef,
+  /** A set keg is packed into the wall: the same for the masonry, but it throws men only this far (m). A carried one keeps `burst`. */
+  setBurst: { radius: 3.0, shatter: 0.78, power: 10, lift: 0.2, bite: 0, knock: 4.5, knockSpeed: 12, crater: 1.8, depth: 0.6 } as BurstDef,
 } as const;
 
 /**
@@ -209,6 +211,8 @@ export const MUSKET = {
   hitNear: 0.5,
   hitFar: 0.12,
   knock: 3.4,
+  /** A musketeer not on Hold keeps marching on a side that holds at its marker until he is this close (m), then stands and shoots. */
+  holdStand: 12,
   /** Eye height (m) the line of sight runs at. */
   eye: 1.5,
 } as const;
