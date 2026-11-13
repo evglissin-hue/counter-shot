@@ -13,6 +13,9 @@ import { STREAM } from "@keepfall/content";
 import type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 import { Burst, type FlashLight } from "./bursts";
 import { Haze } from "./haze";
+import { MasonEye } from "./masonEye";
+import { Collapse } from "./collapse";
+import type { StructureInfo } from "../protocol";
 import { GroundMarks } from "./groundMarks";
 import { ClearView } from "./clearview";
 import { Decals, type DecalState } from "./decals";
@@ -117,6 +120,10 @@ export class GameRenderer implements GameRendererApi {
   private raising = new Map<number, number>();
   private raiseBuf = new Float32Array(8);
   private shock: Shock;
+  /** 3.4: the mason's eye, the cracks, the dust and the great cloud of a fall; the structures as last reported. */
+  private eye = new MasonEye();
+  private collapse!: Collapse;
+  private structures: readonly StructureInfo[] = [];
   /** Water thrown up where things fall into the stream. */
   private splashes: Splashes;
   /** Team marks over minions in the overview. */
@@ -284,6 +291,8 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.grass.root, this.birds.root, this.braziers.root);
     this.shock = new Shock(this.noise);
     this.scene.add(this.shock.root);
+    this.collapse = new Collapse((kind, x, y, z, sc, dx, dy, dz) => this.bursts[kind].spawn(this.now, x, y, z, sc, dx, dy, dz));
+    this.scene.add(this.collapse.root, this.eye.root);
     this.splashes = new Splashes(this.time, this.wind, this.sky.sunDir, this.noise, this.clear, glow);
     this.scene.add(this.splashes.root, this.marks.mesh);
     this.marker = this.buildMarker();
@@ -720,11 +729,24 @@ export class GameRenderer implements GameRendererApi {
       else if (kind === EventKind.Built) this.spawnBuilt(x | 0, y | 0);
       // M5: a keep floor board cracked but held ([stone id, x, y, z]): splinters and a little dust where it lies.
       else if (kind === EventKind.Cracked) this.spawnImpact(y, z, v, 0.45, 0.35);
+      // 3.4: a structure toppling or crushing, and its stones let go: the great cloud (the page handles the sounds and notes).
+      else if (kind === EventKind.Topple || kind === EventKind.Crush || kind === EventKind.Released) this.collapse.event(kind, x, y, z, v, this.structures, this.now);
       // EventKind.Landed: the page handles the landing marker.
     }
     // L2/L3: scorch, dust and trodden paths on the ground, and the haze of a great collapse.
     this.groundMarks.frame(frame, this.groundHeight);
     this.haze.frame(frame, this.layout, this.now, this.groundHeight);
+  }
+
+  /** 3.4: the structures as the sim last reported them (the cracks and the dust follow them). */
+  setStructures(list: readonly StructureInfo[]): void {
+    this.structures = list;
+    this.collapse?.setStructures(list);
+  }
+
+  /** 3.4: draw the mason's eye on these structures (indices into the last report); [] hides it. */
+  setEye(targets: readonly number[]): void {
+    this.eye.set(this.structures, targets);
   }
 
   /** M3: a building's piece rose into its place (it eases up the last half metre and settles in a puff); id -1: rubble carried off. */
@@ -806,6 +828,8 @@ export class GameRenderer implements GameRendererApi {
     this.storm.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
+    this.collapse.clear();
+    this.eye.clear();
     this.blink.clear();
     this.trails.clear();
   }
@@ -1373,6 +1397,7 @@ export class GameRenderer implements GameRendererApi {
     this.birds.update(this.now, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.braziers.update(dt, (x, y, z) => this.bursts.brazier.spawn(this.now, x, y, z, 0.4, 0, 0.6, 0));
     this.powderView.update(dt);
+    this.collapse.update(this.now, dt, this.structures, this.groundHeight);
     this.estate.update(dt, this.now, (kind, x, y, z, s) => this.bursts[kind === "smoke" ? "chimney" : kind === "spark" ? "spark" : "dust"].spawn(this.now, x, y, z, s, 0, 0.6, 0));
     if (this.raising.size && this.stones && this.layout) {
       for (const [id, t0] of this.raising) {

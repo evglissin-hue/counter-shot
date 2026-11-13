@@ -201,3 +201,51 @@ export function structureWords(s: Pick<StructureInfo, "kind" | "name">, mine: bo
     felled: s.kind === "keep" ? "Keep felled" : "Tower felled",
   };
 }
+
+export type PuffKind = "skirt" | "ring" | "bank" | "column" | "smoke";
+
+/** One puff of a great cloud: seconds after the fall's release, its kind, and its size. */
+export interface Puff {
+  t: number;
+  kind: PuffKind;
+  scale: number;
+  /** Where, from the landing (m, along the fall and across it, in units of the structure's half width). */
+  along: number;
+  across: number;
+}
+
+/**
+ * A fall turns hundreds of stones to dust in a second or two. Instead of a dust effect per stone (capped) the great
+ * cloud stands for them: about ten puffs of the bursts the page already draws, spread over two and a half seconds, so a
+ * fall never costs more frame time than a shell's burst does. `k` sizes it (a keep 1, a tower less).
+ */
+export function cloudPlan(k: number): Puff[] {
+  const p = (t: number, kind: PuffKind, scale: number, along: number, across: number): Puff => ({ t, kind, scale: scale * k, along, across });
+  return [
+    p(0, "skirt", 3.2, 0, 0),
+    p(0, "bank", 3, 0, 0),
+    p(0.1, "ring", 2.2, 0.5, 0),
+    p(0.25, "column", 2.4, 0, 0),
+    p(0.5, "skirt", 2.4, 0.6, 0.5),
+    p(0.8, "smoke", 1.6, 0.2, -0.4),
+    p(1.2, "bank", 2.6, -0.4, 0.3),
+    p(1.6, "skirt", 1.8, 0.3, -0.6),
+    p(2.2, "column", 1.8, 0, 0),
+  ];
+}
+
+/**
+ * Where a fall lands (world x, z, and the ground it lands on): a topple lands a way off along its direction (about 0.6
+ * of the height above its cut), a crush straight down on the structure's middle.
+ */
+export function landing(s: Pick<StructureInfo, "cx" | "cz" | "baseY" | "topY" | "footY" | "weakest">, dirX: number, dirZ: number): { x: number; z: number; y: number } {
+  if (dirX === 0 && dirZ === 0) return { x: s.cx, z: s.cz, y: s.baseY };
+  const above = Math.max(2, s.topY - (s.weakest >= 0 ? s.footY : s.baseY));
+  const d = Math.min(14, above * 0.6);
+  return { x: s.cx + dirX * d, z: s.cz + dirZ * d, y: s.baseY };
+}
+
+/** The camera's shake for a fall `dist` m away (0..1): stronger than a shell's, further reaching. */
+export function fallShake(dist: number): number {
+  return Math.max(0.15, Math.min(1, 1.5 - dist / 140));
+}
