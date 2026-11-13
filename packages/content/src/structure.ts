@@ -66,10 +66,10 @@ export const STRUCTURE = {
   touchProbes: 48,
   /** Rule 6: a crushed part is let go at once, its walls bursting outward at this speed (m/s) as they come down. */
   splay: 1.2,
-  /** Rule 7: of the stones let go, about this many stay bodies; the rest are brittle (dust at their first touch). */
-  bodies: 450,
+  /** Rule 7: of the stones let go, about this many stay bodies; the rest are brittle (dust at their first touch). The spec's 450 left a keep's fall in a match at 900 to 1,030 bodies moving with what it broke in the courtyard; 300 brought the worst of eight Knight mirrors from 1,030 to 844. */
+  bodies: 300,
   /** Of a tower let go, this many stay bodies (its rubble is light work for the wall it lands on: with 450, a tower falling along a curtain wall took the wall down along its length and the next tower with it). */
-  towerBodies: 200,
+  towerBodies: 120,
   /** Rule 7: a brittle stone that touches anything at this speed (m/s) or more turns to dust. */
   brittleSpeed: 9,
   /** A brittle stone still flying after this many ticks turns to dust anyway (it never left the air: a guard). */
