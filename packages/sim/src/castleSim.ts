@@ -200,6 +200,12 @@ export class CastleSim {
   private moving = 0;
   /** M5: tough pieces a blast cracked this step without breaking them loose (for the page: splinters and a crack). */
   cracked: number[] = [];
+  /**
+   * 3.4: pieces the statics pass is moving (a toppling part, a brittle stone
+   * in flight): masons and builders leave them alone, and restore() and
+   * carryOff() refuse them. Always 0 in a layout without structures.
+   */
+  readonly busy: Uint8Array;
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -212,6 +218,7 @@ export class CastleSim {
     this.shattered = new Uint8Array(n);
     this.shatterReported = new Uint8Array(n);
     this.hits = new Uint8Array(n);
+    this.busy = new Uint8Array(n);
     this.toughIds = Int32Array.from(layout.stones.filter((s) => (s.tough ?? 1) > 1).map((s) => s.id));
     this.spanOf = new Uint8Array(n);
     this.maxSpan = opts.span;
@@ -781,7 +788,7 @@ export class CastleSim {
    * standing already.
    */
   restore(id: number): boolean {
-    if (!this.dynamic[id]) return false;
+    if (!this.dynamic[id] || this.busy[id]) return false;
     const s = this.layout.stones[id];
     const body = this.bodies[id];
     this.hits[id] = 0; // a new board or stone: no cracks
@@ -813,7 +820,7 @@ export class CastleSim {
 
   /** Masons carry a loose piece out of the way: it leaves the world, like dust, and can be put back later. */
   carryOff(id: number): boolean {
-    if (!this.dynamic[id] || this.shattered[id]) return false;
+    if (!this.dynamic[id] || this.shattered[id] || this.busy[id]) return false;
     if (this.frozen[id]) {
       this.frozen[id] = 0;
       const k = this.frozenList.indexOf(id);

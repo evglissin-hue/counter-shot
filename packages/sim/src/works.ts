@@ -160,7 +160,7 @@ export class Works {
 
   /** 3.4: may masons put this piece back (not a buttress that is not bought)? */
   private may(id: number): boolean {
-    return this.mendable === null || this.mendable(id);
+    return !this.castle.busy[id] && (this.mendable === null || this.mendable(id));
   }
 
   /** Does what this piece rests on stand (or is there masonry beside it to bond to)? Gate leaves do not carry the wall over them for this. */
