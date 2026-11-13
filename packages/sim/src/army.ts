@@ -708,16 +708,18 @@ export class Army {
 
   /**
    * Set kegs whose fuse still burns, within MARCH.kegClear m: any upright
-   * soldier (not a sapper still on his keg's errand) walks straight away from
-   * them at his full speed, whatever his order or his fight: away from each,
-   * the nearer the more (two kegs either side of a gate send the men there out
-   * from the wall, not from one to the other). True if he did.
+   * soldier (not a sapper still on his keg's errand) walks away from them at
+   * his full speed, whatever his order or his fight: away from each, the
+   * nearer the more (two kegs either side of a gate send the men between them
+   * out, not from one to the other), and on the field side of the wall they
+   * stand against, out from it as much (a man in the gateway beside a keg
+   * would only slide along the gateway's side). True if he did.
    */
   private clearKeg(m: Minion, tick: number): boolean {
     const sp = this.specialists;
     if (!sp || !sp.kegs.length || sp.busy(m) || climbing(m) || m.role === Role.Gang) return false;
     const r = MARCH.kegClear;
-    let sx = 0, sz = 0, out = 0;
+    let sx = 0, sz = 0, out = 0, field = false;
     let any = false;
     for (let k = 0; k < sp.kegs.length; k++) {
       const g = sp.kegs[k];
@@ -727,7 +729,9 @@ export class Army {
       if (d2 >= r * r) continue;
       any = true;
       // Out from the wall it stands against: castle 0's field side is -z, castle 1's +z.
-      if (out === 0) out = g.z > MID_Z ? -1 : 1;
+      const o = g.z > MID_Z ? -1 : 1;
+      if (out === 0) out = o;
+      if (dz * o > -0.5) field = true;
       const d = dsqrt(d2);
       if (d < 1e-6) continue;
       const w = (r - d) / (r * d);
@@ -741,7 +745,20 @@ export class Army {
       sz = out;
       len = 1;
     }
-    this.move(m, sx / len, sz / len, m.speed, NaN, Action.Walk);
+    sx /= len;
+    sz /= len;
+    if (field) {
+      sz += out;
+      len = dsqrt(sx * sx + sz * sz);
+      if (len > 1e-6) {
+        sx /= len;
+        sz /= len;
+      } else {
+        sx = 0;
+        sz = out;
+      }
+    }
+    this.move(m, sx, sz, m.speed, NaN, Action.Walk);
     return true;
   }
 
