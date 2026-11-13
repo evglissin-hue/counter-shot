@@ -89,7 +89,7 @@ let evSeen = 0;
 const hangSince = new Array<number>(10).fill(-1), hangFlagged = new Array<boolean>(10).fill(false);
 const releasedAt = new Array<number>(10).fill(-1), fastFlagged = new Array<boolean>(10).fill(false);
 /** Per structure piece: since when it has been down (-1 standing), and since when rubble has filled its place all the while (-1: not). */
-const downSince = new Map<number, number>(), blockedSince = new Map<number, number>(), placeFlagged = new Set<number>();
+const downSince = new Map<number, number>(), placeBlocked = new Map<number, number>(), placeFlagged = new Set<number>();
 const structs = statics ? statics.list : [];
 const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})`;
 
@@ -148,14 +148,14 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
         if (part !== "keep" && part !== "tower") continue;
         if (!dyn[id]) {
           downSince.delete(id);
-          blockedSince.delete(id);
+          placeBlocked.delete(id);
           continue;
         }
         if (!downSince.has(id)) downSince.set(id, t);
       }
       const allowed = (d.kind === "keep" ? m.repairs[d.castle].keep : m.repairs[d.castle].towers) && m.gold[d.castle] > KEEP.gold;
       if (!allowed) {
-        for (const id of d.stones) blockedSince.delete(id);
+        for (const id of d.stones) placeBlocked.delete(id);
       } else if (Math.floor(t / 60) % KEEP.sample === 0) {
         let looked = 0;
         for (const id of d.stones) {
@@ -164,13 +164,13 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
           looked++;
           const place = castle.inPlace(id, m.world.terrain.handles);
           if (place.pieces.length === 0) {
-            blockedSince.delete(id);
+            placeBlocked.delete(id);
             continue;
           }
           // Blocked at every look since it went down (the first look may be ten seconds after).
-          if (!blockedSince.has(id)) blockedSince.set(id, t);
-          if (blockedSince.get(id)! - since > KEEP.sample * 60) {
-            blockedSince.set(id, Infinity); // it was free once: it does not count
+          if (!placeBlocked.has(id)) placeBlocked.set(id, t);
+          if (placeBlocked.get(id)! - since > KEEP.sample * 60) {
+            placeBlocked.set(id, Infinity); // it was free once: it does not count
             continue;
           }
           if (!placeFlagged.has(d.index) && t - since > KEEP.down * 60) {
