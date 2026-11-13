@@ -1,6 +1,6 @@
-# Keepfall: Game Spec (draft 0.8)
+# Keepfall: Game Spec (draft 0.9)
 
-Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Draft 0.5 adds the direction the owner approved after phase 2 (November 10): a sixth pillar (section 1) and phase 3 in the build phases (section 15). Draft 0.6 records phase 3's first measurements (3.1, the observatory: sections 15 and 16); no rule changed. Draft 0.7 folds in 3.2, range and register: marks and fire for effect (section 5), bridge gangs (section 8), T and F (section 12). Draft 0.8 folds in 3.3, powder: every shot burns powder from a ready box that powder boys fill (section 5), powder made, stored in the magazine, bought and blown up (section 7), and the Powder Mill and the magazine (section 10). Sections 2 to 14 still describe the game as phase 2 left it; each phase 3 milestone folds its rules into them as it ships (`docs/phase-3.md` and the specs under `docs/phase-3/` say what is coming). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
+Keepfall is a working title. Draft 0.1 was agreed by the owner and Kat, including the build order. Draft 0.2 adds the decisions since: the Gritty art direction (section 13), co-op as physics-driven wave defence (section 11), the second laptop's lab result with the quality tier defaults (section 6), and laptops only: no iPad or touch. Draft 0.3 adds the owner's phase 2 answers: the first map (section 3), the keep's timber floors (section 4) and fallen minions that stay (section 8). Draft 0.4 adds the owner's notes after phase 2 M5: guns that stand on the masonry and can be knocked out (section 4), the mortar's charge with a ring on the ground (section 5), and the chain shot's whirling chain (section 10). Draft 0.5 adds the direction the owner approved after phase 2 (November 10): a sixth pillar (section 1) and phase 3 in the build phases (section 15). Draft 0.6 records phase 3's first measurements (3.1, the observatory: sections 15 and 16); no rule changed. Draft 0.7 folds in 3.2, range and register: marks and fire for effect (section 5), bridge gangs (section 8), T and F (section 12). Draft 0.8 folds in 3.3, powder: every shot burns powder from a ready box that powder boys fill (section 5), powder made, stored in the magazine, bought and blown up (section 7), and the Powder Mill and the magazine (section 10). Draft 0.9 folds in 3.4, the keep that falls by engineering: keeps and towers crush and topple by load, buttresses (section 4), the statics pass and its budget (section 6), felling the keep (section 9), the mason's eye on C (section 12). Sections 2 to 14 still describe the game as phase 2 left it; each phase 3 milestone folds its rules into them as it ships (`docs/phase-3.md` and the specs under `docs/phase-3/` say what is coming). Still **Pending**: how online play feels over the internet (needs the Cloudflare hookup). Decisions and findings so far are in `docs/plan.md`; the phase 1 plan is in `docs/phase-1.md`.
 
 ## 1. Concept
 
@@ -44,7 +44,8 @@ Real time, 10 to 15 minute matches, fun from the first game, with a high skill c
 - **Weapon emplacements** sit on towers and walls (6 to 8 per castle). Each holds one weapon you buy and upgrade. A gun stands on the masonry under it: bring that down, strike the gun square with a ball, sweep its crew off with chain shot or burst a shell beside it, and it is out of action until its crew puts it back (30 seconds, once the masonry under it stands again). Silencing an enemy gun pays gold, and it is the other reason to shoot at something besides the keep: the guns that shell your keep and shoot your waves.
 - **Courtyard plots** (6 to 8) hold buildings.
 - **Repairs**: masons rebuild destroyed sections over time, for gold, wherever the space is clear. Auto-repair can be switched on per section.
-- **The keep** is the tallest structure, with the banner on top. It has timber floors inside: a shell caves in one level and the banner drops a floor at a time, so toppling it takes a siege (or bringing its walls down). Upgrades can reinforce it (buttresses, thicker base).
+- **The keep** is the tallest structure, with the banner on top. It has timber floors inside: a shell caves in one level and the banner drops a floor at a time, so toppling it takes a siege. Since 3.4 it also comes down because what held it up was cut (section 6): its foot (the walls below its lowest floor, laid harder than the rest) is seen from the far castle only through the gateway once the gate's leaves are off, or through a breach low in the front wall, so the match has its phases: open the curtain, keep it open, cut the foot, fell the keep.
+- **Buttresses** (3.4): the build menu offers "Buttress the keep" on each of its four faces (120 gold, rises in 15 s): two stone piers against that face, laid out from the start and out of the world until bought. Once up they are masonry of the keep: they widen its footing on that side and add to what its lower courses carry, so a cut that would topple the keep there holds; they can be shot away like any stone, and the keep's masons put them back. In a keep or a tower, masons put back first the course carrying the most for what is left of it, and drop other work (the gate included) for a keep or tower holding under half.
 - **Physics picks no sides.** Your own falling tower crushes your own buildings and minions.
 
 ## 5. Shooting
@@ -88,6 +89,8 @@ To build:
 - Ordered iteration, and no wall-clock time in gameplay.
 - Every gameplay action enters the match as an input tagged with its tick.
 - Rooms remember a rules version, bumped whenever the same inputs would play out differently.
+
+**Structures** (3.4). Each keep and each tower is judged as a whole, after the support check, whenever one of its stones changes. A course **crushes** when the load on it (the mass standing above it, as a share of the whole structure above its lowest course as built) is more than 2.6 times what it carries (its standing masonry's area, as a share of the course as built): at the foot a course holds until less than 38% of it stands, halfway up until about a fifth does. It **topples** when the centre of mass of everything above it lies outside its footing (the convex hull of its standing masonry seen from above, drawn in by 0.3 m plus a toe that grows with the load on what is left), and then it goes towards the cut, about the footing's edge. The lowest course that crushes or topples decides, after half a second of groaning in which masons might still save it. A toppling part tips as one piece (it passes through loose rubble and men) until 25 degrees, until it meets standing masonry or the ground, or for 3.5 s, then falls free; a crushed course turns to dust and the part above comes straight down. Of a falling keep at most 450 stones stay bodies (200 of a tower); the rest turn to dust at their first touch, so the mass arrives as stone and leaves a heap and a great cloud. What it lands on breaks as masonry always does, men under it fall, a gun on it falls with it. A keep that falls from below its lowest floor takes every floor and its banner to the ground.
 
 **Budget.** Both machines in a match simulate everything, so the weaker one sets the limit. Target: at most about 600 stones moving at once at 60 Hz on the weakest supported laptop. Measured in the lab (deterministic build, moving stones that fit in 6 ms per step):
 
@@ -138,7 +141,7 @@ You spend it on buildings, weapons, upgrades, repairs, powder and abilities. The
 
 ## 9. Winning
 
-- **Topple the keep**: the banner on the enemy keep hits the ground.
+- **Topple the keep**: the banner on the enemy keep hits the ground: bring its floors down two shells a floor, or (3.4) cut its foot until it crushes or topples, which takes every floor with it.
 - **Storm the courtyard**: your minions hold the enemy courtyard for 20 seconds, outnumbering the defenders inside.
 - **Sudden death** at 15 minutes, so matches end: income doubles and reloads speed up.
 - You can also surrender.
@@ -281,6 +284,7 @@ Waves are built from the roster by a deterministic director (seeded Rng, so both
 | Overview | Tab | Tab | View button |
 | Build wheel | B | B | Y |
 | Mark where your shot landed; fire for effect at a mark | T; F then the mark's number | T; F then the number | (not bound yet) |
+| The mason's eye (3.4): how near the keep or tower under your sight is to falling, and which way (in the overview: every structure of yours, and the enemy's under the mouse) | Hold C | Hold C | (not bound yet) |
 | Abilities (later) | to be bound (T and F now mark and fire for effect, G grows the minimap, H is Controls) | | X, then pick |
 | Orders: advance, hold, push | Ctrl+1, Ctrl+2, Ctrl+3 | Ctrl+1, Ctrl+2, Ctrl+3 | D-pad left (in turn) |
 | Route of your next waves | L | L | D-pad right |
@@ -374,7 +378,7 @@ Each phase ends with a playable, deployed version.
    - Online 1v1 in lockstep, brought forward: it runs over the claude.ai artifact's room. Cloudflare rooms and invite links are still to come.
 3. **One game** (`docs/phase-3.md`; each milestone has its spec under `docs/phase-3/`): the parts of a match made to depend on each other, in this order:
    - the observatory (AI matches by the thousand, measured against targets; done in 3.1: `npm run observe`, `observe:quick`, `observe:openings`, `observe:prices`);
-   - range and register; powder; the keep that falls by engineering;
+   - range and register; powder; the keep that falls by engineering (done in 3.2 to 3.4);
    - machines; the household;
    - elements (fire, smoke, water, mud); the day (weather as the match's clock);
    - the valley as a board; armies with nerve and engines; the arsenal;
