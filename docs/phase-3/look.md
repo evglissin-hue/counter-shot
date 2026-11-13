@@ -216,4 +216,35 @@ Stills (`tools/.shots/`, made again by the tools):
 
 Seen in the player's chair: the gun at rest and through a reload in the sight, the crew at each stage from 6 m, the blast from the side, the glass at Low, Medium and High, the trail broadside and down range, a shell's thread, a hit and 0.1 s later, the inset. Fixed there: the ridden gun's flash bleaching the barrel. Open for the owner's eye: the loader stands large at the left of the sight while he fetches the cartridge (clear of the centre and the shot); the mortar sits dark in the keep's shadow (L5); at the full zoom the aim arc's dots stand larger than the far castle's men.
 
+Polish after L1, built on November 13 (branch `claude/keepfall-polish-l1`, from the integration branch at version 23), by the master in the build and review loop. Page only: nothing in a match changed and no pinned hash moved.
+
+Startup (the owner's note: about 41 s from load to ready since L1, 25 s before it):
+- Measured as the owner did: headless Chromium opens `index.html#net=local-webgl-low` (Low, software WebGL2) and polls `window.__sandbox` with `page.evaluate`, which waits while the main thread is busy; the Vite server is warmed by one load in another browser first (cold servers gave the same order: 19.2 s, 25.9 s, 18.5 s). Each tree twice, back to back on one machine; the programs are WebGL programs linked at load.
+
+| Tree | Programs at load | Load to ready | Load to the fifth frame | First frame |
+|---|---|---|---|---|
+| Before L1 (489580a) | 196 | 18.8 s, 17.5 s | 20.5 s, 19.3 s | 5.5 s, 5.0 s |
+| L1 (cde131a) | 260 | 24.3 s, 24.2 s | 26.4 s, 26.4 s | 7.4 s, 7.2 s |
+| After (this branch) | 144 | 17.5 s, 19.5 s | 19.2 s, 22.2 s | 4.6 s, 5.0 s |
+
+- What L1 added: 64 programs, nearly all from one cause. Three draws an instanced mesh whose matrices fit in one uniform block (16 KB in software rendering, 64 KB on most GPUs) through a uniform buffer named after that mesh, so each such mesh links programs of its own (the main pass, the impact cam's priming pass, the shadow pass) even when many share one material. The crews' thirteen cloth parts and three tool meshes (64 men each) linked 53 of the 64. The new materials themselves (bronze, rope, kegs, the glows, trails, blink) cost little.
+- The cut (`render/instancing.ts`): the crews, the minions, the scatter's rocks and bushes and the two match glows get room for 1,025 matrices (just past a 64 KB block), which takes three's per-instance attribute path, whose shader is the same for every mesh on a material; only the instances in use are sent each frame (update ranges), so the larger buffers cost about 64 KB of memory each and nothing per frame. Also one iron and one bronze material for every gun (each gun had its own; it saved node building, not programs, since three shares identical shaders).
+- On a laptop GPU (a 64 KB uniform block, reported to the page as such in the probe): {UBO}
+- Frames (`tools/burst-cost.mjs`, calm and a burst, the L1 tree against this branch back to back): {FRAMES}
+- A laptop should expect: {LAPTOP}
+
+The loader at the sight (`render/crewLogic.ts`): the man standing large at the left of the sight while the cartridge was fetched was the helper, waiting by the gun with the ball (at 1.2, -0.5 in the gun's frame, 2.7 m from the camera); the loader was mostly off the edge. Both now stand out of the default zoom's view during the fetch: the loader takes the cartridge from behind the box's line (long gun 1.75, -2.2; chain shot by the deck's edge, 1.75, -1.45), the helper waits with the ball behind him (1.25, -2.0; chain shot 1.3, -1.9) and keeps the old spot for his second wait. The loader is retimed so nobody runs faster than before (at the box from stage 0.20, the cartridge 0.23 to 0.28, at the muzzle by 0.42, in by 0.46; the helper leaves at 0.37). Both come into view as they carry the cartridge and the ball to the muzzle. Test: out of the 44 degree view, shoulder included, for every stage of the fetch, and never closer than 0.4 m to each other on the way.
+
+The aim arc at full zoom (`render/effects.ts`): a dot was a fixed angle (0.008 of its distance), so the full zoom (14 degrees for the long gun) swelled it to about 24 px at 720p and the far arc into a black column wider than a man at the far castle. Dots now shrink with the view below 55 degrees (the tangent of the half view from the projection), so they keep the 6 px or so they have at the widest; the ghost trail does the same. At full zoom on the far tower the crew stand clear either side of the arc. Where the far end packs its dots together it still reads as a thin dark thread of about that width.
+
+The threat strip (`threat.ts`, `minimap.ts`, `index.html`): the page computes where the map draws its three roads in the map's box (`roadsAcross`; at 196 by 250 px: 17.5, 98, 178.5) and gives the strip columns split halfway between roads, none narrower than 62 px (a reading of kegs, ladders and muskets needs that), in fr so a long reading widens its cell as before. At the side column's 196 px that comes to thirds; the change that lines up the reading is the flank cells' count and name kept to the outer side, over the flank roads, with the centre cell's over the centre road (and the centre's own-men number no longer runs into its name). The kit gap is 4 px. Test: the roads, the columns, each road under its own cell.
+
+Stills (`tools/.shots/`, made again by the tools; before from the L1 tree):
+- `PORT=... node tools/l1-shots.mjs --quality=low|high --tag=<tag> fetch fetchwide arc arcend` (new views: the reload at stage 0.27 at 44 and 55 degrees; the full aim help at full zoom over the far tower's crew and laid on it). Before `l1-p1-before-low-*`, `l1-p1-before-high-*`; after `l1-p1-after2-low|high-fetch|fetchwide`, `l1-p1-after-low|high-arc`, `l1-p1-after-low-arcend`.
+- `PORT=... node tools/overview-shots.mjs`: the strip over the map at 1:30 and 3:00 of a Versus AI match.
+
+Still open: the mortar sits dark in the keep's shadow (round L5); the saved film's sound runs about 1.4 to 2 s longer than its picture in this container (S5), to be measured on a real machine.
+
+Checks: {CHECKS}
+
 L4 to L8: not started.
