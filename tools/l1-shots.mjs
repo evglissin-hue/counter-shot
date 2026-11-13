@@ -14,7 +14,7 @@
 // has too), so the master can take "before" stills from main with the same tool.
 // Writes tools/.shots/l1-<tag>-<view>.png.
 // Usage: PORT=5633 node tools/l1-shots.mjs [--quality=low|medium|high|ultra] [--tag=name] [views...]
-//   views: rest fire reload runout glass trail shell hit closeup inset (default: all)
+//   views: rest fire reload runout glass trail shell hit closeup crew crewfar blast inset (default: all)
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -358,6 +358,63 @@ async function tour() {
     await frames(10);
     await shot("closeup");
     await page.evaluate(() => window.__sandbox.look(null));
+  }
+
+  // The crew at the player's long gun, from a free camera 6 m off it at 1.6 m above the floor it stands on (the wall walk, 1.7 m under
+  // the pivot), at reload stages 0.2, 0.4, 0.6, 0.8 (frames after the shot: the reload is 4 s, 120 frames) and 1 (loaded, run out).
+  if (want("crew")) {
+    const g = await gunAt();
+    await readyToFire();
+    const eye = { x: g.gx + 3.6, y: g.gy - 0.1, z: g.gz - 4.8 };
+    const look = () =>
+      page.evaluate(([e, g]) => window.__sandbox.look({ x: e.x, y: e.y, z: e.z, tx: g.gx - 0.2, ty: g.gy - 0.55, tz: g.gz - 0.1, fov: 52 }), [eye, g]);
+    await look();
+    await fireStep("long", 24);
+    await shot("crew", "-0.2");
+    for (const [n, st] of [[24, "0.4"], [24, "0.6"], [24, "0.8"]]) {
+      await step(n);
+      await shot("crew", `-${st}`);
+    }
+    await run();
+    await waitFor(() => window.__sandbox.reload[0] === 0, 900);
+    await frames(8);
+    await shot("crew", "-1");
+    console.log("crews: men drawn", await page.evaluate(() => window.__sandbox.renderer.crews.men), "pose and draw ms per frame (smoothed)", await page.evaluate(() => +window.__sandbox.renderer.crews.cost.toFixed(3)));
+    await page.evaluate(() => window.__sandbox.look(null));
+  }
+
+  // The blast of a shot from a free camera beside the gun, a little behind it, 5 m off at about the height of the wall's merlons: 0.17 s (the flash lights the wall and the crew, the dust ring jumps), 1 s (the bank of smoke stands), 3 s (it drifts off with the wind).
+  if (want("blast")) {
+    const g = await gunAt();
+    await readyToFire();
+    await page.evaluate(([g]) => window.__sandbox.look({ x: g.gx + 5.5, y: g.gy - 0.3, z: g.gz - 2.5, tx: g.gx - 0.3, ty: g.gy - 0.7, tz: g.gz + 1.2, fov: 58 }), [g]);
+    await fireStep("long", 5);
+    await shot("blast", "-0.17s");
+    await step(25);
+    await shot("blast", "-1s");
+    await step(60);
+    await shot("blast", "-3s");
+    await page.evaluate(() => window.__sandbox.look(null));
+    await run();
+  }
+
+  // The far castle's guns through the zoomed sight (their crews at the ready, 100 m and more off).
+  if (want("crewfar")) {
+    await run();
+    const far = await page.evaluate(() => window.__sandbox.guns.map((g, i) => ({ i, x: g.x, z: g.z })).filter((g) => g.z > -75));
+    console.log("far guns:", JSON.stringify(far), "men drawn:", await page.evaluate(() => window.__sandbox.renderer.crews.men));
+    // The far castle chain shot gun, on its tower (15, 13.8, -15): the long gun at the gate is not in the sight's view.
+    await page.evaluate(() => {
+      const S = window.__sandbox;
+      S.look(null);
+      S.select(0);
+      S.setFov(0, 12);
+      S.aimAtPoint(0, 15, 14.3, -15);
+    });
+    await frames(45);
+    await shot("crewfar");
+    await page.evaluate(() => window.__sandbox.setFov(0, 44));
+    await frames(20);
   }
 
   // The impact cam's inset open on a landing.

@@ -19,7 +19,8 @@ import { Decals, type DecalState } from "./decals";
 import { Effects } from "./effects";
 import { EstateView, type EstateState } from "./estate";
 import { Flags } from "./flags";
-import { Guns, type GunState } from "./guns";
+import { Guns, newCrewInfo, type CrewInfo, type GunState } from "./guns";
+import { Crews } from "./crews";
 import { JOLT_END, joltAt, type Jolt } from "./recoilCam";
 import { Inset } from "./inset";
 import { eventChance, frameBytes, roughBytes, type KeyframePart, type RenderKeyframe } from "./keyframe";
@@ -90,6 +91,8 @@ export class GameRenderer implements GameRendererApi {
   private glassTarget = 0;
   private minions: Minions;
   private guns: Guns;
+  private crews: Crews;
+  private crewInfo: CrewInfo = newCrewInfo();
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
   /** 3.2: your team's marks, as chalk crosses with their numbers. */
@@ -101,7 +104,7 @@ export class GameRenderer implements GameRendererApi {
   /** The ring on a courtyard being stormed (M4). */
   private storm = new Storm();
   private decals: Decals;
-  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
+  private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "bank" | "ring" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
   /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
   private estate = new EstateView();
   /** L3: grass tufts near the camera (High and up), crows, and braziers on the castles. */
@@ -232,6 +235,8 @@ export class GameRenderer implements GameRendererApi {
     this.scene.add(this.minions.root);
     this.guns = new Guns(this.noise);
     this.scene.add(this.guns.root);
+    this.crews = new Crews();
+    this.scene.add(this.crews.root);
     this.decals = new Decals(this.time, this.noise);
     this.scene.add(this.decals.mesh);
     const mk = (cfg: ConstructorParameters<typeof Burst>[0]) => {
@@ -250,6 +255,9 @@ export class GameRenderer implements GameRendererApi {
       // Dust thrown out along the ground by the blast.
       skirt: mk({ name: "skirt", slots: 4, per: 24, life: [2.2, 4.2], color: 0x857762, colorEnd: 0x9a8f80, additive: false, glow: 1, speed: [10, 22], size: [0.8, 3.2], grow: 1.4, gravity: 0, rise: 0.35, drag: 2.6, windScale: 0.5, spread: 1.0, opacity: 0.62, floor: true, lighting: 0.6, clearAim: true }),
       muzzleSmoke: mk({ name: "muzzle", slots: 10, per: 18, life: [2.5, 4.5], color: 0x8f8c87, additive: false, glow: 1, speed: [3, 14], size: [0.4, 2.4], grow: 1.1, gravity: 0, rise: 0.5, drag: 2.2, windScale: 0.7, spread: 0.35, opacity: 0.42, floor: true, clearAim: true }),
+      // L1, the blast: a bank of grey-white powder smoke that stands before the sight and drifts off with the wind (eye only; it thins near the aim line), and a low ring of pale dust thrown up from the wall walk round a gun (settling in a second or two; it never sinks below where it was thrown from). Sized for a salvo of 8 guns.
+      bank: mk({ name: "bank", slots: 16, per: 20, life: [3, 5], color: 0xb4b2ac, colorEnd: 0x94928d, additive: false, glow: 1, speed: [1.2, 5], size: [0.9, 3.6], grow: 0.8, gravity: 0, rise: 0.35, drag: 1.7, windScale: 0.9, spread: 0.8, opacity: 0.34, floor: true, lighting: 0.55, clearAim: true }),
+      ring: mk({ name: "ring", slots: 64, per: 6, life: [1.0, 1.9], color: 0xaa9e8a, colorEnd: 0x948a78, additive: false, glow: 1, speed: [1.4, 3.4], size: [0.25, 0.95], grow: 2.2, gravity: 1.6, rise: 0.15, drag: 2.6, windScale: 0.5, spread: 0.5, opacity: 0.5, floor: true, floorAtSpawn: true, lighting: 0.8, clearAim: true }),
       dust: mk({ name: "dust", slots: 16, per: 8, life: [1.2, 2.2], color: 0x7a6e5f, additive: false, glow: 1, speed: [0.5, 2], size: [0.2, 0.8], grow: 2, gravity: 0, rise: 0.3, drag: 3, windScale: 0.4, spread: 1, opacity: 0.55, floor: true, clearAim: true }),
       trickle: mk({ name: "trickle", slots: 32, per: 6, life: [1.2, 2.2], color: 0x8a8174, additive: false, glow: 1, speed: [0.1, 0.4], size: [0.06, 0.3], grow: 1.5, gravity: 0, rise: -1.6, drag: 2, windScale: 0.3, spread: 0.6, opacity: 0.5, floor: true, clearAim: true }),
       spray: mk({ name: "spray", slots: 24, per: 14, life: [0.5, 0.9], color: 0x2c0d0a, additive: false, glow: 0.6, speed: [1.5, 4.5], size: [0.06, 0.12], grow: 3, gravity: 9.8, rise: 0, drag: 1, windScale: 0, spread: 0.9, opacity: 0.95, floor: true }),
@@ -852,17 +860,44 @@ export class GameRenderer implements GameRendererApi {
     this.pulseLight(x, y + 2, z, Math.min(6, r * 1.2), 0xffa050, 5);
   }
 
+  /** The blast of a shot (look round L1), by weapon: [light's level, its decay, bank of smoke, ring's puffs and their size, how far the light stands back and up]. */
+  private static readonly BLAST: Record<WeaponKind, { light: number; decay: number; bank: number; ring: number; ringScale: number; back: number; up: number }> = {
+    longGun: { light: 1.4, decay: 14, bank: 1, ring: 6, ringScale: 1, back: 1.7, up: 1.7 },
+    chainShot: { light: 1.4, decay: 14, bank: 1.1, ring: 6, ringScale: 1.15, back: 1.7, up: 1.7 },
+    mortar: { light: 1.3, decay: 14, bank: 0.9, ring: 4, ringScale: 0.8, back: 0.4, up: 1.5 },
+    swivel: { light: 0.7, decay: 18, bank: 0.35, ring: 2, ringScale: 0.35, back: 0.5, up: 0.7 },
+  };
+
   private spawnMuzzle(em: number) {
     // Look round L1: the gun rolls back; if it is the one you ride, the camera jolts with it (replays pose every gun as not ridden).
     const fired = this.guns.fire(em);
     if (fired && fired.active) this.jolt = { kind: fired.kind, at: this.now };
     const p = this.tmpA, d = this.tmpB;
     if (!this.guns.muzzle(em, p, d)) return;
+    const kind: WeaponKind = fired ? fired.kind : "longGun";
+    const blast = GameRenderer.BLAST[kind];
     this.birds.noise(p.x, p.y, p.z, this.now);
     this.wear?.muzzle(p.x, p.y, p.z, d.x, d.y, d.z);
     this.bursts.flash.spawn(this.now, p.x + d.x * 0.4, p.y + d.y * 0.4, p.z + d.z * 0.4, 1.2, d.x, d.y, d.z);
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
-    this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, 1.4, 0xffb070, 14);
+    // The bank: a larger, slower cloud a little ahead of the muzzle, standing before the sight (3 to 5 s), led on by the wind.
+    this.bursts.bank.spawn(this.now, p.x + d.x * 1.6, p.y + d.y * 1.6 + 0.2, p.z + d.z * 1.6, blast.bank, d.x, d.y * 0.6 + 0.15, d.z);
+    // The flash lights the wall and the crew: the light stands back from the muzzle and over the carriage, brighter and a little longer for the gun you ride.
+    const ridden = !!fired && fired.active;
+    const lx = p.x - d.x * blast.back, ly = p.y - d.y * blast.back + blast.up, lz = p.z - d.z * blast.back;
+    this.pulseLight(lx, ly, lz, ridden ? blast.light * 1.3 : blast.light, 0xffb070, ridden ? blast.decay * 0.78 : blast.decay);
+    // The ring: dust jumps from the floor round the carriage.
+    const info = this.crewInfo;
+    if (this.guns.crewInfo(em, info)) {
+      const n = blast.ring;
+      const a0 = (em * 2.399 + this.frameTick * 0.37) % (Math.PI * 2);
+      for (let k = 0; k < n; k++) {
+        const a = a0 + (k * Math.PI * 2) / n;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const r = kind === "swivel" ? 0.5 : 0.95;
+        this.bursts.ring.spawn(this.now, info.x + ca * r, info.floorY + 0.05, info.z + sa * r, blast.ringScale, ca, 0.28, sa);
+      }
+    }
   }
 
   private spawnBlood(x: number, y: number, z: number, strength: number) {
@@ -1346,6 +1381,8 @@ export class GameRenderer implements GameRendererApi {
     this.groundMarks.update();
     this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.guns.update(dt, this.now, cam.quaternion);
+    // L1: the men at the guns, drawn from the guns' own state (nothing of their own to keep).
+    this.crews.update(this.guns, this.now, cam);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
     if (this.flashLevel < 0.01) this.flashLevel = 0;
@@ -1504,6 +1541,7 @@ export class GameRenderer implements GameRendererApi {
     this.blink.dispose();
     this.minions.dispose();
     this.guns.dispose();
+    this.crews.dispose();
     this.markers.dispose();
     this.chalk.dispose();
     this.ladders.dispose();
