@@ -8,7 +8,7 @@ function view(team: 0 | 1, order = 1): OrdersView {
   return { team, gold: 300, plots, guns, foundry: false, barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null], repairs: { gate: true, walls: true, towers: true, keep: true }, order, route: "centre", riding: -1, standing: [] } as OrdersView;
 }
 
-// [phrase, what a player means]: "o0" advance, "o1" hold, "o2" push, "rL"/"rC"/"rR" route in the player's own words.
+// [phrase, what a player means]: "o0" advance, "o1" hold, "o2" push, "rL"/"rC"/"rR" route in the player's own words. A road with an order gives the road first (army pass).
 const table: Array<[string, string]> = [
   ["advance", "o0"], ["Advance!", "o0"], ["ADVANCE", "o0"], ["attack", "o0"], ["charge", "o0"], ["forward", "o0"],
   ["go", "o0"], ["march", "o0"], ["go forward", "o0"], ["move", "o0"], ["move out", "o0"], ["move forward", "o0"],
@@ -23,7 +23,7 @@ const table: Array<[string, string]> = [
   ["right", "rR"], ["go right", "rR"], ["right flank", "rR"], ["waves right", "rR"], ["right road", "rR"],
   ["centre", "rC"], ["center", "rC"], ["middle", "rC"], ["middle road", "rC"], ["go centre", "rC"], ["go middle", "rC"], ["go straight", "rC"], ["centre road", "rC"],
   ["advanced", "o0"], ["Advanced.", "o0"], ["advancing", "o0"], ["attacking", "o0"], ["attack!", "o0"], ["charging", "o0"], ["go ahead", "o0"], ["holding", "o1"], ["hold on", "o1"], ["pushing", "o2"], ["pushed", "o2"], ["Push.", "o2"], ["hold.", "o1"], ["Waves, advance.", "o0"],
-  ["advance left", "o0+rL"], ["attack left", "o0+rL"], ["go left and advance", "rL+o0"], ["left then advance", "rL+o0"], ["advance on the left", "o0+rL"], ["waves left and attack", "rL+o0"], ["go left, attack", "rL+o0"],
+  ["advance left", "rL+o0"], ["attack left", "rL+o0"], ["go left and advance", "rL+o0"], ["left then advance", "rL+o0"], ["advance on the left", "rL+o0"], ["waves left and attack", "rL+o0"], ["go left, attack", "rL+o0"],
 ];
 
 const out: Array<{ phrase: string; meant: string; team: number; ok: boolean; got: string; say: string }> = [];
