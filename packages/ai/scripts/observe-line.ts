@@ -61,7 +61,7 @@ export interface Sample {
   worstMs: number;
 }
 
-/** One applied build step: [tick, castle, what], what as "build mill 1" (plot), "buy mortar 7" (slot 0 to 7), "upgrade heavyShot 0". */
+/** One applied build step: [tick, castle, what], what as "build mill 1" (plot), "buy mortar 7" (slot 0 to 7), "upgrade heavyShot 0", "buttress front" (3.4). */
 export type BuildEntry = [number, 0 | 1, string];
 
 export interface Totals {
