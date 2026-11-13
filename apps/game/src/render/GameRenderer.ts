@@ -882,10 +882,12 @@ export class GameRenderer implements GameRendererApi {
     this.bursts.muzzleSmoke.spawn(this.now, p.x + d.x * 0.6, p.y + d.y * 0.6, p.z + d.z * 0.6, 1, d.x, d.y, d.z);
     // The bank: a larger, slower cloud a little ahead of the muzzle, standing before the sight (3 to 5 s), led on by the wind.
     this.bursts.bank.spawn(this.now, p.x + d.x * 1.6, p.y + d.y * 1.6 + 0.2, p.z + d.z * 1.6, blast.bank, d.x, d.y * 0.6 + 0.15, d.z);
-    // The flash lights the wall and the crew: the light stands back from the muzzle and over the carriage, brighter and a little longer for the gun you ride.
+    // The flash lights the wall and the crew: the light stands back from the muzzle and over the carriage. The gun you
+    // ride is right under the sight's camera, where a light over the carriage bleaches the barrel white: its light stays a
+    // metre ahead of the muzzle (as before L1) and lasts a little longer.
     const ridden = !!fired && fired.active;
-    const lx = p.x - d.x * blast.back, ly = p.y - d.y * blast.back + blast.up, lz = p.z - d.z * blast.back;
-    this.pulseLight(lx, ly, lz, ridden ? blast.light * 1.3 : blast.light, 0xffb070, ridden ? blast.decay * 0.78 : blast.decay);
+    if (ridden) this.pulseLight(p.x + d.x, p.y + d.y, p.z + d.z, blast.light, 0xffb070, blast.decay * 0.78);
+    else this.pulseLight(p.x - d.x * blast.back, p.y - d.y * blast.back + blast.up, p.z - d.z * blast.back, blast.light, 0xffb070, blast.decay);
     // The ring: dust jumps from the floor round the carriage.
     const info = this.crewInfo;
     if (this.guns.crewInfo(em, info)) {
