@@ -207,7 +207,7 @@ Cost (software WebGL2 in headless Chromium on a shared 4 core machine, so only r
 
 High's calm pair is the burst tool's (the fire tool's pair was split by a container restart). Zoomed in the frame costs about 1.3x calm before and after (the narrow view shows more detail); the glass itself costs nothing measurable (the same with it held off). Firing, the blast, the crews, the trails and the blink add nothing measurable. Not measured on Kat's M3: please try High there with a few guns firing. Levers if it misses 60 fps: the lathe's segment count, the crews' shadows, the bank's 20 puffs.
 
-Checks: `npm run check` (356 tests, all pass), `npm run check:browser` (every hash matches), `node tools/replay-check.mjs`, `node tools/hud-check.mjs`. New tests: `recoil.test.ts`, `trails.test.ts`, `crew.test.ts`.
+Checks: `npm run check` on the tree with 3.3 merged in (433 tests, all pass), `npm run check:browser` (every hash matches), `node tools/replay-check.mjs`, `node tools/hud-check.mjs`. New tests: `recoil.test.ts`, `trails.test.ts`, `crew.test.ts`.
 
 Stills (`tools/.shots/`, made again by the tools):
 - `PORT=... node tools/l1-shots.mjs --quality=low|high --tag=<tag> [views]`, views rest, fire, reload, runout, glass, trail, shell, hit, closeup, inset, crew, crewfar, blast. Before (from `main`): `l1-before-low-*` and `l1-before-high-*` (rest, fire, glass, closeup). After: `l1-low-*`, `l1-high-*`, the High stills on the final branch `l1-after-high-rest|fire|closeup|glass|crew`, the crew at work `l1-c1-crew-0.2|0.4|0.6|0.8|1`, the sight after a shot `l1-c2-fire|reload|runout` (fire again after the light's fix: `l1-m2-fire`), the blast from the side `l1-c4-blast-0.17s|1s|3s`, the far crews through the glass `l1-c3-crewfar`.
