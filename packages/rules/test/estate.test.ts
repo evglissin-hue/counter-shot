@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MATCH, MUSTER, PLOTS, POWDER, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
+import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MARCH, MATCH, MUSTER, PLOTS, POWDER, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
 import { Action, Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Role, Spin, type Rapier } from "@keepfall/sim";
 import { ESTATE_MATCH_HASH, Match, runEstateMatch, Team } from "@keepfall/rules";
 
@@ -266,23 +266,30 @@ test("every working barracks sends its own mix down its own route, side by side 
   m.free();
 });
 
-test("only pikes batter a gate: the musketeers of a wave wait at it", () => {
+test("only pikes batter a gate: the musketeers of a wave stand off it (the army pass: 8 m short, out of the pikes' room)", () => {
   const m = quiet(4);
   const P = Unit.Pikeman, M = Unit.Musketeer;
+  // Castle 0's gate leaves: the z their middle sits at.
+  const gateZ = layout.stones.filter((s) => s.castle === 0 && s.part === "gate").reduce((s, l, _i, a) => s + l.z / a.length, 0);
   m.army.spawnMix(Team.Player, 1, [P, P, P, P, M, M, M, M], 0, { x: 0, z: -26 });
-  let pikes = 0, muskets = 0, near = 0;
+  let pikes = 0, muskets = 0, standOff = 0, atDoor = 0;
   run(m, 25 * 60, (mm) => {
     for (const x of mm.world.minions.list) {
       if (x.team !== Team.Player || x.state !== MinionState.Upright) continue;
       if (x.action === Action.Batter) {
         if (x.unit === M) muskets++;
         else pikes++;
-      } else if (x.unit === M && x.z > -18) near++;
+      } else if (x.unit === M && x.action === Action.Stand) {
+        const off = gateZ - x.z;
+        if (off > MARCH.doorStandOff - 2 && off < MARCH.doorStandOff + 3) standOff++;
+        if (off < 2) atDoor++;
+      }
     }
   });
   assert.ok(pikes > 200, `pikemen battered (${pikes} minion-ticks)`);
   assert.equal(muskets, 0, "no musketeer battered");
-  assert.ok(near > 100, `musketeers stood by at the gate (${near} minion-ticks)`);
+  assert.ok(standOff > 100, `musketeers waited ${MARCH.doorStandOff} m short of the gate (${standOff} minion-ticks)`);
+  assert.equal(atDoor, 0, "none took the doorway");
   m.free();
 });
 
