@@ -20,6 +20,7 @@
 import * as THREE from "three/webgpu";
 import { EVENT_STRIDE, EventKind, MINION_PARTS, MINION_STRIDE, PART_STRIDE, type FrameData } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
+import { markInstances, sharedCapacity } from "./instancing";
 import {
   HEAD,
   LARM_L,
@@ -247,7 +248,7 @@ export class Minions implements FigureSink {
     for (let i = 0; i < NPARTS; i++) {
       const p = MINION_PARTS[i];
       const geo = p.half > 0 ? new THREE.CapsuleGeometry(p.radius, p.half * 2, 3, 8) : new THREE.SphereGeometry(p.radius, 10, 8);
-      const mesh = new THREE.InstancedMesh(geo, mat, CAPACITY);
+      const mesh = new THREE.InstancedMesh(geo, mat, sharedCapacity(CAPACITY));
       mesh.name = `minion-${p.name}`;
       mesh.count = 0;
       mesh.frustumCulled = false;
@@ -271,7 +272,7 @@ export class Minions implements FigureSink {
     iron.color = new THREE.Color(IRON);
     iron.metalness = 0.55;
     iron.roughness = 0.55;
-    this.helmet = new THREE.InstancedMesh(mergeGeometries([dome, brim]), iron, MAX_FIGURES);
+    this.helmet = new THREE.InstancedMesh(mergeGeometries([dome, brim]), iron, sharedCapacity(MAX_FIGURES));
     this.helmet.name = "minion-helmet";
     this.helmet.count = 0;
     this.helmet.frustumCulled = false;
@@ -289,7 +290,7 @@ export class Minions implements FigureSink {
     pm.name = "minion-pike";
     pm.color = new THREE.Color(POLE);
     pm.roughness = 0.8;
-    this.pike = new THREE.InstancedMesh(pikeGeo, pm, MAX_PIKES);
+    this.pike = new THREE.InstancedMesh(pikeGeo, pm, sharedCapacity(MAX_PIKES));
     this.pike.name = "minion-pike";
     this.pike.count = 0;
     this.pike.frustumCulled = false;
@@ -313,7 +314,7 @@ export class Minions implements FigureSink {
     mhead.deleteAttribute("uv");
     mhead.rotateZ(Math.PI / 2);
     mhead.translate(0, 0.36, 0);
-    this.mallet = new THREE.InstancedMesh(mergeGeometries([handle, mhead]), pm, MAX_TOOLS);
+    this.mallet = new THREE.InstancedMesh(mergeGeometries([handle, mhead]), pm, sharedCapacity(MAX_TOOLS));
     this.mallet.name = "minion-mallet";
     // A crew's axe: a longer haft and a dark iron head.
     const haft = new THREE.CylinderGeometry(0.017, 0.021, 0.74, 5, 1);
@@ -322,14 +323,14 @@ export class Minions implements FigureSink {
     const blade = new THREE.BoxGeometry(0.02, 0.15, 0.13);
     blade.deleteAttribute("uv");
     blade.translate(0, 0.67, 0.07);
-    this.axe = new THREE.InstancedMesh(mergeGeometries([haft, blade]), iron, MAX_TOOLS);
+    this.axe = new THREE.InstancedMesh(mergeGeometries([haft, blade]), iron, sharedCapacity(MAX_TOOLS));
     this.axe.name = "minion-axe";
     // A mason's soft cloth cap, in his side's colour.
     const capGeo = new THREE.SphereGeometry(0.128, 9, 5, 0, Math.PI * 2, 0, Math.PI / 2);
     capGeo.deleteAttribute("uv");
     capGeo.scale(1, 0.62, 1.05);
     capGeo.translate(0, 0.035, -0.01);
-    this.cap = new THREE.InstancedMesh(capGeo, mat, MAX_TOOLS);
+    this.cap = new THREE.InstancedMesh(capGeo, mat, sharedCapacity(MAX_TOOLS));
     this.cap.name = "minion-cap";
     this.cap.setColorAt(0, _c.setHex(CLOTH));
     for (const t of [this.mallet, this.axe, this.cap]) {
@@ -388,7 +389,7 @@ export class Minions implements FigureSink {
     const rodGeo = new THREE.CylinderGeometry(0.006, 0.006, 1.0, 4, 1);
     rodGeo.deleteAttribute("uv");
     rodGeo.translate(0, 0.5, 0);
-    this.rod = new THREE.InstancedMesh(rodGeo, iron, MAX_KIT);
+    this.rod = new THREE.InstancedMesh(rodGeo, iron, sharedCapacity(MAX_KIT));
     this.rod.name = "minion-ramrod";
     this.rod.count = 0;
     this.rod.frustumCulled = false;
@@ -415,8 +416,8 @@ export class Minions implements FigureSink {
       if (on && mesh.count === 0) {
         _m.makeTranslation(0, -500, 0);
         mesh.setMatrixAt(0, _m);
-        mesh.instanceMatrix.needsUpdate = true;
         mesh.count = 1;
+        markInstances(mesh);
         mesh.userData.primed = true;
       } else if (!on && mesh.userData.primed) {
         mesh.count = 0;
@@ -1059,13 +1060,10 @@ export class Minions implements FigureSink {
     for (let i = 0; i < NPARTS; i++) {
       const mesh = this.parts[i];
       mesh.count = this.counts[i];
-      if (mesh.count > 0) {
-        mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      }
+      markInstances(mesh);
     }
     this.stumps.count = this.nStump;
-    if (this.nStump > 0) this.stumps.instanceMatrix.needsUpdate = true;
+    markInstances(this.stumps);
     show(this.helmet, this.nHelmet);
     show(this.pike, this.nPike);
     show(this.keg, this.nKeg);
@@ -1227,10 +1225,7 @@ export class Minions implements FigureSink {
 function show(mesh: THREE.InstancedMesh, n: number) {
   if (mesh.userData.primed) return;
   mesh.count = n;
-  if (n > 0) {
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  }
+  markInstances(mesh);
 }
 
 /** One end of a dropped piece of kit: gravity for h seconds. */
