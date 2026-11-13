@@ -60,7 +60,8 @@ export const PLACES: Record<WeaponKind, Places> = {
   longGun: {
     box: [1.95, -1.75],
     ammo: [-1.95, -1.75],
-    boxAt: [1.6, -1.3],
+    // Behind the box's line, reaching forward into it: from the box's near side he stood large at the left of the sight.
+    boxAt: [1.75, -2.2],
     ammoAt: [-1.35, -1.4],
     frontR: [-0.85, 0.6, 1],
     frontL: [0.85, 0.6, 1],
@@ -73,7 +74,8 @@ export const PLACES: Record<WeaponKind, Places> = {
   chainShot: {
     box: [1.35, -0.85],
     ammo: [-1.5, -0.5],
-    boxAt: [1.35, -1.4],
+    // Out by the deck's edge and behind the box (as the long gun's loader, kept out of the sight).
+    boxAt: [1.75, -1.45],
     ammoAt: [-1.5, -1.35],
     frontR: [-0.85, 0.6, 1],
     frontL: [0.85, 0.6, 1],
@@ -504,11 +506,11 @@ function longCrew(g: CrewGun, out: Figure[]) {
       [
         key(0, rest[2], 2.5),
         key(0.12, rest[2], 2.5),
-        key(0.22, boxAt, faceBox),
-        key(0.31, boxAt, faceBox),
-        key(0.4, fl, aimL, 0.1),
-        key(0.45, fl, aimL, 0.1),
-        key(0.52, rest[2], 2.5),
+        key(0.2, boxAt, faceBox),
+        key(0.28, boxAt, faceBox),
+        key(0.42, fl, aimL, 0.1),
+        key(0.46, fl, aimL, 0.1),
+        key(0.53, rest[2], 2.5),
         key(0.72, rest[2], 2.5),
         key(0.78, pushL, -0.1, 0.35),
         key(0.92, pushL, -0.1, 0.35),
@@ -519,9 +521,9 @@ function longCrew(g: CrewGun, out: Figure[]) {
       f,
       lift,
     );
-    if (inWin(s, 0.26, 0.31)) fetch(f, P.box, g.propTurn, (s - 0.26) / 0.05, CARTRIDGE);
-    else if (inWin(s, 0.31, 0.4)) hold(f, CARTRIDGE);
-    else if (inWin(s, 0.4, 0.46)) putIn(f, g, (s - 0.4) / 0.06, CARTRIDGE);
+    if (inWin(s, 0.23, 0.28)) fetch(f, P.box, g.propTurn, (s - 0.23) / 0.05, CARTRIDGE);
+    else if (inWin(s, 0.28, 0.42)) hold(f, CARTRIDGE);
+    else if (inWin(s, 0.42, 0.46)) putIn(f, g, (s - 0.42) / 0.04, CARTRIDGE);
     else if (pushing) pushCheek(f, g, 1, pushZ);
     flinch(f, g, 0.25);
   }

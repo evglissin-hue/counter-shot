@@ -272,3 +272,19 @@ test("a man's head near the camera is hidden: the limit is 0.8 m", () => {
   assert.equal(HIDE_NEAR, 0.8);
   void RECOIL_BACK;
 });
+
+test("the loader at the powder box stands out of the ridden gun's sight at the default zoom (polish after L1)", () => {
+  // The sight's camera sits SIGHT.back behind the pivot; at 44 degrees (the default zoom) on a 16:9 screen it sees 35.7 degrees either side.
+  const half = Math.atan(Math.tan((44 / 2) * (Math.PI / 180)) * (16 / 9));
+  for (const kind of ["longGun", "chainShot"] as const) {
+    let seen = 0;
+    for (let s = 0.22; s <= 0.31; s += 0.01) {
+      const { f } = pose(kind, s, { ridden: true });
+      const man = f[LOADER];
+      // His near shoulder (0.25 m in from his centre) must be outside the view.
+      const az = Math.atan2(Math.abs(man.px) - 0.25, man.pz + 3.2);
+      if (az < half) seen++;
+    }
+    assert.equal(seen, 0, `${kind}: the loader at the box shows at the side of the sight`);
+  }
+});
