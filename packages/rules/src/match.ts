@@ -770,10 +770,13 @@ export class Match {
   masonryDown(castle: 0 | 1): number {
     const c = this.world.castle;
     const st = this.world.structures;
+    const bt = this.world.buttresses;
     let n = 0;
     for (const s of c.layout.stones) {
       if (s.castle !== castle || !c.dynamic[s.id]) continue;
       if (s.plot !== undefined && (!st || st.slot(castle, s.plot).kind !== s.building)) continue;
+      // 3.4: a buttress counts only once it is up (one not bought, or still rising, is not masonry down).
+      if (s.part === "buttress" && (!bt || !bt.mendable(s.id))) continue;
       n++;
     }
     return n;
