@@ -56,7 +56,8 @@ test("with the enemy gate off, a Knight gunner cuts the keep's foot and the keep
   assert.ok(cut >= 1, `${cut} shots by hand were cuts`);
   assert.ok(footLandings >= 1, `a shot by hand landed on the keep's foot`);
   assert.ok(minWeak < FOOT_COURSES, `the cut weakened a foot course (lowest weakest ${minWeak}, foot is under ${FOOT_COURSES})`);
-  assert.ok(holds < 0.8 || m.world.statics!.status(KEEP).state !== StaticState.Standing, `the keep holds ${holds}`);
+  // The foot is laid harder than the rest of the keep (MATCH_KEEP.footHard): three minutes of one long gun bring it down a little.
+  assert.ok(holds < 0.95 || m.world.statics!.status(KEEP).state !== StaticState.Standing, `the keep holds ${holds}`);
   m.free();
 });
 

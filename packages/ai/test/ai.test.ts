@@ -18,7 +18,8 @@ test("Knight against Knight replays to its pinned hash, and both sides play", ()
   const a = runAiMatch(R);
   console.log("ai match hash", a.hash, "result", a.result, "gold", a.gold, "spent", a.spent, "shots", a.shots, "auto", a.autoShots, "waves", a.waves, "masonry", a.masonry, "built", a.built);
   for (const team of [0, 1]) {
-    assert.ok(a.shots[team] >= 15, `team ${team} fired ${a.shots[team]} shots by hand`);
+    // 3.4: a side whose long gun is knocked out early fires mostly its mortar (a shell every 12 s) in these three minutes.
+    assert.ok(a.shots[team] >= 10, `team ${team} fired ${a.shots[team]} shots by hand`);
     assert.ok(a.spent[team] >= 400, `team ${team} spent ${a.spent[team]} gold`);
     assert.ok(a.built[team] >= 3, `team ${team} has ${a.built[team]} buildings`);
     assert.ok(a.masonry[1 - team] >= 40, `team ${team} brought down ${a.masonry[1 - team]} pieces of the other castle`);
