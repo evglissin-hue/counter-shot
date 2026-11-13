@@ -60,6 +60,10 @@ Found and fixed in the master's round, after the merge: a loose gate leaf counte
 
 To be filled in.
 
+## The player's chair
+
+`tools/army-diag/page/army-chair.mjs` (`PORT`) plays Versus AI against the Knight, stepped by hand, with stills in `tools/.shots/army-diag/`. Your waves, sent down the centre on Hold, stand at the centre marker (1:12). Right picked on the card while they hold: the note reads "Waves take the right flank", the card lights Right at once and keeps it, and the men walk back along their own bank, up the right road and stand at the right marker 60 s later. "Waves, advance." on the order line: the card lights Advance, the note reads "Waves advance on the gate", and 12 s later they are on the right bridge. The Knight's waves came on, the opposite of "enemy minions would just hold the bridge and not move forward": from 2:45, looked at every 20 s, 12 to 38 of its men stood on your side of the stream (none at one look, between waves), and it stormed your castle at 5:21. The road row's tooltip reads "Pick the road your waves take (L)", and names the roads when your barracks send by different ones.
+
 ## Versions and hashes
 
-To be filled in.
+Sim `RULES_VERSION` 13 to 14, `MATCH_RULES_VERSION` 10 to 11 (a route input now moves the waves out), `NET_VERSION` 6 to 7. Re-pinned on purpose (the waves march, fight and obey differently): `MATCH_HASH` 951ef979 / 2f4b1a1f to 09f15b10 / da4b69fd; `WAVE_MATCH_HASH` 169d50ea / da089720 to ab1c954a / bb3c8f02; `ESTATE_MATCH_HASH` 5a15b2ad / b6a2aa10 to 7bbfc3b3 / d5f3afc7; `AI_MATCH_HASH` b8d6c4ae / c2774773 to af1ed502 / bf37f17c; `GUIDED_MATCH_HASH` 89781c21 / d1ef7d67 to db184602 / 6342049b. Unchanged: `SESSION_HASH` a4f869a6 / c555405d and the lab's 35a7603f / 054e5eb0 (no army in those worlds).
