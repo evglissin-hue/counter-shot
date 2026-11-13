@@ -11,6 +11,7 @@ import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
 import { BUILDING_KINDS, buildingPieces, PLOTS } from "./buildings";
 import { DIST } from "./field";
 import { BRIDGES, bridgePieces, valleyHeight, type BridgeSite } from "./map";
+import { BUTTRESS, BUTTRESS_FACES, type ButtressFace } from "./buttress";
 
 export type Shape = "box" | "wedge";
 export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
@@ -18,8 +19,10 @@ export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
  * "floor" is the lab layout's single keep platform. "storey" is a board of the
  * keep's timber floors (layout option keepFloors): only bursts and direct hits
  * break one, not falling rubble, so each shell caves in one level.
+ * "buttress" is a pier of a keep's buttress (3.4, layout option buttresses):
+ * masonry of the keep once it is bought, withdrawn until then.
  */
-export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge";
+export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge" | "buttress";
 export type Quat = [number, number, number, number];
 
 export interface Stone {
@@ -103,6 +106,14 @@ export interface CastleLayout {
    * ready on every plot; the sim takes out of the world all but what is built.
    */
   plots: Array<{ castle: 0 | 1; plot: number; kind: number; first: number; count: number }>;
+  /**
+   * 3.4 (layout option buttresses): each keep's four buttresses, castle 0's
+   * then castle 1's, each castle's in BUTTRESS_FACES order (its owner's front,
+   * back, left, right), with the id range of its pieces, lowest course first.
+   * Empty without the option. The sim withdraws them all and raises one when
+   * it is bought.
+   */
+  buttresses: Array<{ castle: 0 | 1; face: ButtressFace; first: number; count: number }>;
 }
 
 export { DIST } from "./field";
@@ -267,7 +278,41 @@ class Builder {
     for (let i = first; i < this.stones.length; i++) {
       const s = this.stones[i];
       if (opts.hard !== undefined && opts.hard > 1) s.hard = opts.hard;
+      // 3.4: the keep's foot (its walls below the lowest floor) is laid harder still.
+      if (s.part === "keep" && s.course < KEEP_STOREYS[0] && opts.footHard !== undefined && opts.footHard > 1) s.hard = opts.footHard;
       if (s.part === "storey" && opts.storeyHits !== undefined && opts.storeyHits > 1) s.tough = opts.storeyHits;
+    }
+    return out;
+  }
+
+  /**
+   * 3.4: the keep's four buttresses (two piers against each face; BUTTRESS),
+   * in castle 0's frame, in the order front (towards the gate, -z), back, west
+   * (-x), east (+x). Returns the id range of each.
+   */
+  buttresses(hard: number | undefined): Array<{ side: "front" | "back" | "west" | "east"; first: number; count: number }> {
+    const B = BUTTRESS;
+    const h = KEEP_SIZE / 2;
+    const out: Array<{ side: "front" | "back" | "west" | "east"; first: number; count: number }> = [];
+    for (const side of ["front", "back", "west", "east"] as const) {
+      const first = this.stones.length;
+      for (const sign of [-1, 1]) {
+        const mid = sign * B.offset;
+        // Two steps: the low part `deep` out from the face, the high part `step` out.
+        for (const [c0, c1, d] of [[0, B.low, B.deep], [B.low, B.high, B.step]] as const) {
+          if (side === "front" || side === "back") {
+            const face = side === "front" ? KEEP_Z - h : KEEP_Z + h;
+            const out_ = side === "front" ? -1 : 1;
+            this.run("buttress", "x", mid - B.width / 2, mid + B.width / 2, face + out_ * (d / 2), d, c0, c1);
+          } else {
+            const face = side === "west" ? -h : h;
+            const out_ = side === "west" ? -1 : 1;
+            this.run("buttress", "z", KEEP_Z + mid - B.width / 2, KEEP_Z + mid + B.width / 2, face + out_ * (d / 2), d, c0, c1);
+          }
+        }
+      }
+      for (let i = first; i < this.stones.length; i++) if (hard !== undefined && hard > 1) this.stones[i].hard = hard;
+      out.push({ side, first, count: this.stones.length - first });
     }
     return out;
   }
@@ -422,7 +467,16 @@ export function stoneBounds(s: Stone, wedge: WedgeSpec): [number, number, number
 
 type PlotRange = { plot: number; kind: number; first: number; count: number };
 
-function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boolean, keep: KeepOptions = {}): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[] } {
+type ButtressRange = { side: "front" | "back" | "west" | "east"; first: number; count: number };
+
+function oneCastle(
+  seed: number,
+  wedge: WedgeSpec,
+  floors: boolean,
+  plots: boolean,
+  keep: KeepOptions = {},
+  buttresses = false,
+): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[]; buttresses: ButtressRange[] } {
   const b = new Builder(seed);
   const e = TOWER_R_OUT - 0.13; // wall ends just inside the tower's skin
   // Front wall (z = -T) with the gate, back wall, and the two side walls.
@@ -454,6 +508,8 @@ function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boole
   }
   for (const [tx, tz] of [[-T, -T], [T, -T], [-T, T], [T, T]] as const) b.tower(tx, tz, wedge);
   const { platformTop } = b.keep(floors, keep);
+  // 3.4: the keep's buttresses, withdrawn by the sim until bought.
+  const butt = buttresses ? b.buttresses(keep.footHard ?? keep.hard) : [];
   const ranges: PlotRange[] = [];
   if (plots) {
     // M3: every kind of building stands ready on every plot (the sim keeps only what is built).
@@ -485,7 +541,7 @@ function oneCastle(seed: number, wedge: WedgeSpec, floors: boolean, plots: boole
     q: IDENTITY,
     course: KEEP_COURSES,
   });
-  return { stones: b.stones, bannerId: banner.id, platformTop, plots: ranges };
+  return { stones: b.stones, bannerId: banner.id, platformTop, plots: ranges, buttresses: butt };
 }
 
 /** Builds both castles and the neighbour graph. Same input, same output, on every machine. */
@@ -508,6 +564,8 @@ export interface LayoutOptions {
   plots?: boolean;
   /** A sturdier keep (M5): thicker, harder walls and floors that take more than one shell. Off in the lab. */
   keep?: KeepOptions;
+  /** 3.4: buttresses laid out against each keep's four faces (BUTTRESS), withdrawn until bought. Off in the lab, whose reference hash predates them. */
+  buttresses?: boolean;
 }
 
 /** How a keep is built (M5). Everything absent is the old keep. */
@@ -518,20 +576,23 @@ export interface KeepOptions {
   hard?: number;
   /** Blasts each floor board takes before it gives way (Stone.tough). */
   storeyHits?: number;
+  /** 3.4: blast reach divisor for the keep's foot (its walls below the lowest floor) and its buttresses, if harder than `hard`. */
+  footHard?: number;
 }
 
-/** The match keep: thick, hard walls and floors that crack under the first shell and give way under the next. */
-export const MATCH_KEEP: KeepOptions = { thick: 2.0, hard: 2, storeyHits: 2 };
+/** The match keep: thick, hard walls and floors that crack under the first shell and give way under the next; 3.4: a harder foot (and buttresses), so cutting it is a siege of its own. */
+export const MATCH_KEEP: KeepOptions = { thick: 2.0, hard: 2, storeyHits: 2, footHard: 4 };
 
-/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots, the sturdy keep. */
-export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true, keep: MATCH_KEEP };
+/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots, the sturdy keep, the keep's buttresses (3.4). */
+export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true, keep: MATCH_KEEP, buttresses: true };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
   const floors = opts.keepFloors === true;
   const withPlots = opts.plots === true;
-  const enemy = oneCastle(seed, wedge, floors, withPlots, opts.keep);
-  const player = oneCastle(seed + 1, wedge, floors, withPlots, opts.keep);
+  const butt = opts.buttresses === true;
+  const enemy = oneCastle(seed, wedge, floors, withPlots, opts.keep, butt);
+  const player = oneCastle(seed + 1, wedge, floors, withPlots, opts.keep, butt);
   const stones: Stone[] = [];
   for (const s of enemy.stones) stones.push({ ...s, id: stones.length, castle: 0 });
   const offset = stones.length;
@@ -640,7 +701,25 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
       ...enemy.plots.map((r) => ({ castle: 0 as const, ...r })),
       ...player.plots.map((r) => ({ castle: 1 as const, ...r, first: r.first + offset })),
     ],
+    buttresses: [...faceRanges(0, enemy.buttresses, 0), ...faceRanges(1, player.buttresses, offset)],
   };
+}
+
+/**
+ * 3.4: a castle's buttress ranges in its owner's words, BUTTRESS_FACES order.
+ * Castle 0 looks out along -z, so its left is west (-x); castle 1 is castle
+ * 0 mirrored across z only, so its left is east (+x).
+ */
+function faceRanges(castle: 0 | 1, ranges: ButtressRange[], offset: number): CastleLayout["buttresses"] {
+  const sideOf: Record<ButtressFace, ButtressRange["side"]> = castle === 0
+    ? { front: "front", back: "back", left: "west", right: "east" }
+    : { front: "front", back: "back", left: "east", right: "west" };
+  const out: CastleLayout["buttresses"] = [];
+  for (const face of BUTTRESS_FACES) {
+    const r = ranges.find((q) => q.side === sideOf[face]);
+    if (r) out.push({ castle, face, first: r.first + offset, count: r.count });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

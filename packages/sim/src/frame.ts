@@ -108,6 +108,21 @@ export const enum EventKind {
   Boxed = 23,
   /** [kind, boy (minion id), x, y, z]: a keg a boy carried went off where he fell (3.3). */
   KegBurst = 24,
+  /**
+   * [kind, structure (content structureList), course, mode (1 crush, 2 topple), 0]: a keep or a tower began to give way at
+   * this course (3.4): it falls in STRUCTURE.hold ticks unless masons save it (the groan).
+   */
+  Strain = 25,
+  /** [kind, structure, course, 0, 0]: a structure that was giving way holds again (masons put enough back in time). */
+  Saved = 26,
+  /** [kind, structure, course, dirX, dirZ]: the part of a structure above this course began to tip, towards (dirX, dirZ) (3.4). */
+  Topple = 27,
+  /** [kind, structure, course, x, z]: a course of a structure crushed; the part above comes straight down (3.4); x, z is the structure's middle. */
+  Crush = 28,
+  /** [kind, structure, stones let go, of them bodies, 0]: a toppling or crushed part was let go: its stones fall free (3.4). */
+  Released = 29,
+  /** [kind, castle, face (content BUTTRESS_FACES index), 0, 0]: a buttress against a keep's face is finished (3.4). */
+  Buttressed = 30,
 }
 export const EVENT_STRIDE = 5;
 

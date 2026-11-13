@@ -273,12 +273,22 @@ body.title-screen #menu-title { font-size: 64px; letter-spacing: 0.03em; }
 @keyframes raise { from { background-position: -50% 0; } to { background-position: 150% 0; } }
 @media (prefers-reduced-motion: reduce) { #note, .weapon.loaded.fresh .bar, #loading > div::after { animation: none; } .choice:hover, .choice:focus-visible { transform: none; } }
 /* Each keep's floors left under its banner, in its team's colour (team 0 yellow-green, team 1 oxblood). */
-.keepmeter { display: inline-flex; align-items: center; gap: 3px; font: 500 13px/1 var(--ui); color: var(--ink-dim); --team: #d8424a; }
+.keepmeter { position: relative; display: inline-flex; align-items: center; gap: 3px; font: 500 13px/1 var(--ui); color: var(--ink-dim); --team: #d8424a; }
 .keepmeter.team0 { --team: #c8d43a; }
 .keepmeter > span { margin-right: 5px; }
 .keepmeter i { --fill: 1; width: 8px; height: 13px; border-radius: 2px; background: linear-gradient(to top, var(--team) calc(var(--fill) * 100%), rgba(236, 228, 210, 0.16) calc(var(--fill) * 100%)); box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.28); }
 .keepmeter i.lost { background: transparent; box-shadow: inset 0 0 0 1px rgba(236, 228, 210, 0.3); }
 .keepmeter.low > span { color: var(--bad); }
+/* 3.4: how much the keep's weakest course still holds, a thin bar under the pips: green over 60%, amber, red under 30%. */
+.keepmeter .holds { position: absolute; left: 0; right: 0; bottom: -6px; height: 3px; border-radius: 2px; background: rgba(236, 228, 210, 0.16); overflow: hidden; --holds: #7fcf6b; }
+.keepmeter .holds[data-holds="mid"] { --holds: #e0a63a; }
+.keepmeter .holds[data-holds="low"] { --holds: #d8424a; }
+.keepmeter .holds u { display: block; height: 100%; background: var(--holds); transform-origin: left center; transition: transform 300ms ease-out; }
+/* 3.4: the mason's eye's label above a structure: "Holds 62%" (or "Falling"). */
+#eye-labels { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 6; }
+.eye-label { position: absolute; left: 0; top: 0; padding: 2px 8px; border-radius: 4px; background: rgba(14, 12, 10, 0.78); color: #7fcf6b; font: 600 13px/1.3 var(--ui); white-space: nowrap; box-shadow: 0 0 0 1px rgba(236, 228, 210, 0.2); }
+.eye-label[data-holds="mid"] { color: #e0a63a; }
+.eye-label[data-holds="low"] { color: #ef6b6b; }
 .keepmeter.hit i:not(.lost) { animation: keephit 900ms ease-out; }
 @keyframes keephit { 0% { box-shadow: 0 0 0 0 rgba(255, 210, 140, 0.9); } 100% { box-shadow: 0 0 0 6px rgba(255, 210, 140, 0); } }
 #match-note:empty { display: none; }
@@ -597,9 +607,9 @@ body.photoing #replay { visibility: hidden; }
   </div>
   <div id="matchbar" class="matchbar glass" hidden aria-live="off">
     <div class="score" id="keeps" role="group" aria-label="Floors left under each keep's banner">
-      <span class="keepmeter" id="keep-mine" title="Your keep: floors left under your banner. Lose them all and the keep falls"><span>Your keep</span><i></i><i></i><i></i></span>
+      <span class="keepmeter" id="keep-mine" title="Your keep: floors left under your banner. Lose them all and the keep falls"><span>Your keep</span><i></i><i></i><i></i><b class="holds" id="holds-mine" data-holds="good" role="img" aria-label="Holds 100%: how much its weakest course still holds" title="Holds 100%: how much its weakest course still holds"><u></u></b></span>
       <span class="clock" id="clock">0:00</span>
-      <span class="keepmeter theirs" id="keep-theirs" title="The enemy keep: floors left under its banner. Bring them all down to win"><i></i><i></i><i></i><span id="keep-theirs-name">Enemy keep</span></span>
+      <span class="keepmeter theirs" id="keep-theirs" title="The enemy keep: floors left under its banner. Bring them all down to win"><i></i><i></i><i></i><span id="keep-theirs-name">Enemy keep</span><b class="holds" id="holds-theirs" data-holds="good" role="img" aria-label="Holds 100%: how much its weakest course still holds" title="Holds 100%: how much its weakest course still holds"><u></u></b></span>
     </div>
     <div class="line econ">
       <span class="gold" id="gold">150 gold</span>
@@ -652,6 +662,7 @@ body.photoing #replay { visibility: hidden; }
       <div class="wind-txt"><span>Wind</span><b id="wind-speed">0 m/s</b></div>
     </div>
   </div>
+  <div id="eye-labels" aria-hidden="true"></div>
   <div id="help" class="panel glass" hidden>
     <h2>Controls</h2>
     <dl class="keys">
@@ -675,6 +686,7 @@ body.photoing #replay { visibility: hidden; }
       <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
       <dt>Enter</dt><dd>Order line: type orders in plain words ("mill, then waves left"), Enter sends, Esc closes. Aiming goes on behind it</dd>
       <dt id="steward-voice-dt" hidden>Y (hold)</dt><dd id="steward-voice-dd" hidden>Speak an order; let go to send it</dd>
+      <dt>C (hold)</dt><dd>The mason's eye: tints the keep or tower under your sight by how near it is to falling, with a plumb line and the way it would fall. In the overview, your own castle and the enemy's under the mouse</dd>
       <dt>Tab</dt><dd>Overview (drag to orbit, scroll to zoom; click a mark: fire for effect)</dd>
       <dt>N</dt><dd>Where minions can walk: green open, amber cut off, red blocked</dd>
       <dt>M, P</dt><dd>Sound on or off; pause (not against a friend)</dd>

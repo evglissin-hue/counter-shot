@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ASHWRIGHT_SLOTS, type RepairKind } from "@keepfall/content";
+import { ASHWRIGHT_SLOTS, BUTTRESS, type RepairKind } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { parse, type GunView, type OrdersView, type ParseResult, type PlotView, type StandingId } from "@keepfall/orders";
 
@@ -618,4 +618,50 @@ test("waves: what must stay refused, and the old phrases give what they gave", (
   accepts(b, [["second barracks: volley, right", [{ kind: "barracks", plot: 1, mix: "volley", route: "right" }]]]);
   const say = parse("advance left", v);
   assert.equal(say.ok && say.say, "Waves take the left flank; waves: advance");
+});
+
+test("buttresses: words for each face, the steward's line, and the refusals the match would make", () => {
+  const v = viewWith(() => {});
+  const one = (t: string, w = v) => {
+    const r = parse(t, w);
+    assert.ok(r.ok, `${t}: ${r.ok ? "" : r.reason}`);
+    assert.equal(r.steps.length, 1);
+    const s = r.steps[0];
+    assert.ok(s.kind === "input");
+    return s;
+  };
+  for (const [line, face] of [
+    ["buttress the front", "front"],
+    ["buttress the keep", "front"],
+    ["Buttress the left", "left"],
+    ["buttress the back face", "back"],
+    ["build a buttress on the right", "right"],
+    ["buttresses on the left side of the keep", "left"],
+  ] as const) {
+    const s = one(line);
+    assert.deepEqual(s.input, { kind: "buttress", face }, line);
+    assert.equal(s.cost, BUTTRESS.gold);
+  }
+  assert.equal(one("buttress the front").say, `Buttress the front of the keep: ${BUTTRESS.gold} gold`);
+  // The player's own left, whichever castle it is (faces are in the owner's words).
+  assert.deepEqual(one("buttress the left", fixture({ team: 0 })).input, { kind: "buttress", face: "left" });
+  // Refused as the match would: a face that has one (rising or standing), not enough gold.
+  const rising = fixture({ buttresses: ["rising", "empty", "empty", "empty"] });
+  const r1 = parse("buttress the front", rising);
+  assert.ok(!r1.ok && r1.reason === "The front has a buttress", !r1.ok ? r1.reason : "");
+  const r2 = parse("buttress the back", fixture({ buttresses: ["empty", "standing", "empty", "empty"] }));
+  assert.ok(!r2.ok && r2.reason === "The back has a buttress");
+  assert.ok(parse("buttress the left", rising).ok, "another face is free");
+  const r3 = parse("buttress the left", fixture({ gold: BUTTRESS.gold - 1 }));
+  assert.ok(!r3.ok && r3.reason === `Not enough gold: ${BUTTRESS.gold} needed`);
+  // Within a line, the first buttress takes the face and the gold.
+  const twice = parse("buttress the front and buttress the front", v);
+  assert.ok(!twice.ok && /has a buttress/.test(twice.reason));
+  const both = parse("buttress the front and buttress the back", fixture({ gold: BUTTRESS.gold * 2 - 1 }));
+  assert.ok(!both.ok && /not enough gold/i.test(both.reason));
+  const fine = parse("buttress the front and buttress the back", fixture({ gold: BUTTRESS.gold * 2 }));
+  assert.ok(fine.ok && fine.steps.length === 2);
+  // Nonsense is not understood; two faces at once are refused.
+  assert.ok(!parse("buttress the dragon", v).ok);
+  assert.ok(!parse("buttress the front back", v).ok);
 });

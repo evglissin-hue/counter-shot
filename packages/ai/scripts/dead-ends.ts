@@ -12,11 +12,15 @@
 // The army pass adds the army hunts (sampled once a second, each flagged once, with numbers): a team cut off (route fields
 // FLOW_INF under its marching men), a soldier stuck with nothing to fight, an AI that holds too long or flips its orders, and
 // ladders carried to the wall with no way in but never planted. The scripted army scenarios live in packages/ai/scripts/army-hunt.ts.
+// 3.4 adds the keep hunts (each flagged once per structure): a structure groaning or holding under 0.3 for over 120 s without
+// falling or mending past 0.6 (masons undoing each hit for ever: gold and masons are printed); a piece let go moving faster than
+// 40 m/s within 2 s of a Released event (stones thrown from inside masonry); and a keep or tower piece down for over 180 s with
+// its masons allowed and gold over 100 while rubble fills its place the whole time (a foot never mended).
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21]
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, holdMarker, inCourtyard, MUSTER, ROUTE_NAMES, sectionOf, Unit, WEAPON_COST, type Difficulty } from "@keepfall/content";
-import { Action, breachField, FLOW_INF, LadderState, MinionState, Order, PlotState, Role, routeField, type Minion, type Rapier } from "@keepfall/sim";
+import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, MinionState, Order, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
 
@@ -209,6 +213,21 @@ function armySecond(t: number) {
     }
   }
 }
+// 3.4 keep hunts.
+const KEEP = { hang: 120, hangHolds: 0.3, mended: 0.6, fast: 40, fastTicks: 120, down: 180, gold: 100, sample: 10, maxPlaces: 80 };
+const statics = m.world.statics;
+const castle = m.world.castle;
+const layout = castle.layout;
+const dyn = castle.dynamic;
+const events = (m.world as unknown as { events: number[] }).events;
+let evSeen = 0;
+/** Per structure: since when it has held under 0.3 (-1: not), whether it was flagged, the tick it was last let go (-1: not), whether a fast piece was flagged. */
+const hangSince = new Array<number>(10).fill(-1), hangFlagged = new Array<boolean>(10).fill(false);
+const releasedAt = new Array<number>(10).fill(-1), fastFlagged = new Array<boolean>(10).fill(false);
+/** Per structure piece: since when it has been down (-1 standing), and since when rubble has filled its place all the while (-1: not). */
+const downSince = new Map<number, number>(), placeBlocked = new Map<number, number>(), placeFlagged = new Set<number>();
+const structs = statics ? statics.list : [];
+const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})`;
 
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   for (const ai of ais) ai?.step();
@@ -240,9 +259,92 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       }
     } else holdStretch[c] = 0;
   }
+  if (statics) {
+    for (; evSeen + EVENT_STRIDE <= events.length; evSeen += EVENT_STRIDE) {
+      if (events[evSeen] === EventKind.Released) {
+        releasedAt[events[evSeen + 1]] = m.tick;
+        fastFlagged[events[evSeen + 1]] = false;
+      }
+    }
+    // A piece let go moving faster than 40 m/s within 2 s of its Released event: thrown from inside masonry.
+    for (const d of structs) {
+      if (releasedAt[d.index] < 0 || fastFlagged[d.index]) continue;
+      if (m.tick - releasedAt[d.index] > KEEP.fastTicks) {
+        releasedAt[d.index] = -1;
+        continue;
+      }
+      for (const id of d.stones) {
+        if (!dyn[id]) continue;
+        let v: { x: number; y: number; z: number };
+        try {
+          v = castle.bodies[id].linvel();
+        } catch {
+          continue;
+        }
+        const sp = Math.hypot(v.x, v.y, v.z);
+        if (sp > KEEP.fast) {
+          fastFlagged[d.index] = true;
+          const p = castle.bodies[id].translation();
+          flag(m.tick, `castle ${d.castle}'s ${d.name} let go: piece ${id} (${layout.stones[id].part}, course ${layout.stones[id].course}) moves at ${sp.toFixed(0)} m/s ${((m.tick - releasedAt[d.index]) / 60).toFixed(2)} s after it was released, at (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)})`);
+          break;
+        }
+      }
+    }
+  }
   if (tick % 60 !== 59) continue;
   const t = m.tick;
   armySecond(t);
+  if (statics) {
+    for (const d of structs) {
+      // Groaning, or holding under 0.3, for over 120 s without falling or mending past 0.6.
+      const s = statics.status(d.index);
+      if (s.state === StaticState.Toppling || s.state === StaticState.Fallen || s.holds >= KEEP.mended) {
+        hangSince[d.index] = -1;
+        hangFlagged[d.index] = false;
+      } else if (hangSince[d.index] < 0 && (s.holds < KEEP.hangHolds || s.state === StaticState.Groaning)) hangSince[d.index] = t;
+      if (hangSince[d.index] >= 0 && !hangFlagged[d.index] && t - hangSince[d.index] > KEEP.hang * 60) {
+        hangFlagged[d.index] = true;
+        flag(t, `castle ${d.castle}'s ${d.name} has held under ${KEEP.hangHolds} for ${KEEP.hang} s without falling or mending past ${KEEP.mended} (holds ${s.holds.toFixed(2)}, weakest course ${s.weakest}; gold ${m.gold[d.castle]}, ${masonsAt(d.castle)})`);
+      }
+      // Pieces down for over 180 s, masons allowed, gold over 100, and rubble filling their place every time it is looked at.
+      for (const id of d.stones) {
+        const part = layout.stones[id].part;
+        if (part !== "keep" && part !== "tower") continue;
+        if (!dyn[id]) {
+          downSince.delete(id);
+          placeBlocked.delete(id);
+          continue;
+        }
+        if (!downSince.has(id)) downSince.set(id, t);
+      }
+      const allowed = (d.kind === "keep" ? m.repairs[d.castle].keep : m.repairs[d.castle].towers) && m.gold[d.castle] > KEEP.gold;
+      if (!allowed) {
+        for (const id of d.stones) placeBlocked.delete(id);
+      } else if (Math.floor(t / 60) % KEEP.sample === 0) {
+        let looked = 0;
+        for (const id of d.stones) {
+          const since = downSince.get(id);
+          if (since === undefined || looked >= KEEP.maxPlaces) continue;
+          looked++;
+          const place = castle.inPlace(id, m.world.terrain.handles);
+          if (place.pieces.length === 0) {
+            placeBlocked.delete(id);
+            continue;
+          }
+          // Blocked at every look since it went down (the first look may be ten seconds after).
+          if (!placeBlocked.has(id)) placeBlocked.set(id, t);
+          if (placeBlocked.get(id)! - since > KEEP.sample * 60) {
+            placeBlocked.set(id, Infinity); // it was free once: it does not count
+            continue;
+          }
+          if (!placeFlagged.has(d.index) && t - since > KEEP.down * 60) {
+            placeFlagged.add(d.index);
+            flag(t, `castle ${d.castle}'s ${d.name}: piece ${id} (course ${layout.stones[id].course}) has been down ${((t - since) / 60).toFixed(0)} s with masons allowed and ${m.gold[d.castle]} gold, and rubble (${place.pieces.length} pieces) fills its place (${masonsAt(d.castle)})`);
+          }
+        }
+      }
+    }
+  }
   M.report(t, report);
   for (let i = 0; i < n; i++) {
     const e = m.emplacements[i], c = castleOf(i), st = report[i * 2];

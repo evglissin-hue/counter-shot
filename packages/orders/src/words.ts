@@ -27,6 +27,8 @@ export const SYNONYMS: Record<string, string> = {
   center: "centre",
   middle: "centre",
   walls: "wall",
+  buttresses: "buttress",
+  buttressing: "buttress",
   towers: "tower",
   pits: "pit",
   pikes: "pikemen",
@@ -77,6 +79,11 @@ export const BUILDING_WORDS: Array<{ kind: BuildingKind; phrases: string[] }> = 
   { kind: "foundry", phrases: ["foundry"] },
   { kind: "magazine", phrases: ["magazine"] },
 ];
+/** 3.4 buttresses: "buttress the front", "build a buttress on the left", "buttress the keep" (its front). Faces are the owner's words already. */
+export const BUTTRESS_FACE_WORDS = new Set(["front", "back", "left", "right"]);
+/** Every word a buttress part may hold besides its face. */
+export const BUTTRESS_FILLER = new Set([...BUILD_VERBS, ...BUY_VERBS, "buttress", "keep", "face", "side", "wall"]);
+
 /** Plot place words. A plot is also named by "plot N" (1-based). */
 export const PLOT_WORDS = new Set(["front", "back", "left", "right", "keep", "by"]);
 export const REBUILD_WORDS = new Set(["rebuild", "rebuilt", "restore"]);

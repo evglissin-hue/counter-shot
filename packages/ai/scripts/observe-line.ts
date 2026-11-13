@@ -12,8 +12,8 @@ export const LINE_VERSION = 1;
 export type Side = "squire" | "knight" | "warlord" | "idle";
 
 /** What a shot by hand was for (the gunner's Aim keys, grouped: every raid is "raid", every gun is "gun"). */
-export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun" | "range";
-export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun", "range"];
+export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun" | "range" | "open" | "cut";
+export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut"];
 
 /** How a match is set up. Everything needed to play it again. */
 export interface MatchSetup {
@@ -61,7 +61,7 @@ export interface Sample {
   worstMs: number;
 }
 
-/** One applied build step: [tick, castle, what], what as "build mill 1" (plot), "buy mortar 7" (slot 0 to 7), "upgrade heavyShot 0". */
+/** One applied build step: [tick, castle, what], what as "build mill 1" (plot), "buy mortar 7" (slot 0 to 7), "upgrade heavyShot 0", "buttress front" (3.4). */
 export type BuildEntry = [number, 0 | 1, string];
 
 export interface Totals {
@@ -102,7 +102,18 @@ export interface Totals {
   magazineBlown?: [number, number];
   magazinesBlown?: [number, number];
   dryRideSecs?: [number, number];
+  /**
+   * 3.4, by castle (older lines lack all of them): the falls of its structures in this match, in order: [time s, kind of
+   * structure, how, course it gave way at] (from the Topple and Crush events). And the hand shots its gunner landed on
+   * the other castle's keep (a landing within a metre or so of its walls), at the foot (below its lowest floor) and above.
+   */
+  falls?: [Fall[], Fall[]];
+  keepFoot?: [number, number];
+  keepTop?: [number, number];
 }
+
+/** A structure that fell: [time (s), "keep" or "tower", "topple" or "crush", the course it gave way at]. */
+export type Fall = [number, "keep" | "tower", "topple" | "crush", number];
 
 export interface MatchLine {
   v: typeof LINE_VERSION;
@@ -115,7 +126,14 @@ export interface MatchLine {
    * played. hash: Match.hash() at the end, so any line can be checked by
    * playing its setup again.
    */
-  result: { winner: 0 | 1 | -1 | null; reason: "keep" | "storm" | "surrender" | "time" | null; tick: number; hash: { state: string; world: string } };
+  result: {
+    winner: 0 | 1 | -1 | null;
+    reason: "keep" | "storm" | "surrender" | "time" | null;
+    tick: number;
+    hash: { state: string; world: string };
+    /** 3.4: a keep win in which the losing keep toppled or crushed in this match (else the floors went: "keep (floors)"). Older lines lack it. */
+    felled?: boolean;
+  };
   samples: Sample[];
   totals: Totals;
   /** Wall-clock cost: ms for the whole match, and match seconds per wall second. */

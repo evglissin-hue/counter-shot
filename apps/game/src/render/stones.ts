@@ -115,8 +115,8 @@ export class StoneSet {
         this.slotOf[s.id] = i;
         const o = i * 8;
         dynArray[o] = s.x;
-        // M3: plot buildings start out of sight; the sim's first frame puts up what stands.
-        dynArray[o + 1] = s.plot !== undefined ? -1000 : s.y;
+        // M3: plot buildings start out of sight; the sim's first frame puts up what stands (3.4: buttresses too, until bought).
+        dynArray[o + 1] = s.plot !== undefined || s.part === "buttress" ? -1000 : s.y;
         dynArray[o + 2] = s.z;
         dynArray[o + 3] = s.shade;
         dynArray[o + 4] = s.q[0];

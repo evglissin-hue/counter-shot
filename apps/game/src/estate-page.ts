@@ -251,7 +251,7 @@ export class Estate {
       // A number where it was earned when that is in view, else a line in the feed under the match bar: never both.
       if (!this.float(e[k + 3], e[k + 4], e[k + 5], amount, deed ?? "")) this.feedSum.set(kind, (this.feedSum.get(kind) ?? 0) + amount);
     }
-    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot, guns, mountDown, powder: info.powder ? info.powder[this.team] : null });
+    this.wheel.update(this.lastPlots, this.lastPlotCount, { gold: this.gold, team: this.team, barracks: info.barracks, foundry: info.foundry[this.team], gun, gunSlot: slot, guns, mountDown, powder: info.powder ? info.powder[this.team] : null, buttresses: info.buttresses?.[this.team] });
   }
 
   private toast(name: string, amount: number) {

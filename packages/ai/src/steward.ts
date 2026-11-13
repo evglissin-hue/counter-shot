@@ -9,7 +9,9 @@ import {
   BUILDING_KINDS,
   BUILDING_REBUILD,
   BUILDINGS,
+  BUTTRESS,
   GUN_HITS,
+  keepStructure,
   MIX_NAMES,
   PLOTS,
   POWDER,
@@ -27,7 +29,7 @@ import {
   type RouteName,
 } from "@keepfall/content";
 import type { Rng } from "@keepfall/core";
-import { Order, PlotState } from "@keepfall/sim";
+import { Order, PlotState, StaticState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
 import * as V from "./view";
 
@@ -92,6 +94,8 @@ export class Steward {
   private build(tick: number) {
     if (this.stage && this.stage() < 1) return; // the tutor asleep builds and buys nothing
     const m = this.m, team = this.team, st = m.world.structures!;
+    // 3.4: a keep being cut gets its buttress before anything else, even out of the gold it keeps back for its masons.
+    if (!this.stage && this.buttress(tick)) return;
     // 3.3: a magazine it has lost comes before anything else: a ruin is rebuilt, and with none standing, rising or in ruins
     // (or its ruin not rising 60 s after it asked) a new one goes up on a free plot, back plots first.
     if (!this.stage && this.magazine(tick)) return;
@@ -149,6 +153,23 @@ export class Steward {
       return;
     }
   }
+
+  /**
+   * 3.4: its keep holds under 0.5 (the mason's eye) and the face being cut (the one whose outward normal is nearest the
+   * way it would fall) has no buttress: it buys one there (one order every 10 s). True if it asked for one this look.
+   */
+  private buttress(tick: number): boolean {
+    const m = this.m, st = m.world.statics;
+    if (!this.L.buttresses || !st || tick - this.buttressAt < 10 * 60 || this.gold < BUTTRESS.gold) return false;
+    const s = st.status(keepStructure(this.team));
+    if (s.state !== StaticState.Standing || s.weakest < 0 || s.holds >= 0.5) return false;
+    const face = V.faceTowards(this.team, s.dirX, s.dirZ);
+    if (m.buttress(this.team, face) !== 0) return false;
+    this.buttressAt = tick;
+    this.send(tick, { kind: "buttress", face });
+    return true;
+  }
+  private buttressAt = -1e9;
 
   /**
    * 3.3: the magazine it keeps: true if it asked for a magazine this look (and waits for it, so nothing else is built).

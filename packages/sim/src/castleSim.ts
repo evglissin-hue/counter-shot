@@ -30,7 +30,7 @@ type World = InstanceType<Rapier["World"]>;
 type Body = ReturnType<World["createRigidBody"]>;
 type EventQueue = InstanceType<Rapier["EventQueue"]>;
 
-const DENSITY: Record<Stone["material"], number> = { stone: 2300, wood: 600, plaster: 1400, roof: 1100, banner: 400 };
+export const DENSITY: Record<Stone["material"], number> = { stone: 2300, wood: 600, plaster: 1400, roof: 1100, banner: 400 };
 const FRICTION: Record<Stone["material"], number> = { stone: 0.75, wood: 0.6, plaster: 0.65, roof: 0.55, banner: 0.5 };
 
 export interface SimOptions {
@@ -126,8 +126,15 @@ const STOREY_BREAK = 8_000_000;
 const STRUCTURE = 0x0010;
 const BANNER = 0x0008;
 const STRUCTURE_GROUPS = 0xffffffff;
-const RUBBLE_GROUPS = (((0xffff & ~STRUCTURE) << 16) | 0xffff) >>> 0;
+/** Rubble and shots: everything but the structure bit (3.4: and the banner's bit, which only a tipping part filters on). */
+const RUBBLE_GROUPS = (((0xffff & ~STRUCTURE & ~BANNER) << 16) | 0xffff) >>> 0;
 const BANNER_GROUPS = ((BANNER << 16) | STRUCTURE) >>> 0;
+/**
+ * 3.4: a part tipping about its hinge (kinematic) touches only the banner riding on it: it passes through loose
+ * rubble and men instead of driving them, with the force of a body that cannot be stopped, into standing masonry
+ * (a tower tipping along its wall unzipped the wall that way, to the next tower). Let go, its pieces are rubble.
+ */
+const TIPPING_GROUPS = ((STRUCTURE << 16) | BANNER) >>> 0;
 
 const BALL_RADIUS = 0.4;
 const BALL_DENSITY = 7800;
@@ -211,6 +218,18 @@ export class CastleSim {
   private moving = 0;
   /** M5: tough pieces a blast cracked this step without breaking them loose (for the page: splinters and a crack). */
   cracked: number[] = [];
+  /**
+   * 3.4: pieces the statics pass is moving (a toppling part, a brittle stone
+   * in flight): masons and builders leave them alone, and restore() and
+   * carryOff() refuse them. Always 0 in a layout without structures.
+   */
+  readonly busy: Uint8Array;
+  /**
+   * 3.4: the statics pass reports the poses of the pieces it moves itself (a
+   * toppling part, brittle stones in flight) here, after the pieces the world
+   * moved: writes [id, x, y, z, qx, qy, qz, qw] from slot n, returns the new count.
+   */
+  poseReporter: ((out: Float32Array, n: number, max: number) => number) | null = null;
 
   constructor(R: Rapier, layout: CastleLayout, opts: SimOptions = DEFAULT_SIM) {
     this.R = R;
@@ -223,6 +242,7 @@ export class CastleSim {
     this.shattered = new Uint8Array(n);
     this.shatterReported = new Uint8Array(n);
     this.hits = new Uint8Array(n);
+    this.busy = new Uint8Array(n);
     this.toughIds = Int32Array.from(layout.stones.filter((s) => (s.tough ?? 1) > 1).map((s) => s.id));
     this.spanOf = new Uint8Array(n);
     this.maxSpan = opts.span;
@@ -410,7 +430,7 @@ export class CastleSim {
     const banners = this.layout.bannerIds;
     for (const id of this.dynList) {
       // A banner is never thrown: it comes down with the floor under it.
-      if (this.shattered[id] || this.frozen[id] || id === banners[0] || id === banners[1]) continue;
+      if (this.shattered[id] || this.frozen[id] || this.busy[id] || id === banners[0] || id === banners[1]) continue;
       const p = this.bodies[id].translation();
       const ex = p.x - x, ey = p.y - y, ez = p.z - z;
       if (ex * ex + ey * ey + ez * ez <= reach2) rubble.push(id);
@@ -792,6 +812,115 @@ export class CastleSim {
     this.thaw(x, y, z, radius);
   }
 
+  // ---- 3.4: what the statics pass needs (structures falling by load) ----
+
+  /**
+   * Ids of standing pieces (never loose, dust or claimed) whose centres lie within `pad` of a point, appended to `out`
+   * (a 2 m grid of centres: the caller tests exact bounds).
+   */
+  standingNear(x: number, y: number, z: number, pad: number, out: number[]) {
+    const c0x = Math.floor((x - pad) / 2), c1x = Math.floor((x + pad) / 2);
+    const c0y = Math.floor((y - pad) / 2), c1y = Math.floor((y + pad) / 2);
+    const c0z = Math.floor((z - pad) / 2), c1z = Math.floor((z + pad) / 2);
+    for (let cx = c0x; cx <= c1x; cx++)
+      for (let cy = c0y; cy <= c1y; cy++)
+        for (let cz = c0z; cz <= c1z; cz++) {
+          const list = this.grid.get(this.cellKey(cx, cy, cz));
+          if (!list) continue;
+          for (const id of list) if (!this.dynamic[id]) out.push(id);
+        }
+  }
+
+  /** A standing piece is dust now (a footing crushed under a load): the shatter path, with a support check due. */
+  dust(id: number) {
+    this.shatter(id);
+  }
+
+  /** A standing piece comes loose with no push (a floor board under a falling keep). The caller runs supportNow() after. */
+  looseNow(id: number) {
+    this.loosen(id);
+  }
+
+  /** Run the support check for every group whose fixed pieces changed. */
+  supportNow() {
+    this.supportCheck();
+  }
+
+  /**
+   * The statics pass takes a standing piece to move itself (a toppling part, a brittle stone): it counts as loose
+   * (dynamic, listed in dynList, fell, looseLog, support check due) and busy, so masons and bursts leave it alone.
+   * `ghost`: no Rapier body (disabled, like dust, and posed by the statics pass); else a kinematic body.
+   */
+  claim(id: number, ghost: boolean) {
+    if (this.dynamic[id]) return;
+    this.dynamic[id] = 1;
+    this.dynList.push(id);
+    this.supportDirty |= 1 << this.castleOf[id];
+    if (this.recordFalls) this.fell.push(id);
+    this.looseLog.push(id);
+    const body = this.bodies[id];
+    if (ghost) {
+      this.busy[id] = 2;
+      body.setEnabled(false);
+    } else {
+      this.busy[id] = 1;
+      body.setBodyType(this.R.RigidBodyType.KinematicPositionBased, true);
+      if (this.layout.keepFloors) body.collider(0).setCollisionGroups(TIPPING_GROUPS);
+    }
+  }
+
+  /** Move a claimed kinematic piece to a pose (reached by the next step). */
+  poseBody(id: number, x: number, y: number, z: number, qx: number, qy: number, qz: number, qw: number) {
+    const b = this.bodies[id];
+    b.setNextKinematicTranslation({ x, y, z });
+    b.setNextKinematicRotation({ x: qx, y: qy, z: qz, w: qw });
+  }
+
+  /**
+   * A claimed piece is let go with a velocity: a body turns dynamic where it is posed, as rubble, with the given
+   * velocity; with `ghost` (a claimed ghost) nothing changes in the world, it stays busy for the statics pass.
+   */
+  letGo(id: number, x: number, y: number, z: number, qx: number, qy: number, qz: number, qw: number, vx: number, vy: number, vz: number, wx: number, wy: number, wz: number) {
+    const body = this.bodies[id];
+    this.busy[id] = 0;
+    body.setTranslation({ x, y, z }, false);
+    body.setRotation({ x: qx, y: qy, z: qz, w: qw }, false);
+    body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+    body.recomputeMassPropertiesFromColliders();
+    if (this.layout.keepFloors) body.collider(0).setCollisionGroups(RUBBLE_GROUPS);
+    body.setLinvel({ x: vx, y: vy, z: vz }, true);
+    body.setAngvel({ x: wx, y: wy, z: wz }, true);
+    body.wakeUp();
+    this.awakeLast[id] = 0;
+    this.restSteps[id] = 0;
+  }
+
+  /** A claimed ghost turns to dust (reported once by collectMoving like any dust). */
+  dustGhost(id: number) {
+    this.busy[id] = 0;
+    this.shattered[id] = 1;
+    this.frozen[id] = 0;
+  }
+
+  /** Thaw frozen rubble over a box (x0..x1, z0..z1) and at or above y0: what lies on a part that is about to move. */
+  thawBoxAbove(x0: number, z0: number, x1: number, z1: number, y0: number) {
+    if (!this.frozenList.length) return;
+    const keep: number[] = [];
+    for (const id of this.frozenList) {
+      const p = this.bodies[id].translation();
+      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0) {
+        this.frozen[id] = 0;
+        const body = this.bodies[id];
+        body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+        body.recomputeMassPropertiesFromColliders();
+        body.wakeUp();
+      } else {
+        keep.push(id);
+      }
+    }
+    this.frozenList = keep;
+  }
+
   /**
    * What lies in a piece's place (its layout pose), apart from the piece
    * itself and the standing masonry around it: loose pieces (ids, in order)
@@ -848,7 +977,7 @@ export class CastleSim {
    * standing already.
    */
   restore(id: number): boolean {
-    if (!this.dynamic[id]) return false;
+    if (!this.dynamic[id] || this.busy[id]) return false;
     const s = this.layout.stones[id];
     const body = this.bodies[id];
     this.hits[id] = 0; // a new board or stone: no cracks
@@ -880,7 +1009,7 @@ export class CastleSim {
 
   /** Masons carry a loose piece out of the way: it leaves the world, like dust, and can be put back later. */
   carryOff(id: number): boolean {
-    if (!this.dynamic[id] || this.shattered[id]) return false;
+    if (!this.dynamic[id] || this.shattered[id] || this.busy[id]) return false;
     if (this.frozen[id]) {
       this.frozen[id] = 0;
       const k = this.frozenList.indexOf(id);
@@ -913,7 +1042,7 @@ export class CastleSim {
     const settle = this.opts.settle === true && this.moving > SETTLE_BUSY;
     let moving = 0;
     for (const id of this.dynList) {
-      if (this.frozen[id] || this.shattered[id] || id === banners[0] || id === banners[1]) continue;
+      if (this.frozen[id] || this.shattered[id] || this.busy[id] || id === banners[0] || id === banners[1]) continue;
       const body = this.bodies[id];
       const asleep = body.isSleeping();
       if (!asleep) moving++;
@@ -1154,6 +1283,7 @@ export class CastleSim {
     }
     this.restoredSince.splice(0, r);
     for (const id of this.dynList) {
+      if (this.busy[id]) continue; // the statics pass reports these (poseReporter)
       if (this.shattered[id]) {
         if (this.shatterReported[id] || n >= max) continue;
         this.shatterReported[id] = 1;
@@ -1187,6 +1317,7 @@ export class CastleSim {
       out[o + 7] = r.w;
       n++;
     }
+    if (this.poseReporter) n = this.poseReporter(out, n, max);
     return n;
   }
 
@@ -1207,7 +1338,11 @@ export class CastleSim {
 
   awakeCount(): number {
     let n = 0;
-    for (const id of this.dynList) if (!this.frozen[id] && !this.shattered[id] && !this.bodies[id].isSleeping()) n++;
+    for (const id of this.dynList) {
+      const b = this.busy[id];
+      if (b === 2) continue; // a ghost: no Rapier body
+      if (b === 1 || (!this.frozen[id] && !this.shattered[id] && !this.bodies[id].isSleeping())) n++;
+    }
     return n;
   }
 
