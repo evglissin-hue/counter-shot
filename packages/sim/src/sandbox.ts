@@ -218,7 +218,7 @@ export class SandboxSim {
     this.specialists = this.army
       ? new Specialists(this.minions, this.nav, this.terrain, (hashString("specialists") ^ opts.seed) >>> 0, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot))
       : null;
-    if (this.army) this.army.specialists = this.specialists;
+    if (this.army && this.specialists) { this.army.specialists = this.specialists; this.specialists.orders = this.army.order; this.specialists.local = this.army.local; }
     // 3.3: powder boys and the boxes by the guns.
     this.carriers = this.army && opts.powder !== false ? new Carriers(this.minions, this.army, this.structures, this.emplacements, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot), this.bursts) : null;
     this.carriers?.spawnAll();
