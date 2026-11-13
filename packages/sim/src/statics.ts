@@ -447,7 +447,9 @@ export class Statics {
       let m0 = 1;
       if (hull.length >= 6 && aboveM[c] > 0) {
         this.edgeMargin(hull, aboveXs[c] / aboveM[c], aboveZs[c] / aboveM[c]);
-        m0 = this.mD - (STRUCTURE.margin + STRUCTURE.toe * half);
+        // As built a course carries the share of the whole load that stands above it (the master's reading of rule 2).
+        const r0 = aboveM[0] > 0 ? aboveM[c] / aboveM[0] : 1;
+        m0 = this.mD - (STRUCTURE.margin + STRUCTURE.toe * half * r0);
       }
       margin0[c] = m0 > 0.05 ? m0 : 0.05;
     }
@@ -555,7 +557,11 @@ export class Statics {
     let best: CourseEval | null = null;
     const heat: number[] = [];
     for (let c = 0; c < S.nCarry; c++) {
-      const load = S.builtMassAbove[c] > 0 ? S.aboveMass[c] / S.builtMassAbove[c] : 0;
+      // Rule 2, as the master reads it: the load is the mass standing above c as a share of all that stands above the
+      // structure's lowest course as built, so a course high up carries less than one at the foot (a keep that has lost
+      // its top carries less too). With the spec's share per course a cut near the top felled a keep as surely as one at
+      // its foot, so the shells that reach its upper half over the curtain wall won matches faster than the old count.
+      const load = S.builtMassAbove[0] > 0 ? S.aboveMass[c] / S.builtMassAbove[0] : 0;
       const carry = S.builtArea[c] > 0 ? S.areaC[c] / S.builtArea[c] : 1;
       const r = load <= 0 ? 0 : carry <= 1e-9 ? Infinity : load / carry;
       S.rC[c] = r;

@@ -143,8 +143,9 @@ test("the master's numbers: the face and a third of each side topples, the face 
   console.log("  face + thirds: weakest", s.weakest, "r", st.ratio(KEEP, 2).toFixed(3), "drawIn", s.drawIn.toFixed(2), "margin", s.margin.toFixed(2), "com z", (s.comZ - L[KEEP].cz).toFixed(2), "holds", s.holds.toFixed(2));
   assert.equal(s.weakest, 2);
   assert.ok(s.margin < 0 && s.toppleNear >= 1);
-  assert.ok(Math.abs(st.ratio(KEEP, 2) - 1.63) < 0.15);
-  assert.ok(Math.abs(s.drawIn - 1.93) < 0.15);
+  // The load at course 2 is the share of the keep standing above it (about 0.95), over the 61% of the course left.
+  assert.ok(Math.abs(st.ratio(KEEP, 2) - 1.55) < 0.15);
+  assert.ok(Math.abs(s.drawIn - (STRUCTURE.margin + STRUCTURE.toe * 5 * st.ratio(KEEP, 2))) < 0.01);
   sim.free();
 
   const face = world();
