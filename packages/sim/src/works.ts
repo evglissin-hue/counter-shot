@@ -11,7 +11,7 @@
 // Deterministic: crews and masons in a fixed order, Rapier's deterministic
 // queries sorted, + - * / and comparisons.
 
-import { masonRefuge, masonYard, REPAIR, REPAIR_KINDS, repairCost, repairSections, sectionOf, Unit, workSpot, type RepairKind, type RepairSection } from "@keepfall/content";
+import { masonRefuge, masonYard, REPAIR, REPAIR_KINDS, repairCost, repairSections, sectionOf, STRUCTURE, Unit, workSpot, type RepairKind, type RepairSection } from "@keepfall/content";
 import { DPI, dsqrt } from "@keepfall/core";
 import { Action, type Army, type Emit } from "./army";
 import type { CastleSim } from "./castleSim";
@@ -83,6 +83,12 @@ export class Works {
   policy: WorksPolicy | null = null;
   /** 3.4: may masons put this piece back (a buttress only once it is bought)? Set by the world when the layout has buttresses. */
   mendable: ((id: number) => boolean) | null = null;
+  /** 3.4 rule 12: what the statics pass knows of the keeps and towers (a load / carry ratio per course, a structure's holds); null without one. */
+  statics: {
+    ratio(i: number, course: number): number;
+    structureOf(id: number): number;
+    status(i: number): { holds: number };
+  } | null = null;
   private sections: RepairSection[];
   private sectionOf: Int16Array;
   private dir: [number, number] = [0, 0];
@@ -195,6 +201,14 @@ export class Works {
       const sec = this.sections[crew.job];
       if (!this.allowed(team, sec.kind) || this.down(sec) === 0) crew.job = -1;
     }
+    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at.
+    if (this.statics) {
+      const cur = crew.job >= 0 ? this.sections[crew.job] : null;
+      if (!cur || !this.urgent(cur)) {
+        const u = this.pickUrgent(crew);
+        if (u >= 0) crew.job = u;
+      }
+    }
     if (crew.job < 0) crew.job = this.pickJob(crew);
     if (crew.job < 0) {
       crew.next = -1;
@@ -209,12 +223,32 @@ export class Works {
     const L = this.castle.layout;
     const cand: number[] = [];
     let lowest = -1;
-    for (const id of sec.stones) {
-      if (!this.castle.dynamic[id] || !this.may(id) || !this.supported(id)) continue;
-      const c = L.stones[id].course;
-      if (lowest < 0) lowest = c;
-      if (c > lowest + 2) break;
-      cand.push(id);
+    const structure = this.statics && (sec.kind === "keep" || sec.kind === "towers") ? this.statics.structureOf(sec.stones[0]) : -1;
+    if (structure >= 0) {
+      // Rule 12: the course carrying the most (highest load / carry) goes back first; ties go to the lower course.
+      let best = -Infinity;
+      for (const id of sec.stones) {
+        if (!this.castle.dynamic[id] || !this.may(id) || !this.supported(id)) continue;
+        const c = L.stones[id].course;
+        const q = this.statics!.ratio(structure, c);
+        if (lowest < 0 || q > best || (q === best && c < lowest)) {
+          best = q;
+          lowest = c;
+        }
+      }
+      if (lowest >= 0) {
+        for (const id of sec.stones) {
+          if (this.castle.dynamic[id] && this.may(id) && this.supported(id) && L.stones[id].course === lowest) cand.push(id);
+        }
+      }
+    } else {
+      for (const id of sec.stones) {
+        if (!this.castle.dynamic[id] || !this.may(id) || !this.supported(id)) continue;
+        const c = L.stones[id].course;
+        if (lowest < 0) lowest = c;
+        if (c > lowest + 2) break;
+        cand.push(id);
+      }
     }
     const here = crew.spotJob === crew.job;
     const score = (id: number) => {
@@ -266,6 +300,10 @@ export class Works {
    * most damage. `skip` is left out (a section that must wait for another).
    */
   private pickJob(crew: Crew, skip = -1): number {
+    if (this.statics) {
+      const u = this.pickUrgent(crew, skip);
+      if (u >= 0) return u;
+    }
     let best = -1, bestScore = Infinity;
     for (let k = 0; k < REPAIR_KINDS.length; k++) {
       const kind = REPAIR_KINDS[k];
@@ -290,6 +328,37 @@ export class Works {
           bestScore = score;
           best = sec.index;
         }
+      }
+    }
+    return best;
+  }
+
+  /** 3.4 rule 12: is this a keep or tower section whose structure holds under 1 - STRUCTURE.urgent? */
+  private urgent(sec: RepairSection): boolean {
+    if (!this.statics || (sec.kind !== "keep" && sec.kind !== "towers")) return false;
+    const i = this.statics.structureOf(sec.stones[0]);
+    return i >= 0 && this.statics.status(i).holds < 1 - STRUCTURE.urgent;
+  }
+
+  /** The urgent section (a keep or tower near falling) with work that can start now, the lowest holds first; -1 if none. */
+  private pickUrgent(crew: Crew, skip = -1): number {
+    let best = -1, bestHolds = Infinity;
+    for (const sec of this.sections) {
+      if (sec.castle !== crew.castle || sec.index === skip || !this.allowed(crew.castle, sec.kind) || !this.urgent(sec)) continue;
+      let first = -1;
+      for (const id of sec.stones) {
+        if (this.castle.dynamic[id] && this.may(id) && this.supported(id)) {
+          first = id;
+          break;
+        }
+      }
+      if (first < 0) continue;
+      const w = workSpot(this.castle.layout, sec, first);
+      if (this.army.enemyNear(crew.castle, w.x, w.z, unsafe(sec))) continue;
+      const h = this.statics!.status(this.statics!.structureOf(sec.stones[0])).holds;
+      if (h < bestHolds) {
+        bestHolds = h;
+        best = sec.index;
       }
     }
     return best;

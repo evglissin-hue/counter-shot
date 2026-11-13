@@ -25,7 +25,7 @@ export const enum PlotState {
 }
 
 /** Ticks between tries when a piece's place is not clear. */
-const RETRY = 15;
+export const RETRY = 15;
 /** Ticks between counts of what still stands. */
 const COUNT_EVERY = 10;
 
@@ -165,33 +165,9 @@ export class Structures {
       }
     }
     const id = s.ids[s.next];
-    const { pieces, other } = this.castle.inPlace(id, this.ground);
-    let blocked = false;
-    for (const h of other) {
-      const mid = this.minions.of(h);
-      if (mid === undefined) {
-        blocked = true; // a shot lying in it, or something else: wait
-        continue;
-      }
-      const m = this.minions.list[mid];
-      // The fallen are carried off and buried; the living are waited for.
-      if (m.state === MinionState.Frozen) this.minions.bury(mid);
-      else if (m.state !== MinionState.Sinking && m.state !== MinionState.Gone) blocked = true;
-    }
-    for (const p of pieces) {
-      // Rubble in the way is carried off; rubble still moving is waited for.
-      if (this.castle.frozen[p]) {
-        const b = this.castle.bodies[p].translation();
-        if (this.castle.carryOff(p)) this.emit(EventKind.Raised, -1, b.x, b.y, b.z);
-      } else blocked = true;
-    }
-    if (blocked || pieces.length) {
+    if (!raisePiece(this.castle, this.minions, this.ground, this.emit, this.layout, id)) {
       s.due = tick + RETRY;
       return;
-    }
-    if (this.castle.restore(id)) {
-      const st = this.layout.stones[id];
-      this.emit(EventKind.Raised, id, st.x, st.y, st.z);
     }
     s.next++;
     s.due = tick + s.every;
@@ -218,4 +194,46 @@ export class Structures {
   hashInto(out: number[]) {
     for (const s of this.plots) out.push(s.kind, s.state, s.next, s.due, s.up);
   }
+}
+
+/**
+ * Try to raise one piece of a building (a plot's or a buttress's): the place is
+ * cleared first (rubble carried off, a fallen body buried; a living minion, a
+ * shot or rubble still moving is waited for), then the piece goes up and
+ * Raised is emitted. False when the place is not clear yet (try again later).
+ */
+export function raisePiece(
+  castle: CastleSim,
+  minions: Minions,
+  ground: ReadonlySet<number>,
+  emit: (kind: EventKind, a: number, b: number, c: number, d: number) => void,
+  layout: CastleLayout,
+  id: number,
+): boolean {
+  const { pieces, other } = castle.inPlace(id, ground);
+  let blocked = false;
+  for (const h of other) {
+    const mid = minions.of(h);
+    if (mid === undefined) {
+      blocked = true; // a shot lying in it, or something else: wait
+      continue;
+    }
+    const m = minions.list[mid];
+    // The fallen are carried off and buried; the living are waited for.
+    if (m.state === MinionState.Frozen) minions.bury(mid);
+    else if (m.state !== MinionState.Sinking && m.state !== MinionState.Gone) blocked = true;
+  }
+  for (const p of pieces) {
+    // Rubble in the way is carried off; rubble still moving is waited for.
+    if (castle.frozen[p]) {
+      const b = castle.bodies[p].translation();
+      if (castle.carryOff(p)) emit(EventKind.Raised, -1, b.x, b.y, b.z);
+    } else blocked = true;
+  }
+  if (blocked || pieces.length) return false;
+  if (castle.restore(id)) {
+    const st = layout.stones[id];
+    emit(EventKind.Raised, id, st.x, st.y, st.z);
+  }
+  return true;
 }

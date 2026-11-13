@@ -236,6 +236,10 @@ export class SandboxSim {
     this.carriers?.spawnAll();
     // 3.4: keeps and towers crush and topple by load (the game's layout: the one with buttresses; the lab's has none).
     this.statics = layout.buttresses.length ? new Statics(this.castle, this.terrain, emit) : null;
+    if (this.works && this.statics) {
+      const st = this.statics;
+      this.works.statics = { ratio: (i, c) => st.ratio(i, c), structureOf: (id) => st.structureOf(id), status: (i) => st.status(i) };
+    }
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
