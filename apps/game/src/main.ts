@@ -1388,6 +1388,8 @@ function setRoute(view: RouteName) {
   showNote(`Waves take the ${view === "centre" ? "centre road" : `${view} flank`}`, 2200);
   matchInfo.route = route;
   pending.route = { v: route, at: performance.now() };
+  // The match sets every barracks of the team to it.
+  for (let plot = 0; plot < matchInfo.barracks.length / 2; plot++) holdBarracksRoad(plot, route);
   updateWaves();
 }
 
