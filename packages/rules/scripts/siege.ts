@@ -17,11 +17,11 @@ import { Match, Team } from "@keepfall/rules";
 
 await RD.init();
 const R = RD as unknown as Rapier;
-// Keep variants: old (the M4 keep), or thick=, hard=, hits= (default: the match keep).
+// Keep variants: old (the M4 keep), or thick=, hard=, hits=, foot= (3.4: the foot's hardness) (default: the match keep).
 const arg = (k: string) => process.argv.find((a) => a.startsWith(k + "="))?.split("=")[1];
 const keep: KeepOptions | undefined = process.argv.includes("old")
   ? undefined
-  : { thick: Number(arg("thick") ?? GAME_LAYOUT.keep?.thick ?? 1.4), hard: Number(arg("hard") ?? GAME_LAYOUT.keep?.hard ?? 1), storeyHits: Number(arg("hits") ?? GAME_LAYOUT.keep?.storeyHits ?? 1) };
+  : { thick: Number(arg("thick") ?? GAME_LAYOUT.keep?.thick ?? 1.4), hard: Number(arg("hard") ?? GAME_LAYOUT.keep?.hard ?? 1), storeyHits: Number(arg("hits") ?? GAME_LAYOUT.keep?.storeyHits ?? 1), footHard: Number(arg("foot") ?? GAME_LAYOUT.keep?.footHard ?? GAME_LAYOUT.keep?.hard ?? 1) };
 const layout = buildLayout(1, { ...GAME_LAYOUT, keep });
 console.log("keep", JSON.stringify(keep ?? "old"));
 const masons = process.argv.includes("masons");

@@ -278,6 +278,8 @@ class Builder {
     for (let i = first; i < this.stones.length; i++) {
       const s = this.stones[i];
       if (opts.hard !== undefined && opts.hard > 1) s.hard = opts.hard;
+      // 3.4: the keep's foot (its walls below the lowest floor) is laid harder still.
+      if (s.part === "keep" && s.course < KEEP_STOREYS[0] && opts.footHard !== undefined && opts.footHard > 1) s.hard = opts.footHard;
       if (s.part === "storey" && opts.storeyHits !== undefined && opts.storeyHits > 1) s.tough = opts.storeyHits;
     }
     return out;
@@ -507,7 +509,7 @@ function oneCastle(
   for (const [tx, tz] of [[-T, -T], [T, -T], [-T, T], [T, T]] as const) b.tower(tx, tz, wedge);
   const { platformTop } = b.keep(floors, keep);
   // 3.4: the keep's buttresses, withdrawn by the sim until bought.
-  const butt = buttresses ? b.buttresses(keep.hard) : [];
+  const butt = buttresses ? b.buttresses(keep.footHard ?? keep.hard) : [];
   const ranges: PlotRange[] = [];
   if (plots) {
     // M3: every kind of building stands ready on every plot (the sim keeps only what is built).
@@ -574,10 +576,12 @@ export interface KeepOptions {
   hard?: number;
   /** Blasts each floor board takes before it gives way (Stone.tough). */
   storeyHits?: number;
+  /** 3.4: blast reach divisor for the keep's foot (its walls below the lowest floor) and its buttresses, if harder than `hard`. */
+  footHard?: number;
 }
 
-/** The match keep: thick, hard walls and floors that crack under the first shell and give way under the next. */
-export const MATCH_KEEP: KeepOptions = { thick: 2.0, hard: 2, storeyHits: 2 };
+/** The match keep: thick, hard walls and floors that crack under the first shell and give way under the next; 3.4: a harder foot (and buttresses), so cutting it is a siege of its own. */
+export const MATCH_KEEP: KeepOptions = { thick: 2.0, hard: 2, storeyHits: 2, footHard: 4 };
 
 /** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots, the sturdy keep, the keep's buttresses (3.4). */
 export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true, keep: MATCH_KEEP, buttresses: true };
