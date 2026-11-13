@@ -1101,6 +1101,34 @@ export class Statics {
     return this.S[i].status;
   }
 
+  /**
+   * The eye's forecast of a hit (read only): the report structure i would give if the standing pieces `removed` were
+   * down. Changes no state: the stones are marked and judged, then put back and the structure's report, its pending
+   * fall and its sums are restored as they were (no event, no snapshot, no cached hull kept).
+   */
+  whatIf(i: number, removed: number[]): StructureStatus {
+    const S = this.S[i];
+    const dyn = this.castle.dynamic;
+    const was = S.status, dec = S.dec, rC = S.rC.slice();
+    const flipped: number[] = [];
+    for (const id of removed) {
+      if (this.owner[id] !== i || dyn[id]) continue;
+      dyn[id] = 1;
+      flipped.push(id);
+    }
+    let out = was;
+    if (flipped.length) {
+      this.evaluate(S);
+      out = S.status;
+      for (const id of flipped) dyn[id] = 0;
+      this.evaluate(S);
+      S.status = was;
+      S.dec = dec;
+      S.rC.set(rC);
+    }
+    return out;
+  }
+
   /** Rule 12: load / carry of a structure's course now (0: nothing above it or undamaged and unloaded; Infinity: nothing of it stands under a load). */
   ratio(i: number, course: number): number {
     const S = this.S[i];
