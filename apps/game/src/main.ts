@@ -126,7 +126,7 @@ const steward = createSteward({
   $,
   canvas,
   available: () => ready && isMatch() && !player.playing && !film.active && !photo && !!matchInfo && !matchInfo.result && !ride && !!$("menu").hidden && !!$("end").hidden && !!$("gone").hidden,
-  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing(), powder: matchInfo.powder?.[ME] ?? null }) : null),
+  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing(), powder: matchInfo.powder?.[ME] ?? null, buttresses: matchInfo.buttresses?.[ME] }) : null),
   standingCtx: () => (matchInfo && isMatch() && !matchInfo.result ? { gateOpen: matchInfo.gateOpen[ME], gold: matchInfo.gold[ME], repairs: matchInfo.repairs, plots: estate.ownPlots(), powder: matchInfo.powder?.[ME] ?? null } : null),
   act: stewardAct,
   note: (text, ms) => showNote(text, ms),

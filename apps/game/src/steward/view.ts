@@ -5,6 +5,7 @@ import { BUILDING_KINDS, MIX_NAMES, ROUTE_NAMES, type Emplacement, type RepairKi
 import type { GunView, OrdersView, PlotView, StandingId } from "@keepfall/orders";
 
 const STATES: PlotView["state"][] = ["empty", "rising", "standing", "ruined"];
+const STATES_BUTTRESS: Array<"empty" | "rising" | "standing"> = ["empty", "rising", "standing"];
 
 export interface ViewData {
   team: 0 | 1;
@@ -25,6 +26,8 @@ export interface ViewData {
   standing: StandingId[];
   /** 3.3: your store, or null (a match without powder). */
   powder?: { stock: number; cap: number; magazine: number } | null;
+  /** 3.4: your keep's four faces (BUTTRESS_FACES order): 0 bare, 1 rising, 2 up. */
+  buttresses?: number[];
 }
 
 export function buildView(d: ViewData): OrdersView {
@@ -44,5 +47,5 @@ export function buildView(d: ViewData): OrdersView {
     const mix = MIX_NAMES[d.barracks[i * 2]], route = ROUTE_NAMES[d.barracks[i * 2 + 1]];
     return mix && route ? { mix, route } : null;
   });
-  return { team: d.team, gold: d.gold, plots, guns, foundry: d.foundry, barracks, repairs: { ...d.repairs }, order: d.order, route: d.route, riding: d.riding, standing: d.standing, powder: d.powder ?? null };
+  return { team: d.team, gold: d.gold, plots, guns, foundry: d.foundry, barracks, repairs: { ...d.repairs }, order: d.order, route: d.route, riding: d.riding, standing: d.standing, powder: d.powder ?? null, buttresses: d.buttresses?.map((b) => STATES_BUTTRESS[b] ?? "empty") };
 }
