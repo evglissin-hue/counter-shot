@@ -11,7 +11,7 @@ import { AiPlayer } from "./ai";
 export const AI_MATCH_TICKS = 3 * 60 * 60;
 
 /** Pinned: change only on purpose (and bump RULES_VERSION or MATCH_RULES_VERSION when play changes). */
-export const AI_MATCH_HASH = { state: "d71f5c05", world: "5bf1d365" } as const;
+export const AI_MATCH_HASH = { state: "af1ed502", world: "bf37f17c" } as const;
 
 export interface AiMatchResult {
   hash: { state: string; world: string };
