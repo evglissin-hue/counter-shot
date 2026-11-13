@@ -40,7 +40,7 @@ test("the threat counts only men on its side of the stream or near its gate", ()
     man(1, 0, MID_Z + 20), // across the stream, on its side: yes
     man(1, 0, g.z + 40), // at its gate: yes
     man(0, 0, g.z), // its own man: no
-    man(1, 0, MID_Z + 5, { state: MinionState.Down }), // down: no
+    man(1, 0, MID_Z + 5, { state: MinionState.Ragdoll }), // ragdoll: no
   ]);
   assert.equal(threat(m, 0), 2);
 });
