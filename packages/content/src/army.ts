@@ -289,6 +289,20 @@ export const COURTYARD: [Rect, Rect] = [
   { x0: -4, x1: 4, z0: -DIST + 4, z1: -DIST + 13 },
 ];
 
+/**
+ * The ground in front of each castle's gate (indexed by castle): within 7 m
+ * of the gate's middle along the wall, from 2.5 to 9 m out from the front
+ * wall's outer face (16 m from the castle's centre). A wave marching on a
+ * castle whose courtyard it cannot reach (rubble in the gateway, a leaf
+ * knocked loose that still stands in its place) makes for this ground
+ * instead and stands there, for its ladder and its sappers, rather than
+ * wherever it was when the way shut.
+ */
+export const APPROACH: [Rect, Rect] = [
+  { x0: -7, x1: 7, z0: -25, z1: -18.5 },
+  { x0: -7, x1: 7, z0: -DIST + 18.5, z1: -DIST + 25 },
+];
+
 /** Metres short of a bridge, on a team's own side, where its waves hold. */
 const HOLD_SHORT = 4;
 

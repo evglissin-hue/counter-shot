@@ -17,6 +17,7 @@
 // every random draw comes from the army's own stream, in that order.
 
 import {
+  APPROACH,
   BRIDGES,
   COURTYARD,
   GARRISON,
@@ -251,8 +252,8 @@ export class Army {
     this.rng = new Rng(seed);
     const w = routeWeights();
     const specs: FieldSpec[] = [];
-    for (const team of [0, 1]) for (let r = 0; r < 3; r++) specs.push({ goal: COURTYARD[1 - team], weight: w[r], doors: 1 - team });
-    for (const team of [0, 1]) specs.push({ goal: COURTYARD[1 - team], weight: null, doors: -1 });
+    for (const team of [0, 1]) for (let r = 0; r < 3; r++) specs.push({ goal: COURTYARD[1 - team], approach: APPROACH[1 - team], weight: w[r], doors: 1 - team });
+    for (const team of [0, 1]) specs.push({ goal: COURTYARD[1 - team], approach: null, weight: null, doors: -1 });
     this.flow = new FlowFields(nav, castle, specs);
     this.flow.buildAll();
     this.local = new LocalFields(nav, castle.layout.castleZ);
