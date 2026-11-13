@@ -178,13 +178,12 @@ test("a set keg throws men less far than one a sapper carries", () => {
 test("a sapper behind a rim in the way reaches his spot by the castle's field", () => {
   const sim = world();
   const sp = sim.specialists!;
-  const army = sim.army!;
   const [s] = mix(sim, 1, [Unit.Sapper]);
   // A rim of unwalkable cells across the straight line, with a way round at its west end.
   const spotX = 10.2;
   for (let x = 2; x <= 16; x += NAV_GRID.cell / 2) for (let z = -19.5; z <= -18.5; z += NAV_GRID.cell / 2) sim.nav.kind[navCell(x, z)] = NavKind.Blocked;
   // The field is read from the nav grid as it is now.
-  sp.local = new LocalFields(sim.nav, army.castle.layout.castleZ);
+  sp.local = new LocalFields(sim.nav, sim.castle.layout.castleZ);
   place(sim, s, spotX, -21.5);
   const o = out();
   let planted = -1;
