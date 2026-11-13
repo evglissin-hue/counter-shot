@@ -428,12 +428,16 @@ try {
   // The real thing: the swivel fired six times empties its box, and the dry note says why.
   await press('#weapons [data-weapon="3"]');
   await expect("the swivel is up, six pips lit", () => document.getElementById("w-name").textContent === "Swivel gun" && document.querySelectorAll("#w-pips i.on").length === 6);
-  for (let k = 0; k < 6; k++) {
+  // The ridden gun is served first, so a keg comes while it fires: fire (two seconds apart on the test clock) until the box cannot pay, six shots at least.
+  let fired = 0;
+  for (; fired < 40; fired++) {
+    if (await page.evaluate(() => { const b = window.__sandbox.match.boxes; return b[3 * 5] < b[3 * 5 + 2]; })) break;
     await page.waitForFunction(() => document.getElementById("w-reload").textContent === "Ready", null, { timeout: 60000, polling: 100 });
     await page.evaluate(() => window.__sandbox.fire());
     await adv(2.1);
   }
-  await expect("six shots later the swivel's box is empty: no pip lit, the tab dims", () => { const t = document.querySelector('#weapons [data-weapon="3"]'); return document.querySelectorAll("#w-pips i.on").length === 0 && document.getElementById("w-pips").classList.contains("dry") && t.classList.contains("dry"); });
+  check(`the swivel fired ${fired} shots (at least its six) before its box could not pay`, fired >= 6 && fired < 40);
+  await expect("the swivel's box is empty: no pip lit, the tab dims", () => { const t = document.querySelector('#weapons [data-weapon="3"]'); return document.querySelectorAll("#w-pips i.on").length === 0 && document.getElementById("w-pips").classList.contains("dry") && t.classList.contains("dry"); });
   await expect("a boy is on his way with a keg: the tab carries the keg mark", () => document.querySelector('#weapons [data-weapon="3"]').classList.contains("kegged"), null, 60000);
   await page.evaluate(() => window.__sandbox.fire());
   await expect("firing the dry swivel says why: a boy is some seconds away (or on his way)", () => /^No powder at the swivel gun: a boy is (\d+ s away|on his way)$/.test(document.getElementById("note").textContent));
