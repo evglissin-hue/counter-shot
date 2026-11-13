@@ -19,9 +19,12 @@ export const STRUCTURE = {
   /**
    * Rule 2: course c crushes when load(c) / carry(c) is above this. carry(c)
    * is the top area of the course's masonry standing, as a share of the course
-   * as built; load(c) the mass standing above c, as a share of that as built.
-   * With everything above standing, a course holds until less than 1 / crush
-   * (38%) of it stands.
+   * as built; load(c) the mass standing above c, as a share of all the mass
+   * above the structure's lowest course as built (the master's reading,
+   * November 13: a course carries what stands on it, so one high up carries
+   * less than one at the foot). With everything standing, a course at the foot
+   * holds until less than 1 / crush (38%) of it stands; halfway up, until less
+   * than about a fifth does.
    */
   crush: 2.6,
   /** Rule 3: the footing's convex hull (seen from above) is drawn in by this (m) ... */
@@ -32,9 +35,10 @@ export const STRUCTURE = {
    * crushes at its edge, so the line it tips about moves in as the load on
    * what is left grows. Without it, a symmetric keep cut along one face and a
    * third of each side would never topple (its centre of mass stays over what
-   * is left); with it, it does, and a face cut alone still holds.
+   * is left); with it, it does near the foot, and a face cut alone still
+   * holds. High up, where the load is light, a cut must go deeper.
    */
-  toe: 0.2,
+  toe: 0.25,
   /** Rule 4: ticks a course must keep crushing or toppling before the fall starts (half a second of groaning). */
   hold: 30,
   /** Rule 5: a toppling part starts turning at this rate (rad/s) ... */
