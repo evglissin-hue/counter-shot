@@ -77,14 +77,18 @@ test("a gate leaf already loose but still in its place is shoved by the blows th
   batter(m, other, 0, 1, UNITS.pikeman);
   assert.equal(castle.dynamic[other], 1, "knocked loose");
   assert.equal(shoves.length, 0);
-  // A leaf shaken loose (by a ball, say) that still stands in its place.
+  // A leaf shaken loose (by a ball, say) that still stands in its place: while it still moves it takes no shove.
   assert.ok(castle.knockLoose(leaf, 0, 0, 0));
-  run(sim, 1);
-  const p0 = castle.bodies[leaf].translation();
-  assert.ok(Math.abs(p0.z - leaves[0].z) < 0.2 && Math.abs(p0.y - leaves[0].y) < 0.2, "it still stands in its place");
   army.gateHits.set(leaf, GATE_BLOWS);
   batter(m, leaf, 0, 1, UNITS.pikeman);
-  assert.equal(shoves.length, 1, "knockLoose refused the loose leaf, so it was shoved");
+  assert.equal(shoves.length, 0, "a leaf still moving from the blow that loosed it is left to fall");
+  // Once it has come to rest wedged in its frame, the next blow shoves it.
+  for (let t = 0; t < 20 * 60 && !castle.atRest(leaf); t++) sim.step();
+  assert.ok(castle.atRest(leaf), "it came to rest");
+  const p0 = castle.bodies[leaf].translation();
+  assert.ok(Math.abs(p0.z - leaves[0].z) < 0.2 && Math.abs(p0.y - leaves[0].y) < 0.2, "it still stands in its place");
+  batter(m, leaf, 0, 1, UNITS.pikeman);
+  assert.equal(shoves.length, 1, "knockLoose refused the loose leaf at rest, so it was shoved");
   assert.deepEqual(shoves[0], [leaf, 0, 0.3, 2.2], "the same push as knocking it loose, along the blow into the courtyard");
   // Eight men battering it, a blow each every second and a half: it goes over.
   for (let t = 0; t < 12 * 60; t++) {

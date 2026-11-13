@@ -88,7 +88,7 @@ export class FlowFields {
   private leaves: number[] = [];
   /**
    * Per stone id, 1 for a gate leaf that stands in its place (standing, or
-   * loose but upright where it hung): as of the build in progress (read at
+   * loose but come to rest upright where it hung): as of the build in progress (read at
    * its start), and as of the last physics step (for minions asking now).
    */
   private leafBuild: Uint8Array;
@@ -170,9 +170,13 @@ export class FlowFields {
     return Int32Array.from(out);
   }
 
-  /** Which gate leaves stand in their places, into `up` (one read of each leaf's body). */
+  /**
+   * Which gate leaves stand in their places as doors, into `up` (one read of each leaf's body): standing ones, and loose ones
+   * come to rest in their places (wedged in the frame). A leaf still moving from the blow that loosed it is no door: men walk
+   * into it and push it over, as they always did.
+   */
   private readLeaves(up: Uint8Array) {
-    for (const id of this.leaves) up[id] = this.castle.standsInPlace(id) ? 1 : 0;
+    for (const id of this.leaves) up[id] = this.castle.standsInPlace(id) && this.castle.atRest(id) ? 1 : 0;
   }
 
   /** The leaves as of the last physics step (read once a step, for minions asking now). */
@@ -221,7 +225,7 @@ export class FlowFields {
   /**
    * The gate leaf in a cell that field f treats as a door, or -1: a leaf of
    * the castle it marches on that stands in its place by `up` (standing, or
-   * knocked loose but still upright where it hung: minions batter it on).
+   * knocked loose but come to rest upright where it hung: minions batter it on).
    */
   private door(f: number, c: number, up: Uint8Array): number {
     const id = this.doorLeaf[c];

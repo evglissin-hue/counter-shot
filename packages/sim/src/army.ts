@@ -1268,8 +1268,10 @@ export class Army {
     const hits = (this.gateHits.get(leaf) ?? 0) + 1;
     this.gateHits.set(leaf, hits);
     this.emit(EventKind.Impact, m.x + ux * 1.6, m.y + 1.2, m.z + uz * 1.6, 0.12);
-    // A leaf already loose but still in its place takes the same push as a shove, or men would batter it for ever.
-    if (hits >= GATE_BLOWS && !this.castle.knockLoose(leaf, ux * 2.2, 0.3, uz * 2.2)) this.castle.shove(leaf, ux * 2.2, 0.3, uz * 2.2);
+    // A leaf already loose that has come to rest in its place (wedged in its frame) takes the same push as a shove, or men
+    // would batter it for ever; one still moving from the blow that loosed it is left to fall (a shove on top of that blow
+    // drives it along its frame and cracks the wall over it).
+    if (hits >= GATE_BLOWS && !this.castle.knockLoose(leaf, ux * 2.2, 0.3, uz * 2.2) && this.castle.atRest(leaf)) this.castle.shove(leaf, ux * 2.2, 0.3, uz * 2.2);
   }
 
   /** Its floor is gone: it falls, keeping its own speed. */

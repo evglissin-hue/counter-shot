@@ -759,6 +759,12 @@ export class CastleSim {
     return true;
   }
 
+  /** Has a piece come to rest: still fixed, frozen, or loose and asleep? A leaf just knocked loose and still falling has not. */
+  atRest(id: number): boolean {
+    if (!this.dynamic[id] || this.frozen[id]) return true;
+    return this.bodies[id].isSleeping();
+  }
+
   /**
    * Does a piece still stand in its place: standing masonry, or a loose
    * piece whose body lies within 0.35 m (along the ground) of where it was
