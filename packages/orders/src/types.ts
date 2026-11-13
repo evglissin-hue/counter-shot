@@ -41,10 +41,12 @@ export interface OrdersView {
   riding: number;
   /** Standing orders on now. */
   standing: StandingId[];
+  /** 3.3: the team's powder store (charges, what it holds now, the plot of the working magazine or -1); absent or null in a match without powder. */
+  powder?: { stock: number; cap: number; magazine: number } | null;
 }
 
 /** Standing orders (V3): rules the page keeps until told otherwise. */
-export type StandingId = "gateFirst" | "rebuild";
+export type StandingId = "gateFirst" | "rebuild" | "powder";
 
 export type Step =
   /** An input for the match, what the steward says of it, and the gold it costs (0: free). */

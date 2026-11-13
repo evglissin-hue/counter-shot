@@ -113,7 +113,7 @@ Goal, Why, Rules (numbered, with starting numbers), Data and code (where it live
 |---|---|---|---|
 | 3.1 The observatory | Done (November 11): T4 passes; T1, T2, T6, T7, T8, T9 fail; no side bias (castle 0 47.3% of 400) | sim 11, match 8 (unchanged) | none (no page change) |
 | 3.2 Range and register | Done (November 12): a marking Knight beats a non-marking one 67.5% of 80; T4 passes; T1, T2, T5, T7, T8, T9 fail | sim 12, match 9, net 5 | 21 |
-| 3.3 Powder | Not started | | |
+| 3.3 Powder | Done (November 13): every shot burns powder carried by boys from the magazine; T4 and T5 pass (T5 52.0 s, from 78.5 s); T1, T2, T7, T8, T9 fail; magazines blow in 46% of matches (aim 15% to 35%) | sim 13, match 10, net 6 | 22 |
 | 3.4 The keep | Not started | | |
 | 3.5 Machines | Not started | | |
 | 3.6 The household | Not started | | |

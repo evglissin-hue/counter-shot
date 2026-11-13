@@ -96,3 +96,17 @@ test("rules: a tower's men count towards Domino, a breach too; a keg sent back i
   const earned = f.list().filter((r) => r.record).map((r) => r.def.name);
   assert.deepEqual(earned.sort(), ["Domino", "Hole in the wall", "Return to sender", "Skipping stone"].sort());
 });
+
+test("Powder keg: blowing up the enemy magazine earns it, and counts as a building wrecked too", () => {
+  const store = memory();
+  const firsts: FeatDef[] = [];
+  const f = new Feats({ me: 1, store, today: () => "2026-11-12", onFirsts: (l) => firsts.push(...l.map((x) => x.def)), onBest: () => {} });
+  const def = FEATS.find((d) => d.name === "Powder keg")!;
+  assert.equal(def.hint, "Blow up the enemy magazine");
+  f.observe(moment({ kind: "buildingWrecked", size: 1, team: 1 }));
+  assert.ok(!firsts.some((d) => d.name === "Powder keg"), "a wrecked building is not a blown magazine");
+  f.observe(moment({ kind: "magazine", size: 60, team: 0 }));
+  assert.ok(!firsts.some((d) => d.name === "Powder keg"), "only your own doing counts");
+  f.observe(moment({ kind: "magazine", size: 60, team: 1 }));
+  assert.ok(firsts.some((d) => d.name === "Powder keg"));
+});

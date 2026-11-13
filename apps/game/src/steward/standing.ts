@@ -4,6 +4,7 @@
 import { BUILDINGS, BUILDING_KINDS, BUILDING_REBUILD, type RepairKind } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { STANDING_ORDERS, type StandingId } from "@keepfall/orders";
+import { POWDER_INPUT, wantsPowder } from "./powder";
 
 /** What a check reads of the match. */
 export interface StandingCtx {
@@ -12,6 +13,8 @@ export interface StandingCtx {
   repairs: Record<RepairKind, boolean>;
   /** The player's plots: kind index (-1 none) and state (0 empty, 1 rising, 2 standing, 3 ruined). */
   plots: Array<{ kind: number; state: number }>;
+  /** 3.3: your store (charges, what it holds, the plot of the working magazine or -1), or null in a match without powder. */
+  powder?: { stock: number; cap: number; magazine: number } | null;
 }
 
 export interface StandingHooks {
@@ -29,6 +32,7 @@ export class Standing {
   /** gateFirst: the repairs it switched off, to put back. Null: not acting. */
   private turnedOff: RepairKind[] | null = null;
   private lastRebuild = new Map<number, number>();
+  private lastPowder = -1e9;
 
   constructor(private hooks: StandingHooks) {}
 
@@ -44,6 +48,7 @@ export class Standing {
     this.on.clear();
     this.turnedOff = null;
     this.lastRebuild.clear();
+    this.lastPowder = -1e9;
     this.nextCheck = 0;
   }
 
@@ -61,6 +66,11 @@ export class Standing {
     this.nextCheck = now + CHECK_MS;
     if (this.on.has("gateFirst")) this.gateFirst(ctx);
     if (this.on.has("rebuild")) this.rebuild(now, ctx);
+    if (this.on.has("powder") && wantsPowder(now, this.lastPowder, { gold: ctx.gold, powder: ctx.powder ?? null })) {
+      this.lastPowder = now;
+      this.hooks.act(POWDER_INPUT);
+      this.hooks.note("Steward: bought powder", 3000);
+    }
   }
 
   private gateFirst(ctx: StandingCtx) {

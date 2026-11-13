@@ -239,6 +239,27 @@ test("a building going to ruin is a moment", () => {
   assert.equal(got[0].text, "Powder Mill wrecked");
 });
 
+test("a magazine blowing up is one moment, sized by its stock, and its ruin is not a second one", () => {
+  const { m, got } = rig();
+  m.frame(frame(10, { plots: [[0, 5, 3, 2, 1, 1]] }));
+  m.frame(frame(20, { events: [[EventKind.MagazineBlew, 0, 5, 80, 7]], plots: [[0, 5, 3, 3, 1, 0]] }));
+  m.frame(frame(30, { plots: [[0, 5, 3, 3, 1, 0]] }));
+  assert.equal(got.length, 1, "the blast, not also a building wrecked");
+  assert.equal(got[0].kind, "magazine");
+  assert.equal(got[0].team, 1, "the doing of the castle's enemy");
+  assert.equal(got[0].size, 80);
+  assert.equal(got[0].shot, 7);
+  assert.equal(got[0].text, "Magazine blown up: 80 charges");
+  assert.ok(scoreOf("magazine", 120) > scoreOf("bannerDown", 1) && scoreOf("magazine", 120) > scoreOf("floorCaved", 1), "the biggest blast in the game");
+});
+
+test("a mill going to ruin still counts as a building wrecked", () => {
+  const { m, got } = rig();
+  m.frame(frame(10, { plots: [[1, 2, 1, 2, 1, 1]] }));
+  m.frame(frame(20, { events: [[EventKind.MillBlew, 1, 2, 0, -1]], plots: [[1, 2, 1, 3, 1, 0]] }));
+  assert.deepEqual(got.map((g) => g.kind), ["buildingWrecked"]);
+});
+
 test("scores: a tower down with 9 men outranks a single kill and a three-man shot; the rare score more", () => {
   const tower = scoreOf("towerDown", 212, { men: 9, guns: 1 });
   assert.ok(tower > scoreOf("ricochetKill", 1, { men: 1 }));

@@ -144,6 +144,13 @@ export const enum Role {
   Mason = 3,
   /** One of two men of a wave who relay a blown bridge deck (gangs.ts). */
   Gang = 4,
+  /** One of a castle's powder boys (carriers.ts). */
+  Carrier = 5,
+}
+
+/** A castle's worker (a mason or a powder boy): never counted among its fighting men, never fights, never chased. */
+export function isWorker(m: { role: number }): boolean {
+  return m.role === Role.Mason || m.role === Role.Carrier;
 }
 
 /** What knocked a minion down (M3: bounties and trick shots). */

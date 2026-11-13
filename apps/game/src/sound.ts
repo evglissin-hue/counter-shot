@@ -1583,6 +1583,80 @@ export class Sound {
     this.sweptNoise(c.input, c.t0, this.white, 1800, 700, seconds, 0.2, seconds * 0.7, 0.03);
   }
 
+  // --- powder (3.3) ------------------------------------------------------------------
+
+  /** You pulled the trigger of a gun with no powder in its box: a flint snapping on an empty pan, a dry tock under it (not placed). */
+  dryClick() {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t0 = ctx.currentTime + 0.02;
+    const g = ctx.createGain();
+    g.gain.value = 0.9;
+    g.connect(this.dry);
+    this.burstNoise(g, t0, this.white, "bandpass", 3200, 4, 0.0008, 0.012, 0.6);
+    this.tone(g, t0, 1900, 1500, 0.01, 0.0008, 0.02, 0.2);
+    this.tone(g, t0 + 0.018, 190, 120, 0.04, 0.001, 0.07, 0.35);
+    this.later(g, t0 + 0.5);
+  }
+
+  /** A keg drawn up to a gun on its rope: a short quiet creak and the rope over wood. */
+  hoist(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 12), 0.12, 1.8);
+    this.sweptNoise(c.input, c.t0, this.white, 1500, 650, 1.1, 0.15, 0.9, 0.025);
+    this.tone(c.input, c.t0 + 0.05, 1250, 1600, 0.9, 0.15, 0.7, 0.008);
+    this.tone(c.input, c.t0 + 0.2, 240, 190, 0.8, 0.1, 0.6, 0.05);
+  }
+
+  /** A keg set down in a gun's box: a soft wooden thud. */
+  kegSet(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const c = this.out(this.place(x, y, z, 14), 0.2, 1.2);
+    this.tone(c.input, c.t0, 150, 88, 0.07, 0.002, 0.16, 0.4);
+    this.burstNoise(c.input, c.t0, this.brown, "lowpass", 380, 0.8, 0.002, 0.12, 0.45);
+    this.burstNoise(c.input, c.t0 + 0.02, this.white, "bandpass", 650, 2, 0.001, 0.04, 0.12);
+  }
+
+  /** A Powder Mill goes up: a keg's burst, but heavier and with the mill's timbers in it. */
+  millBlow(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const p = this.place(x, y, z, 70);
+    const c = this.out(p, 0.4 + 0.3 * Math.min(1, p.dist / 150), 4);
+    this.burstNoise(c.input, c.t0, this.white, "highpass", 500, 0.7, 0.001, 0.12, 0.8);
+    this.sweptNoise(c.input, c.t0, this.brown, 1400, 140, 0.8, 0.004, 1.5, 0.9);
+    this.tone(c.input, c.t0, 70, 30, 0.8, 0.004, 1.2, 0.9, 3);
+    this.burstNoise(c.input, c.t0 + 0.05, this.brown, "lowpass", 110, 0.7, 0.05, 2.4, 0.5);
+    for (let i = 0; i < 10; i++) this.burstNoise(c.input, c.t0 + 0.15 + Math.random() * 1.2, this.white, "bandpass", 500 + Math.random() * 1500, 1.5, 0.001, 0.02 + Math.random() * 0.04, 0.08 + Math.random() * 0.08);
+  }
+
+  /**
+   * A magazine blows with its whole stock: the loudest sound in the game, heard across the valley (it falls off
+   * little with distance, and the air takes less of its low end): a crack, a long low boom and a rumble that rolls on.
+   * `size` is 0 to 1, the share of a full magazine that went up.
+   */
+  magazineBlow(x: number, y: number, z: number, size = 1) {
+    if (!this.ctx) return;
+    const l = this.ear;
+    const dx = x - l.x, dy = y - l.y, dz = z - l.z;
+    const dist = Math.hypot(dx, dy, dz);
+    const side = dist > 0.01 ? (dx * l.rx + dy * l.ry + dz * l.rz) / dist : 0;
+    const k = 0.55 + 0.45 * Math.max(0, Math.min(1, size));
+    const p: Placed = { delay: dist / SPEED_OF_SOUND, gain: 1 / (1 + dist / 700), pan: Math.max(-1, Math.min(1, side)) * 0.5, cutoff: 600 + 19000 * Math.exp(-dist / 260), dist };
+    const c = this.out(p, 0.55, 12);
+    this.burstNoise(c.input, c.t0, this.white, "highpass", 350, 0.7, 0.001, 0.22, 0.9 * k);
+    this.sweptNoise(c.input, c.t0, this.brown, 1200, 90, 1.6, 0.004, 3.2, 1.0 * k);
+    this.tone(c.input, c.t0, 52, 20, 2.2, 0.004, 3.4, 1.0 * k, 3);
+    this.tone(c.input, c.t0 + 0.015, 38, 18, 2.6, 0.012, 3.8, 0.7 * k, 3);
+    this.tone(c.input, c.t0, 120, 55, 0.4, 0.002, 0.7, 0.8 * k);
+    // The rumble: brown noise under a lowpass that rolls on for seconds, and the valley answering.
+    this.burstNoise(c.input, c.t0 + 0.1, this.brown, "lowpass", 90, 0.7, 0.2, 7.5, 0.7 * k, 0.8);
+    this.sweptNoise(c.input, c.t0 + 0.8, this.brown, 400, 80, 3.5, 0.6, 5, 0.3 * k, 0.8);
+    for (let i = 0; i < 40; i++) {
+      const u = Math.random();
+      this.burstNoise(c.input, c.t0 + 0.4 + 4.5 * u * u, this.white, "bandpass", 500 + 2200 * Math.random(), 1.5, 0.001, 0.01 + 0.04 * Math.random(), (0.04 + 0.12 * Math.random()) * (1 - 0.6 * u) * k);
+    }
+  }
+
   /** One short stroke of a bell for an alarm (not placed). */
   private alarmStrike(f: number, level: number, at: number) {
     if (!this.ctx) return;

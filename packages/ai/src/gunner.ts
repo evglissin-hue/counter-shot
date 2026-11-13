@@ -7,7 +7,7 @@
 // marker). The barrel turns at the gun's own rates, it waits for the reload,
 // and it waits to see where a shot came down before it fires again.
 
-import { BRIDGES, MID_Z, MUSTER, REGISTER, SLOTS_PER_CASTLE, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
+import { BRIDGES, MID_Z, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, type Rng } from "@keepfall/core";
 import { clampAim, clearOfCastle, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
@@ -96,6 +96,8 @@ const LOST = 10 * 60;
 const HURT_TICKS = 20 * 60;
 /** A2: a gate mark with less than this left (ticks) is ranged again, so it stands when its waves arrive. */
 const GATE_RENEW = 30 * 60;
+/** 3.3: a raid goes for the enemy magazine when it holds this many charges or more. */
+export const RAID_STOCK = 80;
 /** A2: this many of its own marching men within REGISTER.aiWallNear of its gate or wall mark: its waves are arriving. */
 const ARRIVE_MEN = 3;
 
@@ -147,6 +149,18 @@ export class Gunner {
     return 1 - this.team;
   }
 
+  /** 3.3: does the gun's box hold a shot's cost? (With no carriers, as on the Practice range, every gun can.) */
+  private canPay(e: Emplacement): boolean {
+    const c = this.m.world.carriers;
+    return !c || c.canPay(e.id);
+  }
+
+  /** 3.3: does the gun's box hold two shots (a gun with one shot left is passed over for one with two)? */
+  private twoShots(e: Emplacement): boolean {
+    const c = this.m.world.carriers;
+    return !c || c.box(e.id) >= 2 * shotCost(e);
+  }
+
   /** The team's armed guns of a kind (after M5: those not knocked out). */
   private guns(kind: WeaponKind): Emplacement[] {
     const first = firstSlot(this.team);
@@ -155,7 +169,7 @@ export class Gunner {
     if (this.stage && kind === "mortar" && this.stage() < 3) return out;
     for (let i = first; i < first + SLOTS_PER_CASTLE; i++) {
       const e = this.m.emplacements[i];
-      if (e && !e.empty && e.weapon === kind && mounts.up(i)) out.push(e);
+      if (e && !e.empty && e.weapon === kind && mounts.up(i) && this.canPay(e)) out.push(e);
     }
     return out;
   }
@@ -206,7 +220,11 @@ export class Gunner {
   private soonest(kind: WeaponKind, x?: number, y?: number, z?: number): Emplacement | null {
     let best: Emplacement | null = null;
     for (const e of this.guns(kind)) {
-      if (best && this.readyIn(e) >= this.readyIn(best)) continue;
+      if (best) {
+        // A gun whose box holds two shots goes before one holding a single shot; then the one ready first.
+        const a = this.twoShots(e), b = this.twoShots(best);
+        if (a === b ? this.readyIn(e) >= this.readyIn(best) : !a) continue;
+      }
       if (e.id === this.stuck.emp && this.m.tick < this.stuck.until) continue;
       if (x !== undefined) {
         const s = reach(e, x, y!, z!);
@@ -240,6 +258,13 @@ export class Gunner {
     if (this.riding < 0 || !this.target || !this.m.world.mounts.up(this.riding)) return;
     const e = this.m.emplacements[this.riding];
     const w = weaponOf(e);
+    // 3.3: the gun it rides cannot pay now (a salvo or a shot by another hand drained its box): drop the target and look again at once.
+    if (!this.canPay(e)) {
+      this.target = null;
+      this.lay = null;
+      this.nextThink = tick;
+      return;
+    }
     if (!this.lay) {
       this.lay = this.layFor(e, w, this.target);
       if (!this.lay) {
@@ -501,8 +526,10 @@ export class Gunner {
   private shellTarget(): Target {
     const foe = this.foe, m = this.m;
     if (this.L.raids && this.rng.next() < 0.3) {
-      // Mills first (its gold), then barracks (its waves), then the Foundry; or the masons putting the keep back.
-      for (const kind of [1, 0, 2]) {
+      // 3.3: the magazine first when its kegs stand in plain sight at 80 charges or more; then mills (its gold),
+      // barracks (its waves) and the Foundry; or the masons putting the keep back.
+      const stock = m.world.carriers?.status(foe).stock ?? 0;
+      for (const kind of stock >= RAID_STOCK ? [3, 1, 0, 2] : [1, 0, 2]) {
         const plots = V.working(m, foe, kind);
         if (plots.length) {
           const p = plots[(this.rng.next() * plots.length) | 0];

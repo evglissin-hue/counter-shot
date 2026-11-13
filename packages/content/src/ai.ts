@@ -216,7 +216,7 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "build", plot: 3, building: "foundry", after: 540 },
     { kind: "upgrade", slot: 0, upgrade: "heavyShot", after: 600 },
   ],
-  // Economy first, then a second front and a second mortar.
+  // Economy first, then a second front and a second mortar (plot 5 holds its magazine from the start: 3.3).
   knight: [
     { kind: "build", plot: 1, building: "mill", after: 20 },
     { kind: "build", plot: 2, building: "barracks", mix: "breach", route: "left", after: 90 },
@@ -226,7 +226,6 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
     { kind: "buy", slot: 7, weapon: "mortar", after: 330 },
     { kind: "buy", slot: 5, weapon: "swivel" },
-    { kind: "build", plot: 5, building: "barracks", mix: "volley", route: "right", after: 450 },
     { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
     { kind: "buy", slot: 6, weapon: "longGun", after: 600 },
   ],
@@ -239,7 +238,6 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
     { kind: "buy", slot: 7, weapon: "mortar", after: 180 },
     { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
-    { kind: "build", plot: 5, building: "barracks", mix: "volley", route: "right", after: 240 },
     { kind: "buy", slot: 4, weapon: "chainShot" },
     { kind: "buy", slot: 6, weapon: "longGun", after: 330 },
     { kind: "upgrade", slot: 7, upgrade: "heavyShell" },

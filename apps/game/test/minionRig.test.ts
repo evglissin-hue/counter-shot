@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MAX_SLOTS, Rig, SHIN_L, SHIN_R, XF_N, XF_STRIDE, type FigureSink } from "../src/render/minionRig";
+import { A_HOIST, A_KEG, MAX_SLOTS, POWDER_BOY, Rig, SHOW_KEG, SHOW_KIT, SHIN_L, SHIN_R, XF_N, XF_STRIDE, type FigureSink } from "../src/render/minionRig";
 
 const SHIN = 0.47;
 const flat = () => 0;
@@ -112,4 +112,35 @@ test("a blow that misses makes the man it was aimed at parry", () => {
     if (k > 100 && k < 125 && head[2 * XF_STRIDE + 2] > base + 0.03) parried = true;
   }
   assert.ok(parried, "the defender's head went back after the blow");
+});
+
+test("a powder boy: a keg on his shoulder walking or standing, none while he hoists; no tool at his belt; poses stay finite", () => {
+  const rig = new Rig();
+  const sink = new Keep();
+  const run = (id: number, action: number, walk: boolean) => {
+    for (let k = 0; k < 200; k++) {
+      rig.begin(k);
+      rig.take(id, 0, 0, walk ? k * 0.04 : 0, 0, ((k * 0.04) / 1.4) % 1, 1, action, (k * 3) % 600, POWDER_BOY);
+      rig.end();
+      rig.sweep();
+      rig.animate(1 / 60, flat, 0, 2, -5, 0.577, sink);
+    }
+    const x = sink.seen.get(id)!;
+    for (const v of x) assert.ok(Number.isFinite(v), `finite pose for action ${action}`);
+    return sink.shows.get(id)!;
+  };
+  assert.ok(run(1, A_KEG, true) & SHOW_KEG, "walking with a keg");
+  assert.ok(run(2, A_KEG, false) & SHOW_KEG, "standing with a keg");
+  assert.equal(run(3, A_HOIST, false) & SHOW_KEG, 0, "hauling the rope: no keg on his shoulder");
+  assert.equal(run(4, 0, true) & (SHOW_KEG | SHOW_KIT), 0, "empty handed: no keg and no tool");
+  assert.equal(run(5, 1, false) & (SHOW_KEG | SHOW_KIT), 0);
+  // The hoist moves the hands: the arms' transforms change over a pull.
+  const before = Array.from(sink.seen.get(3)!);
+  rig.begin(300);
+  rig.take(3, 0, 0, 0, 0, 0, 1, A_HOIST, 30, POWDER_BOY);
+  rig.end();
+  rig.sweep();
+  rig.animate(1 / 60, flat, 0, 2, -5, 0.577, sink);
+  const after = Array.from(sink.seen.get(3)!);
+  assert.ok(after.some((v, i) => Math.abs(v - before[i]) > 0.02), "hand over hand: the pose changes through the pull");
 });

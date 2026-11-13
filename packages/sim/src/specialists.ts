@@ -18,7 +18,7 @@
 import { DIST, KEG, MUSKET, Unit, type BurstDef } from "@keepfall/content";
 import { dsqrt, Rng } from "@keepfall/core";
 import { EventKind, KEG_STRIDE } from "./frame";
-import { Cause, MinionState, yawOf, type Minion, type Minions } from "./minions";
+import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
 import { NavKind, navCell, type NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
 
@@ -207,7 +207,7 @@ export class Specialists {
   private mark(m: Minion): Minion | null {
     let best: Minion | null = null, bd = MUSKET.range * MUSKET.range;
     for (const n of this.minions.list) {
-      if (n.team === m.team || n.state !== MinionState.Upright || n.wave < 0) continue;
+      if (n.team === m.team || n.state !== MinionState.Upright || n.wave < 0 || n.role === Role.Carrier) continue;
       const dx = n.x - m.x, dz = n.z - m.z;
       const d2 = dx * dx + dz * dz;
       if (d2 >= bd) continue;

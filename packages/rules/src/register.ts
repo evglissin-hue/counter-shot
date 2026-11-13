@@ -171,6 +171,8 @@ export class Register {
       if (e.empty || this.host.owner(e.id) !== team) continue;
       if (e.weapon === "mortar" && !mortar) continue;
       if ((loaded && this.host.world.reload[e.id] !== 0) || !this.host.world.mounts.up(e.id)) continue;
+      // 3.3: a gun whose box cannot pay for a shot leaves the salvo out (the Practice range has no boxes to empty).
+      if (loaded && this.host.world.carriers && !this.host.world.carriers.canPay(e.id)) continue;
       if (!this.solve(team, e, m, m.x, m.z)) continue;
       if (this.unsafe(team, e, m)) continue;
       found.push({ id: e.id, d: ground(e.x, e.z, m.x, m.z) });
@@ -213,6 +215,7 @@ export class Register {
     const e = this.host.emplacements[q.emplacement];
     const m = this.mark(q.team, q.mark);
     if (!e || !m || m.made !== q.made || e.empty || world.reload[e.id] !== 0 || !world.mounts.up(e.id)) return;
+    if (world.carriers && !world.carriers.canPay(e.id)) return;
     if (this.unsafe(q.team, e, m)) return;
     const U = UNMANNED[e.weapon] ?? UNMANNED.longGun!;
     const r = (U.errBase + U.errPerM * ground(e.x, e.z, m.x, m.z)) * REGISTER.errScale;

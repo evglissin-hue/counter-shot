@@ -18,6 +18,8 @@ import { ClearView } from "./clearview";
 import { Decals, type DecalState } from "./decals";
 import { Effects } from "./effects";
 import { EstateView, type EstateState } from "./estate";
+import { PowderView } from "./powder";
+import type { PowderInfo } from "../protocol";
 import { Flags } from "./flags";
 import { Guns, newCrewInfo, type CrewInfo, type GunState } from "./guns";
 import { Crews } from "./crews";
@@ -107,6 +109,7 @@ export class GameRenderer implements GameRendererApi {
   private bursts: Record<"flash" | "fire" | "fireball" | "smoke" | "column" | "skirt" | "muzzleSmoke" | "bank" | "ring" | "dust" | "spray" | "trickle" | "chimney" | "spark" | "brazier", Burst>;
   /** M3: the plots' stakes, scaffolds and trades, set kegs; pieces rising into place (stone id -> when it started). */
   private estate = new EstateView();
+  private powderView = new PowderView();
   /** L3: grass tufts near the camera (High and up), crows, and braziers on the castles. */
   private grass!: GrassTufts;
   private birds!: Birds;
@@ -274,7 +277,7 @@ export class GameRenderer implements GameRendererApi {
       this.onHazeSettle?.(x, y, z, r, a);
     };
     this.scene.add(this.haze.mesh);
-    this.scene.add(this.estate.root);
+    this.scene.add(this.estate.root, this.powderView.root);
     this.grass = new GrassTufts(this.windField, (x, z) => this.terrain.heightAt(x, z));
     this.birds = new Birds(this.time, this.clear);
     this.braziers = new Braziers(this.time);
@@ -559,6 +562,11 @@ export class GameRenderer implements GameRendererApi {
     return this.minions.positionOf(id);
   }
 
+  /** 3.3: each castle's store and every gun's box (match order), for the kegs under the magazines and the hoists at the guns' feet. */
+  setPowder(powder: [PowderInfo, PowderInfo] | null, boxes: Float32Array | null): void {
+    this.powderView.set(powder, boxes);
+  }
+
   /** 3.2: draw your team's marks (none: clear them). */
   setChalk(marks: ChalkMark[]): void {
     this.chalk.set(marks, (x, z) => this.terrain.heightAt(x, z));
@@ -634,6 +642,7 @@ export class GameRenderer implements GameRendererApi {
     this.guns.build(layout, emplacements);
     this.guns.setShown(this.guns.showN);
     this.emplacementList = emplacements;
+    this.powderView.setEmplacements(emplacements);
     if (this.works) {
       this.scene.remove(this.works.root);
       this.works.dispose();
@@ -769,6 +778,7 @@ export class GameRenderer implements GameRendererApi {
 
   resetWorld(): void {
     this.estate.clear();
+    this.powderView.clear();
     this.braziers.reset();
     this.birds.reset();
     this.grass.invalidate();
@@ -1355,6 +1365,7 @@ export class GameRenderer implements GameRendererApi {
     this.grass.update(cam.position.x, cam.position.z, this.now);
     this.birds.update(this.now, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.braziers.update(dt, (x, y, z) => this.bursts.brazier.spawn(this.now, x, y, z, 0.4, 0, 0.6, 0));
+    this.powderView.update(dt);
     this.estate.update(dt, this.now, (kind, x, y, z, s) => this.bursts[kind === "smoke" ? "chimney" : kind === "spark" ? "spark" : "dust"].spawn(this.now, x, y, z, s, 0, 0.6, 0));
     if (this.raising.size && this.stones && this.layout) {
       for (const [id, t0] of this.raising) {
@@ -1550,6 +1561,7 @@ export class GameRenderer implements GameRendererApi {
     this.works?.dispose();
     this.storm.dispose();
     this.estate.dispose();
+    this.powderView.dispose();
     this.grass.dispose();
     this.birds.dispose();
     this.braziers.dispose();

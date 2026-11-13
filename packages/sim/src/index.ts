@@ -13,6 +13,7 @@ export * from "./army";
 export * from "./local";
 export * from "./ladders";
 export * from "./works";
+export * from "./carriers";
 export * from "./gangs";
 export * from "./gunnery";
 export * from "./structures";

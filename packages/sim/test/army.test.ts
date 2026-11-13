@@ -7,7 +7,7 @@ import { Action, MinionState, navCell, NavKind, Order, SandboxSim, type Minion, 
 await RD.init();
 const R = RD as unknown as Rapier;
 const layout = buildLayout(1, GAME_LAYOUT);
-const world = (seed = 7) => new SandboxSim(R, layout, { seed, minions: 0, army: true, emplacements: MATCH_EMPLACEMENTS });
+const world = (seed = 7) => new SandboxSim(R, layout, { seed, minions: 0, army: true, powder: false, emplacements: MATCH_EMPLACEMENTS });
 const upright = (sim: SandboxSim, team: number): Minion[] => sim.minions.list.filter((m) => m.team === team && m.state === MinionState.Upright);
 const run = (sim: SandboxSim, seconds: number, each?: (sim: SandboxSim) => void) => {
   for (let i = 0; i < seconds * 60; i++) {

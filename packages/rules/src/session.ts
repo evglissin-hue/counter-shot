@@ -25,12 +25,12 @@ import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } fro
 export const MATCH_TICKS = 4900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "edd989a0", world: "7f743abe" } as const;
+export const MATCH_HASH = { state: "951ef979", world: "2f4b1a1f" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
 /** The keep match is about the keep: no barracks, no build order, and the enemy's masons kept home, so it comes down to shells alone. */
-export const MATCH_OPTIONS: Partial<MatchOptions> = { masons: false, barracks: false, plan: false };
+export const MATCH_OPTIONS: Partial<MatchOptions> = { masons: false, barracks: false, plan: false, powder: false };
 
 export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [30, Team.Player, fire(1, 0, 0.9078)],
@@ -95,7 +95,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "504816da", world: "a09c952a" } as const;
+export const WAVE_MATCH_HASH = { state: "169d50ea", world: "da089720" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -133,8 +133,11 @@ export function runWaveMatch(R: Rapier, ticks = WAVE_MATCH_TICKS): MatchSessionR
 
 export const ESTATE_MATCH_TICKS = 6900;
 
+/** Gold the player is given at the start of the estate match (see runEstateMatch). */
+export const ESTATE_MATCH_EXTRA_GOLD = 250;
+
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "718a1455", world: "f93ead42" } as const;
+export const ESTATE_MATCH_HASH = { state: "5a15b2ad", world: "b6a2aa10" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
@@ -160,6 +163,8 @@ export interface EstateMatchResult extends MatchSessionResult {
 
 export function runEstateMatch(R: Rapier, ticks = ESTATE_MATCH_TICKS, onTick?: (m: Match, tick: number) => void): EstateMatchResult {
   const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed: 7 });
+  // 3.3: mills pay no gold now (they make powder), so the player starts this script with the gold its mill's income used to bring by the last purchase.
+  m.gold[Team.Player] += ESTATE_MATCH_EXTRA_GOLD;
   for (const [t, team, input] of ESTATE_MATCH_SCRIPT) m.queue(t, team, input);
   for (let i = 0; i < ticks; i++) {
     m.step();

@@ -1,6 +1,6 @@
 // Gold (phase 2 M3): what each team earns besides spending it. Income comes
-// in through one function (the keep and the working Powder Mills; M4's sudden
-// death doubles it there). After every world step the match hands this the
+// in through one function (the keep's alone since 3.3: Powder Mills make
+// powder now; M4's sudden death doubles it there). After every world step the match hands this the
 // world's records: every minion knocked down pays its killer's side a bounty;
 // enemy masonry brought down pays a gold for every few pieces; and shots a
 // gunner fired himself can pay trick-shot bonuses (a ricochet kill, a
@@ -11,7 +11,7 @@
 // exactly representable steps), records read in the order the world wrote
 // them, shot tallies closed in id order.
 
-import { BUILDINGS, Earn, GOLD, isKeepPiece, MATCH, type CastleLayout } from "@keepfall/content";
+import { Earn, GOLD, isKeepPiece, MATCH, POWDER, type CastleLayout } from "@keepfall/content";
 import { Cause, type SandboxSim } from "@keepfall/sim";
 
 export interface Earning {
@@ -46,6 +46,7 @@ export class Economy {
   /** Earnings since the page last looked (the worker drains it). */
   feed: Earning[] = [];
   private incomeAcc: [number, number] = [0, 0];
+  private powderAcc: [number, number] = [0, 0];
   private masonryAcc: [number, number] = [0, 0];
   /** Open multi-kill tallies per shot id (manned shots only). */
   private tallies = new Map<number, Tally>();
@@ -62,13 +63,22 @@ export class Economy {
     world.castle.recordFalls = true;
   }
 
-  /**
-   * Gold a second a team earns as income now: its keep, and each Powder Mill
-   * of its that works. The one place income is worked out (sudden death
-   * doubles it here after the merge with M4).
-   */
-  incomeRate(mills: number): number {
-    return MATCH.keepIncome + mills * BUILDINGS.mill.income;
+  /** Gold a second a team earns as income now: its keep's alone (3.3: mills make powder, not gold). The one place income is worked out. */
+  incomeRate(): number {
+    return MATCH.keepIncome;
+  }
+
+  /** Charges of powder a second a team makes: its keep's cellar, and each Powder Mill of its that works (before sudden death). */
+  powderRate(mills: number): number {
+    return POWDER.cellar + mills * POWDER.mill;
+  }
+
+  /** One income tick: a second's powder, whole charges stored (what does not fit is lost), the fraction carried. */
+  payPowder(team: number, rate: number) {
+    this.powderAcc[team] += rate;
+    const whole = Math.floor(this.powderAcc[team]);
+    this.powderAcc[team] -= whole;
+    if (whole > 0) this.world.carriers?.store(team, whole);
   }
 
   /** One income tick (every MATCH.incomeEvery ticks): a second's income, whole gold paid, the fraction carried. */
@@ -182,7 +192,7 @@ export class Economy {
   }
 
   hashInto(out: number[]) {
-    out.push(this.earned[0], this.earned[1], this.spent[0], this.spent[1], this.incomeAcc[0], this.incomeAcc[1], this.masonryAcc[0], this.masonryAcc[1], this.silenced[0], this.silenced[1]);
+    out.push(this.earned[0], this.earned[1], this.spent[0], this.spent[1], this.incomeAcc[0], this.incomeAcc[1], this.powderAcc[0], this.powderAcc[1], this.masonryAcc[0], this.masonryAcc[1], this.silenced[0], this.silenced[1]);
     for (const id of [...this.tallies.keys()].sort((a, b) => a - b)) {
       const t = this.tallies.get(id)!;
       out.push(id, t.team, t.kills, t.last);

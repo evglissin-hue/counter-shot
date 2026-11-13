@@ -104,6 +104,7 @@ try {
   // ---- step 3: the mortar ----
   await expect("step 3 rings gun tab 2", () => document.querySelector('#weapons [data-weapon="1"]').classList.contains("coach-hl"));
   await expect("step 3 keeps the mark on the keep", () => !document.getElementById("coach-mark").hidden);
+  await expect("step 3 says what a shell burns: 10 powder from the box beside the gun (3.3)", () => /Each shell burns 10 powder from the box beside the gun\./.test(document.getElementById("coach-how").textContent));
   // ---- the amendment: step 6 interrupts an earlier step once the tutor's first wave is out ----
   await patch({ tutor: 1, standing: [10, 12] });
   await page.evaluate(() => window.__sandbox.spawn(0, 8, 0, -45));
@@ -228,6 +229,26 @@ try {
   await expect("a loss: the enemy won this time, Try again", () => !document.getElementById("end").hidden && document.getElementById("end-title").textContent === "Defeat" && document.getElementById("end-line").textContent === "The enemy won this time." && document.getElementById("end-again").textContent === "Try again" && document.getElementById("end-guided").hidden && document.getElementById("coach").hidden, null, 60000);
   await press("#end-again");
   await expect("Try again starts the guided match anew", () => window.__sandbox.mode === "guided" && document.getElementById("end").hidden && !document.getElementById("coach").hidden && /Step 1 of 10/.test(document.getElementById("coach-step").textContent));
+  // 3.3: the tip, once, the first time one of your boxes cannot pay a shot. (On the real clock the boys refill a swivel as fast as it fires, so the empty box is laid over the report; hud-check empties a real one on the test clock.)
+  await page.evaluate(() => {
+    window.__tips = 0;
+    new MutationObserver(() => { if (document.getElementById("note").textContent === "Out of powder: a boy brings a keg from the magazine. Powder Mills make more.") window.__tips++; }).observe(document.getElementById("note"), { childList: true, characterData: true, subtree: true });
+  });
+  await page.keyboard.press("Digit4");
+  await expect("the swivel is up, its box six pips", () => document.getElementById("w-name").textContent === "Swivel gun" && document.querySelectorAll("#w-pips i").length === 6);
+  check("no tip yet: nothing is dry", await page.evaluate(() => window.__tips === 0));
+  const dry = () => page.evaluate(() => { const b = Float32Array.from(window.__sandbox.match.boxes); b[3 * 5] = 0; b[3 * 5 + 3] = 300; return b; });
+  await patch({ boxes: await dry() });
+  await expect("the box runs dry: the tip comes, once", () => window.__tips === 1, null, 60000);
+  await patch(null);
+  await page.waitForTimeout(1500);
+  await patch({ boxes: await dry() });
+  // Loaded, but its box cannot pay: the card says so instead of Ready.
+  await page.waitForFunction(() => /^No powder/.test(document.getElementById("w-reload").textContent), null, { timeout: 60000, polling: 100 });
+  await page.evaluate(() => window.__sandbox.fire());
+  await page.waitForTimeout(500);
+  check("dry again: no second tip, a dry note instead", await page.evaluate(() => window.__tips === 1 && /^No powder at the swivel gun: a boy is \d+ s away$/.test(document.getElementById("note").textContent)));
+  await patch(null);
   // Two minutes of match time on one step: the Skip button pulses.
   await expect(...noRing("#coach-skip"));
   const t0 = await page.evaluate(() => window.__sandbox.match.tick);
