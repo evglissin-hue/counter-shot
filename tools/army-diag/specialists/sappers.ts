@@ -1,7 +1,7 @@
 // Sappers and their kegs, scripted. Team 1 (the player) attacks castle 0.
 // npx rolldown tools/army-diag/specialists/sappers.ts --format esm --platform node -o node_modules/.scratch/diag-spec-sappers.mjs && node node_modules/.scratch/diag-spec-sappers.mjs scen=basic seed=1 route=1 secs=150
 import { KEG, Unit } from "@keepfall/content";
-import { MinionState, Order } from "@keepfall/sim";
+import { MinionState, navCell, Order } from "@keepfall/sim";
 import { arg, clock, newMatch, Tracker, where } from "./common";
 import { wayIn } from "./common";
 
@@ -18,6 +18,19 @@ const A = m.army;
 const mix = scen === "mixed" ? [P, P, P, P, S, M, M, S] : [P, P, P, P, S, P, P, S];
 if (scen === "breached") for (const x of [-9, -8, 7, 8]) m.world.explode(x, 0.7, -15.3, KEG.burst);
 if (scen === "hold") A.setOrder(1, Order.Hold);
+// The west tower of castle 0 (and the wall beside it) shelled to rubble before the wave comes: its heap lies in front of the wall.
+if (scen === "rubble") {
+  for (let k = 0; k < 6; k++) for (const [x, y, z] of [[-15, 8, -15], [-15, 4, -16], [-12, 6, -16], [-15, 12, -15], [-17, 3, -17]]) m.world.explode(x, y, z);
+  for (let i = 0; i < 600; i++) m.step();
+  for (let z = -12; z >= -36; z--) {
+    let row = "";
+    for (let x = -32; x <= 0; x++) {
+      const c = navCell(x + 0.25, z + 0.25);
+      row += "GRWSBr"[m.world.nav.kind[c]];
+    }
+    console.log(`${String(z).padStart(4)} ${row}`);
+  }
+}
 if (scen === "push" || scen === "breachedpush") A.setOrder(1, Order.Push);
 if (scen === "breachedpush") for (const x of [-9, -8]) m.world.explode(x, 0.7, -15.3, KEG.burst);
 A.spawnMix(1, route, mix, 0, undefined, scen === "ladder" ? { ladder: true } : {});

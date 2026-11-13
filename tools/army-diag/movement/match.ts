@@ -59,7 +59,7 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   if (m.tick % 60 === 0) {
     for (const c of [0, 1]) {
       const inPlace = leavesOf[c].filter((s) => {
-        if (!w.castle.dynamic[s.id]) return false;
+        if (!w.castle.dynamic[s.id] || w.castle.shattered[s.id]) return false; // a shattered leaf's disabled body stays at its pose
         const t = w.castle.bodies[s.id].translation();
         return Math.hypot(t.x - s.x, t.y - s.y, t.z - s.z) < 0.5;
       }).length;

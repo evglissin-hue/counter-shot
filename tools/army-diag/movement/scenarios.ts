@@ -285,6 +285,24 @@ function drop(when: "bank" | "deck" | "split") {
 scenarios["drop-bank"] = () => drop("bank");
 scenarios["drop-deck"] = () => drop("deck");
 scenarios["drop-split"] = () => drop("split");
+/** Push with a breach and the centre bridge down: waves sent down the left road (two at once, side by side). */
+scenarios["push-nocentre"] = () => {
+  const w = world();
+  const b = BRIDGES[1];
+  w.explode(b.x + 0.3, DECK_TOP - 0.4, b.z + 0.5);
+  w.explode(b.x - 0.3, DECK_TOP - 0.4, b.z - 2.0);
+  for (const [k, x] of [[0, -8.5], [1, -7.5]] as const) w.queue(10 + k * 250, { kind: "fire", emplacement: 0, yaw: Math.atan2(x, 120), pitch: -0.022, charge: 1, fuse: 0, spin: 0 } as any);
+  run(w, new Probe(w, "warmup"), 14);
+  console.log(`bridges open ${w.bridgesOpen().join(",")}; breach reachable from muster ${w.army!.flow.at(7, 0, -130) < FLOW_INF}`);
+  const p = new Probe(w, `push-nocentre seed ${seed}: centre bridge down, breach west of the gate, team 1 Push, two waves on the left road side by side + one on the right, 110 s`);
+  w.army!.setOrder(1, Order.Push);
+  w.army!.spawnMix(1, LEFT, PIKES, 0);
+  w.army!.spawnMix(1, LEFT, PIKES, -5.5);
+  w.army!.spawnMix(1, RIGHT, PIKES, 5.5);
+  run(w, p, 110);
+  console.log(p.report());
+  w.free();
+};
 scenarios["blow-before"] = () => blow("before");
 scenarios["blow-deck"] = () => blow("deck");
 scenarios["blow-crossed"] = () => blow("crossed");

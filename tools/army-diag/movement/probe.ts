@@ -85,6 +85,9 @@ export class Probe {
   // Waves.
   waveSpread = new Map<number, { t: number; n: number; rms: number; costSpan: number; cx: number; cz: number }[]>();
   log: string[] = [];
+  /** Wave turnarounds: the wave's middle moved one way over 5 s and back over the next 5 s, nobody in it fighting. */
+  waveTurns: string[] = [];
+  waveBusy = new Map<number, number>();
   verbose: boolean;
 
   constructor(w: SandboxSim, label = "", verbose = false) {
@@ -421,6 +424,19 @@ export class Probe {
       let arr = this.waveSpread.get(wave);
       if (!arr) this.waveSpread.set(wave, (arr = []));
       arr.push({ t: t / 60, n: g.length, rms: Math.sqrt(r2 / g.length), costSpan: cmax > cmin ? (cmax - cmin) / 10 : 0, cx, cz });
+      const busy = g.some((m) => m.target >= 0 || m.action === Action.Fight || m.action === Action.Batter);
+      if (busy) this.waveBusy.set(wave, t);
+      const L = arr.length;
+      if (L >= 11 && t - (this.waveBusy.get(wave) ?? -1e9) > 600 && arr[L - 1].n === arr[L - 11].n) {
+        const a0 = arr[L - 11], a1 = arr[L - 6], a2 = arr[L - 1];
+        const ux = a1.cx - a0.cx, uz = a1.cz - a0.cz, vx = a2.cx - a1.cx, vz = a2.cz - a1.cz;
+        const lu = Math.hypot(ux, uz), lv = Math.hypot(vx, vz);
+        if (lu > 2 && lv > 2 && (ux * vx + uz * vz) / (lu * lv) < -0.5) {
+          const last = this.waveTurns.length ? this.waveTurns[this.waveTurns.length - 1] : "";
+          const key = `wave ${wave} `;
+          if (!last.startsWith(key) || Number(last.split(" ")[2]) < t / 60 - 10) this.waveTurns.push(`wave ${wave} ${(t / 60).toFixed(0)} s turned about at (${a1.cx.toFixed(0)}, ${a1.cz.toFixed(0)}) orders ${a.order.join("/")}`);
+        }
+      }
     }
   }
 
@@ -472,7 +488,7 @@ export class Probe {
       }
       L.push(`    z ${z}${row}`);
     }
-    const leaves = this.w.castle.layout.stones.filter((st) => st.castle === foe && st.part === "gate").map((st) => `${st.id}:${this.w.castle.dynamic[st.id] ? "loose" : "stands"}${this.w.castle.frozen[st.id] ? "/settled" : ""}`);
+    const leaves = this.w.castle.layout.stones.filter((st) => st.castle === foe && st.part === "gate").map((st) => `${st.id}:${this.w.castle.shattered[st.id] ? "gone" : this.w.castle.dynamic[st.id] ? "loose" : "stands"}${this.w.castle.frozen[st.id] ? "/settled" : ""}`);
     L.push(`  gate leaves ${leaves.join(" ")}`);
     const settled = (nav as any).settled as Map<number, { cells: number[]; bottom: number; top: number }>;
     for (const st of this.w.castle.layout.stones) {
@@ -548,6 +564,7 @@ export class Probe {
     p(`wrong bridge: ${this.wrongBridge.length}${this.wrongBridge.length ? ": " + this.wrongBridge.slice(0, 6).join("; ") : ""}`);
     p(`max men near a bridge (within 6 m of the deck) right/centre/left: ${this.maxNear.join("/")}`);
     for (const s of this.bridgeReport()) p("  " + s);
+    p(`wave turnarounds (middle reverses over 5 s legs, no one fighting for 10 s): ${this.waveTurns.length}${this.waveTurns.length ? ": " + this.waveTurns.slice(0, 10).join("; ") : ""}`);
     p(`falls (floor gone): ${this.falls.length}${this.falls.length ? "\n    " + this.falls.slice(0, 12).join("\n    ") : ""}`);
     for (const [wave, arr] of this.waveSpread) {
       if (arr.length < 5) continue;

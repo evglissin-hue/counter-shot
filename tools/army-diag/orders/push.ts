@@ -24,6 +24,8 @@ m.queue(260, Team.Player, wallShot(-0.0624));
 const spawnTick = new Map<number, number>();
 const inTick = new Map<number, number>();
 const waveOf = new Map<number, number>();
+/** Which bridge each man crossed the stream by (his x where he first got past z = -75). */
+const crossed = new Map<number, string>();
 let lastWay = false;
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   m.step();
@@ -39,6 +41,7 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       waveOf.set(x.id, x.wave);
     }
     if (x.state === MinionState.Upright && !inTick.has(x.id) && inCourtyard(0, x.x, x.z)) inTick.set(x.id, m.tick);
+    if (x.state === MinionState.Upright && !crossed.has(x.id) && x.z > -75) crossed.set(x.id, x.x > 24 ? "left" : x.x < -24 ? "right" : "centre");
   }
   if (tick % (15 * 60) === 0 && tick > 0) {
     const up = m.world.minions.list.filter((x) => x.team === 1 && x.state === MinionState.Upright && x.role === Role.March);
@@ -55,7 +58,7 @@ for (const [id, w] of waveOf) {
 for (const [w, ids] of [...waves.entries()].sort((a, b) => a[0] - b[0])) {
   const t = ids.filter((id) => inTick.has(id)).map((id) => (inTick.get(id)! - spawnTick.get(id)!) / 60).sort((a, b) => a - b);
   const left = ids.map((id) => m.world.minions.list[id]).filter((x) => x.state === MinionState.Upright && !inTick.has(x.id));
-  console.log(`wave ${w} (left at ${clock(spawnTick.get(ids[0])!)}, route ${ROUTE_NAMES[m.world.minions.list[ids[0]].route]}): ${ids.length} men, ${t.length} got in (s: ${t.map((v) => v.toFixed(0)).join(" ")}); still up outside: ${tally(left.map((x) => zone(1, x.x, x.z) + "/" + ACTION[x.action]))}; down ${ids.filter((id) => m.world.minions.list[id].state !== MinionState.Upright).length}`);
+  console.log(`wave ${w} (left at ${clock(spawnTick.get(ids[0])!)}, route ${ROUTE_NAMES[m.world.minions.list[ids[0]].route]}): ${ids.length} men, ${t.length} got in (s: ${t.map((v) => v.toFixed(0)).join(" ")}); crossed by ${tally(ids.map((id) => crossed.get(id) ?? "-"))}; still up outside: ${tally(left.map((x) => zone(1, x.x, x.z) + "/" + ACTION[x.action]))}; down ${ids.filter((id) => m.world.minions.list[id].state !== MinionState.Upright).length}`);
 }
 console.log(`result ${JSON.stringify(m.result)}`);
 m.free();
