@@ -304,16 +304,15 @@ export const MARCH = {
   /** A man standing where his march field cannot reach the goal looks this far for a cell that can, to walk back to it. */
   cutOffSearch: 4,
   /**
-   * On Hold a man further than this from his route's marker along the bank
-   * (his wave sent down another road while it held) walks along his own bank
-   * to his road `holdRejoin` behind the marker, and comes up it to the line as
-   * the wave did; unless he is more than `holdBehind` behind the hold line
-   * (still coming up his road, which runs within 4 m of its marker that far
-   * back).
+   * On Hold a man near the hold line (the sim's box along each bank) further
+   * than this from his route's marker along the bank (his wave sent down
+   * another road while it held) walks along his own bank to his road
+   * `holdRejoin` behind the marker, and comes up it to the line as the wave
+   * did. Near the line every road runs within 4 m of its marker, so a man
+   * coming up his own road never walks aside.
    */
   holdAlong: 8,
-  holdRejoin: 6,
-  holdBehind: 10,
+  holdRejoin: 10,
 } as const;
 
 /** Blows from pikemen a gate leaf takes before it comes loose. */

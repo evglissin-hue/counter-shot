@@ -127,7 +127,7 @@ const TWO_PI = 2 * DPI;
 const LADDER_LOOK = 20;
 /** Each team's hold line box (m): across the whole valley floor between the flank roads, and this far either side of the middle of its markers' z (its own bank, not the far one). */
 const HOLD_LINE_X = 60;
-const HOLD_LINE_Z = 14;
+const HOLD_LINE_Z = 18;
 /** The eight neighbouring cells in a fixed order (four straight, then four diagonal) for a boxed-in man's sidestep. */
 const SIDE_DI = [-1, 1, 0, 0, -1, 1, -1, 1];
 const SIDE_DJ = [0, 0, -1, 1, -1, -1, 1, 1];
@@ -962,8 +962,8 @@ export class Army {
    * sent down another road, or its bridge went down, while it held there):
    * the way along his own bank to his road a little behind that marker, into
    * `out`; from there he comes up the road to the line. False when he is near
-   * the marker along the bank, still well behind the line on his road, or off
-   * the hold line's box: his march field and the line do then.
+   * the marker along the bank or off the hold line's box (every road runs
+   * within 4 m of its marker inside it): his march field and the line do then.
    */
   private holdAside(m: Minion, out: [number, number]): boolean {
     const team = m.team, r = m.route;
@@ -971,8 +971,6 @@ export class Army {
     const hx = this.holdX[team][r], hz = this.holdZ[team][r];
     const dx = m.x - hx;
     if (dx <= MARCH.holdAlong && dx >= -MARCH.holdAlong) return false;
-    const past = team === 1 ? m.z - hz : hz - m.z;
-    if (past < -MARCH.holdBehind) return false;
     const gz = team === 1 ? hz - MARCH.holdRejoin : hz + MARCH.holdRejoin;
     return this.holdLine.covers(team, m.x, m.z) && this.holdLine.steer(team, hx, gz, m.x, m.z, out);
   }
