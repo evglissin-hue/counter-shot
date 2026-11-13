@@ -330,3 +330,17 @@ test("a moment carries the tick it began where its kind knows it: a shot's first
   assert.equal(r.got[0].kind, "gateDown");
   assert.equal(r.got[0].first, undefined);
 });
+
+test("a keep or tower toppling or crushing is a moment, the doing of the castle's enemy, above a magazine blowing", () => {
+  const { m, got } = rig();
+  // Structure 0 is castle 0's keep, 1 its front left tower, 5 castle 1's keep.
+  m.frame(frame(10, { events: [[EventKind.Topple, 0, 6, 0, 1]] }));
+  m.frame(frame(20, { events: [[EventKind.Crush, 1, 4, 15, 100]] }));
+  m.frame(frame(30, { events: [[EventKind.Topple, 5, 8, 0, -1]] }));
+  assert.deepEqual(got.map((g) => g.kind), ["keepFelled", "towerFelled", "keepFelled"]);
+  assert.deepEqual(got.map((g) => g.team), [1, 1, 0]);
+  assert.deepEqual(got.map((g) => g.size), [1, 0, 1]);
+  assert.equal(got[0].text, "Keep felled");
+  assert.equal(got[1].text, "Tower felled");
+  assert.ok(scoreOf("towerFelled", 1) > scoreOf("magazine", 120) && scoreOf("keepFelled", 1) > scoreOf("towerFelled", 1));
+});

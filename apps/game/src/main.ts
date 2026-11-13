@@ -88,7 +88,7 @@ import {
   shotsGone,
   updateImpactCam,
 } from "./impactCam";
-import { BOY_STRIDE, type FromWorker, type MasonInfo, type MatchInfo, type MatchSetup, type Mode, type RegisterInfo, type ToWorker } from "./protocol";
+import { BOY_STRIDE, type FromWorker, type MasonInfo, type MatchInfo, type MatchSetup, type Mode, type RegisterInfo, type StructureInfo, type ToWorker } from "./protocol";
 import { bearWhy, MarkChips, newestMark, SalvoKeys, salvoLine } from "./marks";
 import { Online, type OnlineStart } from "./online";
 import type { CameraPose, PathHit, QualityTier } from "./render/api";
@@ -104,6 +104,9 @@ import { OverviewMarks } from "./overviewMarks";
 import { buildView, createSteward } from "./steward";
 import { boxOf, canPay, drawPips, DryNotes, dryNote, dryState, boyServing, KEG_BOY_NOTE, magazineBlewNote, millBlewNote, markTabs, PowderBar } from "./powder";
 import type { MatchInput } from "@keepfall/rules";
+import { structureList } from "@keepfall/content";
+import { EyeHud } from "./eyeHud";
+import { EYE_KEY, fallShake, holdsClass, landing as fallLanding, structureWords } from "./eye";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("scene");
@@ -117,6 +120,13 @@ const send = (m: ToWorker) => {
 const input = new Input(canvas);
 const sound = new Sound();
 const layout = buildLayout(1, GAME_LAYOUT);
+/** 3.4: the keeps and towers of both castles (castle c's keep is c * 5), where they stand and what the owner calls them. */
+const STRUCTS = structureList(layout);
+/** 3.4: the mason's eye on the page: the structures as last reported, what to show, the labels. */
+const eyeHud = new EyeHud(renderer, document.getElementById("eye-labels") as HTMLElement);
+/** The pointer on the page (CSS pixels), for the eye in the overview. */
+let pointerAt: { x: number; y: number } | null = null;
+window.addEventListener("pointermove", (e) => (pointerAt = { x: e.clientX, y: e.clientY }));
 /** What the battle sounds like: impacts by material, footfalls, clashes, shouting, the stream, crows. */
 const soundscape = new Soundscape(sound, layout);
 /** M3: the build wheel, gold coming in, notes and sounds of the plots. */
@@ -126,7 +136,7 @@ const steward = createSteward({
   $,
   canvas,
   available: () => ready && isMatch() && !player.playing && !film.active && !photo && !!matchInfo && !matchInfo.result && !ride && !!$("menu").hidden && !!$("end").hidden && !!$("gone").hidden,
-  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing(), powder: matchInfo.powder?.[ME] ?? null }) : null),
+  view: () => (matchInfo && isMatch() ? buildView({ team: ME, gold: matchInfo.gold[ME], plots: estate.ownPlots(), guns: EMP, mountDown: EMP.map((_, i) => (gunOut[gid(i) * 2] ?? 0) === 2), foundry: matchInfo.foundry[ME], barracks: matchInfo.barracks, repairs: matchInfo.repairs, order: matchInfo.order, route: matchInfo.route, riding: view === "sight" ? current : -1, standing: steward.standing(), powder: matchInfo.powder?.[ME] ?? null, buttresses: matchInfo.buttresses?.[ME] }) : null),
   standingCtx: () => (matchInfo && isMatch() && !matchInfo.result ? { gateOpen: matchInfo.gateOpen[ME], gold: matchInfo.gold[ME], repairs: matchInfo.repairs, plots: estate.ownPlots(), powder: matchInfo.powder?.[ME] ?? null } : null),
   act: stewardAct,
   note: (text, ms) => showNote(text, ms),
@@ -167,7 +177,7 @@ let mapFrame = 0;
 const guide = new Guide($("guide"), $("guide-goal"), $("guide-steps"), $<HTMLButtonElement>("guide-hide"), $("guide-title"));
 /** M6: the guided match's coach (its card, highlights and world marks); it only reads what the page knows. */
 const coach = new Coach(
-  { project: (x, y, z) => renderer.project(x, y, z), size: () => ({ w: canvas.clientWidth, h: canvas.clientHeight }), note: (t, ms) => showNote(t, ms) },
+  { project: (x, y, z) => renderer.project(x, y, z), size: () => ({ w: canvas.clientWidth, h: canvas.clientHeight }), note: (t, ms) => showNote(t, ms), showEye: (castle, ms) => eyeHud.force(castle * 5, ms, performance.now()) },
   $,
 );
 guide.onMark = (s) => coach.did(s);
@@ -361,7 +371,7 @@ let slowUntil = 0;
 /** Sim and effects speed (slow motion around impacts). */
 let timeScale = 1;
 /** Camera shake after a burst: when, and how hard (0..1, by distance). Render only. */
-let shake = { at: -1e9, s: 0 };
+let shake: { at: number; s: number; long?: boolean } = { at: -1e9, s: 0 };
 let lastFrameTick = 0;
 let stats = { stepMs: 0, stepPeak: 0, down: 0, standing: 0, awake: 0 };
 
@@ -520,6 +530,8 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
     if (m.match) foesAt.set(m.frame.tick, m.match.fallen[FOE]);
     recorder.note(m.frame, frameExtras(m));
     timeline.push(m.frame);
+    const reported = m.match ? m.match.structures : m.structures;
+    if (reported) eyeHud.structures(reported);
     if (m.match) onMatch(matchPatch ? { ...m.match, ...matchPatch } : m.match);
     practiceReg = m.reg;
     syncRegister();
@@ -645,6 +657,8 @@ function onFrame(f: FrameData) {
     } else if (kind === EventKind.Cracked) {
       // M5: a shell cracked a keep floor board that held: timber splitting (the renderer throws splinters).
       if (cracks++ < 2) sound.woodHit(b, c, d, 0.8);
+    } else if (kind >= EventKind.Strain && kind <= EventKind.Released) {
+      structureEvent(kind, a, c, d, true);
     }
   }
   laidSounds = clearSounds = cracks = 0;
@@ -1695,6 +1709,55 @@ function gunKnockedOut(emp: number, cause: number, shot: number) {
   }
 }
 
+/** The way each structure was last told to topple (Topple's direction), for where it lands when let go. */
+const fallDir = new Map<number, [number, number]>();
+
+/**
+ * 3.4: what a keep or tower giving way does in the world: a low groan in the half second before (Strain), a deep creak
+ * as it leans (Topple), then, as its stones are let go (Released), the rush and a ground shock and the camera shaking
+ * with the distance; the great cloud is the renderer's. With `notes` the page also says so and logs it (a replay only
+ * has the sounds). A crush is told when it comes and falls at once (its Released follows).
+ */
+function structureEvent(kind: number, structure: number, c: number, d: number, notes: boolean) {
+  const s = STRUCTS[structure | 0];
+  if (!s) return;
+  const mine = s.castle === ME;
+  const words = structureWords(s, mine);
+  const y = s.kind === "keep" ? 8 : 5;
+  const live = notes && !matchInfo?.result;
+  if (kind === EventKind.Strain) {
+    sound.structureGroan(s.cx, y, s.cz);
+    if (live) {
+      showNote(words.groan, 4000);
+      logMoment(words.groan, mine);
+    }
+  } else if (kind === EventKind.Saved) {
+    if (live && mine) {
+      showNote(words.saved, 4000);
+      logMoment(words.saved);
+    }
+  } else if (kind === EventKind.Topple) {
+    fallDir.set(structure | 0, [c, d]);
+    sound.structureCreak(s.cx, y, s.cz);
+    if (live) {
+      showNote(words.falling, 5000);
+      logMoment(words.falling, mine);
+    }
+  } else if (kind === EventKind.Crush) {
+    if (live) {
+      showNote(words.falling, 5000);
+      logMoment(words.falling, mine);
+    }
+  } else if (kind === EventKind.Released) {
+    const dir = fallDir.get(structure | 0) ?? [0, 0];
+    fallDir.delete(structure | 0);
+    const at = fallLanding({ cx: s.cx, cz: s.cz, baseY: 0, topY: 20, footY: 0, weakest: -1 }, dir[0], dir[1]);
+    sound.structureFall(at.x, 2, at.z, s.kind === "keep" ? 1 : 0.6);
+    const ear = renderer.listener();
+    shake = { at: clock(), s: fallShake(Math.hypot(at.x - ear.x, at.z - ear.z)), long: true };
+  }
+}
+
 /**
  * 3.3: what powder does in the world. A rope creaks as your boy hoists a keg to your gun, a keg is set down in a box,
  * a magazine blows (the loudest sound in the game: heard from anywhere in the valley), a mill bursts. With `notes`
@@ -2186,6 +2249,8 @@ function resetLocal() {
   tabs.forEach((b) => b.classList.remove("out"));
   renderer.resetWorld();
   recorder.reset();
+  eyeHud.reset();
+  fallDir.clear();
   timeline.reset();
   downAt.clear();
   foesAt.clear();
@@ -2524,7 +2589,7 @@ function updateStorm() {
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   moments.match(info);
-  matchInfo = { ...info, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
+  matchInfo = { ...info, structures: info.structures ?? prev?.structures ?? null, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
   threat.update(info.lanes, ME);
   updateWaves();
   updateGangs(info);
@@ -2556,6 +2621,7 @@ function onMatch(info: MatchInfo) {
   }
   nudgeBuild(info);
   updateKeeps(info);
+  if (info.structures) showHolds(info.structures);
   coach.onMatch(info);
   $("clock").textContent = clockText(info.result ? info.result.tick : info.tick);
   $("clock").classList.toggle("sudden", info.suddenDeath);
@@ -2668,6 +2734,27 @@ function showKeeps(levels: [number, number], soundness: [number, number], flash:
       el.classList.remove("hit");
       void el.offsetWidth; // restart the flash
       el.classList.add("hit");
+    }
+  });
+}
+
+/**
+ * 3.4: the thin bar under each keep's pips: how much the keep's weakest course still holds (the sim's report every
+ * quarter second), green over 0.6, amber, red under 0.3.
+ */
+const holdsBars = [$("holds-mine"), $("holds-theirs")];
+function showHolds(list: readonly StructureInfo[]) {
+  [ME, FOE].forEach((team, k) => {
+    const s = list[team * 5];
+    const bar = holdsBars[k];
+    if (!s || !bar) return;
+    const h = s.state === 3 ? 0 : Math.max(0, Math.min(1, s.holds));
+    const text = `Holds ${Math.floor(h * 100 + 1e-6)}%: how much its weakest course still holds`;
+    if (bar.title !== text) {
+      bar.title = text;
+      bar.setAttribute("aria-label", text);
+      bar.dataset.holds = holdsClass(h);
+      (bar.firstElementChild as HTMLElement).style.transform = `scaleX(${h})`;
     }
   });
 }
@@ -3203,8 +3290,8 @@ function showError(msg: string) {
 /** Shake and a quick widening of the view after a burst, stronger when it is close. */
 function applyShake(pose: CameraPose, now: number) {
   const age = (now - shake.at) / 1000;
-  if (age > 1.1 || (pose.mode !== "sight" && pose.mode !== "free")) return;
-  const fall = Math.exp(-age / 0.22);
+  if (age > (shake.long ? 3.2 : 1.1) || (pose.mode !== "sight" && pose.mode !== "free")) return;
+  const fall = Math.exp(-age / (shake.long ? 0.8 : 0.22));
   const amp = 0.03 * shake.s * fall;
   const jx = amp * (Math.sin(now * 0.083) + 0.5 * Math.sin(now * 0.191));
   const jy = amp * (Math.sin(now * 0.109 + 1.7) + 0.5 * Math.sin(now * 0.157 + 0.4));
@@ -3262,6 +3349,7 @@ function replaySounds(f: FrameData, speed: number, audible: boolean) {
       else sound.ladderDown(c, 1, d);
     } else if (kind === EventKind.Cracked && cracked++ < 2) sound.woodHit(b, c, d, 0.8);
     else if (kind === EventKind.MagazineBlew || kind === EventKind.MillBlew) powderEvent(kind, a, b, c, d, false);
+    else if (kind >= EventKind.Strain && kind <= EventKind.Released) structureEvent(kind, a, c, d, false);
   }
 }
 
@@ -3857,6 +3945,7 @@ function frame(wall: number) {
     const cam = renderer.listener();
     groupMarks.place(mode !== null && view === "overview", (x, y, z) => renderer.project(x, y, z), cam, innerWidth, innerHeight, dt);
   }
+  eyeHud.update(now, { held: mode !== null && !blocked && !estate.wheelOpen && !film.active && !player.playing && input.down(EYE_KEY), overview: view === "overview", me: ME, mouse: pointerAt, centre: { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } });
   if (!paused) renderer.render(dt);
   estate.update(now);
   if (estate.wheelOpen !== wheelShown) {
@@ -3958,6 +4047,10 @@ else {
   },
   get match() {
     return matchInfo;
+  },
+  /** 3.4: the mason's eye: the structures as last reported, the one under the sight or pointer, and the labels showing. */
+  get eye() {
+    return { list: eyeHud.list, under: eyeHud.under, labels: [...document.querySelectorAll<HTMLElement>(".eye-label:not([hidden])")].map((e) => e.textContent ?? "") };
   },
   /** Track V test hook: the player's plots (kind index, state). */
   get ownPlots() {
@@ -4222,6 +4315,36 @@ else {
   /** Test tools only: a wave of pikemen at a point. */
   spawn(team: 0 | 1, count: number, x: number, z: number, ladder = false) {
     send({ t: "spawn", team, count, x, z, ladder });
+  },
+  /**
+   * 3.4 test tool: cut through a structure. "face" (a keep): its gate-side face and a third of each side, courses 2 to 4;
+   * "partial": half of that cut; "outer" (a tower): 45% of course 2 on its outer side. Returns the stones cut.
+   */
+  cut(structure: number, how: "face" | "partial" | "outer") {
+    const s = STRUCTS[structure];
+    if (!s) return 0;
+    const st = layout.stones;
+    let ids: number[] = [];
+    if (how === "outer") {
+      const target = Math.atan2(-1, -1);
+      const w = s.stones.filter((id) => st[id].part === "tower" && st[id].course === 2).map((id) => {
+        const a = Math.atan2(st[id].z - s.cz, st[id].x - s.cx) - target;
+        return { id, a: Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) };
+      });
+      w.sort((p, q) => p.a - q.a || p.id - q.id);
+      ids = w.slice(0, Math.round(w.length * 0.45)).map((x) => x.id);
+    } else {
+      // The gate side of castle 0 is z < centre; castle 1 mirrors.
+      const side = s.castle === 0 ? 1 : -1;
+      ids = s.stones.filter((id) => {
+        const x = st[id].x - s.cx, z = (st[id].z - s.cz) * side;
+        const c = st[id].course;
+        return st[id].part === "keep" && c >= 2 && c <= 4 && (z < -3 || (Math.abs(x) > 3 && z < -5 + 10 / 3));
+      });
+      if (how === "partial") ids = ids.filter((_, k) => k % 2 === 0);
+    }
+    send({ t: "dust", ids });
+    return ids.length;
   },
   toggleOverview,
   /** Test clock: stop following wall time and step the match this many game seconds (the worker takes 0.2 s a message). */
