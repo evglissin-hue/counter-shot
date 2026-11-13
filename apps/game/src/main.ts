@@ -101,7 +101,7 @@ import { Timeline } from "./timeline";
 import { ThreatStrip } from "./threat";
 import { OverviewMarks } from "./overviewMarks";
 import { buildView, createSteward } from "./steward";
-import { boxOf, canPay, drawPips, DryNotes, dryNote, boyServing, KEG_BOY_NOTE, magazineBlewNote, millBlewNote, markTabs, PowderBar } from "./powder";
+import { boxOf, canPay, drawPips, DryNotes, dryNote, dryState, boyServing, KEG_BOY_NOTE, magazineBlewNote, millBlewNote, markTabs, PowderBar } from "./powder";
 import type { MatchInput } from "@keepfall/rules";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -1877,10 +1877,13 @@ function updateHud(force = false) {
   }
   const r = rl(current);
   const out = isOut(current);
-  hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : "Ready";
+  const box = boxOf(matchInfo, gid(current));
+  // 3.3: a loaded gun whose box cannot pay is not ready: it waits for powder.
+  const dry = r === 0 && !out ? dryState(box) : "";
+  hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : dry || "Ready";
   hud.reloadFill.style.transform = `scaleX(${out ? 0 : 1 - r / w.reload})`;
-  drawPips(hud.pips, boxOf(matchInfo, gid(current)));
-  weaponPanel.classList.toggle("loaded", r === 0 && !out);
+  drawPips(hud.pips, box);
+  weaponPanel.classList.toggle("loaded", r === 0 && !out && !dry);
   weaponPanel.classList.toggle("out", out);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
   // What a gunner reads off the quadrant: the barrel's elevation (and, for the mortar, its still-air range).

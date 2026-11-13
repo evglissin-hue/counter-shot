@@ -392,10 +392,11 @@ try {
   await shot("card-one-left", card);
   await patchBox(0, [0, null, null, 360, -1]);
   await expect("a dry box: no pips lit, the pips outlined as dry, the tab dims (class dry) with a keg mark (class kegged)", () => { const t = document.querySelector('#weapons [data-weapon="0"]'); return document.querySelectorAll("#w-pips i.on").length === 0 && document.getElementById("w-pips").classList.contains("dry") && t.classList.contains("dry") && t.classList.contains("kegged"); });
+  await expect("a loaded gun with a dry box is not Ready: its card says No powder and when the keg comes", () => { const r = document.getElementById("w-reload").textContent; return /^No powder: keg in \d+ s$/.test(r) && !document.querySelector(".weapon").classList.contains("loaded"); });
   await shot("card-dry", card);
   await shot("tabs-dry-keg", { x: 0, y: 4, width: 540, height: 52 });
   await page.evaluate(() => { const b = Float32Array.from(window.__sandbox.match.boxes); b[0 * 5 + 3] = -1; window.__sandbox.patchMatch({ boxes: b }); });
-  await expect("no keg on its way: the keg mark goes, the tab stays dry", () => { const t = document.querySelector('#weapons [data-weapon="0"]'); return t.classList.contains("dry") && !t.classList.contains("kegged"); });
+  await expect("no keg on its way: the keg mark goes, the tab stays dry, the card says No powder", () => { const t = document.querySelector('#weapons [data-weapon="0"]'); return t.classList.contains("dry") && !t.classList.contains("kegged") && document.getElementById("w-reload").textContent === "No powder"; });
   await page.evaluate(() => window.__sandbox.patchMatch(null));
   // Magazine full, and the cellar form, laid over the report.
   await page.evaluate(() => { const m = window.__sandbox.match; const p = m.powder.map((x) => ({ ...x })); p[1] = { ...p[1], stock: 120, rate: 1.4 }; p[0] = { ...p[0], stock: 120, rate: 1.4 }; window.__sandbox.patchMatch({ powder: p }); });

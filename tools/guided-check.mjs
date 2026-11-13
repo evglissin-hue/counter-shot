@@ -243,7 +243,8 @@ try {
   await patch(null);
   await page.waitForTimeout(1500);
   await patch({ boxes: await dry() });
-  await page.waitForFunction(() => document.getElementById("w-reload").textContent === "Ready", null, { timeout: 60000, polling: 100 });
+  // Loaded, but its box cannot pay: the card says so instead of Ready.
+  await page.waitForFunction(() => /^No powder/.test(document.getElementById("w-reload").textContent), null, { timeout: 60000, polling: 100 });
   await page.evaluate(() => window.__sandbox.fire());
   await page.waitForTimeout(500);
   check("dry again: no second tip, a dry note instead", await page.evaluate(() => window.__tips === 1 && /^No powder at the swivel gun: a boy is \d+ s away$/.test(document.getElementById("note").textContent)));

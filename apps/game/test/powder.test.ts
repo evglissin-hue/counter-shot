@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { POWDER, powderCost, WEAPON_KINDS, type WeaponKind } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { BOX_STRIDE, BOY_STRIDE, type MatchInfo, type PowderInfo } from "../src/protocol";
-import { anyDry, boxOf, boyServing, canPay, DryNotes, dryNote, magazineBlewNote, markTabs, millBlewNote, millsOf, pips, powderBuyWhy, powderLine, type BoxView } from "../src/powder";
+import { anyDry, boxOf, boyServing, canPay, DryNotes, dryNote, dryState, magazineBlewNote, markTabs, millBlewNote, millsOf, pips, powderBuyWhy, powderLine, type BoxView } from "../src/powder";
 import { Standing, type StandingCtx } from "../src/steward/standing";
 
 const box = (over: Partial<BoxView> = {}): BoxView => ({ box: 12, size: 12, cost: 4, eta: -1, hoist: -1, ...over });
@@ -203,4 +203,12 @@ test("a new match resets the standing order's clock", () => {
   s.set("powder", true);
   s.tick(1100, c);
   assert.equal(inputs.length, 2);
+});
+
+test("a loaded gun whose box cannot pay is not Ready: its card says No powder, and when its keg comes", () => {
+  assert.equal(dryState(null), "", "no box to read (no powder in this match): nothing to say");
+  assert.equal(dryState(box({ box: 4 })), "", "it can pay");
+  assert.equal(dryState(box({ box: 0, eta: 360 })), "No powder: keg in 6 s");
+  assert.equal(dryState(box({ box: 0, eta: 1 })), "No powder: keg in 1 s", "never 0 s");
+  assert.equal(dryState(box({ box: 0, eta: -1 })), "No powder", "none on its way");
 });

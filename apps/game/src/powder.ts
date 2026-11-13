@@ -29,6 +29,12 @@ export function boxOf(info: Pick<MatchInfo, "boxes"> | null, emp: number): BoxVi
 /** Can the box pay a shot? Without a box to read, yes. */
 export const canPay = (b: BoxView | null): boolean => !b || b.box >= b.cost;
 
+/** The weapon card's state for a loaded gun whose box cannot pay ("" while it can): it is not ready to fire, it waits for powder. */
+export function dryState(b: BoxView | null): string {
+  if (canPay(b)) return "";
+  return b!.eta >= 0 ? `No powder: keg in ${Math.max(1, Math.ceil(b!.eta / 60))} s` : "No powder";
+}
+
 /** The pips: one for every shot the box holds when full, lit for each shot it holds now. */
 export function pips(b: BoxView | null): { total: number; lit: number } {
   if (!b || b.cost <= 0) return { total: 0, lit: 0 };
