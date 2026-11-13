@@ -193,6 +193,8 @@ interface Group {
   h0: number;
   I: number;
   probes: number[];
+  /** What each probe already touches at the start (a wall bonded to a tower, the course below): not a hit. */
+  touching: number[][];
   bodies: number;
 }
 
@@ -285,6 +287,8 @@ export class Statics {
   private ez = 0;
   private mD = 0;
   private mI = 0;
+  /** For the measures: how far each part had tipped when it was let go, and why (1 the tip angle, 2 a probe met masonry or the ground, 3 the time). */
+  readonly lastRelease: Array<{ theta: number; why: number } | undefined> = [];
 
   constructor(
     private castle: CastleSim,
@@ -794,7 +798,7 @@ export class Statics {
     const g: Group = {
       s: i, ids: [], ghost, p0: new Float64Array(n * 3), q0: new Float64Array(n * 4), mass: new Float64Array(n), lh: new Float64Array(n * 3),
       pos: new Float64Array(n * 3), rot: new Float64Array(n * 4), hx: Hx, hy: Hy, hz: Hz, nx, nz, ux: nz, uz: -nx,
-      theta: 0, omega: STRUCTURE.tipRate, start: tick, M: 0, d0: 0, h0: 0, I: 0, probes: [], bodies: 0,
+      theta: 0, omega: STRUCTURE.tipRate, start: tick, M: 0, d0: 0, h0: 0, I: 0, probes: [], touching: [], bodies: 0,
     };
     let M = 0, sd = 0, sh = 0, I = 0;
     for (let j = 0; j < n; j++) {
@@ -819,6 +823,11 @@ export class Statics {
     g.h0 = M > 0 ? sh / M : 0;
     g.I = I > 0 ? I : 1;
     g.probes = this.chooseProbes(S, g, members, c);
+    for (const j of g.probes) {
+      const found: number[] = [];
+      this.probeHit(g, j, null, found);
+      g.touching.push(found);
+    }
     this.castle.supportNow();
     S.group = g;
     this.setState(S, StaticState.Toppling);
@@ -880,33 +889,45 @@ export class Statics {
       if (g.ghost[j]) continue;
       this.castle.poseBody(g.ids[j], g.pos[j * 3], g.pos[j * 3 + 1], g.pos[j * 3 + 2], g.rot[j * 4], g.rot[j * 4 + 1], g.rot[j * 4 + 2], g.rot[j * 4 + 3]);
     }
-    let go = g.theta >= STRUCTURE.tipAngle || tick - g.start >= STRUCTURE.tipTicks;
-    if (!go) {
-      for (const j of g.probes) {
-        if (this.probeHit(g, j)) {
-          go = true;
+    let why = g.theta >= STRUCTURE.tipAngle ? 1 : tick - g.start >= STRUCTURE.tipTicks ? 3 : 0;
+    if (!why) {
+      for (let k = 0; k < g.probes.length; k++) {
+        if (this.probeHit(g, g.probes[k], g.touching[k], null) !== -1) {
+          why = 2;
           break;
         }
       }
     }
-    if (go) this.release(S, g);
+    if (why) {
+      this.lastRelease[S.def.index] = { theta: g.theta, why };
+      this.release(S, g);
+    }
   }
 
-  /** Would this member of a tipping part meet the ground or standing masonry now? (bounds shrunk by 0.1 m) */
-  private probeHit(g: Group, j: number): boolean {
+  /**
+   * What would this member of a tipping part meet now: the id of a standing piece its bounds (shrunk by 0.1 m) overlap that is
+   * not in `skip`, -2 for the ground, -1 for nothing.
+   */
+  private probeHit(g: Group, j: number, skip: number[] | null, found: number[] | null): number {
     const x = g.pos[j * 3], y = g.pos[j * 3 + 1], z = g.pos[j * 3 + 2];
     this.halfExtents(g.rot[j * 4], g.rot[j * 4 + 1], g.rot[j * 4 + 2], g.rot[j * 4 + 3], g.lh[j * 3], g.lh[j * 3 + 1], g.lh[j * 3 + 2]);
     const ex = this.ex - 0.1, ey = this.ey - 0.1, ez = this.ez - 0.1;
-    if (y - this.ey < this.terrain.heightAt(x, z)) return true;
+    if (y - this.ey < this.terrain.heightAt(x, z)) return -2;
     const pad = Math.max(this.ex, this.ey, this.ez) + this.smallPad;
     const list = this.tmp;
     list.length = 0;
     this.castle.standingNear(x, y, z, pad, list);
     const bmin = this.bmin, bmax = this.bmax;
-    for (const id of list) {
+    let hit = -1;
+    const test = (id: number): boolean => {
       const o = id * 3;
-      if (bmin[o] < x + ex && bmax[o] > x - ex && bmin[o + 1] < y + ey && bmax[o + 1] > y - ey && bmin[o + 2] < z + ez && bmax[o + 2] > z - ez) return true;
-    }
+      if (!(bmin[o] < x + ex && bmax[o] > x - ex && bmin[o + 1] < y + ey && bmax[o + 1] > y - ey && bmin[o + 2] < z + ez && bmax[o + 2] > z - ez)) return false;
+      if (skip && skip.includes(id)) return false;
+      hit = id;
+      if (found) found.push(id);
+      return !found;
+    };
+    for (const id of list) if (test(id)) return hit;
     if (y - this.ey < this.bigTop) {
       const r = Math.max(this.ex, this.ey, this.ez) + 4;
       for (let cx = Math.floor((x - r) / 4); cx <= Math.floor((x + r) / 4); cx++)
@@ -914,14 +935,10 @@ export class Statics {
           for (let cz = Math.floor((z - r) / 4); cz <= Math.floor((z + r) / 4); cz++) {
             const l = this.bigCells.get(this.bigKey(cx, cy, cz));
             if (!l) continue;
-            for (const id of l) {
-              if (this.castle.dynamic[id]) continue;
-              const o = id * 3;
-              if (bmin[o] < x + ex && bmax[o] > x - ex && bmin[o + 1] < y + ey && bmax[o + 1] > y - ey && bmin[o + 2] < z + ez && bmax[o + 2] > z - ez) return true;
-            }
+            for (const id of l) if (!this.castle.dynamic[id] && test(id)) return hit;
           }
     }
-    return false;
+    return hit;
   }
 
   /** Rule 5, the end of the tip: every body of the part turns dynamic with the part's velocity where it is, ghosts take the same and fly on. */
