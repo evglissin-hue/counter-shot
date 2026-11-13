@@ -1,6 +1,10 @@
 // Versus-AI-like match: an AI castle (team 0) against a player (team 1) who is idle, human-like or a Knight.
 // Logs every order the AI sends with the steward's numbers, where the AI's men stand over time, and how many reach the gate.
 // npx rolldown tools/army-diag/orders/versus.ts --format esm --platform node -o node_modules/.scratch/diag-orders-versus.mjs && node node_modules/.scratch/diag-orders-versus.mjs ai=knight player=idle secs=360 seed=21
+// ai=squire|knight|warlord; aigun=0: the AI never fires by hand (so its first shot does not knock the player's gate in at 0:17).
+// player=idle (sends nothing, Advance), human (route and order changes now and then), knight|squire|warlord (an AiPlayer),
+//   gunner (a Knight runs the castle and guns but never sends order, route or barracks inputs), gunhold (gunner, waves on Hold from 0:30).
+// quiet=1 prints only the summary; dump=300,315 dumpZone=ownGate prints every man in that zone at those seconds.
 import { buildLayout, GAME_LAYOUT, MUSTER, type Difficulty } from "@keepfall/content";
 import { breachField, FLOW_INF, MinionState, Order, Role, routeField } from "@keepfall/sim";
 import { Match, Team, type MatchInput } from "@keepfall/rules";
@@ -61,6 +65,9 @@ const endStall = (id: number, now: number) => {
   if (a && now - a.t >= 20 * 60) stalls.push({ id, secs: (now - a.t) / 60, fight: a.fight, orders: [...a.orders].map((o) => ORDER[o]).join("+"), zone: a.zone, act: a.act });
 };
 let holdTicks = 0;
+/** Per team: seconds its route fields reach neither its own muster nor the foe's (the foe's courtyard sealed off), and man-seconds of its marching men cut off (route field INF where they stand). */
+const sealed = [0, 0], cutManSec = [0, 0];
+let sealLog = ["", ""];
 const zoneTicks = new Map<string, number>();
 
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
@@ -81,6 +88,15 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   }
   if (tick % 30 !== 0) continue;
   if (tick % 300 === 0) {
+    for (const t of [0, 1]) {
+      const f = m.army.flow;
+      const all = [0, 1, 2].every((r) => f.at(routeField(t, r), MUSTER[1 - t].x, MUSTER[1 - t].z) >= FLOW_INF && f.at(routeField(t, r), MUSTER[t].x, MUSTER[t].z) >= FLOW_INF);
+      if (all) sealed[t] += 5;
+      const cut = m.world.minions.list.filter((x) => x.team === t && x.state === MinionState.Upright && x.role === Role.March && x.wave >= 0 && f.at(routeField(t, x.route), x.x, x.z) >= FLOW_INF).length;
+      cutManSec[t] += cut * 5;
+      const now = all ? "sealed" : "open";
+      if (!sealLog[t].endsWith(now)) sealLog[t] += ` ${clock(m.tick)} ${now}`;
+    }
     for (const x of m.world.minions.list) {
       if (x.wave < 0 || x.role !== Role.March) continue;
       const t = x.team;
@@ -142,6 +158,7 @@ const stuck = [...stuckAtMarker.values()].filter((v) => v >= 20 * 60).length;
 console.log(`AI men standing still (no target) at own marker or on a bridge under Advance for 20 s or more: ${stuck}; total man-seconds ${([...stuckAtMarker.values()].reduce((a, b) => a + b, 0) / 60).toFixed(0)}`);
 console.log(`standing ${counts.standing} fallen ${counts.fallen}`);
 for (const id of anchor.keys()) endStall(id, m.tick);
+for (const t of [0, 1]) console.log(`team ${t}: foe courtyard unreachable by every route field ${sealed[t]} s (${sealLog[t].trim()}); man-seconds of its marching men cut off from their route field ${cutManSec[t]}`);
 for (const t of [0, 1]) {
   const v = [...backM[t].values()];
   console.log(`team ${t} walking back (away from the foe gate by over 3 m in 5 s, no target): ${v.filter((q) => q >= 10).length} men walked back 10 m or more, total ${v.reduce((a, b) => a + b, 0).toFixed(0)} m; metres by order then: Advance ${backByOrder[t][0].toFixed(0)}, Hold ${backByOrder[t][1].toFixed(0)}, Push ${backByOrder[t][2].toFixed(0)}`);

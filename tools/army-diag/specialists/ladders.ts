@@ -51,6 +51,11 @@ for (let i = 0; i < secs * 60 && !m.result; i++) {
     holdGiven = m.tick;
     tr.note("HOLD given");
   }
+  if (scen === "holdspot" && holdGiven < 0 && L.list[0].spot >= 0) {
+    A.setOrder(1, Order.Hold);
+    holdGiven = m.tick;
+    tr.note("HOLD given (the crew has chosen its spot)");
+  }
   if (scen === "crewdie" && crewKnocked < 0 && m.tick === 40 * 60) {
     const f = m.world.minions.list[L.list[0].front];
     m.world.minions.knock({ minion: f.id, vx: 0, vy: 2, vz: 2, px: f.x, py: 1, pz: f.z, extra: 1, cause: 1 }, m.tick);

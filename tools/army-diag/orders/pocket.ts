@@ -55,6 +55,25 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   if (tick % 300 !== 0) continue;
   for (const t of [0, 1]) {
     const cut = m.world.minions.list.filter((x) => x.team === t && x.state === MinionState.Upright && x.role === Role.March && x.wave >= 0 && m.army.flow.at(routeField(t, x.route), x.x, x.z) >= FLOW_INF);
+    if (cut.length && tick % 900 === 0) {
+      const f = m.army.flow;
+      const own = MUSTER[t], foe = MUSTER[1 - t];
+      const fmt = (v: number) => (v >= FLOW_INF ? "INF" : String(v));
+      const gate = m.world.castle.layout.stones.filter((s) => s.part === "gate" && s.castle === 1 - t);
+      const loose = gate.filter((s) => m.world.castle.dynamic[s.id]).length;
+      // The foe's gateway: nav kinds along x = -2..2 from 4 m outside its front wall to 4 m inside.
+      let gw = "";
+      for (let dz = -22; dz <= -10; dz++) {
+        const z = t === 1 ? dz : -150 - dz;
+        let row = "";
+        for (let x = -3; x <= 3; x++) {
+          const c = navCell(x + 0.5, z + 0.5);
+          row += KIND[nav.kind[c]] + Math.min(9, Math.round(nav.floor[c] * 2));
+        }
+        gw += row + "|";
+      }
+      console.log(`  ${clock(m.tick)} team ${t}: route fields at own muster ${[0, 1, 2].map((r) => fmt(f.at(routeField(t, r), own.x, own.z))).join(",")}, at foe muster ${[0, 1, 2].map((r) => fmt(f.at(routeField(t, r), foe.x, foe.z))).join(",")}; bridges open ${m.army.bridgeOpen.map((b) => (b ? 1 : 0)).join("")}; foe gate leaves loose ${loose}/${gate.length}; cut men routes ${tally(cut.map((x) => String(x.route)))}; foe gateway kinds+floor*2 (out to in): ${gw}`);
+    }
     if (cut.length && tick % 1800 === 0) console.log(`${clock(m.tick)} team ${t} (${ORDER[m.army.order[t]]}) men cut off from their route field: ${cut.length}: ${tally(cut.map((x) => zone(t, x.x, x.z) + "/" + ACTION[x.action]))}; breach field also INF for ${cut.filter((x) => m.army.flow.at(breachField(t), x.x, x.z) >= FLOW_INF).length}; nav topo ${nav.topo}`);
     if (cut.length >= 8 && firstCut[t] < 0) {
       firstCut[t] = m.tick;
