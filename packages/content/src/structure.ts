@@ -39,6 +39,15 @@ export const STRUCTURE = {
    * holds. High up, where the load is light, a cut must go deeper.
    */
   toe: 0.25,
+  /**
+   * A tower's toe (its ring is light and wide for its weight): with the
+   * keep's, one mortar shell bursting against a tower blew away enough of its
+   * ring to topple it, and five towers fell in three minutes of a Knight
+   * mirror with nobody cutting them. With this, about half the ring must go.
+   */
+  towerToe: 0.1,
+  /** A course with less than this share of the structure standing above it is not judged (a few battlements on top: the support check brings those down). */
+  minLoad: 0.1,
   /** Rule 4: ticks a course must keep crushing or toppling before the fall starts (half a second of groaning). */
   hold: 30,
   /** Rule 5: a toppling part starts turning at this rate (rad/s) ... */
@@ -46,10 +55,21 @@ export const STRUCTURE = {
   /** ... and is let go at this tip (rad), when a probe stone meets standing masonry or the ground, or after `tipTicks`. */
   tipAngle: (25 / 180) * DPI,
   tipTicks: 210,
+  /**
+   * What a tipping part's pieces touched as it stood (a tower's wedges bonded
+   * to the curtain wall) stops being ignored once it has tipped this far
+   * (rad): meeting it then lets the part go, so a tower falling along its
+   * wall falls as bodies the wall can stop, not as a kinematic bulldozer.
+   * Up to `touchProbes` such pieces are watched.
+   */
+  touchGrace: 0.035,
+  touchProbes: 48,
   /** Rule 6: a crushed part is let go at once, its walls bursting outward at this speed (m/s) as they come down. */
   splay: 1.2,
   /** Rule 7: of the stones let go, about this many stay bodies; the rest are brittle (dust at their first touch). */
   bodies: 450,
+  /** Of a tower let go, this many stay bodies (its rubble is light work for the wall it lands on: with 450, a tower falling along a curtain wall took the wall down along its length and the next tower with it). */
+  towerBodies: 200,
   /** Rule 7: a brittle stone that touches anything at this speed (m/s) or more turns to dust. */
   brittleSpeed: 9,
   /** A brittle stone still flying after this many ticks turns to dust anyway (it never left the air: a guard). */

@@ -126,8 +126,15 @@ const STOREY_BREAK = 8_000_000;
 const STRUCTURE = 0x0010;
 const BANNER = 0x0008;
 const STRUCTURE_GROUPS = 0xffffffff;
-const RUBBLE_GROUPS = (((0xffff & ~STRUCTURE) << 16) | 0xffff) >>> 0;
+/** Rubble and shots: everything but the structure bit (3.4: and the banner's bit, which only a tipping part filters on). */
+const RUBBLE_GROUPS = (((0xffff & ~STRUCTURE & ~BANNER) << 16) | 0xffff) >>> 0;
 const BANNER_GROUPS = ((BANNER << 16) | STRUCTURE) >>> 0;
+/**
+ * 3.4: a part tipping about its hinge (kinematic) touches only the banner riding on it: it passes through loose
+ * rubble and men instead of driving them, with the force of a body that cannot be stopped, into standing masonry
+ * (a tower tipping along its wall unzipped the wall that way, to the next tower). Let go, its pieces are rubble.
+ */
+const TIPPING_GROUPS = ((STRUCTURE << 16) | BANNER) >>> 0;
 
 const BALL_RADIUS = 0.4;
 const BALL_DENSITY = 7800;
@@ -791,6 +798,7 @@ export class CastleSim {
     } else {
       this.busy[id] = 1;
       body.setBodyType(this.R.RigidBodyType.KinematicPositionBased, true);
+      if (this.layout.keepFloors) body.collider(0).setCollisionGroups(TIPPING_GROUPS);
     }
   }
 
@@ -812,8 +820,7 @@ export class CastleSim {
     body.setRotation({ x: qx, y: qy, z: qz, w: qw }, false);
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
     body.recomputeMassPropertiesFromColliders();
-    const part = this.layout.stones[id].part;
-    if (this.layout.keepFloors && (part === "keep" || part === "storey")) body.collider(0).setCollisionGroups(RUBBLE_GROUPS);
+    if (this.layout.keepFloors) body.collider(0).setCollisionGroups(RUBBLE_GROUPS);
     body.setLinvel({ x: vx, y: vy, z: vz }, true);
     body.setAngvel({ x: wx, y: wy, z: wz }, true);
     body.wakeUp();
