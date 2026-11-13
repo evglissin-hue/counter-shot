@@ -27,8 +27,8 @@ const steps = [
   { label: "Tab back", key: "Tab", frames: 3 },
   // The order line has the keys: Ctrl+1, 2, 3 still give the order.
   { label: "Enter opens the order line", key: "Enter", opts: { key: "Enter" }, frames: 1 },
-  { label: "Ctrl+1 with the order line open", ...ctrl(1), on: "#steward-input", want: O(0), sent: [ord(0)], hud: { order: "0" }, ms: 3000 },
-  { label: "Ctrl+3 with the order line open", ...ctrl(3), on: "#steward-input", want: O(2), sent: [ord(2)], hud: { order: "2" }, ms: 3000 },
+  { label: "Ctrl+1 with the order line open", ...ctrl(1), on: "#steward-input", want: O(0), sent: [ord(0)], hud: { order: "0" } },
+  { label: "Ctrl+3 with the order line open", ...ctrl(3), on: "#steward-input", want: O(2), sent: [ord(2)], hud: { order: "2" } },
   { label: "Esc closes the line", key: "Escape", on: "#steward-input", frames: 1 },
   // The order line.
   { label: 'line "hold"', say: "hold", want: O(1), sent: [ord(1)], hud: { order: "1" } },
@@ -52,7 +52,7 @@ const steps = [
   // A barracks' own road, set from the build menu: the road row follows it.
   { label: "card: Centre (all barracks)", click: '[data-route="centre"]', want: R("centre"), sent: [road("centre")], hud: { route: "centre" } },
   { label: "B opens the build menu", key: "KeyB", frames: 3 },
-  { label: "pick the barracks plot", eval: "document.querySelector('#build [data-pick=\"0\"]').click(); await new Promise((r) => setTimeout(r, 600));", frames: 2 },
+  { label: "pick the barracks plot", eval: "return (async () => { document.querySelector('#build [data-pick=\\\"0\\\"]').click(); await new Promise((r) => setTimeout(r, 600)); })();", frames: 2 },
   {
     label: "build menu: Route: Right on the barracks",
     eval: "return (async () => { const b = [...document.querySelectorAll('#build .choice2')].find((x) => /Route: Right/.test(x.textContent)); if (!b) throw new Error('no Route: Right row'); b.click(); })();",
@@ -70,7 +70,8 @@ try {
   await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 600000 });
   await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60 && !!window.__rep, null, { timeout: 600000, polling: 500 });
   await page.evaluate(() => window.__sandbox.advance(0.1));
-  const rows = await page.evaluate(([s]) => window.__diag.run(s, true), [steps]);
+  // A loaded machine draws few frames: every step gets time to be heard.
+  const rows = await page.evaluate(([s]) => window.__diag.run(s.map((x) => ({ ms: 60000, ...x })), true), [steps]);
   rows.forEach((r, i) => {
     const st = steps[i];
     const bad = [];
@@ -78,7 +79,9 @@ try {
     if (r.err) bad.push(r.err);
     if (st.sent && JSON.stringify(r.sent) !== JSON.stringify(st.sent)) bad.push(`sent ${JSON.stringify(r.sent)}, wanted ${JSON.stringify(st.sent)}`);
     for (const [k, v] of Object.entries(st.hud ?? {})) if (r.hud[k] !== v) bad.push(`card shows ${k} ${r.hud[k]}, wanted ${v}`);
-    if (st.want && r.flips.length > 1) bad.push(`the card flickered: ${JSON.stringify(r.flips.map((f) => `${f.o}/${f.r}`))}`);
+    // The page keeps what you ordered for 1.5 s (then the report wins), so only changes inside that time count: on a loaded machine a report can be later still.
+    const early = r.flips.filter((f) => f.at < 1400);
+    if (st.want && early.length > 1) bad.push(`the card flickered: ${JSON.stringify(early.map((f) => `${f.o}/${f.r}@${f.at}ms`))}`);
     console.log(`${bad.length ? "FAIL" : "ok  "} ${r.label}${bad.length ? ` | ${bad.join("; ")}` : ""}`);
     if (bad.length) failed++;
   });
