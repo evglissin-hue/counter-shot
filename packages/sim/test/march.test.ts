@@ -142,11 +142,26 @@ test("a marching man refused on both axes steps towards the cheapest cell he can
   army.move(m, spot.ux, spot.uz, 1.6, NaN, Action.Walk);
   assert.equal(m.x, spot.x);
   assert.equal(m.z, spot.z);
-  // Marching: he sidesteps, the same tick, and in a few ticks he is on a cheaper cell.
+  // Marching: the same tick he steps his stride towards the middle of the cheapest neighbouring cell he can step to.
+  const G = NAV_GRID;
+  const c = army.cellAt(m.x, m.z);
+  const ci = c % G.nx, cj = (c - ci) / G.nx;
+  let tx = 0, tz = 0, best = FLOW_INF;
+  for (const [di, dj] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const cost = army.flow.dist[f][(cj + dj) * G.nx + ci + di];
+    const x = G.x0 + (ci + di + 0.5) * G.cell, z = G.z0 + (cj + dj + 0.5) * G.cell;
+    if (cost < best && army.canStep(c, x, z)) {
+      best = cost;
+      tx = x;
+      tz = z;
+    }
+  }
+  assert.ok(best < c0, `a cheaper cell to go to (${best} < ${c0})`);
   army.move(m, spot.ux, spot.uz, 1.6, NaN, Action.Walk, f);
-  assert.ok(m.x !== spot.x || m.z !== spot.z, "he stepped");
-  for (let k = 0; k < 60; k++) army.move(m, spot.ux, spot.uz, 1.6, NaN, Action.Walk, f);
-  assert.ok(army.flow.at(f, m.x, m.z) < c0, `on a cheaper cell (${army.flow.at(f, m.x, m.z)} < ${c0})`);
+  const sx = m.x - spot.x, sz = m.z - spot.z, step = Math.hypot(sx, sz);
+  assert.ok(Math.abs(step - 1.6 / 60) < 1e-6, `a stride of ${step.toFixed(4)} m`);
+  const wx = tx - spot.x, wz = tz - spot.z;
+  assert.ok((sx * wx + sz * wz) / (step * Math.hypot(wx, wz)) > 0.999, "straight at that cell's middle");
   sim.free();
 });
 
@@ -197,7 +212,7 @@ test("musketeers stop well short of a gate that stands and leave the doorway to 
   sim.free();
 });
 
-test("men near a lit keg walk away from it until it is gone, then go back to the gate", () => {
+test("men near lit kegs walk away from them (from both, when they stand either side of the gate) until they are gone, then go back to the gate", () => {
   const sim = world();
   const sp = sim.specialists!;
   sim.army!.spawnWave(1, CENTRE, 8, { x: 0, z: -42 });
@@ -205,17 +220,18 @@ test("men near a lit keg walk away from it until it is gone, then go back to the
   run(sim, 25);
   const men = ofWave(sim, wave);
   assert.ok(men.some((m) => m.action === Action.Batter), "they batter the gate");
-  const keg = { x: 2.6, y: 0.35, z: gateZ - 0.9, by: 0.7, bz: gateZ, at: sim.tick + 20 * 60, shot: -1 };
-  sp.kegs.push(keg);
-  const d = (m: Minion) => Math.hypot(m.x - keg.x, m.z - keg.z);
+  // Two sappers' kegs, one either side of the gate, where they set them.
+  const kegs = [-3.5, 3.5].map((x) => ({ x, y: 0.35, z: gateZ - 0.9, by: 0.7, bz: gateZ, at: sim.tick + 20 * 60, shot: -1 }));
+  sp.kegs.push(...kegs);
+  const d = (m: Minion) => Math.min(...kegs.map((g) => Math.hypot(m.x - g.x, m.z - g.z)));
   const close = men.filter((m) => d(m) < MARCH.kegClear);
-  assert.ok(close.length >= 3, `${close.length} men within ${MARCH.kegClear} m of the keg`);
+  assert.ok(close.length >= 4, `${close.length} men within ${MARCH.kegClear} m of a keg`);
   const before = close.map(d);
   run(sim, 0.5);
   close.forEach((m, k) => assert.ok(d(m) > before[k], `man ${m.id} walked away (${before[k].toFixed(1)} -> ${d(m).toFixed(1)} m)`));
-  run(sim, 3);
+  run(sim, 3.5);
   for (const m of ofWave(sim, wave)) assert.ok(d(m) > MARCH.kegClear - 1, `man ${m.id} keeps clear (${d(m).toFixed(1)} m)`);
-  // The keg taken away (it went off, or never would): they go back to the gate.
+  // The kegs taken away (they went off, or never would): back to the gate.
   sp.kegs.length = 0;
   run(sim, 6);
   assert.ok(ofWave(sim, wave).some((m) => m.action === Action.Batter), "back battering");
