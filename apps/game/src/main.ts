@@ -4316,6 +4316,36 @@ else {
   spawn(team: 0 | 1, count: number, x: number, z: number, ladder = false) {
     send({ t: "spawn", team, count, x, z, ladder });
   },
+  /**
+   * 3.4 test tool: cut through a structure. "face" (a keep): its gate-side face and a third of each side, courses 2 to 4;
+   * "partial": half of that cut; "outer" (a tower): 45% of course 2 on its outer side. Returns the stones cut.
+   */
+  cut(structure: number, how: "face" | "partial" | "outer") {
+    const s = STRUCTS[structure];
+    if (!s) return 0;
+    const st = layout.stones;
+    let ids: number[] = [];
+    if (how === "outer") {
+      const target = Math.atan2(-1, -1);
+      const w = s.stones.filter((id) => st[id].part === "tower" && st[id].course === 2).map((id) => {
+        const a = Math.atan2(st[id].z - s.cz, st[id].x - s.cx) - target;
+        return { id, a: Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) };
+      });
+      w.sort((p, q) => p.a - q.a || p.id - q.id);
+      ids = w.slice(0, Math.round(w.length * 0.45)).map((x) => x.id);
+    } else {
+      // The gate side of castle 0 is z < centre; castle 1 mirrors.
+      const side = s.castle === 0 ? 1 : -1;
+      ids = s.stones.filter((id) => {
+        const x = st[id].x - s.cx, z = (st[id].z - s.cz) * side;
+        const c = st[id].course;
+        return st[id].part === "keep" && c >= 2 && c <= 4 && (z < -3 || (Math.abs(x) > 3 && z < -5 + 10 / 3));
+      });
+      if (how === "partial") ids = ids.filter((_, k) => k % 2 === 0);
+    }
+    send({ t: "dust", ids });
+    return ids.length;
+  },
   toggleOverview,
   /** Test clock: stop following wall time and step the match this many game seconds (the worker takes 0.2 s a message). */
   advance(seconds: number) {

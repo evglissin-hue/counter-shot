@@ -45,6 +45,8 @@ export type ToWorker =
   | { t: "nav"; on: boolean }
   /** Test tools only: a wave of a team's pikemen at a point (not an input: a match with it does not replay). */
   | { t: "spawn"; team: 0 | 1; count: number; x: number; z: number; ladder?: boolean }
+  /** Test tools only: turn these stones to dust now (a cut through a structure: not an input, a match with it does not replay). */
+  | { t: "dust"; ids: number[] }
   /** Test clock: stop following wall time and step only when the page says how far to go. */
   | { t: "manual" }
   | { t: "advance"; seconds: number };

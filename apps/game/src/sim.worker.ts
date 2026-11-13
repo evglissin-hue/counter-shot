@@ -625,6 +625,12 @@ async function handle(msg: ToWorker) {
       case "spawn":
         match?.army.spawnWave(msg.team, 1, msg.count, { x: msg.x, z: msg.z }, { ladder: msg.ladder === true });
         break;
+      case "dust":
+        if (sim) {
+          for (const id of msg.ids) sim.castle.dust(id);
+          sim.castle.supportNow();
+        }
+        break;
       case "manual":
         manual = true;
         acc = 0;
