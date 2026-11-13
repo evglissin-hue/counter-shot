@@ -58,7 +58,7 @@ Found and fixed in the master's round, after the merge: a loose gate leaf counte
 
 ## The observatory's quick run, before and after
 
-`npm run observe:quick`, 24 matches each (12 Knight against Knight, 12 Warlord against Knight), the code before the pass (`army-before`) and after it (`army-after`):
+`npm run observe:quick`, 24 matches each (12 Knight against Knight, 12 Warlord against Knight). First on 3.3's tree, the code before the pass (`army-before`) and after it (`army-after`):
 
 | | Before | After |
 |---|---|---|
@@ -75,6 +75,24 @@ Found and fixed in the master's round, after the merge: a loose gate leaf counte
 | Men fallen a minute (median) | 51.8 | 52.7 |
 
 Storms come a little more often and the Warlord, whose waves now get where they are sent, wins more and sooner; Knight against Knight runs a minute longer, its endings unchanged. The match by match outcomes moved a lot (same seeds, different armies). T9 is left out of the table: the before run shared the machine with seven executors (worst step 4.7 s, 631 steps over 33 ms a match) and the after run did not (1.8 s, 102), so its numbers say more about the machine than the army. The magazine numbers (46% blown before, 33% after) move with the matches, not with anything the pass changed.
+
+Then on 3.4's tree, which landed first: 3.4 alone (`k34-base`, run here at 95f93cc, so both are on this machine with the same bodies) against 3.4 with the pass merged (`army-after-34`):
+
+| | 3.4 alone | 3.4 with the pass |
+|---|---|---|
+| Length, all 24 (median, shortest, longest) | 6.1 min (0.7, 14.2) | 6.0 min (2.9, 11.0) |
+| T1 Knight against Knight | 6.2 min; 58% between 6 and 16 | 6.4 min; 50% between 6 and 16 |
+| T2 endings, Knight against Knight | felled 42%, floors 33%, storm 25% | felled 25%, floors 42%, storm 33% |
+| Won by storm, all 24 | 4 | 4 |
+| Matches with a storm under way at some sample | 8 | 12 |
+| T4 Warlord beats Knight | 83% | 92% |
+| T5 unspent gold over 400 (median) | 47.0 s (pass) | 65.0 s (fail, the line is 60) |
+| T7 the keep's share of hand shots | 47% (pass) | 44% (pass) |
+| T8 the side behind wins | 25% (pass) | 25% (pass) |
+| Keeps toppled; keep endings felled against floors | 16; 16 against 4 | 10; 10 against 10 |
+| Magazines blown | 54% | 58% |
+
+On 3.4 the pass leaves the length where it was but takes away its extremes (no match under 2.9 min: 3.4 alone had five keeps felled within 2 minutes), storms are tried in half the matches rather than a third, and the Warlord's waves win it more. Fewer keeps are felled and more fall by their floors; T5 crosses its line by 5 s, a number that has moved between 44.5 s and 109.5 s across quick runs of nearly the same code, so for the next balance pass rather than this one.
 
 ## The player's chair
 
