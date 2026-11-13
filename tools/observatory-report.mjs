@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TICKS_PER_SEC = 60;
-const KINDS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range"];
+const KINDS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut"];
 const LEVEL_ORDER = ["idle", "squire", "knight", "warlord"];
 
 // ---------------------------------------------------------------- reading
@@ -121,14 +121,28 @@ function shares(ms) {
   return by;
 }
 
+/** 3.4: the endings with a keep win split: "keep (felled)" when the losing keep toppled or crushed in that match, else "keep (floors)" (lines from before 3.4 keep "keep"). */
+function sharesSplit(ms) {
+  const by = {};
+  for (const m of ms) {
+    let r = m.result.reason ?? "none";
+    if (r === "keep" && m.result.felled === true) r = "keep (felled)";
+    else if (r === "keep" && m.result.felled === false) r = "keep (floors)";
+    by[r] = (by[r] ?? 0) + 1;
+  }
+  return by;
+}
+
 function t2(ms) {
   if (!ms.length) return NA("n/a (no mirror matches)");
   const by = shares(ms);
   const sh = Object.fromEntries(Object.entries(by).map(([k, v]) => [k, v / ms.length]));
   const max = Math.max(...Object.values(sh));
   const storm = sh.storm ?? 0;
-  const text = ["keep", "storm", "time", "surrender"].filter((k) => sh[k] !== undefined).map((k) => `${k} ${pct(sh[k])}`).join(", ");
-  return { value: `${text} (n ${ms.length})`, pass: max <= 0.6 && storm >= 0.25 && storm <= 0.5, data: { n: ms.length, counts: by, shares: sh } };
+  // The target still judges keep as one reason; the text shows how it split.
+  const split = sharesSplit(ms);
+  const text = ["keep (felled)", "keep (floors)", "keep", "storm", "time", "surrender"].filter((k) => split[k] !== undefined).map((k) => `${k} ${pct(split[k] / ms.length)}`).join(", ");
+  return { value: `${text} (n ${ms.length})`, pass: max <= 0.6 && storm >= 0.25 && storm <= 0.5, data: { n: ms.length, counts: by, shares: sh, split } };
 }
 
 function t3(ms) {
@@ -263,12 +277,58 @@ function t7(all) {
   }
   const total = sum(Object.values(tot));
   if (!n || !total) return NA("n/a (no winners' shots)");
-  const [top, topN] = Object.entries(tot).sort((a, b) => b[1] - a[1])[0];
+  // 3.4: cutting the keep counts with the keep for the keep's share; both are shown.
+  const merged = { ...tot, keep: tot.keep + tot.cut };
+  delete merged.cut;
+  const [top, topN] = Object.entries(merged).sort((a, b) => b[1] - a[1])[0];
+  const kept = tot.cut || tot.open ? `; keep ${pct(merged.keep / total)} (floors ${pct(tot.keep / total)}, cut ${pct(tot.cut / total)}), open the way ${pct(tot.open / total)}` : "";
   return {
-    value: `${top} takes ${pct(topN / total)} of ${total} shots by hand (${n} winners)`,
+    value: `${top} takes ${pct(topN / total)} of ${total} shots by hand (${n} winners)${kept}`,
     pass: topN / total <= 0.5,
-    data: { matches: n, shots: tot, topKind: top, topShare: topN / total },
+    data: { matches: n, shots: tot, topKind: top, topShare: topN / total, keepShare: merged.keep / total, cutShare: tot.cut / total, openShare: tot.open / total },
   };
+}
+
+/**
+ * 3.4: the falls. From the lines that carry totals.falls (older lines lack it): the structures that fell by kind and how
+ * (a tower or a keep, toppling or crushing), the share of matches in which one toppled (aim 70%), how the keep endings split
+ * (felled against floors) and the hand shots that landed on an enemy keep at its foot and above it.
+ */
+function fallStats(all) {
+  const ms = all.filter((m) => m.totals?.falls);
+  if (!ms.length) return null;
+  const kinds = ["keep", "tower"], hows = ["topple", "crush"];
+  const rows = [];
+  for (const kind of kinds) {
+    for (const how of hows) {
+      const list = ms.flatMap((m) => [...m.totals.falls[0], ...m.totals.falls[1]]).filter((f) => f[1] === kind && f[2] === how);
+      rows.push({ kind, how, falls: list.length, perMatch: list.length / ms.length, "median course": list.length ? median(list.map((f) => f[3])) : NaN, "median second": list.length ? median(list.map((f) => f[0])) : NaN });
+    }
+  }
+  const toppled = ms.filter((m) => [...m.totals.falls[0], ...m.totals.falls[1]].some((f) => f[2] === "topple")).length;
+  const keepWins = all.filter((m) => isDecided(m) && m.result.reason === "keep" && typeof m.result.felled === "boolean");
+  const felled = keepWins.filter((m) => m.result.felled).length;
+  const foot = sum(ms.map((m) => sum(m.totals.keepFoot ?? [0, 0]))), top = sum(ms.map((m) => sum(m.totals.keepTop ?? [0, 0])));
+  let winFoot = 0, winTop = 0, loseFoot = 0, loseTop = 0;
+  for (const m of ms) {
+    if (!isDecided(m) || m.result.winner === -1) continue;
+    winFoot += m.totals.keepFoot?.[m.result.winner] ?? 0;
+    winTop += m.totals.keepTop?.[m.result.winner] ?? 0;
+    loseFoot += m.totals.keepFoot?.[1 - m.result.winner] ?? 0;
+    loseTop += m.totals.keepTop?.[1 - m.result.winner] ?? 0;
+  }
+  return { n: ms.length, rows, toppled, toppleShare: toppled / ms.length, toppleOk: toppled / ms.length >= 0.7, keepWins: keepWins.length, felled, floors: keepWins.length - felled, foot, top, winFoot, winTop, loseFoot, loseTop };
+}
+
+function fallLines(f) {
+  if (!f) return ["No line carries the falls (a run from before 3.4)."];
+  const out = [
+    `Matches with the falls recorded: ${f.n}. A tower or a keep toppled in ${f.toppled} of them: ${pct(f.toppleShare)} (aim 70% or more) ${statusText(f.toppleOk)}.`,
+    ...f.rows.map((r) => `${r.kind} ${r.how}: ${r.falls} falls (${num(r.perMatch, 2)} a match), median course ${num(r["median course"], 0)}, median at ${Number.isFinite(r["median second"]) ? mmss(r["median second"]) : "n/a"}.`),
+    f.keepWins ? `Keep endings: ${f.felled} felled (the losing keep toppled or crushed) against ${f.floors} by floors (of ${f.keepWins}).` : "Keep endings: none with the split recorded.",
+    `Hand shots that landed on an enemy keep: ${f.foot} at the foot (below its lowest floor) and ${f.top} above it; the winners' ${f.winFoot} foot and ${f.winTop} top, the losers' ${f.loseFoot} foot and ${f.loseTop} top.`,
+  ];
+  return out;
 }
 
 function halfSample(m) {
@@ -401,7 +461,8 @@ function analyse(dir) {
   for (const a of present) for (const b of present) if (a !== b) pairings.push(pairing(decided, a, b));
 
   const powder = powderStats(all);
-  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder };
+  const falls = fallStats(all);
+  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder, falls };
 }
 
 // ---------------------------------------------------------------- charts
@@ -784,6 +845,7 @@ ${failedList}
 </section>
 <section><h2>Range and register</h2>${table(registerRows(a.all))}<div class="small">Per side, as a mean per match: marks made, salvos fired, shots by guns nobody mans (and how many of them at men on a mark) and bridges standing at the end (of 3; lines from before 3.2 count as 0 marks and 3 bridges).</div></section>
 <section><h2>Powder</h2><ul>${powderLines(a.powder).map((l) => `<li>${esc(l)}</li>`).join("")}</ul></section>
+<section><h2>Falls</h2><ul>${fallLines(a.falls).map((l) => `<li>${esc(l)}</li>`).join("")}</ul><div class="small">Every structure that toppled or crushed (from the Topple and Crush events), over both castles; endings split as keep (felled) and keep (floors); hand shots by where they landed on the enemy keep. Lines from before 3.4 carry none of it.</div></section>
 <section><h2>Charts</h2>
 <figure><h3>Match length (T1)</h3>${length}<figcaption>Mirror matches with a result: ${mirrorDecided.length}. The shaded band is the median target.</figcaption></figure>
 <figure><h3>Endings by pairing (T2)</h3>${endings}<figcaption>All matches with a result, by who commanded castle 0 and castle 1.</figcaption></figure>
@@ -822,6 +884,7 @@ function buildSummary(a) {
     })),
     pairings: a.pairings,
     powder: a.powder,
+    falls: a.falls,
   };
 }
 
@@ -838,6 +901,9 @@ function buildMarkdown(a) {
   lines.push("");
   lines.push("Powder", "");
   for (const l of powderLines(a.powder)) lines.push(`- ${l}`);
+  lines.push("");
+  lines.push("Falls", "");
+  for (const l of fallLines(a.falls)) lines.push(`- ${l}`);
   lines.push("");
   return lines.join("\n");
 }
