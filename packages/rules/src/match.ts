@@ -67,7 +67,7 @@ export type MatchInput =
   | FireInput
   /** All of the team's waves, now and later (SPEC section 8). */
   | { kind: "order"; order: Order }
-  /** The route every barracks of the team sends its next waves down. */
+  /** The route every barracks of the team sends its next waves down; the team's waves out that have not crossed their bridge take it too. */
   | { kind: "route"; route: RouteName }
   /**
    * The emplacement the team is riding now (-1: none, in the overview); every
@@ -541,6 +541,8 @@ export class Match {
         if (!ROUTE_NAMES.includes(input.route)) return;
         this.route[team] = input.route;
         this.estate.setRoutes(team, input.route);
+        // The army pass: the waves already out that have not crossed take the new road too (holding ones walk to its marker).
+        this.army.setRoute(team, ROUTE_NAMES.indexOf(input.route));
         return;
       case "man": {
         const e = input.emplacement;
