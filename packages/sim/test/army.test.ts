@@ -95,8 +95,9 @@ test("on Push a wave goes in through a breach in the wall and leaves the gate al
     for (const m of upright(s, 1)) if (m.action === Action.Batter) battered++;
   });
   assert.equal(battered, 0, "nobody battered the gate");
-  const leaves = layout.stones.filter((s) => s.castle === 0 && s.part === "gate").map((s) => s.id);
-  for (const id of leaves) assert.equal(sim.castle.dynamic[id], 0, "the gate still stands");
+  // 3.4: the two balls also cut the east foot of the front left tower, which topples towards the gate and may knock a
+  // leaf off; what matters here is that no man battered it.
+  assert.equal(sim.army!.gateHits.size, 0, "no blow fell on the gate");
   const inside = upright(sim, 1).filter((m) => m.z > -13);
   assert.ok(inside.length >= 5, `${inside.length} inside the enemy walls`);
   sim.free();

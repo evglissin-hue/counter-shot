@@ -13,7 +13,8 @@
 //   when load / carry > STRUCTURE.crush.
 // - Toppling (rule 3): the footing is the convex hull (x, z) of the top
 //   faces of course c's standing masonry, drawn in by STRUCTURE.margin +
-//   STRUCTURE.toe * half * load / carry (half: the structure's half width).
+//   toe * half * load / carry (half: the structure's half width; toe is
+//   STRUCTURE.toe for a keep, STRUCTURE.towerToe for a tower).
 //   If the centre of mass of everything standing above c lies outside it
 //   (its signed distance inside the hull, the least over the hull's edges,
 //   is under the draw-in), the part above c topples about the most violated
@@ -29,7 +30,8 @@
 //   STRUCTURE.tipAngle, when a probe stone meets standing masonry or the
 //   ground, or after STRUCTURE.tipTicks. A crush turns the course's standing
 //   stones to dust and lets the part above go at once. Of the stones let go
-//   about STRUCTURE.bodies stay Rapier bodies (and every storey board); the
+//   about STRUCTURE.bodies stay Rapier bodies (STRUCTURE.towerBodies of a
+//   tower; and every storey board); the
 //   rest are brittle "ghosts": no body, posed and flown by this pass, dust at
 //   the first touch of the ground or standing masonry.
 // - A keep that falls takes its floors with it, so its banner comes down
@@ -267,6 +269,11 @@ function convexHull(xs: number[], zs: number[]): number[] {
   return o;
 }
 
+/** The toe of a structure's footing (STRUCTURE.toe for a keep's dressed stone, STRUCTURE.towerToe for a tower's ring). */
+function toeOf(def: StructureDef): number {
+  return def.kind === "keep" ? STRUCTURE.toe : STRUCTURE.towerToe;
+}
+
 export class Statics {
   readonly list: StructureDef[];
   private S: Struct[] = [];
@@ -449,7 +456,7 @@ export class Statics {
         this.edgeMargin(hull, aboveXs[c] / aboveM[c], aboveZs[c] / aboveM[c]);
         // As built a course carries the share of the whole load that stands above it (the master's reading of rule 2).
         const r0 = aboveM[0] > 0 ? aboveM[c] / aboveM[0] : 1;
-        m0 = this.mD - (STRUCTURE.margin + STRUCTURE.toe * half * r0);
+        m0 = this.mD - (STRUCTURE.margin + toeOf(def) * half * r0);
       }
       margin0[c] = m0 > 0.05 ? m0 : 0.05;
     }
@@ -556,6 +563,7 @@ export class Statics {
     let dec: CourseEval | null = null;
     let best: CourseEval | null = null;
     const heat: number[] = [];
+    const minLoad = STRUCTURE.minLoad;
     for (let c = 0; c < S.nCarry; c++) {
       // Rule 2, as the master reads it: the load is the mass standing above c as a share of all that stands above the
       // structure's lowest course as built, so a course high up carries less than one at the foot (a keep that has lost
@@ -565,7 +573,9 @@ export class Statics {
       const carry = S.builtArea[c] > 0 ? S.areaC[c] / S.builtArea[c] : 1;
       const r = load <= 0 ? 0 : carry <= 1e-9 ? Infinity : load / carry;
       S.rC[c] = r;
-      if (S.builtCount[c] === 0 || S.cntBuilt[c] >= S.builtCount[c]) {
+      // An undamaged course, or one near the top with less than STRUCTURE.minLoad of the structure on it (a few
+      // battlements: the support check alone brings those down), is not judged.
+      if (S.builtCount[c] === 0 || S.cntBuilt[c] >= S.builtCount[c] || load < minLoad) {
         heat.push(0);
         continue;
       }
@@ -601,7 +611,7 @@ export class Statics {
     const above = S.aboveMass[c];
     const hull = this.hullOf(S, c);
     const rc = r > crush ? crush : r;
-    const drawIn = STRUCTURE.margin + STRUCTURE.toe * half * rc;
+    const drawIn = STRUCTURE.margin + toeOf(S.def) * half * rc;
     const ev: CourseEval = {
       course: c, r, crushNear: r > 1 ? (r - 1) / (crush - 1) : 0, toppleNear: 0, heat: 0, margin: S.margin0[c], drawIn,
       comX: S.def.cx, comY: S.courseTop[c], comZ: S.def.cz, hull, nx: 0, nz: 0, hx: 0, hz: 0, mode: 0,
@@ -713,7 +723,7 @@ export class Statics {
   /** Is this member a Rapier body when its part is let go (else a brittle ghost)? Evenly by id order, every storey board always. */
   private selectBodies(S: Struct, members: number[]): Uint8Array {
     const n = members.length;
-    const K = STRUCTURE.bodies;
+    const K = S.def.kind === "keep" ? STRUCTURE.bodies : STRUCTURE.towerBodies;
     const ghost = new Uint8Array(n);
     for (let j = 0; j < n; j++) {
       const body = S.storey[members[j]] === 1 || Math.floor(((j + 1) * K) / n) > Math.floor((j * K) / n);
@@ -725,10 +735,10 @@ export class Statics {
   /** Rule 9 and the footing: what a fall at course c does before the part above moves. Returns the members that stand above c, in id order. */
   private prepare(S: Struct, c: number): number[] {
     const dyn = this.castle.dynamic;
-    if (S.def.kind === "keep") {
-      // The falling mass goes through the floors under it: those boards come loose, the banner comes down with them.
-      for (let k = 0; k < S.n; k++) if (S.storey[k] && S.course[k] <= c && !dyn[S.ids[k]]) this.castle.looseNow(S.ids[k]);
-    }
+    // Rule 9: a keep that falls from below its lowest floor takes every floor with it (they are all in the part that
+    // falls), so its banner comes down. A fall higher up takes only the floors above the cut: the banner comes down
+    // with them, and where it lands (the ground, or a floor still standing in the stump) is the physics' to decide.
+    // (Dropping every floor for any fall let two battlements toppling off the top win a match.)
     const members: number[] = [];
     for (let k = 0; k < S.n; k++) if (S.course[k] > c && !dyn[S.ids[k]]) members.push(k);
     return members;
@@ -834,6 +844,24 @@ export class Statics {
       this.probeHit(g, j, null, found);
       g.touching.push(found);
     }
+    // The members that touch standing masonry outside the part as it stands (a tower's wedges bonded to the curtain
+    // walls) are watched too, furthest along the fall first: once the part has tipped past STRUCTURE.touchGrace, what
+    // they touched counts as met. (A tower tipping along its wall was kinematic, an unstoppable bulldozer, for a second
+    // and a half: it drove rubble into the wall and unzipped it to the next tower, which fell too.)
+    const inProbes = new Set(g.probes);
+    const along = (j: number) => (g.p0[j * 3] - g.hx) * g.nx + (g.p0[j * 3 + 2] - g.hz) * g.nz;
+    const touch: Array<{ j: number; found: number[] }> = [];
+    for (let j = 0; j < g.ids.length; j++) {
+      if (inProbes.has(j)) continue;
+      const found: number[] = [];
+      this.probeHit(g, j, null, found);
+      if (found.length) touch.push({ j, found });
+    }
+    touch.sort((a, b) => along(b.j) - along(a.j) || a.j - b.j);
+    for (const t of touch.slice(0, STRUCTURE.touchProbes)) {
+      g.probes.push(t.j);
+      g.touching.push(t.found);
+    }
     this.castle.supportNow();
     S.group = g;
     this.setState(S, StaticState.Toppling);
@@ -897,8 +925,9 @@ export class Statics {
     }
     let why = g.theta >= STRUCTURE.tipAngle ? 1 : tick - g.start >= STRUCTURE.tipTicks ? 3 : 0;
     if (!why) {
+      const grace = g.theta < STRUCTURE.touchGrace;
       for (let k = 0; k < g.probes.length; k++) {
-        if (this.probeHit(g, g.probes[k], g.touching[k], null) !== -1) {
+        if (this.probeHit(g, g.probes[k], grace ? g.touching[k] : null, null) !== -1) {
           why = 2;
           break;
         }
