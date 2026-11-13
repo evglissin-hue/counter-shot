@@ -21,6 +21,7 @@ node tools/estate-shots.mjs  # M3: buildings on the Practice range, then a match
 node tools/online-check.mjs  # M5: two headless pages play each other through the lobby (lockstep must hold), then Versus AI
 node tools/anim-shots.mjs  # contact sheets of the minions' animation on the renderer test page (gait, turning, fights, musket reload, sapper, climbing, a fall); --bench=200 times them
 node tools/hud-check.mjs  # every HUD control in a Versus AI match: the command card's buttons and keys, Build and the build menu, gun tabs, sound, Controls, shot camera, overview, pause
+node tools/orders-check.mjs  # every way to order the waves and pick a road (card, keys, order line, build menu) sends the right input and the card shows it without flicker
 node tools/first-match-shots.mjs  # the first seconds of a match at the artifact panel's size (1100 x 810), its short-lived messages slowed so they can be seen together
 node tools/guns-shots.mjs  # the mortar's spotter and charge ring, a chain shot silencing a gun, a tower gun falling with its masonry
 node tools/guided-check.mjs  # M6: the guided match step by step (the coach, its rings and marks, its interruptions, Skip and Hide, its end screen)

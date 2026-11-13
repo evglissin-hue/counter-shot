@@ -69,15 +69,15 @@ export class Input {
 
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
-      if (isTyping(e)) return;
-      // Tab and Space are game keys: never let them move focus or press a focused button.
-      if (e.code === "Tab" || e.code === "Space") e.preventDefault();
-      // Ctrl+1, 2, 3 give orders (and must not switch the browser's tab or the weapon).
+      // Ctrl+1, 2, 3 give orders, also with the order line or another field open (and must not switch the browser's tab or the weapon).
       if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Digit1" || e.code === "Digit2" || e.code === "Digit3")) {
         e.preventDefault();
         if (!e.repeat) this.edges.add(`Order${e.code.slice(5)}`);
         return;
       }
+      if (isTyping(e)) return;
+      // Tab and Space are game keys: never let them move focus or press a focused button.
+      if (e.code === "Tab" || e.code === "Space") e.preventDefault();
       // Alt+1 to 4 switch your masons' repairs (and must not type a character or switch the weapon).
       if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-4]$/.test(e.code)) {
         e.preventDefault();
