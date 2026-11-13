@@ -290,6 +290,17 @@ export const LADDER = {
   /** The crewmen walk this far apart (m), the ladder on their shoulders, at this share of a pikeman's pace. */
   carryGap: 3.6,
   carryPace: 0.85,
+  /** A spot is usable while the wall there still stands at least this high (m above the ground); a loose top stone or two do not spoil it. */
+  minWall: 6,
+  /** A crew this close to the enemy wall with no usable spot for this long (s) drops its ladder and fights as pikemen. */
+  giveUp: 20,
+  /** Men who reach the wall walk wait for this many of their side to be there (parity with a four-man garrison, so a band lands and fights, not one at a time), or for nobody else to be coming, or for this many seconds. */
+  group: 4,
+  groupWait: 6,
+  /** Men going over a wall together start this far apart (m) along the wall walk. */
+  groupGap: 0.8,
+  /** A man choosing a ladder counts this many metres of walk for each man already claiming it or on it. */
+  queuePenalty: 4,
   /** Mass of a ladder (kg). */
   mass: 55,
   /** Fallen ladders that stay on the field; past this the oldest go. */
