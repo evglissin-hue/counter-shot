@@ -645,7 +645,7 @@ body.photoing #replay { visibility: hidden; }
     <div id="mapbox" class="mapbox" title="A plan of the valley: walls pale when sound, hatched when hit (amber when half gone), a gap and a red arrow where a wall is breached; a dot is a man standing, a number beside a group of six or more. Point at it, or hold G, to see it twice the size"><div class="mapzoom"><canvas id="minimap" aria-label="Plan of the valley: both castles, the bridges and every man standing"></canvas></div></div>
     <div id="command" class="command glass" hidden>
       <div class="cmd-head"><span>Waves</span><span id="next-wave"></span></div>
-      <div class="seg" role="group" aria-label="Route of your next waves (L)"><button data-route="left" title="Next waves take your left flank (L)">Left</button><button data-route="centre" title="Next waves take the centre road (L)">Centre</button><button data-route="right" title="Next waves take your right flank (L)">Right</button></div>
+      <div class="seg" role="group" aria-label="Road your waves take (L)" title="Pick the road your waves take (L)"><button data-route="left" title="Your waves take the left flank (L)">Left</button><button data-route="centre" title="Your waves take the centre road (L)">Centre</button><button data-route="right" title="Your waves take the right flank (L)">Right</button></div>
       <div class="gangs" id="gangs" hidden></div>
       <div class="seg" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><button data-order="0" title="Advance on the enemy gate (Ctrl+1)">Advance</button><button data-order="1" title="Hold at the midfield markers (Ctrl+2)">Hold</button><button data-order="2" title="Push through the nearest breach (Ctrl+3)">Push</button></div>
       <div class="cmd-head"><span>Repairs</span><span class="masons" id="masons"></span></div>
@@ -680,7 +680,7 @@ body.photoing #replay { visibility: hidden; }
       <dt>K</dt><dd>Impact cam: a small view of where your shot lands, a second before it does. Click it to swap views</dd>
       <dt>B</dt><dd>Build menu: mills, barracks, a foundry, guns for empty slots, upgrades</dd>
       <dt>G</dt><dd>Hold to see the minimap twice its size (or point at it)</dd>
-      <dt>L</dt><dd>Route of your next waves: left, centre, right</dd>
+      <dt>L</dt><dd>Road your waves take: left, centre, right</dd>
       <dt>T, F</dt><dd>T: mark where your shot landed. Guns nobody mans shoot true on marked ground. F then its number: every gun that bears fires there.</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
       <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>

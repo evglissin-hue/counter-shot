@@ -3,7 +3,7 @@
 // banner stands, which gate and buildings still stand, whether there is a way
 // in). Read only: the AI changes the match through inputs alone.
 
-import { BUTTRESS_FACES, CASTLE_SHAPE, KEEP_STOREYS, mirrorZ, MUSTER, PLOTS, plotCentre, ROUTE_NAMES, BRIDGES, inCourtyard, weaponOf, type ButtressFace, type CastleLayout, type Emplacement } from "@keepfall/content";
+import { BUTTRESS_FACES, CASTLE_SHAPE, DEFEND, KEEP_STOREYS, MID_Z, mirrorZ, MUSTER, PLOTS, plotCentre, ROUTE_NAMES, BRIDGES, inCourtyard, weaponOf, type ButtressFace, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { dsqrt } from "@keepfall/core";
 import { aimDir, breachField, flightCoef, flightDv, FLOW_INF, G, MinionState, muzzle, PlotState, Role } from "@keepfall/sim";
 import type { Match } from "@keepfall/rules";
@@ -169,6 +169,29 @@ export function nearBridge(x: number, z: number, r: number): boolean {
     if (ox * ox + oz * oz < r * r) return true;
   }
   return false;
+}
+
+/**
+ * The real threat to a castle: the enemy's marching men on its side of the stream (anywhere between the stream's middle
+ * and its back) or within DEFEND + 10 m of its gate. Men holding or standing in their own half do not count.
+ */
+export function threat(m: Match, team: number): number {
+  const g = MUSTER[team], r = DEFEND + 10, r2 = r * r;
+  let n = 0;
+  for (const mi of m.world.minions.list) {
+    if (mi.team === team || mi.state !== MinionState.Upright || mi.wave < 0 || mi.role !== Role.March) continue;
+    const dx = mi.x - g.x, dz = mi.z - g.z;
+    const ownSide = team === 0 ? mi.z > MID_Z : mi.z < MID_Z;
+    if (ownSide || dx * dx + dz * dz <= r2) n++;
+  }
+  return n;
+}
+
+/** A team's men standing (anyone upright), for the cap on its waves. */
+export function standing(m: Match, team: number): number {
+  let n = 0;
+  for (const mi of m.world.minions.list) if (mi.team === team && mi.state === MinionState.Upright) n++;
+  return n;
 }
 
 // ---- 3.4: reading a building ----

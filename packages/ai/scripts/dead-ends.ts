@@ -9,6 +9,9 @@
 // for 60 s while its store has stock and one of its boys stands; a castle whose powder rate is 0; a boy whose errand does not
 // advance for 60 s (same task, same gun, moved under 2 m); a magazine ruin that cannot be rebuilt (the gold was there and it is
 // still a ruin, or still rising with no piece raised, after 90 s).
+// The army pass adds the army hunts (sampled once a second, each flagged once, with numbers): a team cut off (route fields
+// FLOW_INF under its marching men), a soldier stuck with nothing to fight, an AI that holds too long or flips its orders, and
+// ladders carried to the wall with no way in but never planted. The scripted army scenarios live in packages/ai/scripts/army-hunt.ts.
 // 3.4 adds the keep hunts (each flagged once per structure): a structure groaning or holding under 0.3 for over 120 s without
 // falling or mending past 0.6 (masons undoing each hit for ever: gold and masons are printed); a piece let go moving faster than
 // 40 m/s within 2 s of a Released event (stones thrown from inside masonry); and a keep or tower piece down for over 180 s with
@@ -16,8 +19,8 @@
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, sectionOf, WEAPON_COST, type Difficulty } from "@keepfall/content";
-import { EVENT_STRIDE, EventKind, MinionState, PlotState, StaticState, type Rapier } from "@keepfall/sim";
+import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, holdMarker, inCourtyard, MUSTER, ROUTE_NAMES, sectionOf, Unit, WEAPON_COST, type Difficulty } from "@keepfall/content";
+import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, MinionState, Order, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
 
@@ -28,6 +31,27 @@ const sides = [arg("enemy", "knight"), arg("player", "knight")];
 const secs = Number(arg("secs", "720")), seed = Number(arg("seed", "21"));
 /** How long (s) a gun may stay out, a slot stay blocked, a gunner stay idle, or gold pile up before it is flagged. */
 const LIMIT = { out: Number(arg("out", "240")), blocked: 240, idle: 150, gold: 600, goldFor: 180 };
+
+/** The army hunts' thresholds (the army pass). */
+const ARMY = {
+  cutMen: 8, // marching men of a team on FLOW_INF cells at once...
+  cutFor: 20, // ...for this many seconds is a team cut off
+  cutRelief: 3, // s the count may stay under cutMen (a nav-topo flicker) before the spell is forgotten
+  cutOne: 30, // or one man on a FLOW_INF cell for this many seconds
+  stuckFor: 20, // seconds an upright soldier with nothing to fight may make under stuckMetres
+  stuckMetres: 1, // m that counts as moving
+  stuckCap: 6, // stuck men listed one by one (the rest are counted in one flag at the end)
+  gateFront: 14, // m from the enemy muster that counts as the gate front (a man waiting there is not stuck)
+  holdStretch: 60, // s: the longest Hold an AI may give in one stretch
+  holdShare: 0.4, // the share of the match so far an AI may spend on Hold (checked at the end)
+  holdMin: 120, // s of match before the Hold share is judged
+  churnCount: 6, // order changes allowed in any churnWindow
+  churnWindow: 300, // s
+  churnGap: 15, // s: two order changes closer than this are a flip
+  ladderSent: 5, // ladders carried to the wall with no way in before the planted share is judged (at the end)
+  ladderShare: 0.3, // share of those ladders that must have been planted
+  noSpot: 60, // s a ladder crew may carry near the wall with no spot
+};
 
 const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false });
 const ais = sides.map((s, team) => (s === "idle" ? null : new AiPlayer(m, team, s as Difficulty, seed)));
@@ -77,6 +101,118 @@ const magSince = [-1, -1], magFlagged = [false, false];
 const boxes = (c: number) => m.emplacements.map((e, i) => (castleOf(i) === c && !e.empty ? `${i}:${carriers!.box(i)}/${carriers!.boxCap(i)}` : "")).filter(Boolean).join(" ");
 const stockOf = (c: number) => (carriers ? carriers.status(c).stock : 0);
 
+// Army hunts: state.
+const A = m.army;
+const lastOrder = [A.order[0], A.order[1]], changes: number[][] = [[], []], holdTicks = [0, 0], holdStretch = [0, 0];
+const holdFlagged = [false, false], churnFlagged = [false, false], flipFlagged = [false, false];
+const sealRun = [0, 0], sealFlagged = [false, false];
+const cutSpell = [-1, -1], cutHigh = [0, 0], cutTeamFlagged = [false, false], cutSince = new Map<number, number>(), cutManFlagged = [false, false];
+const stillAt = new Map<number, { x: number; z: number; since: number }>(), stillFlagged = new Set<number>();
+let stuckMore = 0;
+const everPlanted = new Set<number>(), carrySince = new Map<number, number>(), carryFlagged = new Set<number>();
+/** Ladders whose crew stood near the enemy wall, carrying, with no way in open (the ones a ladder was for). */
+const chance = new Set<number>();
+const ORDERS = ["Advance", "Hold", "Push"];
+/** The field a man marches on now, or -1 when he holds by order (as the army chooses it). */
+function marchField(x: Minion): number {
+  const route = routeField(x.team, x.route);
+  if (A.order[x.team] === Order.Push) {
+    const b = breachField(x.team);
+    return A.flow.at(b, x.x, x.z) < FLOW_INF ? b : route;
+  }
+  if (A.order[x.team] === Order.Hold) {
+    const hz = holdMarker(x.team as 0 | 1, ROUTE_NAMES[x.route]).z;
+    const past = x.team === 1 ? x.z - hz : hz - x.z;
+    if (past > 1.5) return routeField(1 - x.team, x.route);
+    if (past > -0.5) return -1;
+  }
+  return route;
+}
+
+/** The army hunts' once-a-second sampling. */
+function armySecond(t: number) {
+  const list = m.world.minions.list;
+  const L = m.world.ladders;
+  // Cut off: marching men standing on a FLOW_INF cell. "Cut off" is about the road to the objective, not the order of the
+  // moment, so this reads the man's route field (or his breach field under Push) directly, not the Hold-adjusted field: a
+  // man told to Hold whose road still reaches nothing is cut off too.
+  for (const c of [0, 1]) {
+    let cut = 0;
+    for (const x of list) {
+      if (x.team !== c || x.state !== MinionState.Upright || x.wave < 0 || x.role !== Role.March || inCourtyard(1 - c, x.x, x.z)) continue;
+      const route = routeField(x.team, x.route);
+      const bc = A.order[c] === Order.Push ? A.flow.at(breachField(x.team), x.x, x.z) : FLOW_INF;
+      if (bc < FLOW_INF || A.flow.at(route, x.x, x.z) < FLOW_INF) {
+        cutSince.delete(x.id);
+        continue;
+      }
+      cut++;
+      if (!cutSince.has(x.id)) cutSince.set(x.id, t);
+      if (t - cutSince.get(x.id)! >= ARMY.cutOne * 60 && !cutManFlagged[c]) {
+        cutManFlagged[c] = true;
+        flag(t, `team ${c}'s man ${x.id} stood ${ARMY.cutOne} s on a FLOW_INF cell at (${x.x.toFixed(0)}, ${x.z.toFixed(0)}), order ${ORDERS[A.order[c]]}`);
+      }
+    }
+    // Sealed: all three of the team's route fields read FLOW_INF at the enemy gate front (its muster), so no man of the team can path to the goal.
+    const gm = MUSTER[1 - c];
+    sealRun[c] = [0, 1, 2].every((r) => A.flow.at(c * 3 + r, gm.x, gm.z) >= FLOW_INF) ? sealRun[c] + 1 : 0;
+    if (sealRun[c] >= ARMY.cutFor && !sealFlagged[c]) {
+      sealFlagged[c] = true;
+      flag(t, `team ${c} cut off: its three route fields reach nothing from castle ${1 - c}'s gate front for ${ARMY.cutFor} s (${cut} marching men on FLOW_INF cells now; order ${ORDERS[A.order[c]]})`);
+    }
+    // A cut-off spell: 8+ men cut, allowed to flicker (the nav topo rebuilds for a sample or two as the castle shifts, then
+    // re-seals) but not to recover for cutRelief s. cutSpell[c] is when the spell began, cutHigh[c] the last second it was full.
+    if (cut >= ARMY.cutMen) {
+      if (cutSpell[c] < 0) cutSpell[c] = t;
+      cutHigh[c] = t;
+    } else if (cutSpell[c] >= 0 && t - cutHigh[c] > ARMY.cutRelief * 60) {
+      cutSpell[c] = -1;
+    }
+    if (cutSpell[c] >= 0 && t - cutHigh[c] === 0 && t - cutSpell[c] >= ARMY.cutFor * 60 && !cutTeamFlagged[c]) {
+      cutTeamFlagged[c] = true;
+      const loose = m.world.castle.layout.stones.filter((s) => s.castle === 1 - c && s.part === "gate" && m.world.castle.dynamic[s.id]).length;
+      flag(t, `team ${c} cut off: ${cut} marching men on FLOW_INF cells for ${ARMY.cutFor} s (order ${ORDERS[A.order[c]]}; castle ${1 - c} has ${loose} gate leaves loose)`);
+    }
+  }
+  // Stuck: an upright soldier with nothing to fight, not holding by order, not battering, climbing or queueing at a ladder, not at the enemy gate front or in its courtyard.
+  for (const x of list) {
+    const c = x.team;
+    const calm = x.state === MinionState.Upright && x.wave >= 0 && x.role === Role.March && (x.action === Action.Walk || x.action === Action.Stand) && x.target < 0 && x.unit !== Unit.Ladder && !(x.task >= 10 && x.task <= 14) && !m.world.specialists?.busy(x) && marchField(x) >= 0 && !inCourtyard(1 - c, x.x, x.z) && Math.hypot(x.x - MUSTER[1 - c].x, x.z - MUSTER[1 - c].z) > ARMY.gateFront;
+    if (!calm) {
+      stillAt.delete(x.id);
+      continue;
+    }
+    const a = stillAt.get(x.id);
+    if (!a || Math.hypot(x.x - a.x, x.z - a.z) >= ARMY.stuckMetres) {
+      stillAt.set(x.id, { x: x.x, z: x.z, since: t });
+      continue;
+    }
+    if (t - a.since >= ARMY.stuckFor * 60 && !stillFlagged.has(x.id)) {
+      stillFlagged.add(x.id);
+      if (stillFlagged.size <= ARMY.stuckCap) flag(t, `team ${c}'s ${["pike", "mason", "ladder", "sapper", "musket", "boy"][x.unit]} ${x.id} stood ${ARMY.stuckFor} s with nothing to fight at (${x.x.toFixed(1)}, ${x.z.toFixed(1)}), under ${ARMY.stuckMetres} m of progress (order ${ORDERS[A.order[c]]}, wave ${x.wave}, route ${ROUTE_NAMES[x.route]})`);
+      else stuckMore++;
+    }
+  }
+  // Ladders: planted so far, and crews carrying near the wall with no spot.
+  if (L) {
+    for (const lad of L.list) {
+      if (lad.state === LadderState.Planted) everPlanted.add(lad.id);
+      const f = list[lad.front];
+      const wall = lad.team === 1 ? -16 : -134;
+      if (lad.state === LadderState.Carried && f.state === MinionState.Upright && Math.abs(f.z - wall) < 34 && Math.abs(f.x) < 30 && A.flow.at(breachField(lad.team), f.x, f.z) >= FLOW_INF) chance.add(lad.id);
+      const carrying = lad.state === LadderState.Carried && lad.spot < 0 && f.state === MinionState.Upright && Math.abs(f.z - wall) < 34;
+      if (!carrying) {
+        carrySince.delete(lad.id);
+        continue;
+      }
+      if (!carrySince.has(lad.id)) carrySince.set(lad.id, t);
+      if (t - carrySince.get(lad.id)! >= ARMY.noSpot * 60 && !carryFlagged.has(lad.id)) {
+        carryFlagged.add(lad.id);
+        flag(t, `team ${lad.team}'s ladder ${lad.id} crew carried ${ARMY.noSpot} s near the wall with no spot (front man at (${f.x.toFixed(0)}, ${f.z.toFixed(0)}), order ${ORDERS[A.order[lad.team]]})`);
+      }
+    }
+  }
+}
 // 3.4 keep hunts.
 const KEEP = { hang: 120, hangHolds: 0.3, mended: 0.6, fast: 40, fastTicks: 120, down: 180, gold: 100, sample: 10, maxPlaces: 80 };
 const statics = m.world.statics;
@@ -96,6 +232,33 @@ const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).mason
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   for (const ai of ais) ai?.step();
   m.step();
+  // The orders each AI gives, read every tick (an order input can land between two samples).
+  for (const c of [0, 1]) {
+    if (!ais[c]) continue;
+    const o = A.order[c];
+    if (o !== lastOrder[c]) {
+      const prev = changes[c][changes[c].length - 1];
+      changes[c].push(m.tick);
+      lastOrder[c] = o;
+      if (prev !== undefined && m.tick - prev < ARMY.churnGap * 60 && !flipFlagged[c]) {
+        flipFlagged[c] = true;
+        flag(m.tick, `castle ${c}'s ${sides[c]} AI changed its order twice within ${ARMY.churnGap} s (${((m.tick - prev) / 60).toFixed(0)} s apart, now ${ORDERS[o]})`);
+      }
+      const inWindow = changes[c].filter((q) => m.tick - q <= ARMY.churnWindow * 60).length;
+      if (inWindow > ARMY.churnCount && !churnFlagged[c]) {
+        churnFlagged[c] = true;
+        flag(m.tick, `castle ${c}'s ${sides[c]} AI changed its order ${inWindow} times in ${ARMY.churnWindow / 60} minutes (limit ${ARMY.churnCount})`);
+      }
+    }
+    if (o === Order.Hold) {
+      holdTicks[c]++;
+      holdStretch[c]++;
+      if (holdStretch[c] > ARMY.holdStretch * 60 && !holdFlagged[c]) {
+        holdFlagged[c] = true;
+        flag(m.tick, `castle ${c}'s ${sides[c]} AI held for more than ${ARMY.holdStretch} s at a stretch (${A.attackers[1 - c]} of the foe in its courtyard)`);
+      }
+    } else holdStretch[c] = 0;
+  }
   if (statics) {
     for (; evSeen + EVENT_STRIDE <= events.length; evSeen += EVENT_STRIDE) {
       if (events[evSeen] === EventKind.Released) {
@@ -130,6 +293,7 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   }
   if (tick % 60 !== 59) continue;
   const t = m.tick;
+  armySecond(t);
   if (statics) {
     for (const d of structs) {
       // Groaning, or holding under 0.3, for over 120 s without falling or mending past 0.6.
@@ -286,6 +450,22 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
 }
 
 const end = m.tick;
+// Army hunts, judged at the end: the AI's Hold share, and the ladders it sent.
+if (stuckMore) flag(end, `${stuckMore} more soldiers stood ${ARMY.stuckFor} s with nothing to fight (not listed)`);
+for (const c of [0, 1]) {
+  if (!ais[c]) continue;
+  if (end >= ARMY.holdMin * 60 && holdTicks[c] > ARMY.holdShare * end) flag(end, `castle ${c}'s ${sides[c]} AI spent ${Math.round((100 * holdTicks[c]) / end)}% of the match so far on Hold (${(holdTicks[c] / 60).toFixed(0)} of ${(end / 60).toFixed(0)} s; limit ${Math.round(ARMY.holdShare * 100)}%)`);
+  // Judged over the ladders that had their chance: carried to the wall with no way in open (not lost on the road, not
+  // dropped because a breach let the wave in).
+  const lads = (m.world.ladders?.list ?? []).filter((l) => l.team === c && (chance.has(l.id) || everPlanted.has(l.id)));
+  const planted = lads.filter((l) => everPlanted.has(l.id)).length;
+  if (lads.length >= ARMY.ladderSent && planted < ARMY.ladderShare * lads.length) flag(end, `team ${c} carried ${lads.length} ladders to the wall with no way in and planted ${planted} (${Math.round((100 * planted) / lads.length)}%; need ${Math.round(ARMY.ladderShare * 100)}%)`);
+}
+const armyLine = [0, 1].map((c) => {
+  const lads = (m.world.ladders?.list ?? []).filter((l) => l.team === c);
+  const had = lads.filter((l) => chance.has(l.id) || everPlanted.has(l.id)).length;
+  return `castle ${c}: ${changes[c].length} order changes, Hold ${(holdTicks[c] / 60).toFixed(0)} s, ladders ${lads.filter((l) => everPlanted.has(l.id)).length}/${lads.length} planted (${had} reached the wall with no way in)`;
+}).join("; ");
 for (let i = 0; i < n; i++) if (outSince[i] >= 0) spells.push([castleOf(i), (end - outSince[i]) / 60]);
 const summary = [0, 1].map((c) => {
   const s = spells.filter((x) => x[0] === c).map((x) => x[1]).sort((a, b) => a - b);
@@ -294,6 +474,7 @@ const summary = [0, 1].map((c) => {
 });
 console.log(`seed ${seed}, ${sides[0]} (castle 0) against ${sides[1]} (castle 1), ${clock(end)} played: ${m.result ? (m.result.winner < 0 ? `a draw (${m.result.reason})` : `won by castle ${m.result.winner} (${m.result.reason})`) : "no result yet"}`);
 for (const s of summary) console.log("  " + s);
+console.log("  army: " + armyLine);
 console.log(flags.length ? `${flags.length} flagged` : "nothing flagged");
 m.free();
 process.exit(flags.length ? 1 : 0);

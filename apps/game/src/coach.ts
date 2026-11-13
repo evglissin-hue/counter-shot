@@ -119,7 +119,7 @@ const STEPS: Step[] = [
   },
   {
     title: "See the whole valley",
-    how: `${KBD("Tab")} shows it from above. Your waves wait by the bridge.`,
+    how: `${KBD("Tab")} shows it from above. Your waves wait at the bridge on your road.`,
     test: (c) => c.overviewed,
     highlights: () => ["#overview-btn"],
     mark: { kind: "hold", label: "Your waves" },
@@ -145,7 +145,7 @@ const STEPS: Step[] = [
   },
   {
     title: "Send your waves in",
-    how: `Pick a road under the map, then Advance (${KBD("Ctrl")}+${KBD("1")}). They march on the enemy gate.`,
+    how: `Pick a road under the map: your waves take it. Then Advance (${KBD("Ctrl")}+${KBD("1")}) to march them on the enemy gate.`,
     test: (c) => c.info.order === 0 || c.info.order === 2,
     follow: (c) => (c.stage >= 2 ? "They have woken up: their long gun is manned." : "Your waves are on their way."),
     highlights: () => ["#command [data-route]", "#command [data-order]"],

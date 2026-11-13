@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, GARRISON, MATCH, ROUTE_NAMES, WAVES } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT, GARRISON, holdMarker, MATCH, ROUTE_NAMES, Unit, WAVES } from "@keepfall/content";
 import { MinionState, Order, Role, Spin, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_HASH, runMatchSession, runWaveMatch, Team, WAVE_MATCH_HASH } from "@keepfall/rules";
 
@@ -39,8 +39,8 @@ test("the scripted match: long gun hits and shells down the sturdy enemy keep wi
   assert.equal(a.result.winner, Team.Player);
   assert.equal(a.result.reason, "keep");
   // 3.4: the long gun's hits just under the banner's floor cut the keep there too; it falls by its floors or by that cut.
-  assert.ok(a.result.tick > 4605 && a.result.tick < 4880, `won at tick ${a.result.tick}, after the last shot`);
-  assert.deepEqual(a.shots, [0, 27], "the shell and the shot after the end and the enemy's borrowed gun were refused");
+  assert.ok(a.result.tick > 6045 && a.result.tick < 6120, `won at tick ${a.result.tick}, after the last shot`);
+  assert.deepEqual(a.shots, [0, 35], "the shell and the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
   const income = incomeTicks * MATCH.keepIncome;
   assert.equal(a.earned[0], income, "the enemy earned its keep's income and nothing more, and income stops at the end");
@@ -67,6 +67,30 @@ test("barracks send a wave every 25 seconds down each team's route; orders and r
   assert.equal(m.nextWaveIn(), WAVES.every - 1);
   for (let i = 0; i < WAVES.every; i++) m.step();
   assert.deepEqual(m.waves, [2, 2]);
+  m.free();
+});
+
+test("the army pass: a route input moves the team's waves out that have not crossed (holding on the left as in the guided setup, they walk to the centre marker); a barracks' own route does not", () => {
+  // The guided setup's player side (orders and routes): your waves hold on the left flank. The enemy holds too, so nobody meets.
+  const m = new Match(R, layout, { seed: 3, plan: false, rotate: false, gunnery: false, masons: false, orders: [Order.Hold, Order.Hold], routes: ["centre", "left"] });
+  const left = holdMarker(Team.Player, "left"), centre = holdMarker(Team.Player, "centre");
+  const near = (x: { x: number; z: number }, p: { x: number; z: number }, r: number) => Math.hypot(x.x - p.x, x.z - p.z) < r;
+  while (m.tick < 60 * 60) m.step();
+  const out = m.world.minions.list.filter((x) => x.team === Team.Player && x.state === MinionState.Upright && x.role === Role.March);
+  assert.ok(out.length >= 16, `${out.length} of the player's men out`);
+  const first = out.filter((x) => x.wave === out[0].wave);
+  assert.ok(first.every((x) => near(x, left, 7)), "the first wave holds at the left marker");
+  // A barracks' own route (the AI's per-plot input) is for its next waves only.
+  m.queue(m.tick, Team.Player, { kind: "barracks", plot: 0, route: "right" });
+  m.step();
+  for (const x of out) assert.equal(ROUTE_NAMES[x.route], "left");
+  m.queue(m.tick, Team.Player, { kind: "route", route: "centre" });
+  m.step();
+  for (const x of out) assert.equal(ROUTE_NAMES[x.route], "centre", `man ${x.id} of wave ${x.wave} takes the centre road`);
+  for (let i = 0; i < 60 * 60; i++) m.step();
+  const pikes = out.filter((x) => x.state === MinionState.Upright && x.unit === Unit.Pikeman);
+  const there = pikes.filter((x) => near(x, centre, 7));
+  assert.ok(there.length >= pikes.length - 1, `${there.length} of ${pikes.length} pikemen hold at the centre marker 60 s later: ${pikes.filter((x) => !near(x, centre, 7)).map((x) => `(${x.x.toFixed(0)}, ${x.z.toFixed(0)})`).join(" ")}`);
   m.free();
 });
 

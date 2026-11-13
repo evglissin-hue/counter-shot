@@ -41,13 +41,14 @@ export class LocalFields {
   /** Fields built since the start (tests, the HUD). */
   builds = 0;
 
-  constructor(private nav: NavGrid, castleZ: readonly number[]) {
+  /** One box per castle, centred on x = 0 and on its z; `halfX` and `halfZ` (m) size the boxes (the army's hold lines use wider, shallower ones). */
+  constructor(private nav: NavGrid, castleZ: readonly number[], halfX = HALF, halfZ = HALF) {
     const G = NAV_GRID;
     this.boxes = castleZ.map((cz) => {
-      const i0 = Math.max(1, Math.floor((-HALF - G.x0) / G.cell));
-      const j0 = Math.max(1, Math.floor((cz - HALF - G.z0) / G.cell));
-      const i1 = Math.min(G.nx - 2, Math.floor((HALF - G.x0) / G.cell));
-      const j1 = Math.min(G.nz - 2, Math.floor((cz + HALF - G.z0) / G.cell));
+      const i0 = Math.max(1, Math.floor((-halfX - G.x0) / G.cell));
+      const j0 = Math.max(1, Math.floor((cz - halfZ - G.z0) / G.cell));
+      const i1 = Math.min(G.nx - 2, Math.floor((halfX - G.x0) / G.cell));
+      const j1 = Math.min(G.nz - 2, Math.floor((cz + halfZ - G.z0) / G.cell));
       return { i0, j0, ni: i1 - i0 + 1, nj: j1 - j0 + 1 };
     });
     this.fields = castleZ.map(() => new Map());

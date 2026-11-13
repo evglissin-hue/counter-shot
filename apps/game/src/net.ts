@@ -9,7 +9,7 @@
 // can play each other on one machine.
 
 /** Bumped whenever two builds could not play each other. */
-export const NET_VERSION = 7;
+export const NET_VERSION = 8;
 
 /** One other page in a room, as this page sees it. */
 export interface Friend {

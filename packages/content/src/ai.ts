@@ -83,6 +83,24 @@ export interface AiLevel {
   /** 3.2: when a bridge is down it sends a wave down that road, so a gang relays it (REGISTER.gang*). */
   gangs: boolean;
   /**
+   * Its orders (the Knight and up; the Squire and the tutor never hold). It holds when the real threat (enemy marchers on its
+   * side of the stream or near its gate) is over `holdRatio` times its own marchers plus `holdMargin`; a Hold lasts at most
+   * `holdMax` ticks and none returns for `holdRest`. It pushes once a way in has stayed open `pushAfter` ticks and leaves Push
+   * once it has stayed shut `pushLeave`. An order stands `orderDwell` ticks (a Push may come after `pushDwell`), and at
+   * most `orderCap` changes in `orderSpan` ticks. With `holdNever` of the standing cap to spare it never holds (men to send).
+   */
+  holdRatio: number;
+  holdMargin: number;
+  holdMax: number;
+  holdRest: number;
+  pushAfter: number;
+  pushLeave: number;
+  orderDwell: number;
+  pushDwell: number;
+  orderCap: number;
+  orderSpan: number;
+  holdNever: number;
+  /**
    * 3.4: in this share of its looks at the enemy keep with a long gun it cuts the keep (its foot, seen through the gate
    * or a breach) rather than shelling floors; 0: never. It forecasts the hit of up to `cutTries` points it can see (what
    * the mason's eye would say) and takes the best. When nothing can be seen it opens the way (the gate, or the foot of
@@ -95,6 +113,21 @@ export interface AiLevel {
   /** 3.4: it buys a buttress on the face being cut once its own keep holds under 0.5. */
   buttresses: boolean;
 }
+
+/** The numbers every level's orders share. */
+const ORDERS = {
+  holdRatio: 1.6,
+  holdMargin: 4,
+  holdMax: 45 * 60,
+  holdRest: 60 * 60,
+  pushAfter: 4 * 60,
+  pushLeave: 10 * 60,
+  orderDwell: 20 * 60,
+  pushDwell: 10 * 60,
+  orderCap: 6,
+  orderSpan: 5 * 60 * 60,
+  holdNever: 8,
+};
 
 export const AI_LEVELS: Record<AiName, AiLevel> = {
   squire: {
@@ -122,6 +155,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 0,
     salvo: false,
     gangs: false,
+    ...ORDERS,
     cut: 0,
     cutTries: 0,
     footShell: false,
@@ -152,6 +186,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 1,
     salvo: true,
     gangs: true,
+    ...ORDERS,
     cut: 0.7,
     cutTries: 6,
     footShell: false,
@@ -182,6 +217,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 2,
     salvo: true,
     gangs: true,
+    ...ORDERS,
     cut: 0.9,
     cutTries: 20,
     footShell: true,
@@ -214,6 +250,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 0,
     salvo: false,
     gangs: false,
+    ...ORDERS,
     cut: 0,
     cutTries: 0,
     footShell: false,

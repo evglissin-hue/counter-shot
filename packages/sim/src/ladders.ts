@@ -12,11 +12,13 @@
 
 import { CASTLE_SHAPE, LADDER, ladderSpots, mirrorZ, Unit, type LadderSpot } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt } from "@keepfall/core";
-import { Action, Climb, type Army, type Emit } from "./army";
+import { Action, breachField, Climb, Order, type Army, type Emit } from "./army";
+import { FLOW_INF } from "./flow";
 import type { CastleSim, Rapier } from "./castleSim";
 import { EventKind, LADDER_STRIDE } from "./frame";
 import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
 import { segPoint2 } from "./mounts";
+import { SapperTask } from "./specialists";
 import { chainMid, SWEEP, type ChainMove } from "./sweep";
 import type { Terrain } from "./terrain";
 
@@ -53,8 +55,15 @@ interface Ladder {
   tz: number;
   /** Climbers on the ladder itself, in the order they got on (minion ids). */
   on: number[];
-  /** Minions making for it or waiting at its foot. */
+  /** Minions making for it or waiting at its foot (recounted every step). */
   claims: number;
+  /** Men waiting on the wall walk for their group, in the order they got there, and the tick each got there. */
+  walk: number[];
+  walkT: number[];
+  /** The height (m) of the wall walk at its spot, set when it leans. */
+  walkY: number;
+  /** Ticks a carried ladder has spent near the enemy wall with no usable spot. */
+  bare: number;
   /** A rope hangs down inside (the first climber reached the top). */
   rope: boolean;
   /** The front man's last positions (x, z pairs, newest last), for the back man to walk in. */
@@ -69,6 +78,9 @@ interface Ladder {
 const TOP_COURSES = 4;
 /** Trail samples kept for the back man (one a tick). */
 const TRAIL = 200;
+/** Ticks between a man checking whether another ladder's queue is much shorter than his, and how much shorter (men) it must be. */
+const REBALANCE = 20;
+const REBALANCE_GAP = 3;
 /** How high the crew carries the ladder (m above the feet). */
 const SHOULDER = 1.52;
 
@@ -86,6 +98,9 @@ export class Ladders {
   private crewOf = new Map<number, number>();
   /** Per spot: the wall pieces its ladder's top leans on. */
   private support: number[][];
+  /** Per spot: the top (m) of each of those pieces, and the ground at the wall's foot. */
+  private supportTop: number[][];
+  private base: number[];
   private dir: [number, number] = [0, 0];
 
   constructor(
@@ -98,6 +113,7 @@ export class Ladders {
   ) {
     const L = castle.layout;
     const S = CASTLE_SHAPE;
+    this.base = this.spots.map((sp) => terrain.heightAt(sp.x, sp.topZ));
     this.support = this.spots.map((sp) => {
       const ids: number[] = [];
       for (const s of L.stones) {
@@ -107,6 +123,7 @@ export class Ladders {
       }
       return ids;
     });
+    this.supportTop = this.support.map((ids) => ids.map((id) => L.stones[id].y + L.stones[id].hy));
   }
 
   /** A wave's ladder crew: two men, the ladder on their shoulders. */
@@ -115,7 +132,7 @@ export class Ladders {
     const L: Ladder = {
       id, team, state: LadderState.Carried, front: front.id, back: back.id, spot: -1, t: 0, body: null, handle: -1,
       fx: back.x, fy: back.y + SHOULDER, fz: back.z, tx: front.x, ty: front.y + SHOULDER, tz: front.z,
-      on: [], claims: 0, rope: false, trail: [], rest: 0, downAt: -1,
+      on: [], claims: 0, walk: [], walkT: [], walkY: 0, bare: 0, rope: false, trail: [], rest: 0, downAt: -1,
     };
     // The trail starts as a straight line from the back man to the front man.
     const n = 24;
@@ -146,15 +163,20 @@ export class Ladders {
    * true if it did.
    */
   claim(m: Minion, wayIn: boolean): boolean {
-    if (wayIn || m.role !== Role.March || m.task !== Climb.None || m.unit === Unit.Mason || m.unit === Unit.PowderBoy) return false;
-    let best = -1, bd = LADDER.pull * LADDER.pull;
+    if (wayIn || m.role !== Role.March || m.unit === Unit.Mason || m.unit === Unit.PowderBoy) return false;
+    // A sapper who has set his keg climbs like the rest; one still with his keg does not.
+    if (m.unit === Unit.Sapper ? m.task !== SapperTask.Done : m.task !== Climb.None) return false;
+    // The nearest ladder by walk plus a penalty for each man already on or making for it, so the waves spread.
+    let best = -1, bd = 0;
     for (const L of this.list) {
       if (L.state !== LadderState.Planted || L.team !== m.team || L.claims >= LADDER.queue) continue;
       const sp = this.spots[L.spot];
       const dx = sp.x - m.x, dz = sp.footZ - m.z;
-      const d = dx * dx + dz * dz;
-      if (d < bd) {
-        bd = d;
+      const d = dsqrt(dx * dx + dz * dz);
+      if (d >= LADDER.pull) continue;
+      const score = d + LADDER.queuePenalty * (L.claims + L.on.length);
+      if (best < 0 || score < bd) {
+        bd = score;
         best = L.id;
       }
     }
@@ -173,41 +195,123 @@ export class Ladders {
 
   /** Crews, raising, the wall under each planted ladder, and everyone climbing (after the army's step, before physics). */
   step(tick: number) {
+    const army = this.army;
     for (const L of this.list) {
       if (L.state === LadderState.Carried) this.carry(L, tick);
       else if (L.state === LadderState.Raising) this.raise(L, tick);
       else if (L.state === LadderState.Planted) {
         L.t++;
         L.on = L.on.filter((id) => this.minions.list[id].state === MinionState.Upright && this.minions.list[id].task === Climb.Up);
-        if ((tick + L.id) % 10 === 0 && this.wallGone(L.spot)) this.knockDown(L, 0, 0, 0, tick, true);
+        if ((tick + L.id) % 10 === 0 && !this.usable(L.spot)) this.knockDown(L, 0, 0, 0, tick, true);
       } else if (L.state === LadderState.Down) this.lie(L);
+      this.gather(L, tick);
     }
     for (const m of this.minions.list) {
-      if (m.task < Climb.Wait || m.task > Climb.Down) continue;
+      if (m.task < Climb.ToLadder || m.task > Climb.Down) continue;
       if (m.state !== MinionState.Upright) {
         this.release(m);
         continue;
       }
-      this.climbStep(m, tick);
+      if (m.task <= Climb.Wait) {
+        // Hold: nobody walks to a ladder or waits at its foot; the army has him again.
+        const L = this.list[m.aux];
+        if (army.order[m.team] === Order.Hold || !L || L.state !== LadderState.Planted) {
+          this.release(m);
+          continue;
+        }
+      }
+      if (m.task <= Climb.Wait && (tick + m.id) % REBALANCE === 0) this.rebalance(m);
+      if (m.task >= Climb.Wait) this.climbStep(m, tick);
+    }
+    // The claims are what the standing men walking to or waiting at each ladder say they are.
+    for (const L of this.list) L.claims = 0;
+    for (const m of this.minions.list) {
+      if (m.state !== MinionState.Upright || (m.task !== Climb.ToLadder && m.task !== Climb.Wait)) continue;
+      const L = this.list[m.aux];
+      if (L && L.state === LadderState.Planted) L.claims++;
     }
   }
 
-  /** Has the wall under a spot's top given way? */
-  private wallGone(spot: number): boolean {
-    for (const id of this.support[spot]) if (this.castle.dynamic[id]) return true;
-    return false;
+  /** A man walking to or waiting at a ladder whose queue is much longer than another's within reach of him goes to the shorter one. */
+  private rebalance(m: Minion) {
+    const cur = this.list[m.aux];
+    if (!cur) return;
+    const load = (L: Ladder) => L.claims + L.on.length;
+    let best: Ladder | null = null, bl = load(cur) - REBALANCE_GAP;
+    for (const L of this.list) {
+      if (L === cur || L.state !== LadderState.Planted || L.team !== m.team || L.claims >= LADDER.queue) continue;
+      const sp = this.spots[L.spot];
+      const dx = sp.x - m.x, dz = sp.footZ - m.z;
+      if (dx * dx + dz * dz >= LADDER.pull * LADDER.pull) continue;
+      if (!best ? load(L) <= bl : load(L) < load(best)) best = L;
+    }
+    if (!best) return;
+    cur.claims--;
+    best.claims++;
+    m.task = Climb.ToLadder;
+    m.aux = best.id;
+    m.climb = 0;
   }
 
-  /** A spot for a crew: the nearest free one of the castle it marches on where the wall stands to the top, or -1. */
+  /** The men waiting on a ladder's wall walk go down the rope together, a step apart, once their group is there or nobody else is coming or they have waited long enough. */
+  private gather(L: Ladder, tick: number) {
+    const list = this.minions.list;
+    const ids: number[] = [], ts: number[] = [];
+    for (let k = 0; k < L.walk.length; k++) {
+      const m = list[L.walk[k]];
+      if (m.state !== MinionState.Upright || m.task !== Climb.Across || m.aux !== L.id) continue;
+      ids.push(m.id);
+      ts.push(L.walkT[k]);
+    }
+    L.walk = ids;
+    L.walkT = ts;
+    const n = ids.length;
+    if (n === 0) return;
+    const nobody = L.on.length === 0 && L.claims === 0;
+    if (n < LADDER.group && !nobody && tick - ts[0] < LADDER.groupWait * 60) return;
+    for (let k = 0; k < n; k++) list[ids[k]].climb = -LADDER.groupGap * k;
+    L.walk = [];
+    L.walkT = [];
+  }
+
+  /** The height (m) at which the wall still stands at a spot: the top of its highest standing piece, or 0. */
+  private standTop(spot: number): number {
+    const ids = this.support[spot], tops = this.supportTop[spot];
+    let h = 0;
+    for (let i = 0; i < ids.length; i++) if (!this.castle.dynamic[ids[i]] && tops[i] > h) h = tops[i];
+    return h;
+  }
+
+  /** Does the wall at a spot still stand high enough for a ladder (a loose top stone does not spoil it)? */
+  private usable(spot: number): boolean {
+    return this.standTop(spot) - this.base[spot] >= LADDER.minWall;
+  }
+
+  /** A spot for a crew: the nearest free one of the castle it marches on where the wall still stands high enough, or -1. */
   private pickSpot(team: number, x: number, z: number): number {
     const target = 1 - team;
     let best = -1, bd = Infinity;
     for (let k = 0; k < this.spots.length; k++) {
       const sp = this.spots[k];
-      if (sp.castle !== target || this.wallGone(k)) continue;
+      if (sp.castle !== target || !this.usable(k)) continue;
       let taken = false;
       for (const L of this.list) if (L.spot === k && L.state <= LadderState.Planted) taken = true;
       if (taken) continue;
+      const d = (sp.x - x) * (sp.x - x) + (sp.footZ - z) * (sp.footZ - z);
+      if (d < bd) {
+        bd = d;
+        best = k;
+      }
+    }
+    return best;
+  }
+
+  /** The nearest spot of the castle a team marches on, usable or not (somewhere to walk to by the castle's local field). */
+  private nearestSpot(team: number, x: number, z: number): number {
+    let best = -1, bd = Infinity;
+    for (let k = 0; k < this.spots.length; k++) {
+      const sp = this.spots[k];
+      if (sp.castle !== 1 - team) continue;
       const d = (sp.x - x) * (sp.x - x) + (sp.footZ - z) * (sp.footZ - z);
       if (d < bd) {
         bd = d;
@@ -225,17 +329,35 @@ export class Ladders {
       return;
     }
     const army = this.army;
+    const hold = army.order[L.team] === Order.Hold;
     // The front man leads: with the wave on its field, then for a crenel of the enemy front wall.
     const target = 1 - L.team;
-    const wallZ = mirrorZ(target, -(CASTLE_SHAPE.half + CASTLE_SHAPE.wallThick / 2));
+    const face = CASTLE_SHAPE.half + CASTLE_SHAPE.wallThick / 2;
+    const wallZ = mirrorZ(target, -face);
     const near = (a.z - wallZ) * (a.z - wallZ) < LADDER.near * LADDER.near && a.x > -30 && a.x < 30;
+    // Near the wall with a way in open for the wave (a breach it can reach): the ladder is no use, the crew goes with the
+    // wave. Not from further off: a breach seen from the muster is often closed by the masons before the crew gets there.
+    if (near && army.flow.at(breachField(L.team), a.x, a.z) < FLOW_INF) {
+      this.drop(L, tick);
+      return;
+    }
+    // Never into the enemy courtyard with the ladder on the shoulder: it is dropped at the gate.
+    if (mirrorZ(target, a.z) > -face + 0.3 && a.x > -CASTLE_SHAPE.half && a.x < CASTLE_SHAPE.half) {
+      this.drop(L, tick);
+      return;
+    }
     if (L.spot >= 0) {
-      const sp = this.spots[L.spot];
-      let taken = this.wallGone(L.spot);
+      let taken = !this.usable(L.spot) || hold;
       for (const o of this.list) if (o !== L && o.spot === L.spot && o.state <= LadderState.Planted) taken = true;
       if (taken) L.spot = -1;
     }
-    if (L.spot < 0 && near && (tick + L.id) % 15 === 0) L.spot = this.pickSpot(L.team, a.x, a.z);
+    if (L.spot < 0 && near && !hold && (tick + L.id) % 15 === 0) L.spot = this.pickSpot(L.team, a.x, a.z);
+    // No usable spot for too long near the wall: the ladder is dropped and the crew fights.
+    if (L.spot >= 0 || !near || hold) L.bare = 0;
+    else if (++L.bare >= LADDER.giveUp * 60) {
+      this.drop(L, tick);
+      return;
+    }
     let mx = 0, mz = 0, speed = a.speed * LADDER.carryPace;
     if (L.spot >= 0) {
       const sp = this.spots[L.spot];
@@ -255,11 +377,23 @@ export class Ladders {
         mx = dx / d;
         mz = dz / d;
       }
-    } else if (!army.marchDir(a, this.dir)) speed = 0;
-    else {
+    } else if (army.marchDir(a, this.dir)) {
       mx = this.dir[0];
       mz = this.dir[1];
-    }
+    } else if (near && !hold) {
+      // No march field here: walk for the nearest spot by the castle's own field.
+      const sp = this.spots[this.nearestSpot(L.team, a.x, a.z)];
+      const dx = sp.x - a.x, dz = sp.footZ - a.z;
+      const d = dsqrt(dx * dx + dz * dz) + 1e-9;
+      if (d < 0.6) speed = 0;
+      else if (army.local.covers(sp.castle, a.x, a.z) && army.local.steer(sp.castle, sp.x, sp.footZ, a.x, a.z, this.dir)) {
+        mx = this.dir[0];
+        mz = this.dir[1];
+      } else {
+        mx = dx / d;
+        mz = dz / d;
+      }
+    } else speed = 0;
     army.move(a, mx, mz, speed, NaN, speed > 0 ? Action.Carry : Action.Stand);
     a.action = Action.Carry;
     // The back man walks in the front man's steps, a carry behind.
@@ -398,6 +532,9 @@ export class Ladders {
     L.tz = sp.topZ;
     L.state = LadderState.Planted;
     L.t = 0;
+    // The wall walk is as high as the wall still stands at the spot (never above the full wall).
+    const stand = this.standTop(L.spot);
+    L.walkY = stand < CASTLE_SHAPE.wallTop ? stand : CASTLE_SHAPE.wallTop;
     this.makeBody(L, false, 0, 0, 0);
     this.planted[L.team]++;
     this.emit(EventKind.Ladder, L.id, LadderState.Planted, sp.x, sp.footZ);
@@ -407,7 +544,6 @@ export class Ladders {
       m.task = Climb.Wait;
       m.aux = L.id;
       m.climb = 0;
-      L.claims++;
     }
     void tick;
   }
@@ -597,13 +733,17 @@ export class Ladders {
     if (L) {
       const k = L.on.indexOf(m.id);
       if (k >= 0) L.on.splice(k, 1);
-      if ((m.task === Climb.Wait || m.task === Climb.ToLadder) && L.claims > 0) L.claims--;
     }
     if (m.state === MinionState.Upright) {
-      m.task = Climb.None;
+      m.task = this.idle(m);
       m.aux = -1;
       m.climb = 0;
     }
+  }
+
+  /** What a man's task is when he is not on his way over a wall: a sapper who has set his keg is Done (0 would be Carry), everyone else None. */
+  private idle(m: Minion): number {
+    return m.unit === Unit.Sapper ? SapperTask.Done : Climb.None;
   }
 
   /** One tick of a climber: waiting at the foot, up the ladder, across the wall walk, down the rope. */
@@ -615,7 +755,6 @@ export class Ladders {
     }
     const sp = this.spots[L.spot];
     const wallYaw = sp.out < 0 ? 0 : DPI;
-    const S = CASTLE_SHAPE;
     if (m.task === Climb.Wait) {
       // Queue at the foot, a little out from it, spread along the wall.
       const slot = (m.id % 4) - 1.5;
@@ -625,8 +764,6 @@ export class Ladders {
       const last = L.on.length ? this.minions.list[L.on[L.on.length - 1]] : null;
       const room = L.on.length < LADDER.onLadder && (!last || last.climb >= LADDER.gap);
       if (room && d < 1.6) {
-        const k = this.list[m.aux].claims;
-        if (k > 0) L.claims--;
         m.task = Climb.Up;
         m.climb = 0;
         L.on.push(m.id);
@@ -634,7 +771,7 @@ export class Ladders {
       else this.army.move(m, 0, 0, 0, wallYaw, Action.Stand);
       return;
     }
-    const top = S.wallTop;
+    const top = L.walkY;
     if (m.task === Climb.Up) {
       const ux = L.tx - L.fx, uy = L.ty - L.fy, uz = L.tz - L.fz;
       const len = dsqrt(ux * ux + uy * uy + uz * uz) + 1e-9;
@@ -650,7 +787,10 @@ export class Ladders {
         m.climb = 0;
         if (k >= 0) L.on.splice(k, 1);
         L.rope = true;
-        this.place(m, sp.x, top, sp.topZ, wallYaw, Action.Walk, 0.3);
+        // On the wall walk he waits for his group (see gather).
+        L.walk.push(m.id);
+        L.walkT.push(tick);
+        this.place(m, sp.x + ((m.id % 3) - 1) * 0.4, top, sp.topZ, wallYaw, Action.Stand, 0);
         return;
       }
       const f = m.climb / len;
@@ -659,14 +799,18 @@ export class Ladders {
       return;
     }
     if (m.task === Climb.Across) {
+      if (L.walk.indexOf(m.id) >= 0) {
+        this.place(m, sp.x + ((m.id % 3) - 1) * 0.4, top, sp.topZ, wallYaw, Action.Stand, 0);
+        return;
+      }
       const span = (sp.innerZ - sp.topZ) * -sp.out;
       m.climb += LADDER.across / 60;
       if (m.climb >= span) {
         m.task = Climb.Down;
         m.climb = 0;
       }
-      const z = sp.topZ - sp.out * (m.climb < span ? m.climb : span);
-      this.place(m, sp.x, top, z, wallYaw, Action.Walk, LADDER.across / 60);
+      const z = sp.topZ - sp.out * (m.climb < 0 ? 0 : m.climb < span ? m.climb : span);
+      this.place(m, sp.x, top, z, wallYaw, m.climb < 0 ? Action.Stand : Action.Walk, m.climb < 0 ? 0 : LADDER.across / 60);
       return;
     }
     // Down the rope, facing the wall, out to its foot inside.
@@ -674,7 +818,7 @@ export class Ladders {
     const ground = this.terrain.heightAt(sp.x, sp.ropeZ);
     const drop = top - ground;
     if (m.climb >= drop) {
-      m.task = Climb.None;
+      m.task = this.idle(m);
       m.aux = -1;
       m.climb = 0;
       m.y = ground;
@@ -737,7 +881,8 @@ export class Ladders {
   hashInto(out: number[]) {
     out.push(this.list.length, this.planted[0], this.planted[1]);
     for (const L of this.list) {
-      out.push(L.state, L.spot, L.t, L.claims, L.rope ? 1 : 0, L.on.length, L.fx, L.fy, L.fz, L.tx, L.ty, L.tz);
+      out.push(L.state, L.spot, L.t, L.claims, L.bare, L.walkY, L.rope ? 1 : 0, L.on.length, L.walk.length, L.fx, L.fy, L.fz, L.tx, L.ty, L.tz);
+      for (let k = 0; k < L.walk.length; k++) out.push(L.walk[k], L.walkT[k]);
       if (L.body) {
         const t = L.body.translation(), r = L.body.rotation();
         out.push(t.x, t.y, t.z, r.x, r.y, r.z, r.w);

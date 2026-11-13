@@ -156,6 +156,16 @@ export const UNITS: Record<UnitKind, UnitDef> = {
 /** UNITS by the sim's unit number. */
 export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer, UNITS.powderBoy];
 
+/** How minions choose whom to fight (army.ts). */
+export const TARGETING = {
+  /** A candidate's score is its distance (m) plus this for each man of the chooser's side already targeting it: the wave spreads over the enemy. */
+  spread: 2.5,
+  /** A man closing on a target out of reach switches to a candidate scoring better than his by more than this (m). */
+  switchMargin: 1.5,
+  /** Masons and powder boys are fought only this close (m); a worker target farther off is dropped. */
+  workerReach: 3,
+} as const;
+
 /** Unit numbers by kind. */
 export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer, powderBoy: Unit.PowderBoy };
 
@@ -170,7 +180,7 @@ export const KEG = {
   /** He makes for the wall once he is this close to the enemy castle's front (m). */
   near: 32,
   /** He keeps this far (m) from the gate's middle and from the towers' middles along the wall. */
-  gateClear: 3.6,
+  gateClear: 9.5,
   towerClear: 4.6,
   /** Ticks to set it and light it, and how far (m) he runs before he waits for the burst. */
   plant: 75,
@@ -185,6 +195,8 @@ export const KEG = {
   into: 0.7,
   up: 0.7,
   burst: { radius: 3.0, shatter: 0.78, power: 10, lift: 0.2, bite: 0, knock: 7, knockSpeed: 12, crater: 1.8, depth: 0.6 } as BurstDef,
+  /** A set keg is packed into the wall: the same for the masonry, but it throws men only this far (m). A carried one keeps `burst`. */
+  setBurst: { radius: 3.0, shatter: 0.78, power: 10, lift: 0.2, bite: 0, knock: 4.5, knockSpeed: 12, crater: 1.8, depth: 0.6 } as BurstDef,
 } as const;
 
 /**
@@ -209,6 +221,8 @@ export const MUSKET = {
   hitNear: 0.5,
   hitFar: 0.12,
   knock: 3.4,
+  /** A musketeer not on Hold keeps marching on a side that holds at its marker until he is this close (m), then stands and shoots. */
+  holdStand: 12,
   /** Eye height (m) the line of sight runs at. */
   eye: 1.5,
 } as const;
@@ -275,6 +289,20 @@ export const COURTYARD: [Rect, Rect] = [
   { x0: -4, x1: 4, z0: -DIST + 4, z1: -DIST + 13 },
 ];
 
+/**
+ * The ground in front of each castle's gate (indexed by castle): within 7 m
+ * of the gate's middle along the wall, from 2.5 to 9 m out from the front
+ * wall's outer face (16 m from the castle's centre). A wave marching on a
+ * castle whose courtyard it cannot reach (rubble in the gateway, a leaf
+ * knocked loose that still stands in its place) makes for this ground
+ * instead and stands there, for its ladder and its sappers, rather than
+ * wherever it was when the way shut.
+ */
+export const APPROACH: [Rect, Rect] = [
+  { x0: -7, x1: 7, z0: -25, z1: -18.5 },
+  { x0: -7, x1: 7, z0: -DIST + 18.5, z1: -DIST + 25 },
+];
+
 /** Metres short of a bridge, on a team's own side, where its waves hold. */
 const HOLD_SHORT = 4;
 
@@ -287,6 +315,33 @@ export function holdMarker(team: 0 | 1, route: RouteName): { x: number; z: numbe
   const b = BRIDGES.find((s) => s.name === route)!;
   return team === 1 ? { x: b.x, z: b.z - b.length / 2 - HOLD_SHORT } : { x: b.x, z: b.z + b.length / 2 + HOLD_SHORT };
 }
+
+/** How waves march and take their orders (the army pass): distances in metres. */
+export const MARCH = {
+  /**
+   * On Push a man keeps to his route until he is this close to the enemy
+   * front wall (measured along z); from there he makes for a breach if one
+   * reaches the courtyard from where he stands. Further out the breach field
+   * (no road weights) would pull waves sent down a flank across the centre.
+   */
+  pushNear: 35,
+  /** Men who cannot batter (musketeers, sappers done with their keg) stop this far short of a gate that still stands, out of the pikes' way. */
+  doorStandOff: 8,
+  /** Upright soldiers this close to a set keg whose fuse still burns walk straight away from it. */
+  kegClear: 6,
+  /** A man standing where his march field cannot reach the goal looks this far for a cell that can, to walk back to it. */
+  cutOffSearch: 4,
+  /**
+   * On Hold a man near the hold line (the sim's box along each bank) further
+   * than this from his route's marker along the bank (his wave sent down
+   * another road while it held) walks along his own bank to his road
+   * `holdRejoin` behind the marker, and comes up it to the line as the wave
+   * did. Near the line every road runs within 4 m of its marker, so a man
+   * coming up his own road never walks aside.
+   */
+  holdAlong: 8,
+  holdRejoin: 10,
+} as const;
 
 /** Blows from pikemen a gate leaf takes before it comes loose. */
 export const GATE_BLOWS = 60;

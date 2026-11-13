@@ -13,6 +13,7 @@ import {
   DIFFICULTIES,
   DIST,
   type Difficulty,
+  BUILDING_KINDS,
   buildLayout,
   GAME_LAYOUT,
   KEEP_STOREYS,
@@ -115,6 +116,7 @@ const worker = new Worker(new URL("./sim.worker.ts", import.meta.url), { type: "
 /** S6: in a replay (mode "watch") the page sends nothing into the match: no shots, orders or builds. */
 const send = (m: ToWorker) => {
   if (m.t === "input" && mode === "watch") return;
+  if (m.t === "input" && m.input.kind === "barracks" && m.input.route !== undefined) holdBarracksRoad(m.input.plot, m.input.route);
   worker.postMessage(m);
 };
 const input = new Input(canvas);
@@ -1339,7 +1341,46 @@ function rangeMan() {
  */
 const ownSide = (r: RouteName): RouteName => (ME === 0 && r !== "centre" ? (r === "left" ? "right" : "left") : r);
 
-/** Orders for all your waves (Ctrl+1, 2, 3) and the route of your next ones (L). */
+/**
+ * What you just ordered, shown at once and kept over the reports until one carries it or PENDING_MS pass (then the report wins):
+ * a report made before the input was applied would otherwise light the old state again. Roads are in match terms.
+ */
+const PENDING_MS = 1500;
+const pending: { order: { v: number; at: number } | null; route: { v: RouteName; at: number } | null; barracks: Map<number, { v: number; at: number }> } = { order: null, route: null, barracks: new Map() };
+function holdBarracksRoad(plot: number, route: RouteName) {
+  const v = ROUTE_NAMES.indexOf(route);
+  pending.barracks.set(plot, { v, at: performance.now() });
+  if (matchInfo && matchInfo.barracks.length > plot * 2 + 1) {
+    matchInfo.barracks = Int8Array.from(matchInfo.barracks);
+    matchInfo.barracks[plot * 2 + 1] = v;
+    updateWaves();
+  }
+}
+/** Lay the orders still waiting to be seen over a fresh report. */
+function applyPending(m: MatchInfo) {
+  const now = performance.now();
+  const o = pending.order;
+  if (o) {
+    if (m.order === o.v || now - o.at > PENDING_MS) pending.order = null;
+    else m.order = o.v;
+  }
+  const r = pending.route;
+  if (r) {
+    if (m.route === r.v || now - r.at > PENDING_MS) pending.route = null;
+    else m.route = r.v;
+  }
+  let copied = false;
+  for (const [plot, b] of pending.barracks) {
+    if (m.barracks[plot * 2 + 1] === b.v || now - b.at > PENDING_MS || m.barracks.length <= plot * 2 + 1) pending.barracks.delete(plot);
+    else {
+      if (!copied) m.barracks = Int8Array.from(m.barracks);
+      copied = true;
+      m.barracks[plot * 2 + 1] = b.v;
+    }
+  }
+}
+
+/** Orders for all your waves (Ctrl+1, 2, 3) and the route of your waves that have not crossed (L). */
 function giveOrder(order: number) {
   if (!playing() || !matchInfo || matchInfo.result) return;
   send({ t: "input", input: { kind: "order", order: order as Order } });
@@ -1348,17 +1389,21 @@ function giveOrder(order: number) {
   const text = ["Waves advance on the gate", "Waves hold at midfield", "Waves push the breach"][order];
   showNote(text, 3200);
   matchInfo.order = order;
+  pending.order = { v: order, at: performance.now() };
   updateWaves();
 }
-/** The route of your next waves, as you see it (your own left and right). */
+/** The road of your waves that have not crossed yet and of the ones to come, as you see it (your own left and right). */
 function setRoute(view: RouteName) {
   if (!playing() || !matchInfo || matchInfo.result) return;
   const route = ownSide(view);
   send({ t: "input", input: { kind: "route", route } });
   sound.ui("click");
   guide.mark("waves");
-  showNote(`Next waves: ${view === "centre" ? "centre road" : `${view} flank`}`, 2200);
+  showNote(`Waves take the ${view === "centre" ? "centre road" : `${view} flank`}`, 2200);
   matchInfo.route = route;
+  pending.route = { v: route, at: performance.now() };
+  // The match sets every barracks of the team to it.
+  for (let plot = 0; plot < matchInfo.barracks.length / 2; plot++) holdBarracksRoad(plot, route);
   updateWaves();
 }
 
@@ -2092,6 +2137,8 @@ function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   $("reset").textContent = match ? "Restart the match" : "Rebuild the castles";
   $("menu-back").hidden = false;
   matchInfo = null;
+  pending.order = pending.route = null;
+  pending.barracks.clear();
   renderer.setPowder(null, null);
   powderBar.reset();
   dryNotes.reset();
@@ -2504,7 +2551,19 @@ function updateWaves() {
   if (!info) return;
   const s = Math.ceil(info.nextWave / 60);
   $("next-wave").textContent = info.result ? "" : info.waves[ME] === 0 ? `first in ${s} s` : `next in ${s} s`;
-  routeChips.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.route === ownSide(info.route))));
+  // The road row shows the roads your working barracks send by (the team road when you have none); a split lights each road in use.
+  const roads = new Set<RouteName>();
+  estate.ownPlots().forEach((p, i) => {
+    const r = ROUTE_NAMES[info.barracks[i * 2 + 1]];
+    if (BUILDING_KINDS[p.kind] === "barracks" && p.state === 2 && r) roads.add(ownSide(r));
+  });
+  if (roads.size === 0) roads.add(ownSide(info.route));
+  routeChips.forEach((b) => b.setAttribute("aria-pressed", String(roads.has(b.dataset.route as RouteName))));
+  const roadGroup = routeChips[0]?.parentElement;
+  if (roadGroup) {
+    const split = roads.size > 1 ? `Your barracks send waves by different roads: ${[...roads].join(" and ")}. ` : "";
+    roadGroup.title = `${split}Pick the road your waves take (L)`;
+  }
   orderChips.forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.order) === info.order)));
   $("army-count").textContent = `Pikemen ${info.standing[ME]} (${info.fallen[ME]} down), enemy ${info.standing[FOE]} (${info.fallen[FOE]} down)`;
 }
@@ -2590,6 +2649,7 @@ function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   moments.match(info);
   matchInfo = { ...info, structures: info.structures ?? prev?.structures ?? null, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
+  applyPending(matchInfo);
   threat.update(info.lanes, ME);
   updateWaves();
   updateGangs(info);

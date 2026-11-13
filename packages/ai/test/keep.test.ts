@@ -39,11 +39,13 @@ test("with the enemy gate off, a Knight gunner cuts the keep's foot and the keep
   // its cut shots thread the narrow gateway rather than scattering off the wall (this watches the way it cuts, not its scatter).
   const ai = new AiPlayer(m, ME, "knight", 5, { level: { cut: 1, firstErr: 0, noise: 0, learn: 1 } });
   const kz = mirrorZ(FOE, CASTLE_SHAPE.keepZ), reach = CASTLE_SHAPE.keepHalf + 1.5;
-  let footLandings = 0, minWeak = 99;
+  let footLandings = 0, minWeak = 99, footHeat = 0;
   play(m, ai, 3 * 60 * 60, () => {
     const s = m.world.statics!.status(KEEP);
     // The cut drives the keep's weakest course down to its foot (the floors are never shelled here).
     if (s.weakest >= 0 && s.holds < 0.95) minWeak = Math.min(minWeak, s.weakest);
+    // How hot the foot itself ran (another hit higher up can be the weakest course while the foot is cut).
+    for (let k = 0; k < FOOT_COURSES && k < s.heat.length; k++) footHeat = Math.max(footHeat, s.heat[k]);
     for (const l of m.world.landings) {
       if (l.auto || l.emplacement < 0 || m.emplacements[l.emplacement].z > -75) continue;
       // A hand shot that came down on the keep's footprint at its foot (the blast point of a shot into a foot piece reads a little above the stone's middle).
@@ -52,10 +54,10 @@ test("with the enemy gate off, a Knight gunner cuts the keep's foot and the keep
   });
   const cut = ai.gunner.byAim[CUT];
   const holds = m.world.statics!.status(KEEP).holds;
-  console.log("knight cuts: cut shots", cut, "open", ai.gunner.byAim[OPEN], "keep", ai.gunner.byAim[0], "foot landings", footLandings, "lowest weakest course", minWeak, "holds", holds.toFixed(2), "state", m.world.statics!.status(KEEP).state);
+  console.log("knight cuts: cut shots", cut, "open", ai.gunner.byAim[OPEN], "keep", ai.gunner.byAim[0], "foot landings", footLandings, "lowest weakest course", minWeak, "foot heat", footHeat.toFixed(3), "holds", holds.toFixed(2), "state", m.world.statics!.status(KEEP).state);
   assert.ok(cut >= 1, `${cut} shots by hand were cuts`);
   assert.ok(footLandings >= 1, `a shot by hand landed on the keep's foot`);
-  assert.ok(minWeak < FOOT_COURSES, `the cut weakened a foot course (lowest weakest ${minWeak}, foot is under ${FOOT_COURSES})`);
+  assert.ok(minWeak < FOOT_COURSES || footHeat >= 0.05, `the cut weakened a foot course (lowest weakest ${minWeak}, foot is under ${FOOT_COURSES}; foot heat ${footHeat.toFixed(3)})`);
   // The foot is laid harder than the rest of the keep (MATCH_KEEP.footHard): three minutes of one long gun bring it down a little.
   assert.ok(holds < 0.95 || m.world.statics!.status(KEEP).state !== StaticState.Standing, `the keep holds ${holds}`);
   m.free();
