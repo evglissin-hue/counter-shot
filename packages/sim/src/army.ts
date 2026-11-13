@@ -750,15 +750,12 @@ export class Army {
     sx /= len;
     sz /= len;
     if (field) {
+      // Never back into the wall (a man in the gateway, wall-side of the kegs, would cancel out and stand): along it, and out.
+      if (sz * out < 0) sz = 0;
       sz += out;
       len = dsqrt(sx * sx + sz * sz);
-      if (len > 1e-6) {
-        sx /= len;
-        sz /= len;
-      } else {
-        sx = 0;
-        sz = out;
-      }
+      sx /= len;
+      sz /= len;
     }
     this.move(m, sx, sz, m.speed, NaN, Action.Walk);
     return true;

@@ -147,10 +147,14 @@ test("a marching man refused on both axes steps towards the cheapest cell he can
   const c = army.cellAt(m.x, m.z);
   const ci = c % G.nx, cj = (c - ci) / G.nx;
   let tx = 0, tz = 0, best = FLOW_INF;
+  const stride = 1.6 / 60;
   for (const [di, dj] of [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const cost = army.flow.dist[f][(cj + dj) * G.nx + ci + di];
     const x = G.x0 + (ci + di + 0.5) * G.cell, z = G.z0 + (cj + dj + 0.5) * G.cell;
-    if (cost < best && army.canStep(c, x, z)) {
+    // A cell he can step to, by a stride he can take towards it.
+    const l = Math.hypot(x - spot.x, z - spot.z);
+    const px = spot.x + ((x - spot.x) / l) * stride, pz = spot.z + ((z - spot.z) / l) * stride;
+    if (cost < best && army.canStep(c, x, z) && army.canStep(c, px, pz)) {
       best = cost;
       tx = x;
       tz = z;
