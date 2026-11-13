@@ -78,6 +78,8 @@ export const MOMENT_NAMES: Record<MomentKind, string> = {
   gateDown: "Gate down",
   breachOpened: "Breach",
   towerDown: "Tower down",
+  keepFelled: "Keep felled",
+  towerFelled: "Tower felled",
   floorCaved: "Floor caved",
   bannerDown: "Banner down",
   bridgeDown: "Bridge down",
