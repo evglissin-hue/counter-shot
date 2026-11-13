@@ -1,5 +1,5 @@
 // Specialist hunts: keg (sappers), musket, ladder. Scripted waves of team 1 (the player) against castle 0 unless noted.
-import { KEG, Unit } from "@keepfall/content";
+import { KEG, MID_Z, mirrorZ, routeAt, streamOffset, Unit } from "@keepfall/content";
 import { Cause, Climb, LadderState, MinionState, NavKind, navCell, Order, type Minion } from "@keepfall/sim";
 import { Team } from "@keepfall/rules";
 import { clock, newMatch, ORDER, pct, type HuntFn, type HuntResult, type Match } from "./common";
@@ -68,8 +68,9 @@ export const keg: HuntFn = (T, seed) => {
 };
 
 // ---------------------------------------------------------------------------------------------------------------- musket
-/** Does the straight line between two points cross water (a mark he cannot walk to)? */
+/** Is a straight walk between two points cut by the stream? Water on the line, or the two on opposite sides of the stream's middle line (the bridges are the only way across). */
 function waterBetween(m: Match, ax: number, az: number, bx: number, bz: number) {
+  if (az - (MID_Z + streamOffset(ax)) > 0 !== bz - (MID_Z + streamOffset(bx)) > 0) return true;
   const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)));
   for (let k = 1; k < n; k++) {
     const c = navCell(ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n);
@@ -83,11 +84,12 @@ export const musket: HuntFn = (T, seed) => {
   // The enemy (team 0) holds a wave at its marker on the centre road; the player's volley wave (pikes and three musketeers) advances on it.
   const m = newMatch({ seed, barracks: false, garrison: false, masons: false, powder: false, gunnery: false });
   m.army.setOrder(0, Order.Hold);
-  m.army.spawnMix(0, 1, PIKES, 0);
-  m.army.spawnMix(1, 1, [P, P, P, P, M, P, M, M], 0);
+  const at = (z: number) => ({ x: routeAt("centre", z - MID_Z)[0], z });
+  m.army.spawnMix(0, 1, PIKES, 0, at(mirrorZ(0, -50)));
   const anchor = new Map<number, { x: number; z: number; since: number }>();
   let worst = 0, worstId = -1, worstAt = "", shots = 0;
   for (let tick = 0; tick < T.musketSecs * 60 && !m.result; tick++) {
+    if (tick === T.musketAt * 60) m.army.spawnMix(1, 1, [P, P, P, P, M, P, M, M], 0, at(mirrorZ(1, -50)));
     m.step();
     if (m.tick % 60 !== 0) continue;
     for (const x of m.world.minions.list) {

@@ -226,11 +226,11 @@ export const push: HuntFn = (T, seed) => {
     wrong += wrongHere.length;
     crossedN += ids.filter((id) => crossed.has(id)).length;
     const left = spawn.get(ids[0])!;
-    const judged = left + T.pushIn * 60 <= m.tick;
+    const judged = left + T.pushIn * 60 <= m.tick || ids.every((id) => inTick.has(id) || m.world.minions.list[id].state !== MinionState.Upright); // the match may end first once all are in
     const downEarly = ids.filter((id) => m.world.minions.list[id].state !== MinionState.Upright && !inTick.has(id)).length;
     const inTime = ids.filter((id) => inTick.has(id) && inTick.get(id)! - spawn.get(id)! <= T.pushIn * 60).length;
     const denom = ids.length - downEarly;
-    cells.push(`wave ${w} (route ${ROUTE_NAMES[first.get(ids[0])!]}, left ${clock(left)}): ${ids.length} men, ${inTime} in the courtyard within ${T.pushIn} s of leaving${judged ? "" : " (not judged: run ended first)"}, ${downEarly} down outside; crossed by ${ids.map((id) => (crossed.has(id) ? ROUTE_NAMES[crossed.get(id)!] : "-")).join(",")}`);
+    cells.push(`wave ${w} (route ${ROUTE_NAMES[first.get(ids[0])!]}, left ${clock(left)}): ${ids.length} men, ${inTime} in the courtyard within ${T.pushIn} s of leaving${judged ? "" : " (not judged: the run ended first)"}, ${downEarly} down outside; crossed by ${ids.map((id) => (crossed.has(id) ? ROUTE_NAMES[crossed.get(id)!] : "-")).join(",")}`);
     if (judged && denom > 0) {
       wavesJudged++;
       if (inTime / denom < T.pushFrac) {

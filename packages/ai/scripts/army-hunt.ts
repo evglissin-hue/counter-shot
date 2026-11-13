@@ -56,7 +56,8 @@ const T: Record<string, number> = {
   kegOwn: 1, // most men of a keg's own side it may down
   kegApart: 6, // m between two kegs of one wave
   // musket: a volley wave advances on a held wave across the stream.
-  musketSecs: 60, // s of the scenario
+  musketSecs: 70, // s of the scenario
+  musketAt: 20, // s: the volley wave leaves, 50 m out from its own castle, after the held wave is at its marker
   musketStill: 15, // s a musketeer on Advance may stand with a mark he cannot walk to
   musketMoved: 0.5, // m he may drift and still count as standing
   // targets: 8 v 8 on one road.
@@ -66,7 +67,7 @@ const T: Record<string, number> = {
   targetsMean: 3, // distinct targets a side averages then
   // ladder: crews and climbers.
   ladderSecs: 90, // s of the leak and Hold runs
-  ladderMerlonSecs: 140, // s of the merlon run (long enough for a crew to carry for ladderNoSpot at the wall)
+  ladderMerlonSecs: 120, // s of the merlon run (long enough for a crew to carry for ladderNoSpot at the wall)
   ladderWavesUntil: 40, // s: ladder waves leave every 10 s until this (merlon run)
   ladderLeak: 3, // men knocked down on their way to a ladder (leak run)
   ladderClaimSecs: 5, // s a ladder's claims may disagree with the men walking and waiting

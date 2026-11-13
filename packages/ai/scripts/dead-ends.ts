@@ -32,6 +32,7 @@ const LIMIT = { out: Number(arg("out", "240")), blocked: 240, idle: 150, gold: 6
 const ARMY = {
   cutMen: 8, // marching men of a team on FLOW_INF cells at once...
   cutFor: 20, // ...for this many seconds is a team cut off
+  cutRelief: 3, // s the count may stay under cutMen (a nav-topo flicker) before the spell is forgotten
   cutOne: 30, // or one man on a FLOW_INF cell for this many seconds
   stuckFor: 20, // seconds an upright soldier with nothing to fight may make under stuckMetres
   stuckMetres: 1, // m that counts as moving
@@ -100,7 +101,7 @@ const stockOf = (c: number) => (carriers ? carriers.status(c).stock : 0);
 const A = m.army;
 const lastOrder = [A.order[0], A.order[1]], changes: number[][] = [[], []], holdTicks = [0, 0], holdStretch = [0, 0];
 const holdFlagged = [false, false], churnFlagged = [false, false], flipFlagged = [false, false];
-const cutRun = [0, 0], cutTeamFlagged = [false, false], cutSince = new Map<number, number>(), cutManFlagged = [false, false];
+const cutSpell = [-1, -1], cutHigh = [0, 0], cutTeamFlagged = [false, false], cutSince = new Map<number, number>(), cutManFlagged = [false, false];
 const stillAt = new Map<number, { x: number; z: number; since: number }>(), stillFlagged = new Set<number>();
 let stuckMore = 0;
 const everPlanted = new Set<number>(), carrySince = new Map<number, number>(), carryFlagged = new Set<number>();
@@ -125,13 +126,16 @@ function marchField(x: Minion): number {
 function armySecond(t: number) {
   const list = m.world.minions.list;
   const L = m.world.ladders;
-  // Cut off: marching men whose own field is FLOW_INF under them.
+  // Cut off: marching men standing on a FLOW_INF cell. "Cut off" is about the road to the objective, not the order of the
+  // moment, so this reads the man's route field (or his breach field under Push) directly, not the Hold-adjusted field: a
+  // man told to Hold whose road still reaches nothing is cut off too.
   for (const c of [0, 1]) {
     let cut = 0;
     for (const x of list) {
       if (x.team !== c || x.state !== MinionState.Upright || x.wave < 0 || x.role !== Role.March || inCourtyard(1 - c, x.x, x.z)) continue;
-      const f = marchField(x);
-      if (f < 0 || A.flow.at(f, x.x, x.z) < FLOW_INF) {
+      const route = routeField(x.team, x.route);
+      const bc = A.order[c] === Order.Push ? A.flow.at(breachField(x.team), x.x, x.z) : FLOW_INF;
+      if (bc < FLOW_INF || A.flow.at(route, x.x, x.z) < FLOW_INF) {
         cutSince.delete(x.id);
         continue;
       }
@@ -142,8 +146,15 @@ function armySecond(t: number) {
         flag(t, `team ${c}'s man ${x.id} stood ${ARMY.cutOne} s on a FLOW_INF cell at (${x.x.toFixed(0)}, ${x.z.toFixed(0)}), order ${ORDERS[A.order[c]]}`);
       }
     }
-    cutRun[c] = cut >= ARMY.cutMen ? cutRun[c] + 1 : 0;
-    if (cutRun[c] >= ARMY.cutFor && !cutTeamFlagged[c]) {
+    // A cut-off spell: 8+ men cut, allowed to flicker (the nav topo rebuilds for a sample or two as the castle shifts, then
+    // re-seals) but not to recover for cutRelief s. cutSpell[c] is when the spell began, cutHigh[c] the last second it was full.
+    if (cut >= ARMY.cutMen) {
+      if (cutSpell[c] < 0) cutSpell[c] = t;
+      cutHigh[c] = t;
+    } else if (cutSpell[c] >= 0 && t - cutHigh[c] > ARMY.cutRelief * 60) {
+      cutSpell[c] = -1;
+    }
+    if (cutSpell[c] >= 0 && t - cutHigh[c] === 0 && t - cutSpell[c] >= ARMY.cutFor * 60 && !cutTeamFlagged[c]) {
       cutTeamFlagged[c] = true;
       const loose = m.world.castle.layout.stones.filter((s) => s.castle === 1 - c && s.part === "gate" && m.world.castle.dynamic[s.id]).length;
       flag(t, `team ${c} cut off: ${cut} marching men on FLOW_INF cells for ${ARMY.cutFor} s (order ${ORDERS[A.order[c]]}; castle ${1 - c} has ${loose} gate leaves loose)`);
