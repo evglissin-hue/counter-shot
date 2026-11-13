@@ -51,6 +51,8 @@ export interface Places {
   gunnerReady: Place;
   /** The helper waiting at the left for the loader to step off. */
   helperWait: Place;
+  /** Where the helper waits with the ball while the loader fetches the cartridge: behind the loader's line, out of the ridden gun's sight. */
+  helperHold: Place;
   /** Where the men lean on the cheeks (z, with the gun run out) and on the rear. */
   pushZ: number;
   pushRear: Place;
@@ -68,6 +70,7 @@ export const PLACES: Record<WeaponKind, Places> = {
     rest: [[-1.25, -1.75, 0], [-1.4, -0.6, 0], [1.55, -0.7, 0], [-0.9, -2.0, 0]],
     gunnerReady: [-1.2, -1.5, 0],
     helperWait: [1.2, -0.5, 0],
+    helperHold: [1.25, -2.0, 0],
     pushZ: 0.35,
     pushRear: [0.55, -1.95, 0],
   },
@@ -82,6 +85,7 @@ export const PLACES: Record<WeaponKind, Places> = {
     rest: [[-1.1, -1.7, 0], [-1.1, -0.6, 0], [1.7, -0.3, 0], [-1.1, -1.45, 0]],
     gunnerReady: [-1.15, -1.5, 0],
     helperWait: [1.2, -0.4, 0],
+    helperHold: [1.3, -1.9, 0],
     pushZ: 0.35,
     pushRear: [0.55, -1.8, 0],
   },
@@ -95,6 +99,7 @@ export const PLACES: Record<WeaponKind, Places> = {
     rest: [[-1.2, -1.1, 0], [-1.55, 0.55, 0], [1.4, -0.8, 0], [0, 0, 0]],
     gunnerReady: [-1.2, -0.5, 0],
     helperWait: [-1.0, 0.1, 0],
+    helperHold: [-1.0, 0.1, 0],
     pushZ: 0,
     pushRear: [0, -1.6, 0],
   },
@@ -108,6 +113,7 @@ export const PLACES: Record<WeaponKind, Places> = {
     rest: [[-0.7, -0.55, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]],
     gunnerReady: [-0.7, -0.55, 0],
     helperWait: [0, 0, 0],
+    helperHold: [0, 0, 0],
     pushZ: 0,
     pushRear: [0, 0, 0],
   },
@@ -447,6 +453,7 @@ function longCrew(g: CrewGun, out: Figure[]) {
   const boxAt = at(P.boxAt[0], P.boxAt[1]);
   const ammoAt = at(P.ammoAt[0], P.ammoAt[1]);
   const wait = at(P.helperWait[0], P.helperWait[1]);
+  const holdAt = at(P.helperHold[0], P.helperHold[1]);
   turned(P.box[0], P.box[1], g.propTurn, _p);
   const faceBox = faceTo(boxAt[0], boxAt[1], _p[0], _p[1]);
   turned(P.ammo[0], P.ammo[1], g.propTurn, _p);
@@ -537,8 +544,9 @@ function longCrew(g: CrewGun, out: Figure[]) {
         key(0.03, rest[3], faceAmmo),
         key(0.08, ammoAt, faceAmmo),
         key(0.14, ammoAt, faceAmmo),
-        key(0.3, wait, 0.8),
-        key(0.44, wait, 0.8),
+        // With the ball, out of the sight while the loader fetches (from the old wait by the gun he stood large at its left).
+        key(0.3, holdAt, 0.8),
+        key(0.37, holdAt, 0.8),
         key(0.49, fl, aimL, 0.1),
         key(0.53, fl, aimL, 0.1),
         key(0.6, wait, 0.8),
