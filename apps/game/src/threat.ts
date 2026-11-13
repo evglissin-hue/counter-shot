@@ -136,16 +136,22 @@ const GLYPH_MUSKET = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.8 
 
 const TIP = "What is coming down each road: the enemy's men, the kegs, ladders and muskets among them, and a bar for how near their leading man is to your walls (amber past the middle, red at your gate or inside). The small number is your own men on that road.";
 
+/** The narrowest a cell may be: a reading of three kinds of kit (kegs, ladders, muskets) needs about this much. */
+export const CELL_MIN = 60;
+
 /**
  * The strip's three column widths (px) so each cell spans the part of the strip
- * nearest its road (the cells split halfway between roads). `roads` are the
- * roads' x across the map, `left` the x of the strip's first column on the same
- * scale, `width` the width of its columns together.
+ * nearest its road (the cells split halfway between roads), but none narrower
+ * than `min` while the strip has room. `roads` are the roads' x across the map,
+ * `left` the x of the strip's first column on the same scale, `width` the
+ * width of its columns together. The flank cells keep their reading to the
+ * strip's outer edges, over their roads (index.html).
  */
-export function cellColumns(roads: readonly [number, number, number], left: number, width: number): [number, number, number] {
+export function cellColumns(roads: readonly [number, number, number], left: number, width: number, min = CELL_MIN): [number, number, number] {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-  const a = clamp((roads[0] + roads[1]) / 2 - left, 0, width);
-  const b = clamp((roads[1] + roads[2]) / 2 - left, a, width);
+  const m = Math.min(min, width / 3);
+  const a = clamp((roads[0] + roads[1]) / 2 - left, m, width - 2 * m);
+  const b = clamp((roads[1] + roads[2]) / 2 - left, a + m, width - m);
   return [a, b - a, width - b];
 }
 
