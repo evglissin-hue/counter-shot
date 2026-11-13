@@ -163,7 +163,7 @@ Replays (S3 to S6, merged in): L2 and L3 register keyframe parts with the render
 
 Tests: `apps/game/test/wear.test.ts`, `haze.test.ts`, `windState.test.ts`, `treeShapes.test.ts`, `lookLife.test.ts`, and the sim's lead test. Seen in the player's chair: the valley overview, the sight, a gust front, haze at a gate, soot and cracks; not yet seen by a person: the impact cam inset with haze, tree lean against the flags in motion.
 
-L1 built on November 13 (branch `claude/keepfall-look-l1`), by three executors in the build and review loop. Page only: nothing in a match changed and no pinned hash moved (`npm run check:browser` matches Node on every hash). No new keys.
+L1 built on November 13 (branch `claude/keepfall-look-l1`), by three executors in the build and review loop, with milestone 3.3 (powder, branch `claude/festive-keller-mgdjup`) merged in before the last checks. Page only: nothing in a match changed and no pinned hash moved (`npm run check:browser` matches Node on every hash). No new keys.
 
 The gun as a showpiece (`render/gunModel.ts`, `render/guns.ts`):
 - Long gun and chain shot: bronze barrels turned on a lathe (cascabel, base ring, reinforces, chase, astragal, a flared muzzle, a dark bore, a vent), trunnions under iron cap squares, a worn carriage (stepped cheeks, transoms, trucks with iron tyres), a quoin that follows the breech as the barrel lifts, breeching ropes that sag and go taut as the gun rolls back, a platform of planks. The mortar and the swivel are cast iron.
@@ -192,9 +192,11 @@ A trail, the glass and the blink:
 - The gunner's glass: zoomed in past 55% of the way (whole at 90%; the default zoom shows none), the haze is cut by a third inside the sight's circle, a soft dark ring frames it (at most 45% darker, from 0.92 of the half height) and the edge blurs up to 3 px. The far castle is the clearest thing on screen. Not in the impact cam's inset, replays or photo mode.
 - The blink (`render/blink.ts`): a pale warm flash of dust at each hit, 0.18 s, sized by the distance (0.026 of it, 0.5 to 4.5 m), before the cloud.
 
-The powder box and milestone 3.3: the kegs in each box are drawn from `renderer.setReadyBox(emplacement, charges, capacity)` (in `api.ts`): none for no charges, else four times the share of the capacity, rounded up, at most four. Nothing calls it yet, so every box shows four. 3.3 should call it from the page whenever a gun's ready box changes (with the box's charges and its capacity: long gun 12, mortar 20, chain shot 9, swivel 6), for every gun in both castles, and in `replayExtras` if the ready box should show in replays (then add it to `FrameExtras` beside `reload`).
+The powder box and milestone 3.3: the kegs in each box are drawn from `renderer.setReadyBox(emplacement, charges, capacity)` (in `api.ts`): none for no charges, else four times the share of the capacity, rounded up, at most four. With 3.3 merged in, `setPowder` calls it for every gun in both castles from `MatchInfo.boxes` (box now of box size; an empty slot is skipped; a match without powder shows four). It follows the page's latest match info, so a replay shows the boxes as they are now, not as they were in the clip: to show the clip's, carry the boxes in `FrameExtras` beside `reload`.
 
-Cost (software WebGL2 in headless Chromium on a shared 4 core machine, so only ratios mean anything; before is `main` at c893788, run back to back with the branch; `tools/fire-cost.mjs` and `tools/burst-cost.mjs`):
+The match glow and the AO (found in the player's chair at High): the scene pass writes each pixel's normal for the AO, and every transparent quad overwrote it, so the ground behind the crew's match read as a wall and the AO drew a dark square round the glow. The normal target now blends as each material does (`post.ts`), and every additive material (the guns' and crews' match glow, flashes and fire bursts, sparks, the shock ring, braziers) writes nothing to it (`noAoNormal` in `tslUtils.ts`). Opaque and smoke materials write it as before. High and Ultra only (Low and Medium have no AO).
+
+Cost (software WebGL2 in headless Chromium on a shared 4 core machine, so only ratios mean anything; before is `main` at c893788, run back to back with the branch before 3.3 was merged in (the AO fix after it changes only blend state); `tools/fire-cost.mjs` and `tools/burst-cost.mjs`):
 
 | Tier | Calm before | Calm after | Ratio | After a shot (+0.1 s, +1.5 s) | A burst (+0.3 s, +1.3 s) |
 |---|---|---|---|---|---|
