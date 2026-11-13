@@ -101,6 +101,7 @@ const stockOf = (c: number) => (carriers ? carriers.status(c).stock : 0);
 const A = m.army;
 const lastOrder = [A.order[0], A.order[1]], changes: number[][] = [[], []], holdTicks = [0, 0], holdStretch = [0, 0];
 const holdFlagged = [false, false], churnFlagged = [false, false], flipFlagged = [false, false];
+const sealRun = [0, 0], sealFlagged = [false, false];
 const cutSpell = [-1, -1], cutHigh = [0, 0], cutTeamFlagged = [false, false], cutSince = new Map<number, number>(), cutManFlagged = [false, false];
 const stillAt = new Map<number, { x: number; z: number; since: number }>(), stillFlagged = new Set<number>();
 let stuckMore = 0;
@@ -145,6 +146,13 @@ function armySecond(t: number) {
         cutManFlagged[c] = true;
         flag(t, `team ${c}'s man ${x.id} stood ${ARMY.cutOne} s on a FLOW_INF cell at (${x.x.toFixed(0)}, ${x.z.toFixed(0)}), order ${ORDERS[A.order[c]]}`);
       }
+    }
+    // Sealed: all three of the team's route fields read FLOW_INF at the enemy gate front (its muster), so no man of the team can path to the goal.
+    const gm = MUSTER[1 - c];
+    sealRun[c] = [0, 1, 2].every((r) => A.flow.at(c * 3 + r, gm.x, gm.z) >= FLOW_INF) ? sealRun[c] + 1 : 0;
+    if (sealRun[c] >= ARMY.cutFor && !sealFlagged[c]) {
+      sealFlagged[c] = true;
+      flag(t, `team ${c} cut off: its three route fields reach nothing from castle ${1 - c}'s gate front for ${ARMY.cutFor} s (${cut} marching men on FLOW_INF cells now; order ${ORDERS[A.order[c]]})`);
     }
     // A cut-off spell: 8+ men cut, allowed to flicker (the nav topo rebuilds for a sample or two as the castle shifts, then
     // re-seals) but not to recover for cutRelief s. cutSpell[c] is when the spell began, cutHigh[c] the last second it was full.
