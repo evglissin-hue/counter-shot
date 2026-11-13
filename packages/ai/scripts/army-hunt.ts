@@ -2,7 +2,7 @@
 // scenarios that check the army does what its orders say and does not stand about. Each hunt has a name, a threshold
 // (the table below) and a printed measurement; exits 1 if anything is flagged.
 // npx rolldown packages/ai/scripts/army-hunt.ts --format esm --platform node -o node_modules/.scratch/army-hunt.mjs && node node_modules/.scratch/army-hunt.mjs [only=advance,hold,push,route,sealed,stuck,keg,musket,targets,ladder] [seed=N] [v=1]
-// The whole suite takes about ELAPSED (one core); `only=` runs part of it. Scenarios live in packages/ai/scripts/army/.
+// The whole suite takes about 11 minutes of one core; `only=` runs part of it. Scenarios live in packages/ai/scripts/army/.
 import { arg, type HuntFn } from "./army/common";
 import { targets } from "./army/fighting";
 import { sealed, stuck } from "./army/movement";
