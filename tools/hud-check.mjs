@@ -431,9 +431,12 @@ try {
   await expect("the swivel is up, six pips lit", () => document.getElementById("w-name").textContent === "Swivel gun" && document.querySelectorAll("#w-pips i.on").length === 6);
   // The ridden gun is served first, so a keg comes while it fires: fire (two seconds apart on the test clock) until the box cannot pay, six shots at least.
   let fired = 0;
+  const swivelDry = () => page.evaluate(() => { const b = window.__sandbox.match.boxes; return b[3 * 5] < b[3 * 5 + 2]; });
   for (; fired < 40; fired++) {
-    if (await page.evaluate(() => { const b = window.__sandbox.match.boxes; return b[3 * 5] < b[3 * 5 + 2]; })) break;
-    await page.waitForFunction(() => document.getElementById("w-reload").textContent === "Ready", null, { timeout: 60000, polling: 100 });
+    if (await swivelDry()) break;
+    // Loaded: Ready, or No powder when the box ran dry meanwhile (then it stops here, before a dry shot).
+    await page.waitForFunction(() => { const t = document.getElementById("w-reload").textContent; return t === "Ready" || /^No powder/.test(t); }, null, { timeout: 60000, polling: 100 });
+    if (await swivelDry()) break;
     await page.evaluate(() => window.__sandbox.fire());
     await adv(2.1);
   }
