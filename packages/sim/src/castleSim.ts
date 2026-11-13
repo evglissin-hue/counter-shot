@@ -132,6 +132,17 @@ const BANNER_GROUPS = ((BANNER << 16) | STRUCTURE) >>> 0;
 const BALL_RADIUS = 0.4;
 const BALL_DENSITY = 7800;
 const MAX_BALLS = 64;
+/** standsInPlace: how far (m, along the ground) a loose piece may lie from where it was built, and the cosine of the most it may lean (20 degrees). */
+const IN_PLACE = 0.35;
+const UPRIGHT_COS = 0.9396926207859084;
+/**
+ * shove: the impulse a caller gives is scaled by this, and lands this share
+ * of the piece's half height above its middle (1: at its top). A gate leaf
+ * weighs about 1800 kg; at 50 a leaf rocked back every time, at 100 it fell
+ * only when the blows happened to fall in time with its rocking.
+ */
+const SHOVE = 120;
+const SHOVE_HIGH = 1;
 
 export class CastleSim {
   readonly R: Rapier;
@@ -718,6 +729,56 @@ export class CastleSim {
     this.impacts.push({ x: s.x, y: s.y, z: s.z, strength: 0.4 });
     this.supportCheck();
     return true;
+  }
+
+  /**
+   * Shove a piece that is already loose (a gate leaf knocked loose that
+   * still stands in its place): wakes it (thaws it if it had settled) and
+   * pushes it with SHOVE times the impulse given, at the top of its own up
+   * axis, so an upright leaf tips over rather than slides. With batter()'s
+   * blow (ux * 2.2, 0.3, uz * 2.2) a gate leaf standing loose in its place
+   * topples into the courtyard after 3 to 7 blows. Returns false if it is
+   * not loose (or is dust).
+   */
+  shove(id: number, ix: number, iy: number, iz: number): boolean {
+    if (!this.dynamic[id] || this.shattered[id]) return false;
+    const body = this.bodies[id];
+    if (this.frozen[id]) {
+      this.frozen[id] = 0;
+      const k = this.frozenList.indexOf(id);
+      if (k >= 0) this.frozenList.splice(k, 1);
+      body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+      body.recomputeMassPropertiesFromColliders();
+    }
+    this.restSteps[id] = 0;
+    const t = body.translation(), r = body.rotation();
+    // The piece's own up axis (its local y) in the world.
+    const h = SHOVE_HIGH * this.layout.stones[id].hy;
+    const ux = 2 * (r.x * r.y - r.w * r.z), uy = 1 - 2 * (r.x * r.x + r.z * r.z), uz = 2 * (r.y * r.z + r.w * r.x);
+    body.applyImpulseAtPoint({ x: ix * SHOVE, y: iy * SHOVE, z: iz * SHOVE }, { x: t.x + ux * h, y: t.y + uy * h, z: t.z + uz * h }, true);
+    return true;
+  }
+
+  /**
+   * Does a piece still stand in its place: standing masonry, or a loose
+   * piece whose body lies within 0.35 m (along the ground) of where it was
+   * built and leans under 20 degrees from the way it was built? False for
+   * dust. Reads the body's pose as of the last step.
+   */
+  standsInPlace(id: number): boolean {
+    if (this.shattered[id]) return false;
+    if (!this.dynamic[id]) return true;
+    const s = this.layout.stones[id];
+    const body = this.bodies[id];
+    const t = body.translation();
+    const dx = t.x - s.x, dz = t.z - s.z;
+    if (dx * dx + dz * dz > IN_PLACE * IN_PLACE) return false;
+    // Cosine of the angle between the body's up axis and the built one's.
+    const r = body.rotation();
+    const [qx, qy, qz, qw] = s.q;
+    const ax = 2 * (r.x * r.y - r.w * r.z), ay = 1 - 2 * (r.x * r.x + r.z * r.z), az = 2 * (r.y * r.z + r.w * r.x);
+    const bx = 2 * (qx * qy - qw * qz), by = 1 - 2 * (qx * qx + qz * qz), bz = 2 * (qy * qz + qw * qx);
+    return ax * bx + ay * by + az * bz > UPRIGHT_COS;
   }
 
   /** Thaw frozen rubble around a point (craters, explosions near rubble). */
