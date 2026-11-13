@@ -6,7 +6,7 @@
 // player's own input events): it never sends an input and never changes the
 // match. All its text is fixed, never taken from the match or a friend.
 
-import { castleOfEmp, CASTLE_SHAPE, DIST, Earn, holdMarker, MATCH_EMPLACEMENTS } from "@keepfall/content";
+import { castleOfEmp, CASTLE_SHAPE, DIST, Earn, holdMarker, keepStructure, MATCH_EMPLACEMENTS } from "@keepfall/content";
 import { MINION_STRIDE, PLOT_STRIDE, type FrameData } from "@keepfall/sim";
 import { EARN_STRIDE, type MatchInfo } from "./protocol";
 import type { GuideStep } from "./guide";
@@ -39,6 +39,9 @@ interface Ctx {
   /** The gun tab and charge state of the page (highlights only). */
   weapon: number;
   charging: boolean;
+  /** 3.4: how much their keep's weakest course still holds (1 untouched), and whether it has fallen. */
+  keepHolds: number;
+  keepFallen: boolean;
 }
 
 interface Step {
@@ -54,7 +57,19 @@ interface Step {
   highlights(c: Ctx): string[];
   followHighlights?: string[];
   mark?: { kind: MarkKind; label: string };
+  /** Once, when the step first asks (not when it was already true). */
+  begin?(host: CoachHost, c: Ctx): void;
 }
+
+/**
+ * 3.4: you are past breaking in: their gate is open, a storm has begun or their banner is on its last floor (the ways
+ * the guided match used to count as "broken in"), or their keep is already hurt.
+ */
+const inside = (c: Ctx) => c.info.gateOpen[c.foe] || c.info.storm[c.foe] > 0 || c.info.keeps[c.foe] <= 1 || c.keepHolds < KEEP_CUT || c.keepFallen;
+/** Their keep holds under this share: its foot is cut (3.4). */
+const KEEP_CUT = 0.6;
+/** How long the mason's eye shows on their keep by itself when "Cut their keep's foot" begins (ms). */
+export const EYE_SHOWN_MS = 3000;
 
 /** Stop their wave (index 5; "Mark the road" follows it): the step that may interrupt an earlier one (the tutor stirs by 4:00 at the latest). */
 const WAVE_STEP = 5;
@@ -136,15 +151,23 @@ const STEPS: Step[] = [
     highlights: () => ["#command [data-route]", "#command [data-order]"],
   },
   {
-    title: "Break in",
-    how: `Your waves batter their gate. A breach in a wall works too: Push the breach (${KBD("Ctrl")}+${KBD("3")}).`,
-    test: (c) => c.info.storm[c.foe] > 0 || c.info.keeps[c.foe] <= 1,
-    highlights: () => ['#command [data-order="2"]'],
+    title: "Open their gate",
+    how: "Knock their gate down: the long gun through the gateway, or your waves batter it.",
+    test: (c) => inside(c),
+    highlights: () => [],
     mark: { kind: "gate", label: "Their gate" },
   },
   {
+    title: "Cut their keep's foot",
+    how: `Through the open gate, hit the foot of their keep. Hold ${KBD("C")} to see how near it is to falling.`,
+    test: (c) => c.keepHolds < KEEP_CUT || c.keepFallen || c.info.storm[c.foe] > 0 || c.info.keeps[c.foe] <= 1,
+    highlights: () => [],
+    mark: { kind: "keep", label: "Their keep" },
+    begin: (h, c) => h.showEye(c.foe, EYE_SHOWN_MS),
+  },
+  {
     title: "Win",
-    how: "Hold their courtyard 20 s, or bring down the last floor of their keep.",
+    how: "Hold their courtyard 20 s, bring down their keep's last floor, or fell it.",
     test: (c) => !!c.info.result && c.info.result.winner === c.me,
     highlights: (c) => [c.info.storm[c.foe] > 0 ? "#storm" : "#keep-theirs"],
   },
@@ -173,6 +196,8 @@ export interface CoachHost {
   project(x: number, y: number, z: number): { x: number; y: number } | null;
   size(): { w: number; h: number };
   note(text: string, ms: number): void;
+  /** 3.4: show the mason's eye on a castle's keep for a while, without the key. */
+  showEye(castle: number, ms: number): void;
 }
 
 export interface CoachFrameState {
@@ -209,6 +234,8 @@ export class Coach {
   private waitText = "";
   private fallenBase = 0;
   private info: MatchInfo | null = null;
+  /** 3.4: the structures as last reported (a report comes every quarter second; most frames carry none). */
+  private structures: MatchInfo["structures"] = null;
   private aimed = false;
   private overviewed = false;
   private keepHits = 0;
@@ -268,6 +295,7 @@ export class Coach {
     this.resume = null;
     this.askedTick = 0;
     this.info = null;
+    this.structures = null;
     this.aimed = this.overviewed = this.barracks2 = this.foeBarracks = this.downTip = this.dryTip = false;
     this.keepHits = 0;
     this.tips.clear();
@@ -351,6 +379,7 @@ export class Coach {
   onMatch(info: MatchInfo) {
     if (!this.active) return;
     this.info = info;
+    if (info.structures) this.structures = info.structures;
     for (let o = 0; o + EARN_STRIDE <= info.earned.length; o += EARN_STRIDE) {
       if ((info.earned[o] | 0) === this.me && (info.earned[o + 2] | 0) === Earn.KeepHit) this.keepHits++;
     }
@@ -408,6 +437,8 @@ export class Coach {
       fallenSince: info.fallen[this.foe] - this.fallenBase,
       weapon: this.lastWeapon,
       charging: this.lastCharging,
+      keepHolds: this.structures?.[keepStructure(this.foe)]?.holds ?? 1,
+      keepFallen: (this.structures?.[keepStructure(this.foe)]?.state ?? 0) === 3,
     };
   }
 
@@ -457,6 +488,7 @@ export class Coach {
           this.next(now);
           continue;
         }
+        step.begin?.(this.host, c);
       }
       if (step.test(c)) this.finish(true, now);
       break;

@@ -1250,6 +1250,18 @@ export class GameRenderer implements GameRendererApi {
     return g;
   }
 
+  /** 3.4: the ray through a point of the screen (CSS pixels), for the mason's eye. */
+  pickRay(clientX: number, clientY: number): { ox: number; oy: number; oz: number; dx: number; dy: number; dz: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    const cam = this.views.camera;
+    cam.updateMatrixWorld();
+    this.ray.setFromCamera(this.ndc, cam);
+    const o = this.ray.ray.origin, d = this.ray.ray.direction;
+    return { ox: o.x, oy: o.y, oz: o.z, dx: d.x, dy: d.y, dz: d.z };
+  }
+
   pick(clientX: number, clientY: number): { x: number; y: number; z: number } | null {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return null;
