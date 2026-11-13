@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ROUTE_NAMES, holdMarker } from "@keepfall/content";
-import { F_GATE, F_HOLD, F_INSIDE, LANE_STRIDE, L_DIST, L_FLAGS, L_KEGS, L_LADDERS, L_MEN, L_MUSKETS, laneSummary, ownRoad, readLanes, type LaneMinion } from "../src/threat";
+import { F_GATE, F_HOLD, F_INSIDE, LANE_STRIDE, L_DIST, L_FLAGS, L_KEGS, L_LADDERS, L_MEN, L_MUSKETS, CELL_MIN, cellColumns, laneSummary, ownRoad, readLanes, type LaneMinion } from "../src/threat";
+import { roadsAcross } from "../src/minimap";
 import { groupMinions } from "../src/overviewMarks";
 import { MINION_STRIDE } from "@keepfall/sim";
 
@@ -114,4 +115,29 @@ test("a group's motion is its men's mean displacement", () => {
   const g = groupMinions(rows(a), a.length, new Set(), prev, 0.5);
   assert.equal(g.length, 1);
   assert.ok(Math.abs(g[0].vx - 2) < 1e-6 && g[0].vz === 0);
+});
+
+test("the strip's cells line up with the minimap's roads: each spans the part of the strip nearest its road, none too narrow for its kit", () => {
+  // The side column is 196 px wide; the map's box 196 x 250 draws its roads at about 17, 98 and 179.
+  const roads = roadsAcross(196, 250);
+  assert.ok(Math.abs(roads[0] - 17.5) < 1.5 && Math.abs(roads[1] - 98) < 1.5 && Math.abs(roads[2] - 178.5) < 1.5, `roads at ${roads.map((r) => r.toFixed(1))}`);
+  // The strip has 6 px of padding each side: its columns run from 6 to 190 on the map's scale.
+  const cols = cellColumns(roads, 6, 184);
+  assert.equal(Math.round(cols[0] + cols[1] + cols[2]), 184);
+  for (const c of cols) assert.ok(c >= Math.min(CELL_MIN, 184 / 3) - 1e-9, `a cell of ${c.toFixed(1)} px is too narrow for three kinds of kit`);
+  const edges = [6, 6 + cols[0], 6 + cols[0] + cols[1], 190];
+  // Each road runs under its own cell, and the centre road under the middle of the centre cell.
+  for (let i = 0; i < 3; i++) assert.ok(roads[i] >= edges[i] && roads[i] <= edges[i + 1], `road ${i} at ${roads[i]} inside its cell ${edges[i]}..${edges[i + 1]}`);
+  assert.ok(Math.abs((edges[1] + edges[2]) / 2 - roads[1]) < 2);
+  // With room to spare, the split is halfway between roads.
+  const wide = cellColumns(roads, 6, 184, 40);
+  assert.ok(Math.abs(6 + wide[0] - (roads[0] + roads[1]) / 2) < 1e-9 && Math.abs(6 + wide[0] + wide[1] - (roads[1] + roads[2]) / 2) < 1e-9);
+  // A short map box (drawn narrower, centred) moves the roads in.
+  const short = roadsAcross(196, 180);
+  assert.ok(short[0] > roads[0] + 5 && short[2] < roads[2] - 5);
+  // Nothing goes negative or past the strip, whatever the roads or the width.
+  for (const [r, w] of [[[-50, 0, 400], 184], [[0, 1, 2], 184], [[10, 20, 30], 90]] as const) {
+    const c = cellColumns(r as [number, number, number], 6, w);
+    assert.ok(c.every((x) => x >= 0) && Math.abs(c[0] + c[1] + c[2] - w) < 1e-9, `${r} ${w}: ${c}`);
+  }
 });
