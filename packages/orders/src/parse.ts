@@ -1,6 +1,8 @@
 import {
   BUILDING_REBUILD,
   BUILDINGS,
+  BUTTRESS,
+  BUTTRESS_FACES,
   plotName,
   POWDER,
   REPAIR_KINDS,
@@ -10,6 +12,7 @@ import {
   WEAPON_COST,
   WEAPONS,
   type BuildingKind,
+  type ButtressFace,
   type MixName,
   type RepairKind,
   type RouteName,
@@ -24,6 +27,8 @@ import {
   BARRACKS_FILLER,
   BUILD_VERBS,
   BUILDING_WORDS,
+  BUTTRESS_FACE_WORDS,
+  BUTTRESS_FILLER,
   BUY_VERBS,
   FILLER,
   FIRE_WORDS,
@@ -198,6 +203,7 @@ function work(v: OrdersView): OrdersView {
     repairs: { ...v.repairs },
     standing: [...v.standing],
     powder: v.powder ? { ...v.powder } : null,
+    buttresses: v.buttresses ? [...v.buttresses] : undefined,
   };
 }
 
@@ -211,6 +217,12 @@ function apply(w: OrdersView, s: Step): void {
   const i = s.input;
   w.gold -= s.cost;
   switch (i.kind) {
+    case "buttress": {
+      const b = w.buttresses ?? BUTTRESS_FACES.map((): "empty" | "rising" | "standing" => "empty");
+      b[BUTTRESS_FACES.indexOf(i.face)] = "rising";
+      w.buttresses = b;
+      break;
+    }
     case "build":
       w.plots[i.plot] = { kind: i.building, state: "rising" };
       break;
@@ -315,6 +327,9 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (t.some((x) => SURRENDER_WORDS.includes(x)) || SURRENDER_PHRASES.some((ph) => phraseAt(t, ph) >= 0) || (t.includes("leave") && !gunish)) return fail(R_SURRENDER);
   if (t.some((x) => FIRE_WORDS.includes(x))) return fail(R_FIRE);
 
+  // Buttresses for the keep (3.4).
+  if (t.includes("buttress")) return buttress(t, w, notUnderstood);
+
   // Powder: "powder" is bought at once; with "under", "always" and the like it is the standing order (not the Powder Mill: that is a building).
   if (t.includes("powder") && !hasPhrase(t, "powder mill")) {
     if (t.some((x) => POWDER_STANDING.has(x) || STANDING_TRIGGERS.has(x))) return standing(t, w, notUnderstood);
@@ -375,6 +390,20 @@ function powder(t: Tokens, w: OrdersView, nope: () => Res): Res {
 
 /** Does the team hold a magazine, standing or rising? (The match allows one.) */
 const magazineUp = (w: OrdersView) => w.plots.some((p) => p.kind === "magazine" && (p.state === "standing" || p.state === "rising"));
+
+// Buttresses
+
+/** Buy a buttress on a face of the keep: the same refusals the match would make, said first. */
+function buttress(t: Tokens, w: OrdersView, nope: () => Res): Res {
+  const faces = [...new Set(t.filter((x) => BUTTRESS_FACE_WORDS.has(x)))];
+  if (faces.length > 1) return fail("One face at a time: front, back, left or right");
+  if (t.some((x) => !BUTTRESS_FILLER.has(x) && !BUTTRESS_FACE_WORDS.has(x))) return nope();
+  const face = (faces[0] ?? "front") as ButtressFace;
+  const state = w.buttresses?.[BUTTRESS_FACES.indexOf(face)] ?? "empty";
+  if (state !== "empty") return fail(`The ${face} has a buttress`);
+  if (BUTTRESS.gold > w.gold) return fail(`Not enough gold: ${BUTTRESS.gold} needed`);
+  return ok(input({ kind: "buttress", face }, `Buttress the ${face} of the keep: ${BUTTRESS.gold} gold`, BUTTRESS.gold));
+}
 
 // Building
 
