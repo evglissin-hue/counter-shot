@@ -3,27 +3,32 @@
 // the right marker); "Waves, advance." on the order line (they cross); and the Knight's own waves, counted every 20 s on
 // your side of the stream (the owner saw them hold at the bridge and never come on). Stills in tools/.shots/army-diag/.
 // Usage: PORT=5294 node tools/army-diag/page/army-chair.mjs
-import { start, adv, shot, men, act, fmt, say } from "./lib.mjs";
+import { start, adv, shot, men } from "./lib.mjs";
 
 const MID_Z = -75; // the stream's middle (castle 0 at z 0, castle 1 at z -150)
 const { open, stop } = await start();
 const centroid = (list) => (list.length ? { x: Math.round(list.reduce((s, m) => s + m[1], 0) / list.length), z: Math.round(list.reduce((s, m) => s + m[2], 0) / list.length), n: list.length } : null);
 const field = (list, team) => list.filter((m) => (team === 1 ? m[2] > -126 : m[2] < -24)); // out of their courtyard
+/** One step through the page's own runner, the match stepped by hand until a report shows it (the match is paused here). */
+async function step(page, st) {
+  const [r] = await page.evaluate((st) => window.__diag.run([st], true), st);
+  console.log(`${r.ok ? "ok  " : "FAIL"} ${r.label.padEnd(40)} sent ${JSON.stringify(r.sent)} | match order ${r.rep?.order} route ${r.rep?.route} | HUD order ${r.hud.order} route ${r.hud.route} | ${(r.answer || r.note).slice(0, 60)}${r.flips.length > 1 ? ` | HUD changes ${r.flips.length}` : ""}`);
+}
 const near = (c) => (c ? { x: c.x - 8, y: 10, z: c.z - 10, tx: c.x, ty: 0.5, tz: c.z + 1, fov: 50 } : null);
 try {
   const page = await open("versus=knight-webgl-low", "versus");
   await page.waitForSelector("#loading[hidden]", { state: "attached", timeout: 600000 });
   await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60 && !!window.__rep, null, { timeout: 600000, polling: 500 });
   await page.evaluate(() => window.__sandbox.advance(0.1));
-  console.log(fmt(await act(page, "road: centre (button)", () => page.click('[data-route="centre"]'), 'r.route === "centre"')));
-  console.log(fmt(await act(page, "order: Hold (button)", () => page.click('[data-order="1"]'), "r.order === 1")));
+  await step(page, { label: "road: centre (button)", click: '[data-route="centre"]', want: 'r.route === "centre"' });
+  await step(page, { label: "order: Hold (button)", click: '[data-order="1"]', want: "r.order === 1" });
   const next = await page.evaluate(() => window.__sandbox.match.nextWave / 60);
   await adv(page, next + 40);
   let mine = field(await men(page, 1), 1);
   console.log("held: yours", JSON.stringify(centroid(mine)));
   await shot(page, "chair-1-held-centre", near(centroid(mine)));
   console.log("road row tooltip:", await page.evaluate(() => document.querySelector("#command [data-route]")?.parentElement?.title ?? ""));
-  console.log(fmt(await act(page, "road: right while they hold (button)", () => page.click('[data-route="right"]'), 'r.route === "right"')));
+  await step(page, { label: "road: right while they hold (button)", click: '[data-route="right"]', want: 'r.route === "right"' });
   await adv(page, 25);
   mine = field(await men(page, 1), 1);
   console.log("+25 s: yours", JSON.stringify(centroid(mine)));
@@ -32,7 +37,7 @@ try {
   mine = field(await men(page, 1), 1);
   console.log("+60 s: yours", JSON.stringify(centroid(mine)));
   await shot(page, "chair-3-at-right-marker", near(centroid(mine)));
-  console.log(fmt(await act(page, 'order line: "Waves, advance."', () => say(page, "Waves, advance."), "r.order === 0")));
+  await step(page, { label: 'order line: "Waves, advance."', say: "Waves, advance.", want: "r.order === 0" });
   await adv(page, 12);
   mine = field(await men(page, 1), 1);
   console.log("+12 s after Advance: yours", JSON.stringify(centroid(mine)));
