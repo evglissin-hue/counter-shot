@@ -32,14 +32,14 @@ const T: Record<string, number> = {
   holdLateBack: 60, // s allowed for the men to come back
   holdBack: 0.9, // share of men past the line (still up) that come back within it
   // push: a breach open, masons off.
-  pushSecs: 130, // s of the scenario
-  pushIn: 100, // s from leaving the gate to being in the enemy courtyard
+  pushSecs: 160, // s of the scenario
+  pushIn: 125, // s from leaving the gate to being in the enemy courtyard (the left road to a breach by the gate is about 178 m: 111 s at a pikeman's pace)
   pushFrac: 0.9, // share of a wave (not downed outside) that is in within pushIn
   // route: a route input moves new waves, waves still out, and waves holding at a marker.
   routeAt: 5, // s: the route is named
   routeCrossSecs: 70, // s of the crossing scenario
   routeHoldAt: 40, // s: the route is named to waves holding at a marker
-  routeMove: 60, // s allowed for held waves to reach the new marker
+  routeMove: 90, // s allowed for held waves to reach the new marker (flank to flank along the bank and up the road is about 110 m)
   routeNear: 8, // m from the new marker
   routeFrac: 0.9, // share of the held men that must be there
   // sealed: a courtyard whose gateway is blocked (gate leaves loose but upright in place).
