@@ -163,4 +163,55 @@ Replays (S3 to S6, merged in): L2 and L3 register keyframe parts with the render
 
 Tests: `apps/game/test/wear.test.ts`, `haze.test.ts`, `windState.test.ts`, `treeShapes.test.ts`, `lookLife.test.ts`, and the sim's lead test. Seen in the player's chair: the valley overview, the sight, a gust front, haze at a gate, soot and cracks; not yet seen by a person: the impact cam inset with haze, tree lean against the flags in motion.
 
-L1, L4 to L8: not started.
+L1 built on November 13 (branch `claude/keepfall-look-l1`), by three executors in the build and review loop. Page only: nothing in a match changed and no pinned hash moved (`npm run check:browser` matches Node on every hash). No new keys.
+
+The gun as a showpiece (`render/gunModel.ts`, `render/guns.ts`):
+- Long gun and chain shot: bronze barrels turned on a lathe (cascabel, base ring, reinforces, chase, astragal, a flared muzzle, a dark bore, a vent), trunnions under iron cap squares, a worn carriage (stepped cheeks, transoms, trucks with iron tyres), a quoin that follows the breech as the barrel lifts, breeching ropes that sag and go taut as the gun rolls back, a platform of planks. The mortar and the swivel are cast iron.
+- Beside each gun, on the floor and turned with its rest aim: a garland of shot (the chain shot's: chained pairs; the mortar's: a crate of shells), a powder box with its kegs, and a tub with a slow match glowing (one additive instanced draw for every gun, flickering by the renderer's clock).
+- Draw calls fell (geometries merged per material per gun): 453 to 377 at Low on the Practice range; triangles rose about 11% (881k to 976k at Low; 1.51M at High). Levers if it costs: the lathe's 18 radial segments and its profile points.
+
+Recoil and the camera (`render/recoilLogic.ts`, `render/recoilCam.ts`):
+- The long gun leaps back 0.55 m (the chain shot 0.6 m) in 0.07 s, stays back while the crew load and is run out between reload stage 0.75 and 0.92, so a gun that stands run out is a loaded gun. The mortar's bed thuds down 5 cm; the swivel springs back on its yoke.
+- The stage comes from the match's reload: the page calls `renderer.setReloads(reload)` with each frame; replays carry it in `FrameExtras.reload`. A feed only moves the stage forward; between feeds it creeps on by the renderer's clock.
+- The camera's jolt on the gun you ride (sight only; the mortar's spotter gets a small tip and fov punch): long gun 0.30 m back, 0.10 m up, 0.9 degrees, +2.5 degrees of fov; chain shot 0.35, 0.12, 1.1, +3; swivel 0.12, 0.04, 0.5, +1. It rises in 0.035 s, decays with 0.11 s and is exactly zero from 0.45 s. It is laid over the picture only and taken off after the frame is drawn, so the aim, the aim arc and the next shot never see it. None in replays or the impact cam.
+
+The blast (`GameRenderer.spawnMuzzle`):
+- The flash light of a far gun stands back from the muzzle and over the carriage, so its crew and merlons flare warm. The gun you ride keeps its light a metre ahead of the muzzle (over the carriage, right under the sight's camera, it bleached the barrel white in the player's chair), a little longer. A small flash still does not steal the light from a big one.
+- A low ring of pale dust jumps from the floor round the carriage (6 puffs for the long gun and chain shot, 4 for the mortar, 2 for the swivel), settling in 1 to 2 s, never below the walk it rose from.
+- A bank of grey-white smoke ahead of the muzzle, larger and slower than the old muzzle smoke, 3 to 5 s, carried off by the wind, thinning near the aim line and the crosshair (`clearAim`). For the eye only until 3.7. Both are pooled, sized for a salvo of 8 guns.
+
+A crew at every gun (`render/crewLogic.ts` pure and tested, `render/crews.ts` instanced):
+- Long gun and chain shot 4 men, mortar 3, swivel 1, in both castles. Figures on the page only (3.6 makes them real): the same capsule parts as the men, dark cloth, a soft cap in the team's colour, a leather apron, a 3 m staff (sponge and rammer) and a linstock with a glowing tip.
+- By the reload stage (one table at the top of `crewLogic.ts`): stand clear as it leaps back (0 to 0.08), swab with three strokes (to 0.3), load the cartridge from the box and the ball from the garland (to 0.5), ram with two strokes (to 0.72), lean on the carriage and run it out (to 0.92), stand ready with the gunner by the breech (to 1). At the shot the gunner touches the vent and leans away. The mortar's crew swab, load the powder, carry the shell between two; the swivel's man works the breech, then stands at the tiller.
+- A pose is a function of the gun's stage, slide and shot age (and a small sway by the renderer's clock): no state of its own, so a keyframe or a fast forward lands on the right pose and replays and the inset show the crews like the main view.
+- Nobody stands in the sight's line on the gun you ride (a man who would steps aside), and a head within 0.8 m of the camera is hidden. The wall walk is only about 2 m deep, so two men work from the platform's strips beside the cheeks and the rest from the walk behind it.
+- A gun knocked out has no crew; when it is back, so are they. Posing all 64 men costs 0.027 ms a frame in Node.
+
+A trail, the glass and the blink:
+- Trail (`render/trails.ts`, `render/trailLogic.ts`, one instanced draw): a pale tapering streak behind round shot and chain shot for their first half second, and a grey thread behind a shell over its last 1.5 s of path, drifting with the wind, the fuse's spark as before. Grape has none. A keyframe part `trails` for replays.
+- The gunner's glass: zoomed in past 55% of the way (whole at 90%; the default zoom shows none), the haze is cut by a third inside the sight's circle, a soft dark ring frames it (at most 45% darker, from 0.92 of the half height) and the edge blurs up to 3 px. The far castle is the clearest thing on screen. Not in the impact cam's inset, replays or photo mode.
+- The blink (`render/blink.ts`): a pale warm flash of dust at each hit, 0.18 s, sized by the distance (0.026 of it, 0.5 to 4.5 m), before the cloud.
+
+The powder box and milestone 3.3: the kegs in each box are drawn from `renderer.setReadyBox(emplacement, charges, capacity)` (in `api.ts`): none for no charges, else four times the share of the capacity, rounded up, at most four. Nothing calls it yet, so every box shows four. 3.3 should call it from the page whenever a gun's ready box changes (with the box's charges and its capacity: long gun 12, mortar 20, chain shot 9, swivel 6), for every gun in both castles, and in `replayExtras` if the ready box should show in replays (then add it to `FrameExtras` beside `reload`).
+
+Cost (software WebGL2 in headless Chromium on a shared 4 core machine, so only ratios mean anything; before is `main` at c893788, run back to back with the branch; `tools/fire-cost.mjs` and `tools/burst-cost.mjs`):
+
+| Tier | Calm before | Calm after | Ratio | After a shot (+0.1 s, +1.5 s) | A burst (+0.3 s, +1.3 s) |
+|---|---|---|---|---|---|
+| Low | 1037 ms | 1101 ms | 1.06x | 0.98x, 1.01x (before 0.97x, 1.01x) | 1.00x, 1.01x (before 1.00x, 1.00x) |
+| Medium | 1648 ms | 1681 ms | 1.02x | 1.01x, 1.03x (before 0.98x, 1.01x) | 0.99x, 0.96x (before 1.02x, 0.99x) |
+| High | 1406 ms | 1354 ms | 0.96x | 1.02x, 1.03x (before 0.99x, 1.02x) | 1.06x, 1.05x (before 0.96x, 0.99x) |
+| Ultra | 1601 ms | 1583 ms | 0.99x | 1.00x, 1.00x (before 0.99x, 0.98x) | 1.05x, 0.96x (before 0.99x, 1.02x) |
+
+High's calm pair is the burst tool's (the fire tool's pair was split by a container restart). Zoomed in the frame costs about 1.3x calm before and after (the narrow view shows more detail); the glass itself costs nothing measurable (the same with it held off). Firing, the blast, the crews, the trails and the blink add nothing measurable. Not measured on Kat's M3: please try High there with a few guns firing. Levers if it misses 60 fps: the lathe's segment count, the crews' shadows, the bank's 20 puffs.
+
+Checks: `npm run check` (356 tests, all pass), `npm run check:browser` (every hash matches), `node tools/replay-check.mjs`, `node tools/hud-check.mjs`. New tests: `recoil.test.ts`, `trails.test.ts`, `crew.test.ts`.
+
+Stills (`tools/.shots/`, made again by the tools):
+- `PORT=... node tools/l1-shots.mjs --quality=low|high --tag=<tag> [views]`, views rest, fire, reload, runout, glass, trail, shell, hit, closeup, inset, crew, crewfar, blast. Before (from `main`): `l1-before-low-*` and `l1-before-high-*` (rest, fire, glass, closeup). After: `l1-low-*`, `l1-high-*`, the High stills on the final branch `l1-after-high-rest|fire|closeup|glass|crew`, the crew at work `l1-c1-crew-0.2|0.4|0.6|0.8|1`, the sight after a shot `l1-c2-fire|reload|runout` (fire again after the light's fix: `l1-m2-fire`), the blast from the side `l1-c4-blast-0.17s|1s|3s`, the far crews through the glass `l1-c3-crewfar`.
+- `PORT=... node tools/gun-shots.mjs [--quality=low|high]`: each gun from the side and above (`l1-gun-*`; before: `l1-gun-before-low-*`).
+- `PORT=... node tools/fire-cost.mjs <tier>`: calm, zoomed in (with the glass and held off), after a shot.
+
+Seen in the player's chair: the gun at rest and through a reload in the sight, the crew at each stage from 6 m, the blast from the side, the glass at Low, Medium and High, the trail broadside and down range, a shell's thread, a hit and 0.1 s later, the inset. Fixed there: the ridden gun's flash bleaching the barrel. Open for the owner's eye: the loader stands large at the left of the sight while he fetches the cartridge (clear of the centre and the shot); the mortar sits dark in the keep's shadow (L5); at the full zoom the aim arc's dots stand larger than the far castle's men.
+
+L4 to L8: not started.
