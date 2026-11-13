@@ -22,10 +22,10 @@ import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } from "./match";
 
-export const MATCH_TICKS = 4900;
+export const MATCH_TICKS = 6200;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "0208b082", world: "39e3552a" } as const;
+export const MATCH_HASH = { state: "29bc6f70", world: "52725556" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
@@ -53,16 +53,24 @@ export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [2925, Team.Player, fire(0, -0.0196, 0.0594)],
   [3165, Team.Player, fire(0, 0, 0.0594)],
   [3405, Team.Player, fire(0, 0.0196, 0.0594)],
-  [3630, Team.Player, fire(1, 0.0097, 1.0045)],
+  [3630, Team.Player, fire(1, 0.0094, 1.0042)],
   [3645, Team.Player, fire(0, -0.0196, 0.0594)],
   [3885, Team.Player, fire(0, 0, 0.0594)],
   [4125, Team.Player, fire(0, 0.0196, 0.0594)],
-  [4350, Team.Player, fire(1, 0.0097, 1.0045)],
+  [4350, Team.Player, fire(1, 0.0094, 1.0042)],
   [4365, Team.Player, fire(0, -0.0196, 0.0594)],
   [4605, Team.Player, fire(0, 0, 0.0594)],
+  [4845, Team.Player, fire(0, 0.0196, 0.0594)],
+  [5070, Team.Player, fire(1, 0.0105, 1.0037)],
+  [5085, Team.Player, fire(0, -0.0196, 0.0594)],
+  [5325, Team.Player, fire(0, 0, 0.0594)],
+  [5565, Team.Player, fire(0, 0.0196, 0.0594)],
+  [5790, Team.Player, fire(1, 0.0105, 1.0037)],
+  [5805, Team.Player, fire(0, -0.0196, 0.0594)],
+  [6045, Team.Player, fire(0, 0, 0.0594)],
   // The keep has fallen by now: these are refused.
-  [4800, Team.Player, fire(1, 0.0097, 1.0045)],
-  [4830, Team.Player, fire(0, 0.02, 0.03)],
+  [6120, Team.Player, fire(1, 0.0105, 1.0037)],
+  [6150, Team.Player, fire(0, 0.02, 0.03)],
   // Not the enemy's emplacement: refused.
   [100, Team.Enemy, fire(0, 0, 0.03)],
 ];
