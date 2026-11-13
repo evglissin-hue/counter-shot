@@ -34,9 +34,10 @@ export const FLOW_INF = 0x3fffffff;
 /**
  * Cost of a field's fallback goal cells (FieldSpec.approach): a cell whose
  * cost is under this reaches the real goal; at or over it, only the
- * fallback.
+ * fallback. Well above the dearest real cost (about 4400, a flank field with
+ * the centre bridge down).
  */
-export const APPROACH_BASE = 3000;
+export const APPROACH_BASE = 20000;
 /** Extra cost to walk through a standing gate (in a field with doors). */
 const DOOR = 150;
 const BUCKETS = 256; // more than the dearest step (7 * 6 + DOOR)

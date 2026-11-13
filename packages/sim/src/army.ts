@@ -176,13 +176,6 @@ function routeWeights(): Uint8Array[] {
 
 export type Emit = (kind: EventKind, a: number, b: number, c: number, d: number) => void;
 
-/**
- * CastleSim.shove(id, ix, iy, iz): an impulse on a piece already loose (false
- * if it is not). It lands with the flow work of the army pass; typed here so
- * battering compiles before it does. Drop this once CastleSim has it.
- */
-type Shoves = CastleSim & { shove?(id: number, ix: number, iy: number, iz: number): boolean };
-
 export class Army {
   /** Fields: each team's three route fields (doors: the enemy gate), then each team's breach field. */
   readonly flow: FlowFields;
@@ -1276,7 +1269,7 @@ export class Army {
     this.gateHits.set(leaf, hits);
     this.emit(EventKind.Impact, m.x + ux * 1.6, m.y + 1.2, m.z + uz * 1.6, 0.12);
     // A leaf already loose but still in its place takes the same push as a shove, or men would batter it for ever.
-    if (hits >= GATE_BLOWS && !this.castle.knockLoose(leaf, ux * 2.2, 0.3, uz * 2.2)) (this.castle as Shoves).shove?.(leaf, ux * 2.2, 0.3, uz * 2.2);
+    if (hits >= GATE_BLOWS && !this.castle.knockLoose(leaf, ux * 2.2, 0.3, uz * 2.2)) this.castle.shove(leaf, ux * 2.2, 0.3, uz * 2.2);
   }
 
   /** Its floor is gone: it falls, keeping its own speed. */

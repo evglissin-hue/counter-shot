@@ -60,16 +60,13 @@ test("a gate leaf already loose but still in its place is shoved by the blows th
   const sim = world();
   const army = sim.army!;
   const leaf = leaves[0].id;
-  // Until the flow work's CastleSim.shove lands, a stand-in with the same contract.
-  const castle = sim.castle as typeof sim.castle & { shove?(id: number, ix: number, iy: number, iz: number): boolean };
+  // CastleSim.shove, watched.
+  const castle = sim.castle;
   const shoves: number[][] = [];
-  const real = castle.shove?.bind(castle);
+  const real = castle.shove.bind(castle);
   castle.shove = (id, ix, iy, iz) => {
     shoves.push([id, ix, iy, iz]);
-    if (real) return real(id, ix, iy, iz);
-    if (!castle.dynamic[id]) return false;
-    castle.bodies[id].applyImpulse({ x: ix, y: iy, z: iz }, true);
-    return true;
+    return real(id, ix, iy, iz);
   };
   army.spawnWave(1, CENTRE, 1, { x: 0, z: gateZ - 3 });
   const m = sim.minions.list[sim.minions.list.length - 1];
