@@ -136,20 +136,39 @@ const GLYPH_MUSKET = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.8 
 
 const TIP = "What is coming down each road: the enemy's men, the kegs, ladders and muskets among them, and a bar for how near their leading man is to your walls (amber past the middle, red at your gate or inside). The small number is your own men on that road.";
 
+/**
+ * The strip's three column widths (px) so each cell spans the part of the strip
+ * nearest its road (the cells split halfway between roads). `roads` are the
+ * roads' x across the map, `left` the x of the strip's first column on the same
+ * scale, `width` the width of its columns together.
+ */
+export function cellColumns(roads: readonly [number, number, number], left: number, width: number): [number, number, number] {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  const a = clamp((roads[0] + roads[1]) / 2 - left, 0, width);
+  const b = clamp((roads[1] + roads[2]) / 2 - left, a, width);
+  return [a, b - a, width - b];
+}
+
 /** The DOM half: three cells in #threat. */
 export class ThreatStrip {
   private cells: Array<{ root: HTMLElement; men: HTMLElement; kit: HTMLElement; mine: HTMLElement; fill: HTMLElement }> = [];
   private shown: string[] = ["", "", ""];
   private last = [0, 0, 0];
   private primed = false;
+  private columns = "";
 
-  constructor(private el: HTMLElement) {
+  /** `map`: the minimap's box, and `roads` where its roads run across a box of that size (left to right); the cells line up with them. */
+  constructor(
+    private el: HTMLElement,
+    private map?: HTMLElement,
+    private roads?: (w: number, h: number) => [number, number, number],
+  ) {
     el.title = TIP;
     el.setAttribute("role", "group");
     el.setAttribute("aria-label", "Threat strip: what is coming down each road");
     for (const name of ["Left", "Centre", "Right"]) {
       const root = document.createElement("div");
-      root.className = "tc quiet";
+      root.className = `tc quiet${name === "Left" ? " tc-l" : name === "Right" ? " tc-r" : ""}`;
       root.innerHTML = `<span class="tc-name">${name}</span><b class="tc-men"></b><span class="tc-kit"></span><i class="tc-mine" title="Your own men on this road"></i><span class="tc-bar"><u></u></span>`;
       el.appendChild(root);
       this.cells.push({ root, men: root.querySelector(".tc-men")!, kit: root.querySelector(".tc-kit")!, mine: root.querySelector(".tc-mine")!, fill: root.querySelector("u")! });
@@ -159,6 +178,7 @@ export class ThreatStrip {
   setVisible(on: boolean) {
     this.el.hidden = !on;
     if (!on) this.reset();
+    else this.align();
   }
 
   /** A new world: forget the last readings. */
@@ -173,8 +193,24 @@ export class ThreatStrip {
     this.el.style.setProperty("--mine", me === 0 ? "#c8d43a" : "#d8424a");
   }
 
+  /** Line the cells up with the minimap's roads below (the map's box and the strip share the side column's width). */
+  align() {
+    if (!this.map || !this.roads || this.el.hidden) return;
+    const m = this.map.getBoundingClientRect(), s = this.el.getBoundingClientRect();
+    if (m.width < 1 || m.height < 1) return;
+    const cs = getComputedStyle(this.el);
+    const padL = parseFloat(cs.paddingLeft) || 0, padR = parseFloat(cs.paddingRight) || 0;
+    const roads = this.roads(m.width, m.height);
+    const cols = cellColumns(roads, s.left + padL - m.left, s.width - padL - padR);
+    const css = cols.map((c) => `${c.toFixed(1)}px`).join(" ");
+    if (css === this.columns) return;
+    this.columns = css;
+    this.el.style.gridTemplateColumns = css;
+  }
+
   /** Draw what changed; a road that gained a wave's worth of men pulses once. */
   update(lanes: Int16Array, me: 0 | 1) {
+    this.align();
     const r = readLanes(lanes, me);
     for (let i = 0; i < 3; i++) {
       const c = this.cells[i], v = r[i];

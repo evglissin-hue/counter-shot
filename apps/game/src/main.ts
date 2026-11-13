@@ -35,7 +35,7 @@ import {
 import { Estate } from "./estate-page";
 import { Guide } from "./guide";
 import { Coach } from "./coach";
-import { GUN_STRIDE, Gun, Minimap, type MinimapState } from "./minimap";
+import { GUN_STRIDE, Gun, Minimap, roadsAcross, type MinimapState } from "./minimap";
 import {
   aimDir,
   castleHeightAt,
@@ -142,7 +142,7 @@ function stewardAct(i: MatchInput) {
 /** The minimap: both castles and both armies at a glance (the owner's ask: less reading, more seeing). */
 const minimap = new Minimap($<HTMLCanvasElement>("minimap"));
 /** M6: the threat strip over the minimap, and the group marks in the overview. */
-const threat = new ThreatStrip($("threat"));
+const threat = new ThreatStrip($("threat"), $("mapbox"), roadsAcross);
 const groupMarks = new OverviewMarks($("ovmarks"));
 /**
  * 3.2: your team's marks (chips on the command card, chalk in the sight and the overview, crosses on the minimap) and fire for effect.

@@ -107,6 +107,19 @@ export function cellState(share: number, foot: number): CellState {
 // ---- the layout ---------------------------------------------------------------------
 
 export const VW = 390, VH = 500;
+
+/**
+ * Where the three roads cross the middle of the field (CSS pixels from the left
+ * of a w x h box the map is drawn in), left to right: the threat strip above
+ * the map lines its cells up with them. The flanks run straight there for a
+ * third of the field, at their widest.
+ */
+export function roadsAcross(w: number, h: number): [number, number, number] {
+  const u = Math.min(w / VW, h / VH);
+  const ox = (w - VW * u) / 2;
+  const xs = ROUTE_NAMES.map((name) => ox + Minimap.px(0, routeAt(name, 0)[0], MID_Z)[0] * u).sort((a, b) => a - b);
+  return [xs[0], xs[1], xs[2]];
+}
 /** Design units per metre inside a castle, and across the open field; along the valley between the castles. */
 const CASTLE_K = 124 / (2 * S.half);
 const FIELD_KX = 161 / 48;
