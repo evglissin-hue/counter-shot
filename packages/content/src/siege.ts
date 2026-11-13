@@ -263,6 +263,12 @@ export function inCourtyard(castle: number, x: number, z: number): boolean {
   return x > -r && x < r && lz > -r && lz < r;
 }
 
+/** In a castle's gate passage (world x, z): between the gate leaves' line and the courtyard, within the opening. Defenders count it as their courtyard; the storm counts do not. */
+export function inGatePassage(castle: number, x: number, z: number): boolean {
+  const lz = mirrorZ(castle, z);
+  return x > -S.gateHalf && x < S.gateHalf && lz > -S.half && lz <= -(INNER - 0.4);
+}
+
 // ---------------------------------------------------------------------------
 // Ladders
 
