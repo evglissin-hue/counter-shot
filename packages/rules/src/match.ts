@@ -12,6 +12,8 @@
 import {
   BRIDGES,
   BUILDING_KINDS,
+  BUTTRESS_FACES,
+  type ButtressFace,
   CASTLE_SHAPE,
   DEFEND,
   ENEMY_ROUTES,
@@ -59,7 +61,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 10;
+export const MATCH_RULES_VERSION = 11;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -82,6 +84,8 @@ export type MatchInput =
   // M3: building, buying, upgrading and each barracks' waves.
   /** Build on one of the team's plots (0 to 5), or rebuild the ruin of the same kind there. */
   | { kind: "build"; plot: number; building: BuildingKind }
+  /** 3.4 rule 11: a buttress for the team's keep, on one of its faces (in the owner's words; refused unless that face is bare and the gold is there). */
+  | { kind: "buttress"; face: ButtressFace }
   /** A gun for one of the team's empty emplacements. */
   | { kind: "buy"; emplacement: number; weapon: WeaponKind }
   /** A Foundry upgrade for one of the team's guns (one each; needs a working Foundry). */
@@ -246,6 +250,8 @@ function wellFormed(input: MatchInput): boolean {
       return true;
     case "build":
       return int(input.plot, 0, plots) && one(BUILDING_KINDS, input.building);
+    case "buttress":
+      return one(BUTTRESS_FACES, input.face);
     case "buy":
       return int(input.emplacement, 0, slots) && one(WEAPON_KINDS, input.weapon);
     case "upgrade":
@@ -403,6 +409,11 @@ export class Match {
   income(team: Team): number {
     void team;
     return this.economy.incomeRate() * (this.suddenDeath ? MATCH.suddenIncome : 1);
+  }
+
+  /** 3.4: the state of a team's buttress on a face: 0 empty, 1 rising, 2 standing. */
+  buttress(team: number, face: ButtressFace): 0 | 1 | 2 {
+    return this.estate.buttressState(team, face);
   }
 
   /**
@@ -565,6 +576,9 @@ export class Match {
       // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
       case "build":
         if (this.estate.build(team, input.plot, input.building, tick)) this.applied.push([tick, team, `build ${input.building} ${input.plot}`]);
+        return;
+      case "buttress":
+        if (this.estate.buttress(team, input.face, tick)) this.applied.push([tick, team, `buttress ${input.face}`]);
         return;
       case "buy":
         if (this.estate.buy(team, input.emplacement, input.weapon)) this.applied.push([tick, team, `buy ${input.weapon} ${input.emplacement - firstSlot(team)}`]);

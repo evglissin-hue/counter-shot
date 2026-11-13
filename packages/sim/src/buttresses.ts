@@ -11,10 +11,11 @@
 // Deterministic: buttresses in layout order, pieces in id order on fixed
 // ticks, Rapier's queries sorted.
 
-import type { CastleLayout } from "@keepfall/content";
+import { BUTTRESS, BUTTRESS_FACES, type CastleLayout } from "@keepfall/content";
 import type { CastleSim } from "./castleSim";
-import type { EventKind } from "./frame";
+import { EventKind } from "./frame";
 import type { Minions } from "./minions";
+import { raisePiece, RETRY } from "./structures";
 
 type Emit = (kind: EventKind, a: number, b: number, c: number, d: number) => void;
 
@@ -32,6 +33,11 @@ export class Buttresses {
   readonly states: ButtressState[];
   /** The buttress each piece belongs to (index into layout.buttresses), or -1. */
   private of: Int16Array;
+  /** Each buttress's pieces (lowest course first, then by id), the next to raise, the tick it is due and the ticks between pieces. */
+  private ids: number[][];
+  private next: number[];
+  private due: number[];
+  private every: number[];
 
   constructor(
     private castle: CastleSim,
@@ -39,12 +45,18 @@ export class Buttresses {
     private ground: ReadonlySet<number>,
     private emit: Emit,
   ) {
-    void this.minions;
-    void this.ground;
-    void this.emit;
     const L = castle.layout;
     this.states = L.buttresses.map(() => ButtressState.Empty);
     this.of = new Int16Array(L.stones.length).fill(-1);
+    this.ids = L.buttresses.map((b) => {
+      const ids: number[] = [];
+      for (let id = b.first; id < b.first + b.count; id++) ids.push(id);
+      ids.sort((a, c) => L.stones[a].course - L.stones[c].course || a - c);
+      return ids;
+    });
+    this.next = L.buttresses.map(() => 0);
+    this.due = L.buttresses.map(() => 0);
+    this.every = L.buttresses.map((b) => Math.max(1, Math.floor(BUTTRESS.buildTicks / Math.max(1, b.count))));
     L.buttresses.forEach((b, k) => {
       for (let id = b.first; id < b.first + b.count; id++) this.of[id] = k;
     });
@@ -66,10 +78,12 @@ export class Buttresses {
 
   /** Start a castle's buttress on a face (BUTTRESS_FACES index) rising (the rules have checked the gold). False if it is not Empty. */
   build(castle: number, face: number, tick: number): boolean {
-    void castle;
-    void face;
-    void tick;
-    return false;
+    const k = this.index(castle, face);
+    if (k < 0 || this.states[k] !== ButtressState.Empty) return false;
+    this.next[k] = 0;
+    this.due[k] = tick + this.every[k];
+    this.states[k] = ButtressState.Rising;
+    return true;
   }
 
   state(castle: number, face: number): ButtressState {
@@ -85,10 +99,38 @@ export class Buttresses {
 
   /** Raise what is due. Call before the physics step. */
   step(tick: number) {
-    void tick;
+    for (let k = 0; k < this.states.length; k++) {
+      if (this.states[k] === ButtressState.Rising && tick >= this.due[k]) this.raiseNext(k, tick);
+    }
+  }
+
+  private raiseNext(k: number, tick: number) {
+    const ids = this.ids[k];
+    const dyn = this.castle.dynamic;
+    // Skip what already stands.
+    while (this.next[k] < ids.length && !dyn[ids[this.next[k]]]) this.next[k]++;
+    if (this.next[k] >= ids.length) {
+      // Anything knocked down while it rose goes up again before it counts as finished.
+      let j = 0;
+      while (j < ids.length && !dyn[ids[j]]) j++;
+      if (j < ids.length) {
+        this.next[k] = j;
+      } else {
+        this.states[k] = ButtressState.Standing;
+        const b = this.layout.buttresses[k];
+        this.emit(EventKind.Buttressed, b.castle, BUTTRESS_FACES.indexOf(b.face), 0, 0);
+        return;
+      }
+    }
+    if (!raisePiece(this.castle, this.minions, this.ground, this.emit, this.layout, ids[this.next[k]])) {
+      this.due[k] = tick + RETRY;
+      return;
+    }
+    this.next[k]++;
+    this.due[k] = tick + this.every[k];
   }
 
   hashInto(out: number[]) {
-    void out;
+    for (let k = 0; k < this.states.length; k++) out.push(this.states[k], this.next[k], this.due[k]);
   }
 }
