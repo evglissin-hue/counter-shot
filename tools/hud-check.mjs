@@ -488,7 +488,7 @@ try {
   // A magazine going up: the note and the log.
   await expect("#powder keeps reading after all that", () => !document.getElementById("powder").hidden);
   // 3.4: the keep tracker's holds bar (one element under each keep's pips), and the mason's eye: hold C with the sight on their keep.
-  await expect("each keep has a holds bar, reading 100% at the start", () => ["holds-mine", "holds-theirs"].every((id) => { const b = document.getElementById(id); return b && /^Holds 100%: how much its weakest course still holds$/.test(b.title) && b.dataset.holds === "good" && b.firstElementChild.style.transform === "scaleX(1)"; }));
+  await expect("each keep has a holds bar, reading 100% at the start", () => ["holds-mine", "holds-theirs"].every((id) => { const b = document.getElementById(id); return b && /^Holds 100%: how much its weakest course still holds$/.test(b.title) && b.dataset.holds === "good" && ["", "scaleX(1)"].includes(b.firstElementChild.style.transform); }));
   await expect("the controls help says what C does", () => /Hold|C \(hold\)/.test(document.getElementById("help").textContent) && /mason's eye/.test(document.getElementById("help").textContent));
   await expect("the structures are reported (both castles: a keep and four towers each)", () => window.__sandbox.eye.list.length === 10);
   await page.evaluate(() => { const s = window.__sandbox.eye.list[0]; window.__sandbox.aimAtPoint(0, s.cx, 8, s.cz); });

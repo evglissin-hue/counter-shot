@@ -45,6 +45,8 @@ const frames = (ms) => page.evaluate((ms) => new Promise((done) => {
 }), ms);
 const eye = () => page.evaluate(() => { const s = window.__sandbox.eye; const k = s.list[0]; return { labels: s.labels, under: s.under, keep: k && { state: k.state, holds: +k.holds.toFixed(2), weakest: k.weakest, margin: +k.margin.toFixed(2), drawIn: +k.drawIn.toFixed(2), tn: +k.toppleNear.toFixed(2) } }; });
 try {
+  const only = process.argv[2];
+  if (only !== "buttress") {
   // ---- the enemy keep in the Practice range ----
   await load("practice-webgl-low-fixed");
   await page.waitForFunction(() => window.__sandbox.eye.list.length === 10, null, { timeout: 180000, polling: 200 });
@@ -95,9 +97,12 @@ try {
   await adv(1.2);
   await shot("tower-toppling");
 
+  }
   // ---- a buttress against your keep ----
   await load("versus=squire-webgl-low-fixed");
-  await page.waitForFunction(() => window.__sandbox.eye.list.length === 10 && (window.__sandbox.match?.tick ?? 0) > 30, null, { timeout: 180000, polling: 200 });
+  await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 0 || window.__sandbox.match, null, { timeout: 180000, polling: 200 });
+  await adv(1);
+  await page.waitForFunction(() => window.__sandbox.eye.list.length === 10, null, { timeout: 60000, polling: 200 });
   const m = await page.evaluate(() => { const s = window.__sandbox.eye.list[5]; return { x: s.cx, z: s.cz }; });
   await page.evaluate(() => window.__sandbox.input({ kind: "buttress", face: "front" }));
   await adv(16);

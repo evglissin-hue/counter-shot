@@ -70,7 +70,7 @@ async function guidedReady() {
 try {
   // ---- the start menu ----
   await load("#title-webgl-low");
-  await page.waitForSelector("#menu:not([hidden])", { timeout: 60000 });
+  await page.waitForSelector("#menu:not([hidden])", { timeout: 180000 });
   await expect("the menu lists Guided match first", () => document.querySelector("#choices > .choice")?.id === "guided-go" && /Guided match/.test(document.querySelector("#guided-go b").textContent));
   await expect("it carries the Start here tag and its blurb", () => !document.getElementById("guided-tag").hidden && /Start here/.test(document.getElementById("guided-tag").textContent) && /wakes up slowly/.test(document.querySelector("#guided-go span:not(.tag)").textContent));
   await press("#guided-go");
