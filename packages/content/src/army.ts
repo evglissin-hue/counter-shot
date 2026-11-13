@@ -288,6 +288,34 @@ export function holdMarker(team: 0 | 1, route: RouteName): { x: number; z: numbe
   return team === 1 ? { x: b.x, z: b.z - b.length / 2 - HOLD_SHORT } : { x: b.x, z: b.z + b.length / 2 + HOLD_SHORT };
 }
 
+/** How waves march and take their orders (the army pass): distances in metres. */
+export const MARCH = {
+  /**
+   * On Push a man keeps to his route until he is this close to the enemy
+   * front wall (measured along z); from there he makes for a breach if one
+   * reaches the courtyard from where he stands. Further out the breach field
+   * (no road weights) would pull waves sent down a flank across the centre.
+   */
+  pushNear: 35,
+  /** Men who cannot batter (musketeers, sappers done with their keg) stop this far short of a gate that still stands, out of the pikes' way. */
+  doorStandOff: 8,
+  /** Upright soldiers this close to a set keg whose fuse still burns walk straight away from it. */
+  kegClear: 6,
+  /** A man standing where his march field cannot reach the goal looks this far for a cell that can, to walk back to it. */
+  cutOffSearch: 4,
+  /**
+   * On Hold a man further than this from his route's marker along the bank
+   * (his wave sent down another road while it held) walks along his own bank
+   * to his road `holdRejoin` behind the marker, and comes up it to the line as
+   * the wave did; unless he is more than `holdBehind` behind the hold line
+   * (still coming up his road, which runs within 4 m of its marker that far
+   * back).
+   */
+  holdAlong: 8,
+  holdRejoin: 6,
+  holdBehind: 10,
+} as const;
+
 /** Blows from pikemen a gate leaf takes before it comes loose. */
 export const GATE_BLOWS = 60;
 

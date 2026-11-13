@@ -33,6 +33,7 @@ import {
   UNITS,
   WAVES,
   holdMarker,
+  MARCH,
   routeDistance,
   type BridgeSite,
   type UnitDef,
@@ -124,6 +125,12 @@ const STRIDE = 1.4;
 const TWO_PI = 2 * DPI;
 /** Ticks between a marcher's looks for a ladder to climb (staggered by id). */
 const LADDER_LOOK = 20;
+/** Each team's hold line box (m): across the whole valley floor between the flank roads, and this far either side of the middle of its markers' z (its own bank, not the far one). */
+const HOLD_LINE_X = 60;
+const HOLD_LINE_Z = 14;
+/** The eight neighbouring cells in a fixed order (four straight, then four diagonal) for a boxed-in man's sidestep. */
+const SIDE_DI = [-1, 1, 0, 0, -1, 1, -1, 1];
+const SIDE_DJ = [0, 0, -1, 1, -1, -1, 1, 1];
 
 /** Field index of a team's route field (routes in ROUTE_NAMES order) and its breach field. */
 export function routeField(team: number, route: number): number {
@@ -166,6 +173,13 @@ function routeWeights(): Uint8Array[] {
 
 export type Emit = (kind: EventKind, a: number, b: number, c: number, d: number) => void;
 
+/**
+ * CastleSim.shove(id, ix, iy, iz): an impulse on a piece already loose (false
+ * if it is not). It lands with the flow work of the army pass; typed here so
+ * battering compiles before it does. Drop this once CastleSim has it.
+ */
+type Shoves = CastleSim & { shove?(id: number, ix: number, iy: number, iz: number): boolean };
+
 export class Army {
   /** Fields: each team's three route fields (doors: the enemy gate), then each team's breach field. */
   readonly flow: FlowFields;
@@ -183,8 +197,11 @@ export class Army {
   /** Set by the world when it has ladders (matches). */
   ladders: Ladders | null = null;
   private rng: Rng;
-  /** Where each team's waves hold, per route: the marker's z. */
+  /** Where each team's waves hold, per route: the marker's z and x. */
   private holdZ: number[][];
+  private holdX: number[][];
+  /** Each team's hold line: walks along its own bank from one marker to another (a wave sent down another road while it holds). */
+  private holdLine: LocalFields;
   private bnx: number;
   private bnz: number;
   private head: Int32Array;
@@ -207,6 +224,8 @@ export class Army {
   private waveZ = new Float64Array(64);
   /** Each team's garrison wave (-1 until it has one). */
   private garrisonWave: [number, number] = [-1, -1];
+  /** Per castle, the z of its front wall: the middle of its gate leaves. */
+  private frontZ: [number, number] = [0, 0];
   /** M3: sappers and musketeers are steered here first (the sandbox sets it in a match). */
   specialists: Specialists | null = null;
   /** 3.2: bridge gangs take two men of a wave sent down a road whose bridge is down (the sandbox sets it in a match). */
@@ -230,7 +249,19 @@ export class Army {
     this.flow.buildAll();
     this.local = new LocalFields(nav, castle.layout.castleZ);
     this.holdZ = [0, 1].map((team) => ROUTE_NAMES.map((r) => holdMarker(team as 0 | 1, r).z));
+    this.holdX = [0, 1].map((team) => ROUTE_NAMES.map((r) => holdMarker(team as 0 | 1, r).x));
+    this.holdLine = new LocalFields(nav, this.holdZ.map((z) => (z[0] + z[1] + z[2]) / 3), HOLD_LINE_X, HOLD_LINE_Z);
     this.bridges = ROUTE_NAMES.map((r) => BRIDGES.find((b) => b.name === r)!);
+    for (const c of [0, 1]) {
+      let sum = 0, n = 0;
+      for (const s of castle.layout.stones) {
+        if (s.part !== "gate" || s.castle !== c) continue;
+        sum += s.z;
+        n++;
+      }
+      // A layout with no gate: its front wall's face, 16 m out from the castle's middle towards the other castle.
+      this.frontZ[c] = n ? sum / n : castle.layout.castleZ[c] + (c === 0 ? -16 : 16);
+    }
     this.bnx = Math.ceil((NAV_GRID.nx * NAV_GRID.cell) / BUCKET);
     this.bnz = Math.ceil((NAV_GRID.nz * NAV_GRID.cell) / BUCKET);
     this.head = new Int32Array(this.bnx * this.bnz).fill(-1);
@@ -238,6 +269,33 @@ export class Army {
 
   setOrder(team: number, order: Order) {
     this.order[team] = order;
+  }
+
+  /**
+   * A team's route order: every marching wave of the team (not a crew) that
+   * has not crossed its own route's bridge yet (its men's middle, as
+   * reroute() judges it) takes `route`, all its men together, if that
+   * route's bridge stands; so waves holding at a marker walk to the new one.
+   * Gang men keep their bridge's road.
+   */
+  setRoute(team: number, route: number) {
+    if (route < 0 || route > 2 || !this.nav.bridgeOpen(this.bridges[route])) return;
+    const list = this.minions.list;
+    for (let w = 0; w < this.waves; w++) {
+      if (this.waveTeam[w] !== team || this.waveCrew[w] || this.waveRoute[w] === route) continue;
+      let n = 0, z = 0;
+      for (const m of list) {
+        if (m.wave !== w || m.state !== MinionState.Upright || m.role === Role.Gang) continue;
+        n++;
+        z += m.z;
+      }
+      if (!n) continue;
+      z /= n;
+      const b = this.bridges[this.waveRoute[w]];
+      if (team === 1 ? z > b.z : z < b.z) continue; // already across
+      this.waveRoute[w] = route;
+      for (const m of list) if (m.wave === w && m.role !== Role.Gang) m.route = route;
+    }
   }
 
   /** A new wave slot for a team (a crew never marches: no route, no cohesion, no rerouting). */
@@ -465,6 +523,7 @@ export class Army {
       this.fall(m, tick);
       return;
     }
+    if (this.clearKeg(m, tick)) return;
     let mx = 0, mz = 0, speed = 0;
     let face = NaN; // the yaw to turn to (NaN: wherever it walks)
     let action = Action.Walk;
@@ -543,45 +602,154 @@ export class Army {
         this.ladders.claim(m, this.flow.at(breachField(m.team), m.x, m.z) < FLOW_INF);
       }
       if (m.task !== Climb.ToLadder) {
-        const f = this.marchField(m);
-        if (f >= 0 && this.flow.dir(f, m.x, m.z, this.dir)) {
-          const ux = this.dir[0], uz = this.dir[1];
-          const door = f < 6 && fieldTeam(f) === m.team ? this.flow.doorAhead(f, m.x, m.z, ux, uz, DOOR_REACH) : -1;
-          if (door >= 0) {
-            face = yawOf(ux, uz);
-            // M3: sappers and musketeers leave a gate to the pikes and wait at it.
-            if (unit.batters === false) action = Action.Stand;
-            else {
-              action = Action.Batter;
-              if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
-            }
-          } else {
-            mx = ux;
-            mz = uz;
-            speed = m.speed * (f === routeField(m.team, m.route) ? this.pace(m) : 1);
-          }
-        } else if (inCourtyard(m.team, m.x, m.z)) {
-          // Shut in its own courtyard (the gate stands): it waits behind the garrison until there is a way out.
-          const p = garrisonPost(m.team, m.id % GARRISON.size);
-          const rz = mirrorZ(m.team, mirrorZ(m.team, p.z) + 1.8);
-          if (this.local.steer(m.team, p.x, rz, m.x, m.z, this.dir)) {
-            mx = this.dir[0];
-            mz = this.dir[1];
-            speed = m.speed;
-          } else action = Action.Stand;
-        } else action = Action.Stand;
+        this.march(m, unit);
+        return;
       }
     }
     this.move(m, mx, mz, speed, face, action);
   }
 
   /**
+   * A marching man with nothing to fight goes by his team's order: on along
+   * his march field, battering a gate that stands (or, if he cannot batter,
+   * waiting MARCH.doorStandOff short of it), back onto his field when he
+   * stands where it cannot reach the goal, or waiting.
+   */
+  private march(m: Minion, unit: UnitDef) {
+    if (this.holdAside(m, this.dir)) {
+      this.move(m, this.dir[0], this.dir[1], m.speed, NaN, Action.Walk);
+      return;
+    }
+    let mx = 0, mz = 0, speed = 0;
+    let face = NaN;
+    let action = Action.Walk;
+    const f = this.marchField(m);
+    const home = inCourtyard(m.team, m.x, m.z);
+    if (f >= 0 && !home && this.flow.at(f, m.x, m.z) >= FLOW_INF) {
+      // Cut off from his field (a pocket of rubble, a heap the field has not caught up with): back to the nearest cell on it.
+      if (this.backToField(m, f)) {
+        mx = this.dir[0];
+        mz = this.dir[1];
+        speed = m.speed;
+      } else action = Action.Stand;
+    } else if (f >= 0 && this.flow.dir(f, m.x, m.z, this.dir)) {
+      const ux = this.dir[0], uz = this.dir[1];
+      const own = f < 6 && fieldTeam(f) === m.team;
+      const door = own ? this.flow.doorAhead(f, m.x, m.z, ux, uz, DOOR_REACH) : -1;
+      if (door >= 0 && unit.batters !== false) {
+        face = yawOf(ux, uz);
+        action = Action.Batter;
+        if (--m.cool <= 0) this.batter(m, door, ux, uz, unit);
+      } else if (own && unit.batters === false && (door >= 0 || this.doorWithin(f, m.x, m.z, ux, uz, MARCH.doorStandOff))) {
+        // M3: sappers and musketeers leave a gate to the pikes: they wait short of it, out of the doorway, facing it.
+        face = yawOf(ux, uz);
+        action = Action.Stand;
+      } else {
+        mx = ux;
+        mz = uz;
+        speed = m.speed * (f === routeField(m.team, m.route) ? this.pace(m) : 1);
+      }
+    } else if (home) {
+      // Shut in its own courtyard (the gate stands): it waits behind the garrison until there is a way out.
+      const p = garrisonPost(m.team, m.id % GARRISON.size);
+      const rz = mirrorZ(m.team, mirrorZ(m.team, p.z) + 1.8);
+      if (this.local.steer(m.team, p.x, rz, m.x, m.z, this.dir)) {
+        mx = this.dir[0];
+        mz = this.dir[1];
+        speed = m.speed;
+      } else action = Action.Stand;
+    } else action = Action.Stand;
+    this.move(m, mx, mz, speed, face, action, speed > 0 ? f : -1);
+  }
+
+  /** Is a door that field f leads into within `reach` m ahead of (x, z) along (ux, uz)? Looked for every half metre from DOOR_REACH out. */
+  private doorWithin(f: number, x: number, z: number, ux: number, uz: number, reach: number): boolean {
+    for (let r = DOOR_REACH; r <= reach; r += 0.5) if (this.flow.doorAhead(f, x, z, ux, uz, r) >= 0) return true;
+    return false;
+  }
+
+  /**
+   * A man on a cell his march field cannot reach the goal from: the way (into
+   * this.dir) to the middle of the nearest cell within MARCH.cutOffSearch m
+   * that it can, and that he can walk to in a straight line (cells scanned in
+   * a fixed order, the first of the nearest wins). False when there is none.
+   */
+  private backToField(m: Minion, f: number): boolean {
+    const G = NAV_GRID;
+    const c = navCell(m.x, m.z);
+    if (c < 0) return false;
+    const D = this.flow.dist[f];
+    const ci = c % G.nx, cj = (c - ci) / G.nx;
+    const k = Math.floor(MARCH.cutOffSearch / G.cell);
+    const r2 = (MARCH.cutOffSearch / G.cell) * (MARCH.cutOffSearch / G.cell);
+    let best = -1, bd = Infinity;
+    for (let dj = -k; dj <= k; dj++) {
+      for (let di = -k; di <= k; di++) {
+        const d2 = di * di + dj * dj;
+        if (d2 > r2 || d2 >= bd) continue;
+        const i = ci + di, j = cj + dj;
+        if (i < 0 || j < 0 || i >= G.nx || j >= G.nz) continue;
+        const n = j * G.nx + i;
+        if (D[n] >= FLOW_INF) continue;
+        if (!this.walkLine(m.x, m.z, G.x0 + (i + 0.5) * G.cell, G.z0 + (j + 0.5) * G.cell)) continue;
+        bd = d2;
+        best = n;
+      }
+    }
+    if (best < 0) return false;
+    const bi = best % G.nx, bj = (best - bi) / G.nx;
+    const dx = G.x0 + (bi + 0.5) * G.cell - m.x, dz = G.z0 + (bj + 0.5) * G.cell - m.z;
+    const d = dsqrt(dx * dx + dz * dz);
+    if (d < 1e-6) return false;
+    this.dir[0] = dx / d;
+    this.dir[1] = dz / d;
+    return true;
+  }
+
+  /**
+   * A set keg whose fuse still burns, within MARCH.kegClear m: any upright
+   * soldier (not a sapper still on his keg's errand) walks straight away from
+   * it at his full speed, whatever his order or his fight. True if he did.
+   */
+  private clearKeg(m: Minion, tick: number): boolean {
+    const sp = this.specialists;
+    if (!sp || !sp.kegs.length || sp.busy(m) || climbing(m) || m.role === Role.Gang) return false;
+    const r2 = MARCH.kegClear * MARCH.kegClear;
+    let best = -1, bd = r2;
+    for (let k = 0; k < sp.kegs.length; k++) {
+      const g = sp.kegs[k];
+      if (g.at <= tick) continue;
+      const d2 = (m.x - g.x) * (m.x - g.x) + (m.z - g.z) * (m.z - g.z);
+      if (d2 < bd) {
+        bd = d2;
+        best = k;
+      }
+    }
+    if (best < 0) return false;
+    const g = sp.kegs[best];
+    let dx = m.x - g.x, dz = m.z - g.z;
+    const d = dsqrt(bd);
+    if (d > 1e-6) {
+      dx /= d;
+      dz /= d;
+    } else {
+      // On top of it: straight out from the wall it stands against (castle 0's field side is -z, castle 1's +z).
+      dx = 0;
+      dz = g.z > MID_Z ? -1 : 1;
+    }
+    this.move(m, dx, dz, m.speed, NaN, Action.Walk);
+    return true;
+  }
+
+  /**
    * One tick of walking for any upright minion: keep apart from everyone
    * close by, slide along whatever it cannot step onto, turn to face where it
    * goes (or `face`), and keep its feet on the floor. Masons and ladder crews
-   * walk with it too.
+   * walk with it too. A marching man passes his march field: refused on both
+   * axes, he steps instead towards the neighbouring cell he can step to that
+   * is cheapest on it.
    */
-  move(m: Minion, mx: number, mz: number, speed: number, face: number, action: Action) {
+  move(m: Minion, mx: number, mz: number, speed: number, face: number, action: Action, field = -1) {
     const c = navCell(m.x, m.z);
     let sx = 0, sz = 0;
     const bi = this.bucketI(m.x), bj = this.bucketJ(m.z);
@@ -625,6 +793,7 @@ export class Army {
         m.z = nz;
       } else if (this.canStep(c, nx, z0)) m.x = nx;
       else if (this.canStep(c, x0, nz)) m.z = nz;
+      else if (field >= 0) this.sidestep(m, c, field, speed / 60);
     }
     const dx = m.x - x0, dz = m.z - z0;
     m.vx = dx * 60;
@@ -643,6 +812,39 @@ export class Army {
     m.action = action;
     if (m.act < 600) m.act++;
     this.minions.place(m);
+  }
+
+  /**
+   * A marching man boxed in (his step refused on both axes) steps `len` m
+   * towards the middle of the neighbouring cell (the eight in a fixed order)
+   * that his cell can step to, the step itself allowed, cheapest on field f
+   * and not cut off from its goal. He stays put when there is none.
+   */
+  private sidestep(m: Minion, c: number, f: number, len: number) {
+    const G = NAV_GRID;
+    const D = this.flow.dist[f];
+    const ci = c % G.nx, cj = (c - ci) / G.nx;
+    let bx = 0, bz = 0, bc = FLOW_INF;
+    for (let k = 0; k < 8; k++) {
+      const i = ci + SIDE_DI[k], j = cj + SIDE_DJ[k];
+      if (i < 0 || j < 0 || i >= G.nx || j >= G.nz) continue;
+      const cost = D[j * G.nx + i];
+      if (cost >= bc) continue;
+      const tx = G.x0 + (i + 0.5) * G.cell, tz = G.z0 + (j + 0.5) * G.cell;
+      if (!this.canStep(c, tx, tz)) continue;
+      const dx = tx - m.x, dz = tz - m.z;
+      const d = dsqrt(dx * dx + dz * dz);
+      if (d < 1e-6) continue;
+      const s = len < d ? len / d : 1;
+      const px = m.x + dx * s, pz = m.z + dz * s;
+      if (!this.canStep(c, px, pz)) continue;
+      bc = cost;
+      bx = px;
+      bz = pz;
+    }
+    if (bc >= FLOW_INF) return;
+    m.x = bx;
+    m.z = bz;
   }
 
   /** The road's name (ROUTE_NAMES order). */
@@ -741,6 +943,8 @@ export class Army {
     const route = routeField(team, r);
     const order = this.order[team];
     if (order === Order.Push) {
+      // On his road until the enemy wall is near; then through a breach, if one reaches the courtyard from where he stands.
+      if (this.toFront(m) > MARCH.pushNear) return route;
       const b = breachField(team);
       return this.flow.at(b, m.x, m.z) < FLOW_INF ? b : route;
     }
@@ -753,8 +957,34 @@ export class Army {
     return route;
   }
 
+  /**
+   * On Hold, a man well along the bank from his route's marker (his wave was
+   * sent down another road, or its bridge went down, while it held there):
+   * the way along his own bank to his road a little behind that marker, into
+   * `out`; from there he comes up the road to the line. False when he is near
+   * the marker along the bank, still well behind the line on his road, or off
+   * the hold line's box: his march field and the line do then.
+   */
+  private holdAside(m: Minion, out: [number, number]): boolean {
+    const team = m.team, r = m.route;
+    if (this.order[team] !== Order.Hold || r < 0 || r > 2) return false;
+    const hx = this.holdX[team][r], hz = this.holdZ[team][r];
+    const dx = m.x - hx;
+    if (dx <= MARCH.holdAlong && dx >= -MARCH.holdAlong) return false;
+    const past = team === 1 ? m.z - hz : hz - m.z;
+    if (past < -MARCH.holdBehind) return false;
+    const gz = team === 1 ? hz - MARCH.holdRejoin : hz + MARCH.holdRejoin;
+    return this.holdLine.covers(team, m.x, m.z) && this.holdLine.steer(team, hx, gz, m.x, m.z, out);
+  }
+
+  /** How far (m, along z) a minion stands out from the front wall of the castle his team marches on (less than 0 inside it). */
+  private toFront(m: Minion): number {
+    return m.team === 1 ? this.frontZ[0] - m.z : m.z - this.frontZ[1];
+  }
+
   /** The way a minion would march now by its order (no doors, no fighting): for a ladder crew. False where there is none. */
   marchDir(m: Minion, out: [number, number]): boolean {
+    if (this.holdAside(m, out)) return true;
     const f = this.marchField(m);
     return f >= 0 && this.flow.dir(f, m.x, m.z, out);
   }
@@ -892,7 +1122,8 @@ export class Army {
     const hits = (this.gateHits.get(leaf) ?? 0) + 1;
     this.gateHits.set(leaf, hits);
     this.emit(EventKind.Impact, m.x + ux * 1.6, m.y + 1.2, m.z + uz * 1.6, 0.12);
-    if (hits >= GATE_BLOWS) this.castle.knockLoose(leaf, ux * 2.2, 0.3, uz * 2.2);
+    // A leaf already loose but still in its place takes the same push as a shove, or men would batter it for ever.
+    if (hits >= GATE_BLOWS && !this.castle.knockLoose(leaf, ux * 2.2, 0.3, uz * 2.2)) (this.castle as Shoves).shove?.(leaf, ux * 2.2, 0.3, uz * 2.2);
   }
 
   /** Its floor is gone: it falls, keeping its own speed. */
@@ -972,7 +1203,7 @@ export class Army {
 
   /** The army's own state, for the world hash. */
   hashInto(out: number[]) {
-    out.push(this.order[0], this.order[1], this.waves, this.flow.builds, this.bridgeTopo, this.garrisonWave[0], this.garrisonWave[1], this.local.builds);
+    out.push(this.order[0], this.order[1], this.waves, this.flow.builds, this.bridgeTopo, this.garrisonWave[0], this.garrisonWave[1], this.local.builds, this.holdLine.builds);
     for (let w = 0; w < this.waves; w++) out.push(this.waveRoute[w], this.waveCrew[w]);
     const ids = [...this.gateHits.keys()].sort((a, b) => a - b);
     for (const id of ids) out.push(id, this.gateHits.get(id)!);
