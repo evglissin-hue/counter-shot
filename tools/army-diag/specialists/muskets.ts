@@ -25,11 +25,30 @@ A.spawnMix(1, route, volley, 0, undefined, scen === "ladder" ? { ladder: true } 
 // The enemy: pikemen from their own muster, a little later so the waves meet past the stream (field), or late (hold).
 let enemyAt = scen === "field" || scen === "holdfield" ? 20 * 60 : -1;
 let pAt = -1;
+const followStats = { aimSecs: 0, blocked: 0 };
+let w2id = -9;
 // Per musketeer: ticks of each kind, the wave's centre when it was aiming, its distance to the wave's centre.
 const lag: number[] = [];
 const facing: number[] = [];
 for (let i = 0; i < secs * 60 && !m.result; i++) {
   if (i === enemyAt) A.spawnMix(0, route, [P, P, P, P, P, P, P, P], 0);
+  if (scen === "follow" && i === 10 * 60) {
+    A.spawnMix(1, route, [P, P, P, P, P, P, P, P], 0);
+    w2id = m.world.minions.list[m.world.minions.list.length - 1].wave;
+  }
+  if (scen === "follow" && i === 22 * 60) A.spawnMix(0, route, [P, P, P, P, P, P, P, P], 0);
+  if (scen === "follow" && i % 60 === 0 && i > 0) {
+    const list = m.world.minions.list;
+    const aimers = list.filter((n) => n.team === 1 && n.unit === M && n.state === MinionState.Upright && n.action === 9 && where(m, n.x, n.z).includes("bridge"));
+    if (aimers.length) {
+      const w2 = list.filter((n) => n.team === 1 && n.unit === P && n.state === MinionState.Upright && n.wave === w2id);
+      let blocked = 0;
+      for (const n of w2) if (Math.hypot(n.vx, n.vz) < 0.3 && aimers.some((a) => Math.abs(a.x - n.x) < 3 && a.z - n.z > 0 && a.z - n.z < 5)) blocked++;
+      followStats.aimSecs += aimers.length;
+      followStats.blocked += blocked;
+      console.log(`  ${clock(i)} ${aimers.length} musketeers aiming on the bridge; 2nd wave pikes standing right behind them: ${blocked}`);
+    }
+  }
   // Hold given late (the wave is at the enemy gate or inside): who comes back, and how long the musketeers keep shooting.
   if (scen === "holdlate" && i === Number(arg("holdAt", "100")) * 60) {
     A.setOrder(1, Order.Hold);
@@ -68,6 +87,7 @@ for (let i = 0; i < secs * 60 && !m.result; i++) {
   }
 }
 void pAt;
+if (scen === "follow") console.log(`follow: musketeer-seconds aiming on a bridge ${followStats.aimSecs}; pike-seconds of the next wave stopped right behind them ${followStats.blocked}`);
 const mus = m.world.minions.list.filter((n) => n.unit === M);
 console.log(`final: musketeers ${mus.length}, up ${mus.filter((n) => n.state === MinionState.Upright).length}; team 0 marchers down ${m.world.minions.list.filter((n) => n.team === 0 && n.role === 0 && n.wave >= 0 && n.state !== MinionState.Upright).length}`);
 for (const n of mus) if (n.state === MinionState.Upright) console.log(`  musket ${n.id} action ${n.action} target ${n.target} at (${n.x.toFixed(1)}, ${n.z.toFixed(1)}) ${where(m, n.x, n.z)}`);
