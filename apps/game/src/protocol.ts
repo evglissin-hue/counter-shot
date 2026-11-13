@@ -107,6 +107,38 @@ export interface PowderInfo {
   lost: number;
 }
 
+/**
+ * 3.4: one keep or tower as the mason's eye and the world's tells read it: the statics pass's report (refreshed every
+ * STRUCTURE.reportEvery ticks) with the structure's place. `state` is a StaticState (0 standing, 1 groaning, 2 toppling,
+ * 3 fallen). `baseY` and `topY` bound its masonry (m), `heat` is each course's share of the way to falling, lowest first.
+ */
+export interface StructureInfo {
+  index: number;
+  castle: 0 | 1;
+  kind: "keep" | "tower";
+  name: string;
+  cx: number;
+  cz: number;
+  half: number;
+  baseY: number;
+  topY: number;
+  state: number;
+  holds: number;
+  weakest: number;
+  crushNear: number;
+  toppleNear: number;
+  margin: number;
+  dirX: number;
+  dirZ: number;
+  comX: number;
+  comY: number;
+  comZ: number;
+  footY: number;
+  hull: number[];
+  drawIn: number;
+  heat: number[];
+}
+
 /** Numbers per emplacement in MatchInfo.boxes: box now, box size, a shot's cost, ticks until the next keg reaches it (-1: none on its way), share of a hoist done at its foot (-1: none at work). */
 export const BOX_STRIDE = 5;
 /** Numbers per powder boy in MatchInfo.boys: team, minion id (-1 fallen), task (sim BoyTask), emplacement served (-1 none). */
@@ -189,6 +221,10 @@ export interface MatchInfo extends RegisterInfo {
   powder: [PowderInfo, PowderInfo] | null;
   boxes: Float32Array | null;
   boys: Int16Array | null;
+  /** 3.4: every keep and tower (castle 0's keep, its four towers, then castle 1's), refreshed every STRUCTURE.reportEvery ticks; null on frames where nothing was reported (the page keeps the last). */
+  structures: StructureInfo[] | null;
+  /** 3.4: each team's keep buttresses on its four faces (BUTTRESS_FACES order): 0 empty, 1 rising, 2 standing. */
+  buttresses: [number[], number[]];
 }
 
 export interface MasonInfo {
@@ -229,6 +265,8 @@ export type FromWorker = { gen?: number } & (
       standing: number;
       awake: number;
       match: MatchInfo | null;
+      /** 3.4: the Practice range's structures (a match carries them in `match`); null in a match and between reports. */
+      structures: StructureInfo[] | null;
       /** 3.2: the Practice range's register (a match carries its own in `match`); null in a match. */
       reg: RegisterInfo | null;
       /** Can each bridge still be crossed (layout order), when it changed. */
