@@ -136,16 +136,16 @@ const GLYPH_MUSKET = '<svg viewBox="0 0 10 10" aria-hidden="true"><path d="M0.8 
 
 const TIP = "What is coming down each road: the enemy's men, the kegs, ladders and muskets among them, and a bar for how near their leading man is to your walls (amber past the middle, red at your gate or inside). The small number is your own men on that road.";
 
-/** The narrowest a cell may be: a reading of three kinds of kit (kegs, ladders, muskets) needs about this much. */
-export const CELL_MIN = 60;
+/** The narrowest a cell may be: a reading of three kinds of kit (kegs, ladders, muskets) needs about this much (at 196 px wide, the side column's, the cells are thirds). */
+export const CELL_MIN = 62;
 
 /**
  * The strip's three column widths (px) so each cell spans the part of the strip
  * nearest its road (the cells split halfway between roads), but none narrower
  * than `min` while the strip has room. `roads` are the roads' x across the map,
  * `left` the x of the strip's first column on the same scale, `width` the
- * width of its columns together. The flank cells keep their reading to the
- * strip's outer edges, over their roads (index.html).
+ * width of its columns together. The flank cells keep their count and name
+ * to the strip's outer edges, over their roads (index.html).
  */
 export function cellColumns(roads: readonly [number, number, number], left: number, width: number, min = CELL_MIN): [number, number, number] {
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -208,7 +208,8 @@ export class ThreatStrip {
     const padL = parseFloat(cs.paddingLeft) || 0, padR = parseFloat(cs.paddingRight) || 0;
     const roads = this.roads(m.width, m.height);
     const cols = cellColumns(roads, s.left + padL - m.left, s.width - padL - padR);
-    const css = cols.map((c) => `${c.toFixed(1)}px`).join(" ");
+    // In fr, so a cell still grows to its content (a long reading of kit) rather than spilling into the next.
+    const css = cols.map((c) => `${c.toFixed(1)}fr`).join(" ");
     if (css === this.columns) return;
     this.columns = css;
     this.el.style.gridTemplateColumns = css;

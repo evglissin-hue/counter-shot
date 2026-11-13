@@ -124,7 +124,7 @@ test("the strip's cells line up with the minimap's roads: each spans the part of
   // The strip has 6 px of padding each side: its columns run from 6 to 190 on the map's scale.
   const cols = cellColumns(roads, 6, 184);
   assert.equal(Math.round(cols[0] + cols[1] + cols[2]), 184);
-  for (const c of cols) assert.ok(c >= CELL_MIN - 1e-9, `a cell of ${c.toFixed(1)} px is too narrow for three kinds of kit`);
+  for (const c of cols) assert.ok(c >= Math.min(CELL_MIN, 184 / 3) - 1e-9, `a cell of ${c.toFixed(1)} px is too narrow for three kinds of kit`);
   const edges = [6, 6 + cols[0], 6 + cols[0] + cols[1], 190];
   // Each road runs under its own cell, and the centre road under the middle of the centre cell.
   for (let i = 0; i < 3; i++) assert.ok(roads[i] >= edges[i] && roads[i] <= edges[i + 1], `road ${i} at ${roads[i]} inside its cell ${edges[i]}..${edges[i + 1]}`);
