@@ -647,7 +647,9 @@ export class Army {
       } else {
         mx = ux;
         mz = uz;
-        speed = m.speed * (f === routeField(m.team, m.route) ? this.pace(m) : 1);
+        // The wave keeps together on its road, and on Push over the last stretch to a breach as well.
+        const cohere = f === routeField(m.team, m.route) || (this.order[m.team] === Order.Push && this.toFront(m) <= MARCH.pushNear);
+        speed = m.speed * (cohere ? this.pace(m) : 1);
       }
     } else if (home) {
       // Shut in its own courtyard (the gate stands): it waits behind the garrison until there is a way out.
