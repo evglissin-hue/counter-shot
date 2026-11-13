@@ -149,3 +149,46 @@ export const STANDING_FILLER = new Set(["standing", "order", "orders", "always",
 export const POWDER_STANDING = new Set(["under", "below", "whenever", "always", "standing", "stop", "cancel", "forget", "off", "no", "none", "drop", "end", "never", "clear"]);
 /** The words a powder part may hold besides "powder". */
 export const POWDER_FILLER = new Set([...BUY_VERBS, "powder", "more", "some", "buying", "magazine", "charges", "keg", "kegs", "20", "twenty"]);
+
+// How people say the waves' orders and roads (army pass). Taken together with ORDER_WORDS and ROUTE_WORDS above.
+
+/** More forms folded onto the words above, token by token, after SYNONYMS. */
+export const SYNONYMS_MORE: Record<string, string> = {
+  advanced: "advance", advances: "advance", advancing: "advance",
+  attacking: "attack", attacked: "attack", attacks: "attack",
+  charging: "charge", charged: "charge",
+  holding: "hold", held: "hold",
+  pushing: "push", pushed: "push",
+  storming: "storm", stormed: "storm",
+  fighting: "fight", engaging: "engage", engaged: "engage",
+  marching: "march", moving: "move", going: "go", sending: "send",
+  onwards: "onward",
+  straight: "centre",
+  taking: "take",
+  halted: "halt", stopped: "stop", stopping: "stop", defending: "defend",
+};
+
+/** Orders besides ORDER_WORDS: advance 0, hold 1, push 2. */
+export const ORDER_WORDS_MORE: Record<string, number> = {
+  fight: 0, engage: 0, onward: 0, resume: 0, continue: 0, release: 0, unhold: 0, kill: 0,
+  stop: 1, defend: 1,
+};
+/** Said as two words, where one alone means another thing. Taken before single words (tokens, with filler kept). */
+export const ORDER_PHRASES: Array<[string, number]> = [
+  ["stop hold", 0], ["keep go", 0], ["push on", 0], ["press on", 0], ["get them", 0], ["go on", 0],
+  ["fall back", 1], ["pull back", 1], ["stand fast", 1],
+];
+/** "breach" alone is the push order; with another order word it is only filler. */
+export const ORDER_BREACH_WORD = "breach";
+/** Verbs that mean advance when nothing else says what, and mean nothing beside a road ("go left"). */
+export const ORDER_WEAK_VERBS = new Set(["go", "march", "move", "send"]);
+/** Verbs that only go with a road ("take the left"): beside a gun word they man the gun instead. */
+export const ROAD_ONLY_VERBS = new Set(["take"]);
+/** Words that only say who or where an order is for. */
+export const WAVE_FILLER = new Set([
+  "waves", "wave", "all", "order", "orders", "them", "they", "enemy", "enemies", "minion", "minions", "gate", "line", "position",
+  "out", "ahead", "through", "lads", "boys", "soldiers", "soldier", "forces", "attackers", "side", "flank", "road", "route", "next",
+  "lane", "path", "way", "castle",
+]);
+/** A line that is only these is who the order is for ("Waves, advance."): it joins the next part. */
+export const WAVE_ADDRESS = new Set(["waves", "wave", "all", "lads", "boys", "soldiers", "soldier", "minions", "minion", "forces", "attackers"]);

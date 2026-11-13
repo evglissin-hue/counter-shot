@@ -21,6 +21,7 @@ interface Recognition {
   lang: string;
   interimResults: boolean;
   continuous: boolean;
+  maxAlternatives?: number;
   onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
   onerror: ((e: { error?: string }) => void) | null;
   onend: (() => void) | null;
@@ -45,8 +46,8 @@ async function useCap<T>(name: string): Promise<T | null> {
 export interface VoiceHooks {
   /** Words heard so far (provisional included), to show in the line. */
   heard: (text: string) => void;
-  /** The key was let go and the words are in: send them through the parser. */
-  done: (text: string) => void;
+  /** The key was let go and the words are in: send them through the parser. `alts` are the recogniser's other readings of the same speech, best first. */
+  done: (text: string, alts?: string[]) => void;
   /** It could not listen: nothing to send. */
   failed: () => void;
 }
@@ -135,13 +136,23 @@ export class Voice {
     r.lang = navigator.language || "en-US";
     r.interimResults = true;
     r.continuous = true;
+    r.maxAlternatives = 5;
     let text = "";
+    let alts: string[] = [];
     let ended = false;
     r.onresult = (e) => {
       let t = "";
       for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
       text = t.trim();
       this.hooks.heard(text);
+      // The other readings: the same speech with each result's next best words (a result with fewer keeps its best).
+      const n = Math.max(0, ...Array.from({ length: e.results.length }, (_, i) => e.results[i].length));
+      alts = [];
+      for (let j = 1; j < n; j++) {
+        let a = "";
+        for (let i = 0; i < e.results.length; i++) a += (e.results[i][j] ?? e.results[i][0]).transcript;
+        if (a.trim() && a.trim() !== text) alts.push(a.trim());
+      }
     };
     r.onerror = (e) => {
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
@@ -154,7 +165,7 @@ export class Voice {
       ended = true;
       this.active = null;
       if (this.hidden) this.hooks.failed();
-      else this.hooks.done(text);
+      else this.hooks.done(text, alts);
     };
     this.active = {
       stop: async () => {

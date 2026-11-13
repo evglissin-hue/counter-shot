@@ -33,7 +33,15 @@ import {
   MIX_WORDS,
   NUMBER_WORDS,
   OFF_WORDS,
+  ORDER_BREACH_WORD,
   ORDER_FILLER,
+  ORDER_PHRASES,
+  ORDER_WEAK_VERBS,
+  ORDER_WORDS_MORE,
+  ROAD_ONLY_VERBS,
+  SYNONYMS_MORE,
+  WAVE_ADDRESS,
+  WAVE_FILLER,
   ORDER_SAYS,
   ORDER_WORDS,
   ORDINAL_NAMES,
@@ -91,7 +99,7 @@ function norm(w: string): string {
   if (o !== undefined) return `o${o}`;
   const m = /^(\d+)(?:st|nd|rd|th)$/.exec(w);
   if (m) return `o${Number(m[1])}`;
-  return own(SYNONYMS, w) ?? w;
+  return own(SYNONYMS, w) ?? own(SYNONYMS_MORE, w) ?? w;
 }
 
 /** A line's words as tokens, filler kept. */
@@ -184,6 +192,7 @@ function takeBuilding(t: Tokens): BuildingKind | null {
 const hasBuilding = (t: Tokens) => BUILDING_WORDS.some((e) => e.phrases.some((p) => hasPhrase(t, p)));
 
 const weaponName = (k: WeaponKind) => WEAPONS[k].name.toLowerCase();
+const orderOf = (x: string): number | undefined => own(ORDER_WORDS, x) ?? own(ORDER_WORDS_MORE, x);
 const routeLabel = (r: RouteName) => (r === "centre" ? "centre road" : `${r} flank`);
 /** A road in the player's words and in match terms: castle 0 faces the other way, so its left is the match's right. */
 const matchRoute = (team: 0 | 1, r: RouteName): RouteName => (team === 0 && r !== "centre" ? (r === "left" ? "right" : "left") : r);
@@ -256,20 +265,38 @@ function split(text: string): Part[] {
   const pieces = ` ${text} `.split(cuts);
   const parts: Array<Part & { soft: boolean }> = [];
   let soft = true;
+  let carry: { frag: string; toks: Tokens } | null = null;
   for (let i = 0; i < pieces.length; i++) {
     if (i % 2 === 1) {
       soft = !/then/i.test(pieces[i]);
       continue;
     }
-    const frag = pieces[i].trim();
-    const toks = lean(frag);
+    let frag = pieces[i].trim();
+    let toks = lean(frag);
     if (toks.length === 0) continue;
+    // Who an order is for ("Waves, advance."): it joins the next part, or the last one.
+    if (toks.every((x) => WAVE_ADDRESS.has(x))) {
+      carry = carry ? { frag: `${carry.frag} ${frag}`, toks: [...carry.toks, ...toks] } : { frag, toks };
+      continue;
+    }
+    if (carry) {
+      frag = `${carry.frag} ${frag}`;
+      toks = [...carry.toks, ...toks];
+      carry = null;
+    }
     const prev = parts[parts.length - 1];
     if (prev && soft && mergesInto(prev.toks, toks)) {
       prev.text = `${prev.text}, ${frag}`;
       prev.toks = [...prev.toks, ...toks];
     } else parts.push({ text: frag, toks, soft });
     soft = true;
+  }
+  if (carry) {
+    const last = parts[parts.length - 1];
+    if (last) {
+      last.text = `${last.text} ${carry.frag}`;
+      last.toks = [...last.toks, ...carry.toks];
+    } else parts.push({ text: carry.frag, toks: carry.toks, soft: true });
   }
   return parts;
 }
@@ -289,6 +316,14 @@ function mergesInto(prev: Tokens, cur: Tokens): boolean {
 
 /** Parse one line: its steps in order, or why it is refused. */
 export function parse(text: string, view: OrdersView): ParseResult {
+  const r = parseLine(text, view);
+  if (r.ok || r.reason === R_SURRENDER || r.reason === R_FIRE || typeof text !== "string" || !/[,;.]/.test(text)) return r;
+  // Commas and full stops that cut a sentence the grammar knows (a voice transcript's "Go, left."): read it again without them.
+  const again = parseLine(text.replace(/[,;.]+/g, " "), view);
+  return again.ok ? again : r;
+}
+
+function parseLine(text: string, view: OrdersView): ParseResult {
   const parts = typeof text === "string" ? split(text) : [];
   if (parts.length === 0) return { ok: false, reason: "Say an order" };
   if (parts.length > MAX_PARTS) return { ok: false, reason: "Too many orders: six at most in a line" };
@@ -315,6 +350,10 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (t.some((x) => SURRENDER_WORDS.includes(x)) || SURRENDER_PHRASES.some((ph) => phraseAt(t, ph) >= 0) || (t.includes("leave") && !gunish)) return fail(R_SURRENDER);
   if (t.some((x) => FIRE_WORDS.includes(x))) return fail(R_FIRE);
 
+  // The waves: an order, a road, or both, said any of the ways people say them.
+  const waves = wave(p, w);
+  if (waves) return waves;
+
   // Powder: "powder" is bought at once; with "under", "always" and the like it is the standing order (not the Powder Mill: that is a building).
   if (t.includes("powder") && !hasPhrase(t, "powder mill")) {
     if (t.some((x) => POWDER_STANDING.has(x) || STANDING_TRIGGERS.has(x))) return standing(t, w, notUnderstood);
@@ -333,8 +372,6 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (t.some((x) => MAN_VERBS.has(x) || OVERVIEW_WORDS.has(x) || x === "leave") || (weapon && weapon.kind === null && !buyVerb)) return man(t, w, notUnderstood);
   if (weapon) return buy(t, w, notUnderstood);
   if (t.some((x) => REPAIR_CUES.has(x)) || (t.some((x) => own(REPAIR_KIND_WORDS, x)) && t.some((x) => OFF_WORDS.has(x) || x === "o1"))) return repair(t, w, notUnderstood);
-  if (t.some((x) => own(ORDER_WORDS, x) !== undefined)) return order(t, notUnderstood);
-  if (t.some((x) => ROUTE_WORDS.has(x))) return route(t, w, notUnderstood);
   return notUnderstood();
 }
 
@@ -545,25 +582,47 @@ function man(t: Tokens, w: OrdersView, nope: () => Res): Res {
 
 // Waves
 
-function order(t: Tokens, nope: () => Res): Res {
-  const seen = new Set<number>();
+/**
+ * A part that is only an order (advance, hold, push), only a road (left, right,
+ * centre) or both ("advance left": the road first, then the order); null when
+ * it holds anything else, so the other grammars get their turn.
+ */
+function wave(p: Part, w: OrdersView): Res | null {
+  const a = tokenize(p.text);
+  let ord: number | undefined;
+  let clash = false;
+  const set = (n: number) => {
+    if (ord !== undefined && ord !== n) clash = true;
+    ord = n;
+  };
+  for (const [ph, n] of ORDER_PHRASES) while (take(a, ph)) set(n);
+  const t = a.filter((x) => !FILLER.has(x));
+  const roads: string[] = [];
+  let weak = false, roadVerb = false, breach = false;
   for (const x of t) {
-    const n = own(ORDER_WORDS, x);
-    if (n !== undefined) seen.add(n);
-    else if (!ORDER_FILLER.has(x)) return nope();
+    const n = orderOf(x);
+    if (x === ORDER_BREACH_WORD) breach = true;
+    else if (n !== undefined) set(n);
+    else if (ROUTE_WORDS.has(x)) roads.push(x);
+    else if (ORDER_WEAK_VERBS.has(x)) weak = true;
+    else if (ROAD_ONLY_VERBS.has(x)) roadVerb = true;
+    else if (!WAVE_FILLER.has(x) && !ORDER_FILLER.has(x) && !ROUTE_FILLER.has(x)) return null;
   }
-  if (seen.size !== 1) return nope();
-  const n = [...seen][0];
-  return ok(input({ kind: "order", order: n as Order }, `Waves: ${ORDER_SAYS[n]}`));
-}
-
-function route(t: Tokens, w: OrdersView, nope: () => Res): Res {
-  const dirs = t.filter((x) => ROUTE_WORDS.has(x));
-  if (dirs.length !== 1) return nope();
-  if (t.some((x) => !ROUTE_WORDS.has(x) && !ROUTE_FILLER.has(x))) return nope();
-  if (!t.some((x) => ROUTE_CUES.has(x))) return nope();
-  const mine = dirs[0] as RouteName;
-  return ok(input({ kind: "route", route: matchRoute(w.team, mine) }, `Next waves: ${routeLabel(mine)}`));
+  // "gate off", "gate first" are the masons'.
+  if (t.includes("gate") && t.some((x) => OFF_WORDS.has(x) || x === "o1")) return null;
+  if (clash || roads.length > 1 || (roadVerb && roads.length === 0)) return null;
+  if (ord === undefined && breach) ord = 2;
+  if (ord === undefined && roads.length === 0) {
+    if (!weak) return null;
+    ord = 0;
+  }
+  const steps: Step[] = [];
+  if (roads.length === 1) {
+    const mine = roads[0] as RouteName;
+    steps.push(input({ kind: "route", route: matchRoute(w.team, mine) }, `Waves take the ${routeLabel(mine)}`));
+  }
+  if (ord !== undefined) steps.push(input({ kind: "order", order: ord as Order }, `Waves: ${ORDER_SAYS[ord]}`));
+  return ok(...steps);
 }
 
 // Barracks
