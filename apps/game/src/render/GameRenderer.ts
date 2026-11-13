@@ -19,7 +19,7 @@ import { Decals, type DecalState } from "./decals";
 import { Effects } from "./effects";
 import { EstateView, type EstateState } from "./estate";
 import { PowderView } from "./powder";
-import type { PowderInfo } from "../protocol";
+import { BOX_STRIDE, type PowderInfo } from "../protocol";
 import { Flags } from "./flags";
 import { Guns, newCrewInfo, type CrewInfo, type GunState } from "./guns";
 import { Crews } from "./crews";
@@ -565,6 +565,13 @@ export class GameRenderer implements GameRendererApi {
   /** 3.3: each castle's store and every gun's box (match order), for the kegs under the magazines and the hoists at the guns' feet. */
   setPowder(powder: [PowderInfo, PowderInfo] | null, boxes: Float32Array | null): void {
     this.powderView.set(powder, boxes);
+    // L1: the powder box at each gun shows its ready box (box now of box size; no powder in the match: a full box).
+    const list = this.emplacementList;
+    for (let k = 0; k < list.length; k++) {
+      const o = k * BOX_STRIDE;
+      if (!boxes) this.guns.setReadyBox(list[k].id, 1, 0);
+      else if (o + 2 < boxes.length && boxes[o + 2] > 0) this.guns.setReadyBox(list[k].id, boxes[o], boxes[o + 1]);
+    }
   }
 
   /** 3.2: draw your team's marks (none: clear them). */

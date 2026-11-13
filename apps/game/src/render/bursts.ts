@@ -36,7 +36,7 @@ import {
   vec4,
 } from "three/tsl";
 import type { ClearView } from "./clearview";
-import type { N } from "./tslUtils";
+import { noAoNormal, type N } from "./tslUtils";
 
 export interface BurstConfig {
   name: string;
@@ -132,6 +132,7 @@ export class Burst {
     m.depthWrite = false;
     if (cfg.additive) {
       m.blending = THREE.AdditiveBlending;
+      noAoNormal(m);
       m.fog = false;
     }
     const idx: N = instanceIndex;

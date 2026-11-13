@@ -4,7 +4,7 @@
 
 import * as THREE from "three/webgpu";
 import { cameraPosition, clamp, color, float, mix, normalWorld, positionLocal, positionWorld, pow, smoothstep, texture, uv, vec2, vec3, vertexColor } from "three/tsl";
-import type { N } from "./tslUtils";
+import { noAoNormal, type N } from "./tslUtils";
 import { applyCloudShadow } from "./clouds";
 import { mergeGeometries } from "./geometry";
 
@@ -733,5 +733,6 @@ export function glowMaterial(): THREE.MeshBasicNodeMaterial {
   const f2: N = f.mul(f);
   m.colorNode = vec3(1.0, 0.38, 0.08).mul(f2.mul(1.3));
   m.opacityNode = f2;
+  noAoNormal(m);
   return m;
 }

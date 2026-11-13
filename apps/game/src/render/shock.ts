@@ -4,7 +4,7 @@
 
 import * as THREE from "three/webgpu";
 import { Fn, abs, color, dot, float, normalView, positionGeometry, smoothstep, texture, uniform, uv, vec2, vec3, vec4 } from "three/tsl";
-import type { N } from "./tslUtils";
+import { noAoNormal, type N } from "./tslUtils";
 
 const POOL = 4;
 const SPHERE_LIFE = 0.14;
@@ -37,6 +37,7 @@ export class Shock {
       sm.transparent = true;
       sm.depthWrite = false;
       sm.blending = THREE.AdditiveBlending;
+      noAoNormal(sm);
       sm.fog = false;
       // Brightest at the rim, like a wall of hot air seen edge on.
       sm.colorNode = Fn(() => {

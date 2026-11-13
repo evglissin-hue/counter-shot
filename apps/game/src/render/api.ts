@@ -111,8 +111,8 @@ export interface GameRendererApi {
   setReloads(left: ArrayLike<number>): void;
   /**
    * Look round L1: how full a gun's ready box is, for the kegs standing in the powder box beside it: none for 0 charges,
-   * else the share of `capacity` rounded up, at most four. Milestone 3.3 feeds this from each gun's ready box; until then
-   * nothing calls it and every box shows four.
+   * else the share of `capacity` rounded up, at most four. `setPowder` calls it for every gun from its ready box (3.3);
+   * a match without powder shows four.
    */
   setReadyBox(emplacement: number, charges: number, capacity: number): void;
   setCamera(pose: CameraPose): void;

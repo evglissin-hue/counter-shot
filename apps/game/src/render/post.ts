@@ -141,7 +141,9 @@ export class Post {
     const rawColor: N = scenePass.getTextureNode("output");
     const glassed: N = this.glassBlur(rawColor);
     if (tier.ao !== "off") {
-      scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }));
+      // The normal target blends as each material does (opaque and smoke overwrite it as before; additive light adds the
+      // nothing it writes, see `noAoNormal`), not overwritten by every transparent quad.
+      scenePass.setMRT(mrt({ output, normal: packNormalToRGB(normalView) }).setBlendMode("normal", new THREE.BlendMode(THREE.MaterialBlending)));
       const normalTex = scenePass.getTexture("normal");
       normalTex.type = THREE.UnsignedByteType;
       const sceneColor: N = glassed;

@@ -20,11 +20,22 @@ import {
   vec2,
   vec3,
   faceDirection,
+  mrt,
   normalView,
+  vec4,
 } from "three/tsl";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type N = any;
+
+/**
+ * Additive light (a glow, a flash, sparks) leaves the scene pass's normal target as it is. At High and up that target feeds
+ * the AO and blends as each material does (`post.ts`); this writes nothing into it, so the ground behind a glow's quad is
+ * not read as a wall turned to the camera (a dark square round the glow).
+ */
+export function noAoNormal(m: THREE.Material): void {
+  (m as THREE.Material & { mrtNode: N }).mrtNode = mrt({ normal: vec4(0, 0, 0, 0) });
+}
 
 /** Rotate vector v by unit quaternion q (xyzw). */
 export function qrot(q: N, v: N): N {
