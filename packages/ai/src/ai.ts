@@ -33,7 +33,7 @@ export class AiPlayer {
     const send = (tick: number, input: MatchInput) => this.m.queue(tick, team, input);
     this.tutor = difficulty === "tutor" ? new Tutor(m, team) : null;
     const stage = this.tutor ? () => this.tutor!.stage : null;
-    this.gunner = new Gunner(m, team, this.level, rng, send, stage);
+    this.gunner = new Gunner(m, team, this.level, rng, send, stage, new Rng((hashString(`cut:${team}`) ^ seed) >>> 0));
     this.steward = new Steward(m, team, difficulty, this.level, rng, send, stage, opts?.plan);
     // Its first look comes a moment into the match, staggered by team.
     this.nextLook = 30 + team * 7;

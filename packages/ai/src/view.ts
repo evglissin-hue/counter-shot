@@ -3,9 +3,9 @@
 // banner stands, which gate and buildings still stand, whether there is a way
 // in). Read only: the AI changes the match through inputs alone.
 
-import { CASTLE_SHAPE, KEEP_STOREYS, mirrorZ, MUSTER, PLOTS, plotCentre, ROUTE_NAMES, BRIDGES, inCourtyard } from "@keepfall/content";
+import { BUTTRESS_FACES, CASTLE_SHAPE, KEEP_STOREYS, mirrorZ, MUSTER, PLOTS, plotCentre, ROUTE_NAMES, BRIDGES, inCourtyard, weaponOf, type ButtressFace, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { dsqrt } from "@keepfall/core";
-import { breachField, FLOW_INF, MinionState, PlotState, Role } from "@keepfall/sim";
+import { aimDir, breachField, flightCoef, flightDv, FLOW_INF, G, MinionState, muzzle, PlotState, Role } from "@keepfall/sim";
 import type { Match } from "@keepfall/rules";
 
 /** A knot of men: where its middle is, how many, and how fast it moves. */
@@ -169,4 +169,147 @@ export function nearBridge(x: number, z: number, r: number): boolean {
     if (ox * ox + oz * oz < r * r) return true;
   }
   return false;
+}
+
+// ---- 3.4: reading a building ----
+
+/** The courses of a keep below its lowest floor: its foot (a course under this index). */
+export const FOOT_COURSES = KEEP_STOREYS[0] - 1;
+
+/** A face of a castle's keep in its owner's words, as the world direction it looks (a unit vector: x, z). */
+export function faceNormal(castle: number, face: ButtressFace): [number, number] {
+  // Castle 0 looks out along -z (its left is -x); castle 1 is castle 0 mirrored across z only (front +z, left +x).
+  const z = castle === 0 ? -1 : 1, l = castle === 0 ? -1 : 1;
+  switch (face) {
+    case "front": return [0, z];
+    case "back": return [0, -z];
+    case "left": return [l, 0];
+    default: return [-l, 0];
+  }
+}
+
+/** The face of a castle's keep whose outward normal is nearest a direction (the way it would fall), in its owner's words. */
+export function faceTowards(castle: number, dx: number, dz: number): ButtressFace {
+  let best: ButtressFace = "front", bd = -Infinity;
+  for (const f of BUTTRESS_FACES) {
+    const [nx, nz] = faceNormal(castle, f);
+    const d = nx * dx + nz * dz;
+    if (d > bd) {
+      bd = d;
+      best = f;
+    }
+  }
+  return best;
+}
+
+/** Every stone's axis aligned bounds at its layout pose (min xyz, max xyz), computed once per layout. */
+const BOUNDS = new WeakMap<CastleLayout, Float32Array>();
+function boundsOf(layout: CastleLayout): Float32Array {
+  const hit = BOUNDS.get(layout);
+  if (hit) return hit;
+  const wp = layout.wedge.points;
+  let wx = 0, wy = 0, wz = 0;
+  for (let i = 0; i < 8; i++) {
+    wx = Math.max(wx, Math.abs(wp[i * 3]));
+    wy = Math.max(wy, Math.abs(wp[i * 3 + 1]));
+    wz = Math.max(wz, Math.abs(wp[i * 3 + 2]));
+  }
+  const out = new Float32Array(layout.stones.length * 6);
+  for (const s of layout.stones) {
+    const hx = s.shape === "wedge" ? wx : s.hx, hy = s.shape === "wedge" ? wy : s.hy, hz = s.shape === "wedge" ? wz : s.hz;
+    const [qx, qy, qz, qw] = s.q;
+    const xx = qx * qx, yy = qy * qy, zz = qz * qz, xy = qx * qy, xz = qx * qz, yz = qy * qz, wxq = qw * qx, wyq = qw * qy, wzq = qw * qz;
+    const ex = Math.abs(1 - 2 * (yy + zz)) * hx + Math.abs(2 * (xy - wzq)) * hy + Math.abs(2 * (xz + wyq)) * hz;
+    const ey = Math.abs(2 * (xy + wzq)) * hx + Math.abs(1 - 2 * (xx + zz)) * hy + Math.abs(2 * (yz - wxq)) * hz;
+    const ez = Math.abs(2 * (xz - wyq)) * hx + Math.abs(2 * (yz + wxq)) * hy + Math.abs(1 - 2 * (xx + yy)) * hz;
+    out.set([s.x - ex, s.y - ey, s.z - ez, s.x + ex, s.y + ey, s.z + ez], s.id * 6);
+  }
+  BOUNDS.set(layout, out);
+  return out;
+}
+
+const nearIds: number[] = [];
+
+/**
+ * Is the way clear for a flight path (x, y, z triples, a metre or so apart) to the point (tx, ty, tz): does it meet no
+ * standing piece of the castle on the way, except within 1 m of the point? What a gunner sees looking down the barrel.
+ */
+export function lineClear(m: Match, castle: number, path: ArrayLike<number>, tx: number, ty: number, tz: number): boolean {
+  const cs = m.world.castle, layout = cs.layout, b = boundsOf(layout);
+  for (let i = 0; i + 2 < path.length; i += 3) {
+    const x = path[i], y = path[i + 1], z = path[i + 2];
+    const dx = x - tx, dy = y - ty, dz = z - tz;
+    if (dx * dx + dy * dy + dz * dz <= 1) continue;
+    nearIds.length = 0;
+    cs.standingNear(x, y, z, 3, nearIds);
+    for (const id of nearIds) {
+      if (layout.stones[id].castle !== castle) continue;
+      const k = id * 6;
+      if (x >= b[k] - 0.1 && x <= b[k + 3] + 0.1 && y >= b[k + 1] - 0.1 && y <= b[k + 4] + 0.1 && z >= b[k + 2] - 0.1 && z <= b[k + 5] + 0.1) return false;
+    }
+  }
+  return true;
+}
+
+/** A still-air flight to a point: its last stretch (x, y, z triples about a metre apart) and the shot's speed and direction on arrival. */
+export interface Flight {
+  path: number[];
+  speed: number;
+  dx: number;
+  dy: number;
+  dz: number;
+}
+
+/**
+ * Fly the shot a gun laid like this would fire, in still air, until it is as far out as (toX, toZ), as the aim help
+ * does. Only the last `from` metres (flat) are kept, a metre apart.
+ */
+export function flightTo(e: Emplacement, yaw: number, pitch: number, charge: number, toX: number, toZ: number, from = 60): Flight | null {
+  const w = weaponOf(e);
+  const speed0 = w.minSpeed + (w.speed - w.minSpeed) * (charge < 0 ? 0 : charge > 1 ? 1 : charge);
+  const c = flightCoef(w.projectile);
+  const [mx, my, mz] = muzzle(e, yaw, pitch);
+  const [ux, uy, uz] = aimDir(yaw, pitch);
+  const v: [number, number, number] = [ux * speed0, uy * speed0, uz * speed0];
+  const dv: [number, number, number] = [0, 0, 0];
+  const tx = toX - e.x, tz = toZ - e.z;
+  const reach = dsqrt(tx * tx + tz * tz);
+  const keep = Math.max(0, reach - from);
+  const dt = 1 / 60;
+  let px = mx, py = my, pz = mz;
+  const path: number[] = [];
+  for (let i = 1; i <= 9 * 60; i++) {
+    flightDv(v, null, 0, 0, c, dv);
+    v[0] += dv[0];
+    v[1] += dv[1] - G * c.gravity * dt;
+    v[2] += dv[2];
+    const qx = px + v[0] * dt, qy = py + v[1] * dt, qz = pz + v[2] * dt;
+    const gx = qx - e.x, gz = qz - e.z;
+    const b = dsqrt(gx * gx + gz * gz);
+    const reached = b >= reach;
+    let ex = qx, ey = qy, ez = qz;
+    if (reached) {
+      // The last stretch ends where the shot is as far out as the target.
+      const ax = px - e.x, az = pz - e.z;
+      const a = dsqrt(ax * ax + az * az);
+      const f = b > a ? (reach - a) / (b - a) : 1;
+      ex = px + (qx - px) * f;
+      ey = py + (qy - py) * f;
+      ez = pz + (qz - pz) * f;
+    }
+    if (b >= keep) {
+      const len = dsqrt((ex - px) * (ex - px) + (ey - py) * (ey - py) + (ez - pz) * (ez - pz));
+      const n = Math.max(1, Math.ceil(len));
+      for (let k = 1; k <= n; k++) path.push(px + ((ex - px) * k) / n, py + ((ey - py) * k) / n, pz + ((ez - pz) * k) / n);
+    }
+    if (reached) {
+      const sp = dsqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+      return { path, speed: sp, dx: v[0] / sp, dy: v[1] / sp, dz: v[2] / sp };
+    }
+    px = qx;
+    py = qy;
+    pz = qz;
+    if (py < -5) return null;
+  }
+  return null;
 }

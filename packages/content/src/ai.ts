@@ -82,6 +82,18 @@ export interface AiLevel {
   salvo: boolean;
   /** 3.2: when a bridge is down it sends a wave down that road, so a gang relays it (REGISTER.gang*). */
   gangs: boolean;
+  /**
+   * 3.4: in this share of its looks at the enemy keep with a long gun it cuts the keep (its foot, seen through the gate
+   * or a breach) rather than shelling floors; 0: never. It forecasts the hit of up to `cutTries` points it can see (what
+   * the mason's eye would say) and takes the best. When nothing can be seen it opens the way (the gate, or the foot of
+   * the front wall).
+   */
+  cut: number;
+  cutTries: number;
+  /** 3.4: a loaded mortar drops a shell at the foot of the face being cut once the keep holds under 0.6 (from the Warlord up). */
+  footShell: boolean;
+  /** 3.4: it buys a buttress on the face being cut once its own keep holds under 0.5. */
+  buttresses: boolean;
 }
 
 export const AI_LEVELS: Record<AiName, AiLevel> = {
@@ -110,6 +122,10 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 0,
     salvo: false,
     gangs: false,
+    cut: 0,
+    cutTries: 0,
+    footShell: false,
+    buttresses: false,
   },
   knight: {
     name: "Knight",
@@ -136,6 +152,10 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 1,
     salvo: true,
     gangs: true,
+    cut: 0.7,
+    cutTries: 6,
+    footShell: false,
+    buttresses: true,
   },
   warlord: {
     name: "Warlord",
@@ -162,6 +182,10 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 2,
     salvo: true,
     gangs: true,
+    cut: 0.9,
+    cutTries: 20,
+    footShell: true,
+    buttresses: true,
   },
   // M6: the guided first match's castle. Placeholder numbers (a slower,
   // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
@@ -190,6 +214,10 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     marks: 0,
     salvo: false,
     gangs: false,
+    cut: 0,
+    cutTries: 0,
+    footShell: false,
+    buttresses: false,
   },
 };
 

@@ -7,9 +7,9 @@
 // marker). The barrel turns at the gun's own rates, it waits for the reload,
 // and it waits to see where a shot came down before it fires again.
 
-import { BRIDGES, MID_Z, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
-import { DPI, dcos, dsin, dsqrt, type Rng } from "@keepfall/core";
-import { clampAim, clearOfCastle, solveAim, Spin, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
+import { BRIDGES, keepStructure, MID_Z, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, structureList, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
+import { DPI, dcos, dsin, dsqrt, Rng } from "@keepfall/core";
+import { clampAim, clearOfCastle, DEFAULT_SIM, solveAim, Spin, StaticState, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
 import * as V from "./view";
 
@@ -18,6 +18,10 @@ export const enum Aim {
   Keep = 1,
   Crowd = 2,
   Breach = 3,
+  /** 3.4: opening the way to the enemy keep's foot (its gate's leaves, or the foot of its front wall in line with the keep). */
+  Open = 4,
+  /** 3.4: cutting the enemy keep (a point on its foot, or a shell at the foot of the face being cut). */
+  Cut = 5,
   /** A shell on an enemy building: + its plot. */
   Raid = 10,
   Masons = 20,
@@ -28,10 +32,12 @@ export const enum Aim {
 }
 
 /** The kinds of target shots are counted by (for tools): Aim.Raid + plot counts as "raid", Aim.Gun + emplacement as "gun". */
-export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range"] as const;
+export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut"] as const;
 
 /** The index in AIM_GROUPS of a target's key. */
 function aimGroup(key: number): number {
+  if (key === Aim.Cut) return 8;
+  if (key === Aim.Open) return 7;
   if (key >= Aim.Range) return 6;
   if (key >= Aim.Gun) return 5;
   if (key >= Aim.Masons) return 4;
@@ -86,6 +92,24 @@ interface Offset {
   key: number;
 }
 
+/** 3.4: a point on the foot of a keep it may cut at (one for each piece, on its outward face). */
+interface Cand {
+  id: number;
+  course: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** A point it can see from a gun, and the flight there. */
+interface Seen {
+  c: Cand;
+  f: V.Flight;
+}
+
+/** 3.4: points of the keep's foot it looks at from a gun in one look (drawn from all of them). */
+const LOOKS = 48;
+
 /** The barrel is on its lay within this (rad). */
 const ON_MARK = 0.0015;
 /** Ticks between aim inputs while the barrel turns (so the other side sees it move). */
@@ -106,7 +130,7 @@ export class Gunner {
   riding = -1;
   shotsFired = 0;
   /** Shots fired by what they were laid for, indexed as AIM_GROUPS (for tools; sums to shotsFired). */
-  readonly byAim = [0, 0, 0, 0, 0, 0, 0];
+  readonly byAim = [0, 0, 0, 0, 0, 0, 0, 0, 0];
   private aim: AimState = { yaw: 0, pitch: 0 };
   private target: Target | null = null;
   private lay: Lay | null = null;
@@ -140,6 +164,8 @@ export class Gunner {
     private send: (tick: number, input: MatchInput) => void,
     /** M6: the tutor's stage (its hand is still before stage 2, its mortar silent before stage 3); null for every other AI. */
     private stage: (() => number) | null = null,
+    /** 3.4: its own stream for choosing how to cut (so the draws of its other choices stay as they were). */
+    private cutRng: Rng = new Rng(0x6b656570 + team),
   ) {
     // No shot by hand before its warm-up is over (it takes and lays its gun meanwhile).
     this.readyAt = L.warmup;
@@ -502,16 +528,19 @@ export class Gunner {
     }
     if (!pick) {
       // 2. A loaded mortar: on the keep, or (from a Knight up) now and then on the enemy's buildings or masons.
-      const t = this.shellTarget();
+      const t = this.footTarget() ?? this.shellTarget();
       const e = this.soonest("mortar", t.x, t.y, t.z);
       // Loaded or nearly: its reload, not the time to settle in on it (which would rule out every level but the Warlord).
       if (e && this.m.world.reload[e.id] < 90) pick = { e, t };
     }
     if (!pick) {
-      // 3. The long gun: a way in for its waves, or the keep.
+      // 3. The long gun: a way in for its waves, or the keep (3.4: its foot, or the way to it).
       const t = this.longTarget();
-      const e = this.soonest("longGun", t.x, t.y, t.z);
-      if (e) pick = { e, t };
+      if (t.key === Aim.Keep && L.cut > 0 && this.cutRng.next() < L.cut) pick = this.cutPick();
+      if (!pick) {
+        const e = this.soonest("longGun", t.x, t.y, t.z);
+        if (e) pick = { e, t };
+      }
     }
     if (!pick) return;
     // A less focused gunner is slow to change guns: it may stay on the one it rides for now.
@@ -567,6 +596,154 @@ export class Gunner {
   }
   private _leaves: number[][] | undefined;
 
+  // ---- 3.4: cutting the keep ----
+
+  /**
+   * Points on the foot of the enemy keep (its courses below its lowest floor) and of its buttress piers, one for each
+   * piece: the middle of the face a gun can meet (the keep's outward face; a pier's outer face and its two flanks),
+   * computed once.
+   */
+  private cands(): Cand[] {
+    if (this._cands) return this._cands;
+    const out: Cand[] = [];
+    const layout = this.m.world.castle.layout, foe = this.foe;
+    const keep = structureList(layout)[keepStructure(foe)];
+    const faceOf = new Map<number, [number, number]>();
+    for (const b of layout.buttresses) {
+      if (b.castle !== foe) continue;
+      const n = V.faceNormal(foe, b.face);
+      for (let id = b.first; id < b.first + b.count; id++) faceOf.set(id, n);
+    }
+    for (const s of layout.stones) {
+      if (s.castle !== foe || s.course >= V.FOOT_COURSES) continue;
+      if (s.part === "keep") {
+        // The wall's outward face: along the axis of its side of the keep.
+        const rx = s.x - keep.cx, rz = s.z - keep.cz;
+        const alongX = Math.abs(rz) > Math.abs(rx);
+        out.push({ id: s.id, course: s.course, x: alongX ? s.x : s.x + (rx < 0 ? -s.hx : s.hx), y: s.y, z: alongX ? s.z + (rz < 0 ? -s.hz : s.hz) : s.z });
+      } else if (s.part === "buttress") {
+        const n = faceOf.get(s.id);
+        if (!n) continue;
+        const ax = n[0] !== 0 ? s.hx : s.hz, at = n[0] !== 0 ? s.hz : s.hx;
+        const tx = -n[1], tz = n[0];
+        out.push({ id: s.id, course: s.course, x: s.x + n[0] * ax, y: s.y, z: s.z + n[1] * ax });
+        out.push({ id: s.id, course: s.course, x: s.x + tx * at, y: s.y, z: s.z + tz * at });
+        out.push({ id: s.id, course: s.course, x: s.x - tx * at, y: s.y, z: s.z - tz * at });
+      }
+    }
+    return (this._cands = out);
+  }
+  private _cands: Cand[] | undefined;
+
+  /** The long guns it may ride now, the one ready first before the others (as `soonest` would take them). */
+  private longGuns(): Emplacement[] {
+    const out = this.guns("longGun").filter((e) => !(e.id === this.stuck.emp && this.m.tick < this.stuck.until));
+    out.sort((a, b) => Number(this.twoShots(b)) - Number(this.twoShots(a)) || this.readyIn(a) - this.readyIn(b) || a.id - b.id);
+    return out;
+  }
+
+  /**
+   * Cut the keep: from the first long gun that sees any point on the foot of the enemy keep (its flight there meets
+   * no standing piece of the castle on the way), forecast the hit of some of those points with the mason's eye (what
+   * the keep would hold with the pieces the ball would reach gone) and take the one that leaves it holding least.
+   * With nothing in sight it opens the way: the gate's leaves while the gate stands, else the foot of the front wall
+   * in line with the keep. Null: it will shell floors instead (the keep is falling already, or nothing can be done).
+   */
+  private cutPick(): { e: Emplacement; t: Target } | null {
+    const m = this.m, foe = this.foe, st = m.world.statics;
+    if (!st) return null;
+    const ki = keepStructure(foe);
+    if (st.status(ki).state !== StaticState.Standing) return null;
+    const guns = this.longGuns();
+    if (!guns.length) return null;
+    const all = this.cands();
+    if (!all.length) return null;
+    const layout = m.world.castle.layout, dyn = m.world.castle.dynamic;
+    const def = st.list[ki];
+    for (const e of guns) {
+      const seen: Seen[] = [];
+      for (let k = 0; k < LOOKS; k++) {
+        const c = all[(this.cutRng.next() * all.length) | 0];
+        if (dyn[c.id]) continue;
+        const s = solveAim(e, c.x, c.y, c.z);
+        if (!s || !clearOfCastle(e, s.yaw, s.pitch, 1, this.team, c.x, c.z)) continue;
+        const f = V.flightTo(e, s.yaw, s.pitch, 1, c.x, c.z);
+        if (!f || !V.lineClear(m, foe, f.path, c.x, c.y, c.z)) continue;
+        if (!seen.some((q) => q.c === c)) seen.push({ c, f });
+      }
+      if (!seen.length) continue;
+      // It forecasts a few of them: drawn from those it can see.
+      const w = weaponOf(e), power = w.projectile.power ?? 1;
+      let best: Seen | null = null, bestHolds = Infinity;
+      for (let k = 0, n = Math.min(this.L.cutTries, seen.length); k < n; k++) {
+        const q = seen.splice((this.cutRng.next() * seen.length) | 0, 1)[0];
+        const r = (DEFAULT_SIM.blastBase + q.f.speed * DEFAULT_SIM.blastPerSpeed) * power, r2 = r * r;
+        // As castleSim's blast: the damage centres a metre along the shot; a piece within r / hard of it goes.
+        const bx = q.c.x + q.f.dx, by = q.c.y + q.f.dy, bz = q.c.z + q.f.dz;
+        const gone: number[] = [];
+        for (const id of def.stones) {
+          if (dyn[id]) continue;
+          const p = layout.stones[id], h = p.hard ?? 1;
+          const dx = p.x - bx, dy = p.y - by, dz = p.z - bz;
+          if ((dx * dx + dy * dy + dz * dz) * h * h <= r2) gone.push(id);
+        }
+        const holds = st.whatIf(ki, gone).holds;
+        // Ties go to the lower course, then the lower id.
+        const tie = best !== null && Math.abs(holds - bestHolds) <= 1e-9 && (q.c.course < best.c.course || (q.c.course === best.c.course && q.c.id < best.c.id));
+        if (holds < bestHolds - 1e-9 || tie) {
+          best = q;
+          bestHolds = holds;
+        }
+      }
+      if (!best) continue;
+      return { e, t: { key: Aim.Cut, x: best.c.x, y: best.c.y, z: best.c.z, vx: 0, vz: 0 } };
+    }
+    // Nothing in sight: open the way.
+    const t = this.openTarget();
+    if (!t) return null;
+    const e = this.soonest("longGun", t.x, t.y, t.z);
+    return e ? { e, t } : null;
+  }
+
+  /** The gate's leaves while the gate stands; else the foot of the front wall in line with the keep (a side with stone standing there). Null: nothing to open. */
+  private openTarget(): Target | null {
+    const m = this.m, foe = this.foe;
+    const leaves = (this._leaves ??= V.gateLeaves(m));
+    const fz = V.frontFaceZ(foe);
+    if (V.gateStands(m, foe, leaves)) {
+      let gz = 0, n = 0;
+      for (const id of leaves[foe]) {
+        gz += m.world.castle.layout.stones[id].z;
+        n++;
+      }
+      return { key: Aim.Open, x: 0, y: 2.5, z: n ? gz / n : fz, vx: 0, vz: 0 };
+    }
+    for (let k = 0; k < 2; k++) {
+      const x = 3.5 * this.breachSide;
+      this.breachSide = -this.breachSide;
+      this.nearIds.length = 0;
+      m.world.castle.standingNear(x, 1.1, fz, 1.5, this.nearIds);
+      if (this.nearIds.some((id) => m.world.castle.layout.stones[id].castle === foe && m.world.castle.layout.stones[id].part === "wall")) return { key: Aim.Open, x, y: 1.1, z: fz, vx: 0, vz: 0 };
+    }
+    return null;
+  }
+  private nearIds: number[] = [];
+
+  /**
+   * From the Warlord up: the keep holds under 0.6 and its weakest course is at the foot: a shell at the foot of the face
+   * being cut (just outside it, on the ground, on the side it would fall), in the share of looks that cut.
+   */
+  private footTarget(): Target | null {
+    const m = this.m, L = this.L, st = m.world.statics;
+    if (!L.footShell || !st || this.cutRng.next() >= L.cut) return null;
+    const ki = keepStructure(this.foe), s = st.status(ki);
+    if (s.state !== StaticState.Standing || s.holds >= 0.6 || s.weakest < 0 || s.weakest >= V.FOOT_COURSES) return null;
+    const [nx, nz] = V.faceNormal(this.foe, V.faceTowards(this.foe, s.dirX, s.dirZ));
+    const def = st.list[ki], d = def.half + 0.8;
+    const x = def.cx + nx * d, z = def.cz + nz * d;
+    return { key: Aim.Cut, x, y: m.world.terrain.heightAt(x, z) + 0.4, z, vx: 0, vz: 0 };
+  }
+
   /** Take a gun: the one it rode goes back to its crew, laid where it last aimed. */
   private take(e: Emplacement, tick: number) {
     const left = this.riding >= 0 ? { emplacement: this.riding, yaw: this.aim.yaw, pitch: this.aim.pitch } : undefined;
@@ -584,9 +761,11 @@ export class Gunner {
     const L = this.L, rng = this.rng;
     const lobbed = w.minSpeed < w.speed;
     const o = this.offset(e.id);
-    if (o.key !== t.key) {
+    // 3.4: cutting the keep or opening the way to it is the same castle, the same eye: no new first error for it.
+    const eye = t.key === Aim.Cut || t.key === Aim.Open ? Aim.Keep : t.key;
+    if (o.key !== eye) {
       // A new target: what it learned of the wind on this gun half holds; its eye is off afresh.
-      o.key = t.key;
+      o.key = eye;
       o.yaw *= 0.5;
       o.pitch *= 0.5;
       o.x *= 0.5;
