@@ -367,6 +367,8 @@ try {
   const { mkdirSync } = await import("node:fs");
   mkdirSync(shots, { recursive: true });
   const shot = (name, clip) => page.screenshot({ path: `${shots}/${name}.png`, ...(clip ? { clip } : {}) });
+  mkdirSync("tools/.shots/3.4", { recursive: true });
+  const shot34 = (name, clip) => page.screenshot({ path: `tools/.shots/3.4/${name}.png`, ...(clip ? { clip } : {}) });
   const topBar = { x: 0, y: 0, width: 1280, height: 150 };
   const card = { x: 0, y: 520, width: 520, height: 200 };
   /** Lay a box's numbers over the report (box, size, cost, eta, hoist) for one emplacement. */
@@ -426,6 +428,25 @@ try {
   await why(50, 120, 5, 200);
   await waitRow("when it can be bought", { no: false, d: "Into the magazine at once" });
   await page.evaluate(() => window.__sandbox.patchMatch(null));
+  // 3.4: Buttress the keep: a menu entry with a page of four faces, 120 gold each; buying one takes the gold and shows Rising.
+  const row = (label) => page.evaluate((l) => { const r = [...document.querySelectorAll("#build .choice2")].find((b) => b.querySelector("b").textContent === l); return r ? { no: r.classList.contains("no"), on: r.classList.contains("on"), d: r.querySelector(".d")?.textContent ?? "", c: r.querySelector(".c")?.textContent ?? "", i: Number(r.dataset.choice) } : null; }, label);
+  const entry = await row("Buttress the keep");
+  check("the menu lists Buttress the keep at 120 gold", !!entry && entry.c === "120");
+  await page.dispatchEvent(`#build [data-choice="${entry.i}"]`, "pointerdown", { button: 0 });
+  await expect("its page lists the four faces, each 120 gold with what it does", () => { const r = [...document.querySelectorAll("#build .choice2")].map((b) => [b.querySelector("b").textContent, b.querySelector(".d")?.textContent ?? "", b.querySelector(".c")?.textContent ?? ""]); return r.length === 4 && ["Front face", "Back face", "Left face", "Right face"].every((n, i) => r[i][0] === n && r[i][2] === "120" && r[i][1] === "Rises in 15 s; holds that face if its foot is cut"); });
+  await shot34("buttress-menu");
+  await page.waitForFunction(() => window.__sandbox.match.gold[1] >= 120, null, { timeout: 60000, polling: 200 }).catch(() => {});
+  const goldBefore = await page.evaluate(() => window.__sandbox.match.gold[1]);
+  const front = await row("Front face");
+  await page.dispatchEvent(`#build [data-choice="${front.i}"]`, "pointerdown", { button: 0 });
+  await expect("buying the front face shows it Rising", () => { const r = [...document.querySelectorAll("#build .choice2")].find((b) => b.querySelector("b").textContent === "Front face"); return !!r && /Rising/.test(r.textContent) && r.classList.contains("on"); });
+  await expect("the match says the front face is rising, the others bare", () => JSON.stringify(window.__sandbox.match.buttresses[1]) === "[1,0,0,0]");
+  check("it took 120 gold (less what came in meanwhile)", goldBefore >= 120 && (await page.evaluate(() => window.__sandbox.match.gold[1])) < goldBefore - 100);
+  await page.dispatchEvent(`#build [data-choice="${front.i}"]`, "pointerdown", { button: 0 });
+  check("it cannot be bought again", (await page.evaluate(() => JSON.stringify(window.__sandbox.match.buttresses[1]))) === "[1,0,0,0]" && (await row("Front face")).no);
+  await adv(16);
+  await expect("after 15 s it is Up", () => { const r = [...document.querySelectorAll("#build .choice2")].find((b) => b.querySelector("b").textContent === "Front face"); return !!r && /Up/.test(r.textContent) && JSON.stringify(window.__sandbox.match.buttresses[1]) === "[2,0,0,0]"; });
+  await shot34("buttress-up");
   await page.keyboard.press("Escape");
   await expect("closed again", () => document.getElementById("build").hidden);
   // The real thing: fire the swivel until its box cannot pay (or the boys keep it supplied), and the dry note says why.
@@ -466,6 +487,22 @@ try {
   await page.evaluate(() => window.__sandbox.patchMatch(null));
   // A magazine going up: the note and the log.
   await expect("#powder keeps reading after all that", () => !document.getElementById("powder").hidden);
+  // 3.4: the keep tracker's holds bar (one element under each keep's pips), and the mason's eye: hold C with the sight on their keep.
+  await expect("each keep has a holds bar, reading 100% at the start", () => ["holds-mine", "holds-theirs"].every((id) => { const b = document.getElementById(id); return b && /^Holds 100%: how much its weakest course still holds$/.test(b.title) && b.dataset.holds === "good" && b.firstElementChild.style.transform === "scaleX(1)"; }));
+  await expect("the controls help says what C does", () => /Hold|C \(hold\)/.test(document.getElementById("help").textContent) && /mason's eye/.test(document.getElementById("help").textContent));
+  await expect("the structures are reported (both castles: a keep and four towers each)", () => window.__sandbox.eye.list.length === 10);
+  await page.evaluate(() => { const s = window.__sandbox.eye.list[0]; window.__sandbox.aimAtPoint(0, s.cx, 8, s.cz); });
+  await shot34("eye-off");
+  await page.keyboard.down("KeyC");
+  await expect("holding C with the sight on their keep shows the eye's label: Holds 100%", () => window.__sandbox.eye.under === 0 && window.__sandbox.eye.labels.length === 1 && window.__sandbox.eye.labels[0] === "Holds 100%");
+  await page.waitForTimeout(800);
+  await shot34("eye-untouched");
+  await page.keyboard.up("KeyC");
+  await expect("letting go of C takes it away", () => window.__sandbox.eye.labels.length === 0);
+  // A structure said to be hurt (laid over the report): the bar and the label follow it.
+  await page.evaluate(() => { const l = window.__sandbox.eye.list.map((s) => ({ ...s })); l[0] = { ...l[0], holds: 0.62, weakest: 3, heat: l[0].heat.map((_, i) => (i === 3 ? 0.38 : 0)) }; window.__sandbox.patchMatch({ structures: l }); });
+  await expect("a keep that holds 62% reads so on its bar, amber under 0.6 and green over", () => { const b = document.getElementById("holds-theirs"); return /^Holds 62%/.test(b.title) && b.dataset.holds === "good"; });
+  await page.evaluate(() => window.__sandbox.patchMatch(null));
   // The Practice range has no powder: no #powder, no pips, every gun fires.
   await page.goto("about:blank");
   await load("practice-webgl-low-fixed");

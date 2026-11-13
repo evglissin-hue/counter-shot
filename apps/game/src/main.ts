@@ -4048,6 +4048,10 @@ else {
   get match() {
     return matchInfo;
   },
+  /** 3.4: the mason's eye: the structures as last reported, the one under the sight or pointer, and the labels showing. */
+  get eye() {
+    return { list: eyeHud.list, under: eyeHud.under, labels: [...document.querySelectorAll<HTMLElement>(".eye-label:not([hidden])")].map((e) => e.textContent ?? "") };
+  },
   /** Track V test hook: the player's plots (kind index, state). */
   get ownPlots() {
     return estate.ownPlots().map((p) => ({ ...p }));
