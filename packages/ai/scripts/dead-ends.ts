@@ -11,7 +11,7 @@
 // still a ruin, or still rising with no piece raised, after 90 s).
 // The army pass adds the army hunts (sampled once a second, each flagged once, with numbers): a team cut off (route fields
 // FLOW_INF under its marching men), a soldier stuck with nothing to fight, an AI that holds too long or flips its orders, and
-// ladders that are sent but never planted. The scripted army scenarios live in packages/ai/scripts/army-hunt.ts.
+// ladders carried to the wall with no way in but never planted. The scripted army scenarios live in packages/ai/scripts/army-hunt.ts.
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21]
 import RD from "@dimforge/rapier3d-deterministic-compat";
@@ -44,8 +44,8 @@ const ARMY = {
   churnCount: 6, // order changes allowed in any churnWindow
   churnWindow: 300, // s
   churnGap: 15, // s: two order changes closer than this are a flip
-  ladderSent: 5, // ladders sent before the planted share is judged (at the end)
-  ladderShare: 0.3, // share of the ladders sent that must have been planted
+  ladderSent: 5, // ladders carried to the wall with no way in before the planted share is judged (at the end)
+  ladderShare: 0.3, // share of those ladders that must have been planted
   noSpot: 60, // s a ladder crew may carry near the wall with no spot
 };
 
@@ -106,6 +106,8 @@ const cutSpell = [-1, -1], cutHigh = [0, 0], cutTeamFlagged = [false, false], cu
 const stillAt = new Map<number, { x: number; z: number; since: number }>(), stillFlagged = new Set<number>();
 let stuckMore = 0;
 const everPlanted = new Set<number>(), carrySince = new Map<number, number>(), carryFlagged = new Set<number>();
+/** Ladders whose crew stood near the enemy wall, carrying, with no way in open (the ones a ladder was for). */
+const chance = new Set<number>();
 const ORDERS = ["Advance", "Hold", "Push"];
 /** The field a man marches on now, or -1 when he holds by order (as the army chooses it). */
 function marchField(x: Minion): number {
@@ -193,6 +195,7 @@ function armySecond(t: number) {
       if (lad.state === LadderState.Planted) everPlanted.add(lad.id);
       const f = list[lad.front];
       const wall = lad.team === 1 ? -16 : -134;
+      if (lad.state === LadderState.Carried && f.state === MinionState.Upright && Math.abs(f.z - wall) < 34 && Math.abs(f.x) < 30 && A.flow.at(breachField(lad.team), f.x, f.z) >= FLOW_INF) chance.add(lad.id);
       const carrying = lad.state === LadderState.Carried && lad.spot < 0 && f.state === MinionState.Upright && Math.abs(f.z - wall) < 34;
       if (!carrying) {
         carrySince.delete(lad.id);
@@ -350,13 +353,16 @@ if (stuckMore) flag(end, `${stuckMore} more soldiers stood ${ARMY.stuckFor} s wi
 for (const c of [0, 1]) {
   if (!ais[c]) continue;
   if (end >= ARMY.holdMin * 60 && holdTicks[c] > ARMY.holdShare * end) flag(end, `castle ${c}'s ${sides[c]} AI spent ${Math.round((100 * holdTicks[c]) / end)}% of the match so far on Hold (${(holdTicks[c] / 60).toFixed(0)} of ${(end / 60).toFixed(0)} s; limit ${Math.round(ARMY.holdShare * 100)}%)`);
-  const lads = (m.world.ladders?.list ?? []).filter((l) => l.team === c);
+  // Judged over the ladders that had their chance: carried to the wall with no way in open (not lost on the road, not
+  // dropped because a breach let the wave in).
+  const lads = (m.world.ladders?.list ?? []).filter((l) => l.team === c && (chance.has(l.id) || everPlanted.has(l.id)));
   const planted = lads.filter((l) => everPlanted.has(l.id)).length;
-  if (lads.length >= ARMY.ladderSent && planted < ARMY.ladderShare * lads.length) flag(end, `team ${c} sent ${lads.length} ladders and planted ${planted} (${Math.round((100 * planted) / lads.length)}%; need ${Math.round(ARMY.ladderShare * 100)}%)`);
+  if (lads.length >= ARMY.ladderSent && planted < ARMY.ladderShare * lads.length) flag(end, `team ${c} carried ${lads.length} ladders to the wall with no way in and planted ${planted} (${Math.round((100 * planted) / lads.length)}%; need ${Math.round(ARMY.ladderShare * 100)}%)`);
 }
 const armyLine = [0, 1].map((c) => {
   const lads = (m.world.ladders?.list ?? []).filter((l) => l.team === c);
-  return `castle ${c}: ${changes[c].length} order changes, Hold ${(holdTicks[c] / 60).toFixed(0)} s, ladders ${lads.filter((l) => everPlanted.has(l.id)).length}/${lads.length} planted`;
+  const had = lads.filter((l) => chance.has(l.id) || everPlanted.has(l.id)).length;
+  return `castle ${c}: ${changes[c].length} order changes, Hold ${(holdTicks[c] / 60).toFixed(0)} s, ladders ${lads.filter((l) => everPlanted.has(l.id)).length}/${lads.length} planted (${had} reached the wall with no way in)`;
 }).join("; ");
 for (let i = 0; i < n; i++) if (outSince[i] >= 0) spells.push([castleOf(i), (end - outSince[i]) / 60]);
 const summary = [0, 1].map((c) => {

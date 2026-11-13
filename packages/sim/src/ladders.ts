@@ -335,8 +335,9 @@ export class Ladders {
     const face = CASTLE_SHAPE.half + CASTLE_SHAPE.wallThick / 2;
     const wallZ = mirrorZ(target, -face);
     const near = (a.z - wallZ) * (a.z - wallZ) < LADDER.near * LADDER.near && a.x > -30 && a.x < 30;
-    // A way in is open for the wave (a breach it can reach): the ladder is no use, the crew goes with the wave.
-    if (army.flow.at(breachField(L.team), a.x, a.z) < FLOW_INF) {
+    // Near the wall with a way in open for the wave (a breach it can reach): the ladder is no use, the crew goes with the
+    // wave. Not from further off: a breach seen from the muster is often closed by the masons before the crew gets there.
+    if (near && army.flow.at(breachField(L.team), a.x, a.z) < FLOW_INF) {
       this.drop(L, tick);
       return;
     }

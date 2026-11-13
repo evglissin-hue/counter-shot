@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, inCourtyard, MATCH_EMPLACEMENTS, Unit } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT, inCourtyard, LADDER, MATCH_EMPLACEMENTS, Unit } from "@keepfall/content";
 import { Climb, LadderState, MinionState, Order, SandboxSim, SapperTask, type Minion, type Rapier } from "@keepfall/sim";
 
 await RD.init();
@@ -67,15 +67,23 @@ test("a crew with no usable spot drops its ladder within 20 s of reaching the wa
   sim.free();
 });
 
-test("a crew whose way in is open drops its ladder and goes with the wave", () => {
+test("a crew whose way in is open drops its ladder near the wall and goes with the wave", () => {
   const sim = world();
-  // A breach in the front wall left of the gate, before the wave comes.
-  for (const x of [-10, -9]) sim.explode(x, 0.7, -15.3);
-  for (let i = 0; i < 120; i++) sim.step();
+  // A wide breach in the front wall left of the gate (a small one fills with its own rubble), before the wave comes.
+  for (const y of [0.7, 2.5, 4.3]) for (const x of [-12, -11, -10, -9]) sim.explode(x, y, -15.3);
+  for (let i = 0; i < 10 * SECS; i++) sim.step();
   sim.army!.spawnWave(1, CENTRE, 8, { x: 0, z: -60 }, { ladder: true });
-  for (let i = 0; i < 20 * SECS; i++) sim.step();
+  const L = sim.ladders!.list[0];
+  const front = sim.minions.list[L.front];
+  let droppedZ = NaN;
+  for (let i = 0; i < 20 * SECS; i++) {
+    sim.step();
+    if (Number.isNaN(droppedZ) && L.state === LadderState.Down) droppedZ = front.z;
+  }
   assert.equal(sim.ladders!.planted[1], 0, "nothing was raised");
-  assert.equal(sim.ladders!.list[0].state, LadderState.Down, "the ladder was dropped");
+  assert.equal(L.state, LadderState.Down, "the ladder was dropped");
+  // Not at once, 45 m out: a breach seen from afar may be shut by the time the crew gets there.
+  assert.ok(droppedZ > -15 - LADDER.near - 1, `dropped ${(-15 - droppedZ).toFixed(1)} m out from the wall`);
   sim.free();
 });
 
