@@ -69,7 +69,7 @@ Fire the mortar until its box is empty and watch a boy bring a keg. Build a mill
 
 ## For the owner
 
-- Should the gun you ride always have powder (so shooting never stops) with scarcity biting only on the other guns? The spec says no: every gun pays, and the gun you ride is served first.
+- Should the gun you ride always have powder (so shooting never stops) with scarcity biting only on the other guns? The spec says no: every gun pays, and the gun you ride is served first. The owner's answer (November 13): not always, as the spec says.
 
 ## Status
 

@@ -66,7 +66,7 @@ Mark the road before the left bridge with the long gun. Buy a second long gun. W
 
 ## For the owner
 
-- Should the enemy see your marks (a stake in the ground they could read)? The spec says no.
+- Should the enemy see your marks (a stake in the ground they could read)? The spec says no. The owner's answer (November 13): hidden.
 
 ## Status
 
