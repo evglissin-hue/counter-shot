@@ -33,6 +33,8 @@ import { Mounts } from "./mounts";
 import { NavGrid } from "./nav";
 import { Specialists } from "./specialists";
 import { Structures } from "./structures";
+import { Statics } from "./statics";
+import { Buttresses } from "./buttresses";
 import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
@@ -136,6 +138,9 @@ export class SandboxSim {
   readonly bursts: Array<{ x: number; y: number; z: number; radius: number; shot: number }> = [];
   /** M3: the plots' buildings (with plots in the layout), and sappers' kegs and musketeers' shots (matches). */
   readonly structures: Structures | null;
+  /** 3.4: the keep's buttresses (with buttresses in the layout), and the statics pass over every keep and tower (the game's layout). */
+  readonly buttresses: Buttresses | null;
+  readonly statics: Statics | null;
   readonly specialists: Specialists | null;
   /** After M5: the masonry each gun stands on, and which guns are knocked out. */
   readonly mounts: Mounts;
@@ -201,6 +206,9 @@ export class SandboxSim {
       const start = opts.buildings ?? [0, 1].flatMap((castle) => PRACTICE_BUILDINGS.map((b) => ({ castle, ...b })));
       for (const b of start) this.structures.place(b.castle, b.plot, BUILDING_KINDS.indexOf(b.kind));
     }
+    // 3.4: buttresses leave the world until bought, before the nav grid sees the castles.
+    this.buttresses = layout.buttresses.length ? new Buttresses(this.castle, this.minions, this.terrain.handles, (k, a, b, c, d) => this.event(k, a, b, c, d)) : null;
+    this.buttresses?.clearAll();
     this.nav = new NavGrid(this.castle, this.terrain);
     this.minions.nav = this.nav;
     const emit = (k: EventKind, a: number, b: number, c: number, d: number) => this.event(k, a, b, c, d);
@@ -209,6 +217,10 @@ export class SandboxSim {
     this.ladders = this.army ? new Ladders(R, this.castle.world, this.castle, this.terrain, this.minions, emit) : null;
     this.works = this.army ? new Works(this.minions, this.castle, this.terrain, this.army, emit) : null;
     this.gangs = this.army ? new Gangs(this.minions, this.castle, this.terrain, this.nav, this.army, emit) : null;
+    if (this.works && this.buttresses) {
+      const b = this.buttresses;
+      this.works.mendable = (id) => b.mendable(id);
+    }
     if (this.army) this.army.gangs = this.gangs;
     if (this.army && this.ladders) {
       this.army.ladders = this.ladders;
@@ -222,6 +234,8 @@ export class SandboxSim {
     // 3.3: powder boys and the boxes by the guns.
     this.carriers = this.army && opts.powder !== false ? new Carriers(this.minions, this.army, this.structures, this.emplacements, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot), this.bursts) : null;
     this.carriers?.spawnAll();
+    // 3.4: keeps and towers crush and topple by load (the game's layout: the one with buttresses; the lab's has none).
+    this.statics = layout.buttresses.length ? new Statics(this.castle, this.terrain, emit) : null;
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -260,12 +274,14 @@ export class SandboxSim {
     this.gangs?.step();
     this.carriers?.step(tick);
     this.structures?.step(tick);
+    this.buttresses?.step(tick);
     this.terrain.rebuild();
     this.notePositions();
     this.castle.step();
     this.afterStep();
     this.specialists?.afterStep(tick);
     this.carriers?.afterStep(tick);
+    this.statics?.step(tick);
     if (tick % 60 === 0) this.pruneShots(tick);
     if (tick % NAV_EVERY === NAV_EVERY - 1) this.nav.update();
     for (let i = 0; i < this.reload.length; i++) if (this.reload[i] > 0) this.reload[i]--;
@@ -762,6 +778,8 @@ export class SandboxSim {
     this.structures?.hashInto(extra);
     this.specialists?.hashInto(extra);
     this.carriers?.hashInto(extra);
+    this.buttresses?.hashInto(extra);
+    this.statics?.hashInto(extra);
     this.mounts.hashInto(extra);
     for (const s of this.shots) {
       extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);

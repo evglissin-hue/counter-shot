@@ -81,6 +81,8 @@ export class Works {
   readonly crews: Crew[];
   /** Set by the match; without one, every section is repaired for nothing. */
   policy: WorksPolicy | null = null;
+  /** 3.4: may masons put this piece back (a buttress only once it is bought)? Set by the world when the layout has buttresses. */
+  mendable: ((id: number) => boolean) | null = null;
   private sections: RepairSection[];
   private sectionOf: Int16Array;
   private dir: [number, number] = [0, 0];
@@ -149,11 +151,16 @@ export class Works {
     return this.policy ? this.policy.allowed(team, kind) : true;
   }
 
-  /** Pieces of a section that are down. */
+  /** Pieces of a section that are down (and that masons may put back). */
   private down(sec: RepairSection): number {
     let n = 0;
-    for (const id of sec.stones) if (this.castle.dynamic[id]) n++;
+    for (const id of sec.stones) if (this.castle.dynamic[id] && this.may(id)) n++;
     return n;
+  }
+
+  /** 3.4: may masons put this piece back (not a buttress that is not bought)? */
+  private may(id: number): boolean {
+    return this.mendable === null || this.mendable(id);
   }
 
   /** Does what this piece rests on stand (or is there masonry beside it to bond to)? Gate leaves do not carry the wall over them for this. */
@@ -203,7 +210,7 @@ export class Works {
     const cand: number[] = [];
     let lowest = -1;
     for (const id of sec.stones) {
-      if (!this.castle.dynamic[id] || !this.supported(id)) continue;
+      if (!this.castle.dynamic[id] || !this.may(id) || !this.supported(id)) continue;
       const c = L.stones[id].course;
       if (lowest < 0) lowest = c;
       if (c > lowest + 2) break;
@@ -267,7 +274,7 @@ export class Works {
         if (sec.castle !== crew.castle || sec.kind !== kind || sec.index === skip) continue;
         let n = 0, low = 1000, first = -1;
         for (const id of sec.stones) {
-          if (!this.castle.dynamic[id]) continue;
+          if (!this.castle.dynamic[id] || !this.may(id)) continue;
           n++;
           const c = this.castle.layout.stones[id].course;
           if (c < low && this.supported(id)) {

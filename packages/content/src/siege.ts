@@ -50,7 +50,7 @@ export const REPAIR = {
   /** Masons spread along the work this far apart (m). */
   spread: 1.1,
   /** Gold for each piece put back, by part. */
-  cost: { wall: 1, tower: 1, merlon: 1, keep: 2, storey: 10, gate: 25 } as Partial<Record<Stone["part"], number>>,
+  cost: { wall: 1, tower: 1, merlon: 1, keep: 2, storey: 10, gate: 25, buttress: 2 } as Partial<Record<Stone["part"], number>>,
 } as const;
 
 export interface RepairSection {
@@ -69,14 +69,17 @@ const INNER = S.half - S.wallThick / 2;
 const WORK = INNER - 1.4;
 /** Masons keep this far from the towers along a wall (local |x| or |z|). */
 const ALONG = 11;
+/** 3.4: masons work on the keep's faces from this far out (m): past a buttress's foot (BUTTRESS.deep), short of the plots beside the keep. */
+const KEEP_WORK = 1.7;
 
 const cache = new WeakMap<CastleLayout, RepairSection[]>();
 
 /**
  * The sections of both castles that masons rebuild, in a fixed order per
  * castle: the gate, the front wall either side of it, the side walls, the back
- * wall, the four towers and the keep (with its floors). Houses, the banner and
- * the bridges are not rebuilt.
+ * wall, the four towers and the keep (with its floors and, 3.4, its
+ * buttresses: the sim's masons leave a buttress alone until it is bought).
+ * Houses, the banner and the bridges are not rebuilt.
  */
 export function repairSections(layout: CastleLayout): RepairSection[] {
   const hit = cache.get(layout);
@@ -123,7 +126,7 @@ export function repairSections(layout: CastleLayout): RepairSection[] {
       const x = s.x, z = mirrorZ(castle, s.z);
       let sec = -1;
       if (s.part === "gate") sec = gate;
-      else if (s.part === "keep" || s.part === "storey" || (s.part === "merlon" && s.course === S.keepCourses)) sec = keep;
+      else if (s.part === "keep" || s.part === "storey" || s.part === "buttress" || (s.part === "merlon" && s.course === S.keepCourses)) sec = keep;
       else if (s.part === "tower" || (s.part === "merlon" && s.course === S.towerCourses)) sec = nearestTower(x, z);
       else if (s.part === "wall" || s.part === "merlon") {
         if (Math.abs(z + T) < 1.5) sec = x * left > 0 ? frontLeft : frontRight;
@@ -162,7 +165,8 @@ const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi 
 /**
  * Where a castle's masons stand to put a piece of a section back (world x,
  * z): inside the courtyard, a little in from the face the piece belongs to.
- * The keep's floors are put back from its side, over the wall.
+ * The keep's floors are put back from its side, over the wall. Masons work on
+ * the keep's faces from `KEEP_WORK` m out, clear of its buttresses (3.4).
  */
 export function workSpot(layout: CastleLayout, section: RepairSection, id: number): { x: number; z: number } {
   const s = layout.stones[id];
@@ -183,18 +187,21 @@ export function workSpot(layout: CastleLayout, section: RepairSection, id: numbe
       break;
     }
     case "keep": {
-      const h = S.keepHalf, kz = S.keepZ;
+      const h = S.keepHalf, kz = S.keepZ, out = KEEP_WORK;
+      // 3.4: a buttress pier belongs to the face it stands against (it reaches past the face, so the corner test below would misread it).
+      const front = s.part === "buttress" ? Math.abs(x) < h && z < kz : Math.abs(z - (kz - h)) < 1.6;
+      const back = s.part === "buttress" ? Math.abs(x) < h && z > kz : Math.abs(z - (kz + h)) < 1.6;
       if (s.part === "storey") {
-        wx = h + 1.4;
+        wx = h + out;
         wz = kz;
-      } else if (Math.abs(z - (kz - h)) < 1.6) {
+      } else if (front) {
         wx = clamp(x, -h + 1, h - 1);
-        wz = kz - h - 1.4;
-      } else if (Math.abs(z - (kz + h)) < 1.6) {
+        wz = kz - h - out;
+      } else if (back) {
         wx = clamp(x, -h + 1, h - 1);
-        wz = kz + h + 1.4;
+        wz = kz + h + out;
       } else {
-        wx = x > 0 ? h + 1.4 : -h - 1.4;
+        wx = x > 0 ? h + out : -h - out;
         wz = clamp(z, kz - h + 1, kz + h - 1);
       }
       break;
