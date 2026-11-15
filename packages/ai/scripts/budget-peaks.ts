@@ -2,7 +2,7 @@
 // moving by where they come from: a falling keep or tower's own part (claimed by the statics pass), rubble that had
 // settled and was woken again, or masonry that stood until now; and by part (wall, tower, keep, house...). Prints the
 // structures' falls as they happen, every sample over `over` stones moving, and the match's peak with its make-up.
-// npx rolldown packages/ai/scripts/budget-peaks.ts --format esm --platform node -o node_modules/.scratch/budget-peaks.mjs && node node_modules/.scratch/budget-peaks.mjs [c0=knight] [c1=knight] [seed=1] [secs=1500] [over=500]
+// npx rolldown packages/ai/scripts/budget-peaks.ts --format esm --platform node -o node_modules/.scratch/budget-peaks.mjs && node node_modules/.scratch/budget-peaks.mjs [c0=knight] [c1=knight] [seed=1] [secs=1500] [over=500] [slow=33]
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { buildLayout, GAME_LAYOUT, type Difficulty } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, type Rapier } from "@keepfall/sim";
@@ -13,7 +13,7 @@ await RD.init();
 const R = RD as unknown as Rapier;
 const arg = (k: string, d: string) => process.argv.find((a) => a.startsWith(k + "="))?.split("=")[1] ?? d;
 const sides = [arg("c0", "knight"), arg("c1", "knight")];
-const seed = Number(arg("seed", "1")), secs = Number(arg("secs", "1500")), over = Number(arg("over", "500"));
+const seed = Number(arg("seed", "1")), secs = Number(arg("secs", "1500")), over = Number(arg("over", "500")), slow = Number(arg("slow", "33"));
 const layout = buildLayout(1, GAME_LAYOUT);
 const m = new Match(R, layout, { seed, plan: false, rotate: false });
 const ais = sides.map((s, team) => (s === "idle" ? null : new AiPlayer(m, team, s as Difficulty, seed)));
@@ -22,7 +22,8 @@ const n = layout.stones.length;
 const claimed = new Uint8Array(n), wasFrozen = new Uint8Array(n);
 const worldEvents = (m.world as unknown as { events: number[] }).events;
 let evSeen = 0;
-let peak = 0, peakAt = 0, peakMix = "", above600 = 0, worst = 0;
+let peak = 0, peakAt = 0, peakMix = "", above600 = 0, worst = 0, slowSteps = 0;
+const slowLog: string[] = [];
 const KIND: Record<number, string> = { [EventKind.Topple]: "topple", [EventKind.Crush]: "crush", [EventKind.Released]: "released" };
 const name = (si: number) => `castle ${Math.floor(si / 5)} ${si % 5 === 0 ? "keep" : `tower ${si % 5}`}`;
 
@@ -53,7 +54,12 @@ for (; i < secs * 60 && !m.result; i++) {
   for (const ai of ais) ai?.step();
   const s0 = performance.now();
   m.step();
-  worst = Math.max(worst, performance.now() - s0);
+  const dt = performance.now() - s0;
+  worst = Math.max(worst, dt);
+  if (dt > slow) {
+    slowSteps++;
+    if (slowLog.length < 40) slowLog.push(`${(i / 60).toFixed(2)} s ${dt.toFixed(1)} ms, ${c.awakeCount()} awake`);
+  }
   for (const id of c.dynList) {
     if (c.busy[id]) claimed[id] = 1;
     if (c.frozen[id]) wasFrozen[id] = 1;
@@ -78,5 +84,6 @@ for (; i < secs * 60 && !m.result; i++) {
 }
 console.log(m.result ? `END at ${(m.result.tick / 60).toFixed(0)} s by ${m.result.reason}, winner ${m.result.winner}` : `no result after ${secs} s`);
 console.log(`peak ${peak} at ${(peakAt / 60).toFixed(1)} s: ${peakMix}`);
+console.log(`steps over ${slow} ms: ${slowSteps}${slowLog.length ? "\n  " + slowLog.join("\n  ") : ""}`);
 console.log(`ticks over 600 moving: ${above600} (${(above600 / 60).toFixed(1)} s); worst step ${worst.toFixed(1)} ms`);
 m.free();
