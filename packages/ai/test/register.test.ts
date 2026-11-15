@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { AI_LEVELS, BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, Unit, type AiLevel, type Difficulty } from "@keepfall/content";
+import { AI_LEVELS, BRIDGES, buildLayout, DECK_TOP, GAME_LAYOUT, REGISTER, ROUTE_NAMES, START_BUILDINGS, Unit, type AiLevel, type Difficulty } from "@keepfall/content";
 import type { Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput } from "@keepfall/rules";
 import { AiPlayer, frontFaceZ } from "@keepfall/ai";
@@ -15,7 +15,9 @@ const R = RD as unknown as Rapier;
 
 /** A match with one AI on `team` (the other castle idle), and every input it sends. */
 function setup(level: Difficulty, team: Team, seed: number, over?: Partial<AiLevel>) {
-  const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false });
+  // 3.5: both castles hold a spotter's tower, so marks last long and every gun shares them (what these tests are about).
+  const spot = [...START_BUILDINGS, { plot: 7, kind: "spotter" as const }];
+  const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false, startBuildings: [spot, spot] });
   const ai = new AiPlayer(m, team, level, seed, over ? { level: over } : undefined);
   const sent: Array<{ tick: number; input: MatchInput }> = [];
   const q = m.queue.bind(m);
