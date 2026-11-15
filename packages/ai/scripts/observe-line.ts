@@ -41,7 +41,7 @@ export interface Sample {
   gold: [number, number];
   /** Gold spent so far (Match.spent). */
   spent: [number, number];
-  /** Each castle's six plots, one letter each: "." empty, b/m/f/k a barracks, mill, foundry or magazine rising, B/M/F/K working, x a ruin. */
+  /** Each castle's plots (eight from 3.5; six before: older lines are shorter), one letter each: "." empty, b/m/f/k/s a barracks, mill, foundry, magazine or spotter's tower rising, B/M/F/K working, x a ruin. */
   plots: [string, string];
   /** Keep storeys still under each banner (Match.floorsUnder: 3 on the roof, 0 down). */
   floors: [number, number];

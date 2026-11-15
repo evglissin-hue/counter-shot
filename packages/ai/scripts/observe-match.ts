@@ -3,7 +3,7 @@
 // observe-line.ts describes. Tuning is applied before the match is built and
 // undone when it is freed, so a process can play many setups.
 
-import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, ORGAN_KINDS, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
+import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, ORGAN_KINDS, PLOTS, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, RULES_VERSION, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_RULES_VERSION } from "@keepfall/rules";
 import { AIM_GROUPS, AiPlayer } from "@keepfall/ai";
@@ -26,7 +26,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false });
   const ais = pair((team) => (setup.sides[team] === "idle" ? null : new AiPlayer(m, team, setup.sides[team] as Difficulty, seed, { plan: (setup.steps?.[team] as AiStep[] | null | undefined) ?? undefined, level: (setup.levels?.[team] as Partial<AiLevel> | null | undefined) ?? undefined })));
   const outs = (c: number) => m.emplacements.filter((e, i) => (e.z < -75 ? 1 : 0) === c && !e.empty && !m.world.mounts.up(i)).length;
-  const plots = (c: number) => [0, 1, 2, 3, 4, 5].map((p) => {
+  const plots = (c: number) => PLOTS.map((q) => q.index).map((p) => {
     const s = m.world.structures!.slot(c, p);
     if (s.kind < 0 || s.state === 0) return ".";
     if (s.state === 3) return "x";

@@ -28,7 +28,7 @@
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21] [plots=full]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { allowedOn, BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, repairSections, ROUTE_NAMES, sectionOf, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
+import { allowedOn, BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, repairSections, ROUTE_NAMES, sectionOf, stoneBounds, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
 import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, LOCAL_INF, MinionState, Order, OrganWait, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
@@ -42,6 +42,8 @@ const secs = Number(arg("secs", "720")), seed = Number(arg("seed", "21"));
 const full = arg("plots", "") === "full";
 const FULL_KINDS: BuildingKind[] = ["barracks", "foundry", "mill", "mill", "barracks", "magazine", "spotter", "spotter"];
 const fullPlots = FULL_KINDS.map((kind, plot) => ({ plot, kind }));
+for (const b of fullPlots) if (!allowedOn(b.kind, b.plot)) throw new Error(`plots=full: a ${b.kind} may not stand on plot ${b.plot}`);
+if (FULL_KINDS.length !== PLOTS.length) throw new Error("plots=full: one kind for each plot");
 /** How long (s) a gun may stay out, a slot stay blocked, a gunner stay idle, or gold pile up before it is flagged. */
 const LIMIT = { out: Number(arg("out", "240")), blocked: 240, idle: 150, gold: 600, goldFor: 180 };
 
@@ -88,40 +90,72 @@ for (let i = 0; i < m.emplacements.length; i++) {
   if (lost) flag(0, `slot ${i} (castle ${castleOf(i)}, ${e.place ?? e.weapon}) stands on ${lost} stones no masons rebuild: once down, its gun is out for good`);
 }
 
-// 3.5 static: the organs. Each piece rests on the ground, a lower piece of its own organ or masonry; the crane's pieces only on
-// the first two (it never needs masonry that falls, and never needs itself); the bell and the mast on masonry that masons rebuild.
+// 3.5 static: the organs. The crane's pieces rest on the ground or on a lower piece of the crane (it never needs masonry that falls, and
+// never needs itself); the bell and the mast must hang together with some piece resting on masonry that masons rebuild (the tower top,
+// the keep's top floor), through pieces that rest on or touch each other.
 const L = m.world.castle.layout;
 const stones: Stone[] = L.stones;
-const topOf = (p: Stone) => p.y + p.hy, footOf = (p: Stone) => p.y - p.hy;
-const overlaps = (a: Stone, b: Stone) => Math.abs(a.x - b.x) < a.hx + b.hx - 0.001 && Math.abs(a.z - b.z) < a.hz + b.hz - 0.001;
-const SUPPORT = 0.06;
+type Box = [number, number, number, number, number, number];
+const boundsOf = (p: Stone): Box => stoneBounds(p, L.wedge);
+const SUPPORT = 0.06, TOUCH = 0.02;
+/** Does a rest on b: a's foot at b's top (within SUPPORT) and the footprints overlap? */
+const restsOn = (a: Box, b: Box) => Math.abs(a[1] - b[4]) < SUPPORT && a[0] < b[3] - 0.001 && b[0] < a[3] - 0.001 && a[2] < b[5] - 0.001 && b[2] < a[5] - 0.001;
+/** Do the two boxes touch (a gap of TOUCH or less on every axis)? */
+const touches = (a: Box, b: Box) => a[0] <= b[3] + TOUCH && b[0] <= a[3] + TOUCH && a[1] <= b[4] + TOUCH && b[1] <= a[4] + TOUCH && a[2] <= b[5] + TOUCH && b[2] <= a[5] + TOUCH;
 if (L.organs.length === 0) console.log("note: this layout has no organs: the organ hunts have nothing to look at");
+const bodyOf = new Map<number, Box[]>();
 for (const o of L.organs) {
   const kind = ORGAN_KINDS[o.organ];
   const mine = stones.slice(o.first, o.first + o.count);
+  const boxes = mine.map(boundsOf);
   const where = `castle ${o.castle}'s ${ORGANS[kind].name}`;
-  for (const p of mine) {
-    const foot = footOf(p);
-    const onGround = foot < SUPPORT;
-    const onOwn = mine.some((q) => q !== p && Math.abs(topOf(q) - foot) < SUPPORT && overlaps(p, q) && footOf(q) < foot);
-    const base = stones.filter((q) => q.castle === p.castle && q.organ === undefined && q.plot === undefined && Math.abs(topOf(q) - foot) < SUPPORT && overlaps(p, q));
-    if (kind === "crane") {
-      if (!onGround && !onOwn) flag(0, `${where}: piece ${p.id} (foot ${foot.toFixed(2)} m) rests on neither the ground nor a lower piece of the crane`);
+  // The masonry (not an organ, not a building) the organ's pieces rest on, per piece.
+  const mason = stones.filter((q) => q.castle === o.castle && q.organ === undefined && q.plot === undefined && q.part !== "banner");
+  const masonBoxes = new Map<number, Box>();
+  const resting = mine.map((p, i) => {
+    const bx = boxes[i];
+    if (bx[1] < SUPPORT) return { ground: true, base: [] as Stone[] };
+    const base = mason.filter((q) => {
+      if (Math.abs(q.y + q.hy - bx[1]) > 1) return false;
+      let qb = masonBoxes.get(q.id);
+      if (!qb) masonBoxes.set(q.id, (qb = boundsOf(q)));
+      return restsOn(bx, qb);
+    });
+    return { ground: false, base };
+  });
+  if (kind === "crane") {
+    mine.forEach((p, i) => {
+      const own = boxes.some((q, j) => j !== i && boxes[i][1] > q[1] && restsOn(boxes[i], q));
+      if (!resting[i].ground && !own) flag(0, `${where}: piece ${p.id} (foot ${boxes[i][1].toFixed(2)} m) rests on neither the ground nor a lower piece of the crane`);
       if (p.organ !== o.organ) flag(0, `${where}: piece ${p.id} is not the crane's own`);
-    } else if (!onGround && !onOwn) {
-      if (base.length === 0) flag(0, `${where}: piece ${p.id} (foot ${foot.toFixed(2)} m) rests on nothing (no masonry top within ${SUPPORT} m under it)`);
-      else {
-        const parts = [...new Set(base.map((q) => q.part))];
-        const want = kind === "bell" ? "tower" : "keep";
-        if (!parts.includes(want)) flag(0, `${where}: piece ${p.id} rests on ${parts.join("/")}, not the ${want}`);
-        const lost = base.filter((q) => sectionOf(L)[q.id] < 0).length;
-        if (lost) flag(0, `${where}: piece ${p.id} rests on ${lost} stones no masons rebuild: once down, it waits for ever`);
-      }
+    });
+    const high = boxes.filter((b) => b[1] >= CRANE.low).length;
+    if (o.castle === 0) console.log(`note: ${where}: ${mine.length} pieces, ${mine.length - high} low (foot under ${CRANE.low} m) and ${high} high (the crane's own, laid with it down)`);
+  } else {
+    // Flood from the pieces that rest on masonry through resting and touching.
+    const linked = new Array<boolean>(mine.length).fill(false);
+    const stack: number[] = [];
+    const want = kind === "bell" ? ["tower"] : ["keep", "storey", "floor"];
+    resting.forEach((r, i) => {
+      if (r.ground || r.base.length === 0) return;
+      const parts = [...new Set(r.base.map((q) => q.part))];
+      if (!parts.some((pt) => want.includes(pt))) flag(0, `${where}: piece ${mine[i].id} rests on ${parts.join("/")}, not the ${want[0]}`);
+      const lost = r.base.filter((q) => sectionOf(L)[q.id] < 0).length;
+      if (lost) flag(0, `${where}: piece ${mine[i].id} rests on ${lost} stones no masons rebuild: once down, it waits for ever`);
+      linked[i] = true;
+      stack.push(i);
+    });
+    if (stack.length === 0) flag(0, `${where}: no piece rests on masonry`);
+    for (let i = 0; i < mine.length; i++) if (resting[i].ground && !linked[i]) (linked[i] = true, stack.push(i));
+    while (stack.length) {
+      const i = stack.pop()!;
+      for (let j = 0; j < mine.length; j++) if (!linked[j] && touches(boxes[i], boxes[j])) (linked[j] = true, stack.push(j));
     }
+    mine.forEach((p, j) => {
+      if (!linked[j]) flag(0, `${where}: piece ${p.id} (foot ${boxes[j][1].toFixed(2)} m) is joined to nothing that stands on the ${want[0]}`);
+    });
   }
-  const high = mine.filter((p) => footOf(p) >= CRANE.low).length;
-  if (kind === "crane" && high === 0) console.log(`note: ${where} has no piece above ${CRANE.low} m (the height limit never binds it)`);
-  if (kind === "crane" && o.castle === 0) console.log(`note: ${where}: ${mine.length} pieces, ${mine.length - high} low and ${high} high (the crane's own, laid with it down)`);
+  bodyOf.set(o.organ + 10 * o.castle, boxes);
 }
 
 // 3.5 static: the work spots and powder feet can be reached on foot from the masons' yard (the army's local field), with the plots
