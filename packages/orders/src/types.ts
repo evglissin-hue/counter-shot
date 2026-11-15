@@ -1,7 +1,7 @@
 import type { BuildingKind, MixName, RepairKind, RouteName, UpgradeKind, WeaponKind } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 
-/** One of the player's plots (index 0 to 5, PLOTS order), as the page last saw it. */
+/** One of the player's plots (index 0 to 7, PLOTS order), as the page last saw it. */
 export interface PlotView {
   kind: BuildingKind | null;
   state: "empty" | "rising" | "standing" | "ruined";
