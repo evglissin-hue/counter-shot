@@ -458,7 +458,7 @@ export class Household {
     return m;
   }
 
-  /** A person stands at a post: a new minion there, the seat taken. */
+  /** A person stands at a post: a new minion there, the seat taken (no event: he is no replacement from the reserve: the match's start, a gun bought, a tower built). */
   private mount(st: StationRun, k: number, person: number) {
     const si = this.run.indexOf(st);
     const p = this.postOf(st, k);
@@ -471,7 +471,6 @@ export class Household {
     seat.due = -1;
     seat.cool = 0;
     this.byMinion.set(m.id, si);
-    this.emit(EventKind.HouseholdUp, st.team, si, k, person);
   }
 
   /** A man who has been walking, waiting or hoisted takes his post. */
@@ -760,6 +759,8 @@ export class Household {
       }
     }
     if (!arrived) return;
+    seat.gx = foot.x;
+    seat.gz = foot.z;
     m.vx = m.vz = 0;
     seat.best = Infinity;
     seat.stuck = 0;
