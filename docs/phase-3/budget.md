@@ -74,7 +74,7 @@ A keep or tower falling alone (`packages/sim/scripts/topple.ts`, a quiet machine
 
 ## The player's chair
 
-PLAYERS_CHAIR
+`tools/keep-shots.mjs` (Practice, WebGL2 Low, 1280x720), before on the integration branch and after on this branch, looked at side by side. The keep cut through its gateway still groans, leans towards the gate as one piece, goes down into its great cloud and leaves the same field of dust and a stump behind the curtain wall; the tower cut on its outer side still falls in a rolling front of dust off the curtain wall with the impact cam on it. No piece hangs in the air and no hole of missing rubble shows where the budget turned stones to dust: in a fall alone the world is under the budget, and in a match the dust it makes is the same puffs and chips a shot leaves. The page's step at the fall (its stats): 8.97 ms on average and 24.2 ms at worst after, against 12.3 and 39.7 ms before, with the same 275 bodies awake (software rendering, frames about a second each, so frame times say nothing here).
 
 ## Versions and hashes
 
