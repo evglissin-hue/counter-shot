@@ -7,7 +7,7 @@
 // marker). The barrel turns at the gun's own rates, it waits for the reload,
 // and it waits to see where a shot came down before it fires again.
 
-import { BRIDGES, keepStructure, MID_Z, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, structureList, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
+import { BRIDGES, BUILDING_KINDS, keepStructure, MID_Z, ORGAN_KINDS, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, structureList, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, Rng } from "@keepfall/core";
 import { clampAim, clearOfCastle, DEFAULT_SIM, solveAim, Spin, StaticState, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
@@ -22,6 +22,12 @@ export const enum Aim {
   Open = 4,
   /** 3.4: cutting the enemy keep (a point on its foot, or a shell at the foot of the face being cut). */
   Cut = 5,
+  /** 3.5: the enemy's bell (a shell on the tower top, or the long gun at its frame). */
+  Bell = 6,
+  /** 3.5: the enemy's crane (a shell on its wheel, or the long gun at its jib). */
+  Crane = 7,
+  /** 3.5: the enemy's signal mast (a shell on the roof by its foot, or the long gun at its yard). */
+  Mast = 8,
   /** A shell on an enemy building: + its plot. */
   Raid = 10,
   Masons = 20,
@@ -32,10 +38,11 @@ export const enum Aim {
 }
 
 /** The kinds of target shots are counted by (for tools): Aim.Raid + plot counts as "raid", Aim.Gun + emplacement as "gun". */
-export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut"] as const;
+export const AIM_GROUPS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut", "bell", "crane", "mast"] as const;
 
 /** The index in AIM_GROUPS of a target's key. */
 function aimGroup(key: number): number {
+  if (key >= Aim.Bell && key <= Aim.Mast) return 9 + key - Aim.Bell;
   if (key === Aim.Cut) return 8;
   if (key === Aim.Open) return 7;
   if (key >= Aim.Range) return 6;
@@ -122,6 +129,13 @@ const HURT_TICKS = 20 * 60;
 const GATE_RENEW = 30 * 60;
 /** 3.3: a raid goes for the enemy magazine when it holds this many charges or more. */
 export const RAID_STOCK = 80;
+/** 3.5: the building kind number of a spotter's tower. */
+const SPOTTER = BUILDING_KINDS.indexOf("spotter");
+/** 3.5: the enemy's men in the field must be at least this many times its own, and at least ORGAN_MEN, for it to go after the roof and mast. */
+const MAST_RATIO = 1.5;
+const ORGAN_MEN = 6;
+/** 3.5: its waves past the stream before it goes after the bell. */
+const BELL_WAVES = 2;
 /** A2: this many of its own marching men within REGISTER.aiWallNear of its gate or wall mark: its waves are arriving. */
 const ARRIVE_MEN = 3;
 
@@ -130,7 +144,7 @@ export class Gunner {
   riding = -1;
   shotsFired = 0;
   /** Shots fired by what they were laid for, indexed as AIM_GROUPS (for tools; sums to shotsFired). */
-  readonly byAim = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  readonly byAim = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   private aim: AimState = { yaw: 0, pitch: 0 };
   private target: Target | null = null;
   private lay: Lay | null = null;
@@ -155,6 +169,9 @@ export class Gunner {
   private restUntil: number[] = [];
   private pendingMark: { emp: number; at: number } | null = null;
   private salvoSentAt = -1e9;
+  /** 3.5: which of the enemy's organs worked at its last look (a fall starts its rest from organs), and the tick until which it leaves organs alone. */
+  private foeUp: boolean[] = ORGAN_KINDS.map(() => true);
+  private organUntil = 0;
 
   constructor(
     private m: Match,
@@ -166,6 +183,8 @@ export class Gunner {
     private stage: (() => number) | null = null,
     /** 3.4: its own stream for choosing how to cut (so the draws of its other choices stay as they were). */
     private cutRng: Rng = new Rng(0x6b656570 + team),
+    /** 3.5: its own stream for choosing to go after an organ (so the draws of its other choices stay as they were). */
+    private organRng: Rng = new Rng(0x6f726761 + team),
   ) {
     // No shot by hand before its warm-up is over (it takes and lays its gun meanwhile).
     this.readyAt = L.warmup;
@@ -266,6 +285,7 @@ export class Gunner {
     if (this.stage && this.stage() < 2) return;
     this.learn(tick);
     this.watch(tick);
+    this.watchOrgans(tick);
     if (this.pendingMark && tick >= this.pendingMark.at) {
       this.send(tick, { kind: "mark", emplacement: this.pendingMark.emp });
       this.pendingMark = null;
@@ -521,6 +541,7 @@ export class Gunner {
         if (e && this.m.world.reload[e.id] < (e.weapon === "mortar" ? 90 : 3 * 60)) pick = { e, t };
       }
     }
+    if (!pick && L.organs && tick >= this.organUntil) pick = this.organPick();
     if (!pick && L.marks >= 1 && this.quiet(tick, crowd !== null)) {
       // 3.2: nothing presses: range a spot of ground it has not marked. Before its gate the mortar (no gun lays flat that
       // low); by a bridge only flat fire (the long gun, the chain shot): a shell that falls long would cut the road for both sides.
@@ -558,7 +579,8 @@ export class Gunner {
       // 3.3: the magazine first when its kegs stand in plain sight at 80 charges or more; then mills (its gold),
       // barracks (its waves) and the Foundry; or the masons putting the keep back.
       const stock = m.world.carriers?.status(foe).stock ?? 0;
-      for (const kind of stock >= RAID_STOCK ? [3, 1, 0, 2] : [1, 0, 2]) {
+      // 3.5: its spotter's tower (the marks its guns share) comes before the mills.
+      for (const kind of stock >= RAID_STOCK ? [3, SPOTTER, 1, 0, 2] : [SPOTTER, 1, 0, 2]) {
         const plots = V.working(m, foe, kind);
         if (plots.length) {
           const p = plots[(this.rng.next() * plots.length) | 0];
@@ -672,6 +694,14 @@ export class Gunner {
         if (!seen.some((q) => q.c === c)) seen.push({ c, f });
       }
       if (!seen.length) continue;
+      if (!this.m.spotter(this.team)) {
+        // 3.5: the mason's eye is earned: with no spotter's tower of its own it forecasts nothing. It cuts at what it can see:
+        // the lowest course, nearest the middle of the face.
+        const lat = (c: Cand) => Math.min(Math.abs(c.x - def.cx), Math.abs(c.z - def.cz));
+        let low = seen[0];
+        for (const q of seen) if (q.c.course < low.c.course || (q.c.course === low.c.course && (lat(q.c) < lat(low.c) || (lat(q.c) === lat(low.c) && q.c.id < low.c.id)))) low = q;
+        return { e, t: { key: Aim.Cut, x: low.c.x, y: low.c.y, z: low.c.z, vx: 0, vz: 0 } };
+      }
       // It forecasts a few of them: drawn from those it can see.
       const w = weaponOf(e), power = w.projectile.power ?? 1;
       let best: Seen | null = null, bestHolds = Infinity;
@@ -728,6 +758,65 @@ export class Gunner {
     return null;
   }
   private nearIds: number[] = [];
+
+  // ---- 3.5: the enemy's organs ----
+
+  /** Note when one of the enemy's organs goes down (it then leaves organs alone for a while). */
+  private watchOrgans(tick: number) {
+    if (!this.L.organs) return;
+    for (let k = 0; k < ORGAN_KINDS.length; k++) {
+      const up = this.m.organUp(this.foe, ORGAN_KINDS[k]);
+      if (this.foeUp[k] && !up) this.organUntil = tick + this.L.organRest;
+      this.foeUp[k] = up;
+    }
+  }
+
+  /** Where a shell and a flat shot are laid for an enemy organ: [the mortar's point, the long gun's point], from the layout. */
+  private organPoints(kind: number): [Target, Target] | null {
+    const layout = this.m.world.castle.layout;
+    const o = layout.organs[this.m.world.organs ? this.m.world.organs.index(this.foe, kind) : -1];
+    if (!o || o.key < 0) return null;
+    const at = (id: number, key: number): Target => {
+      const p = layout.stones[id];
+      return { key, x: p.x, y: p.y, z: p.z, vx: 0, vz: 0 };
+    };
+    const key = Aim.Bell + kind;
+    const long = at(o.key, key);
+    if (kind === 0) return [long, long];
+    if (kind === 2) return [at(o.first, key), long]; // the mast's foot, on the keep's roof
+    // The crane's wheel: the one thick piece (the treadwheel) in its range.
+    let wheel = o.first;
+    for (let id = o.first; id < o.first + o.count; id++) if (layout.stones[id].hx > layout.stones[wheel].hx) wheel = id;
+    return [at(wheel, key), long];
+  }
+
+  /**
+   * From a Knight up, in a share of its looks: an enemy organ that works and that its own side is about to make the most
+   * of. The bell when two of its waves are past the stream, the crane while a way into the enemy courtyard is open, the
+   * roof and mast when the enemy's men in the field outnumber its own by half again. A loaded mortar first, else the long gun.
+   */
+  private organPick(): { e: Emplacement; t: Target } | null {
+    const m = this.m, foe = this.foe, L = this.L;
+    if (!m.world.organs) return null;
+    const want: number[] = [];
+    if (m.organUp(foe, "bell") && V.wavesPast(m, this.team) >= BELL_WAVES) want.push(0);
+    if (m.organUp(foe, "crane") && V.wayIn(m, this.team)) want.push(1);
+    if (m.organUp(foe, "mast")) {
+      const theirs = V.marchers(m, foe);
+      if (theirs >= ORGAN_MEN && theirs >= MAST_RATIO * V.marchers(m, this.team)) want.push(2);
+    }
+    if (!want.length || this.organRng.next() >= L.organAims) return null;
+    for (const k of want) {
+      const pts = this.organPoints(k);
+      if (!pts) continue;
+      const [shell, ball] = pts;
+      const mortar = this.soonest("mortar", shell.x, shell.y, shell.z);
+      if (mortar && m.world.reload[mortar.id] < 90) return { e: mortar, t: shell };
+      const gun = this.soonest("longGun", ball.x, ball.y, ball.z);
+      if (gun) return { e: gun, t: ball };
+    }
+    return null;
+  }
 
   /**
    * From the Warlord up: the keep holds under 0.6 and its weakest course is at the foot: a shell at the foot of the face
