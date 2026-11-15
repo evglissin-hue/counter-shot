@@ -9,18 +9,20 @@ import * as THREE from "three/webgpu";
 import type { CastleLayout, Stone } from "@keepfall/content";
 import { boxStoneGeometry, wedgeStoneGeometry } from "./geometry";
 import { GroupKind, makeGroupMaterial, makeProxyMaterial } from "./stoneMaterials";
+import { drawnByOrgans } from "./organsLogic";
 
 /** Layer seen only by the shadow cameras (stone shadow proxies live there). */
 export const SHADOW_LAYER = 1;
 import type { StyleName, StylePreset } from "./styles";
 
-const KINDS: GroupKind[] = ["stone", "wedge", "wood", "plaster", "roof", "pole"];
+const KINDS: GroupKind[] = ["stone", "wedge", "wood", "plaster", "roof", "pole", "iron"];
 
 function kindOf(s: Stone): GroupKind {
   if (s.material === "stone") return s.shape === "wedge" ? "wedge" : "stone";
   if (s.material === "wood") return "wood";
   if (s.material === "plaster") return "plaster";
   if (s.material === "roof") return "roof";
+  if (s.material === "iron") return "iron";
   return "pole";
 }
 
@@ -70,9 +72,12 @@ export class StoneSet {
   private wedgeR = 0;
   /** Called for every stone the page moves (wear.ts watches for stones leaving their place). */
   onBody: ((id: number, x: number, y: number, z: number) => void) | null = null;
+  /** 3.5: stones the organs' view draws itself (the bell's box, the crane's treadwheel box): not drawn as boxes here. */
+  private apart: Set<number>;
 
   constructor(layout: CastleLayout, noise: THREE.Texture) {
     this.layout = layout;
+    this.apart = new Set(drawnByOrgans(layout));
     this.noise = noise;
     const n = layout.stones.length;
     this.groupOf = new Uint8Array(n).fill(255);
@@ -226,6 +231,13 @@ export class StoneSet {
       const shade = s.shade;
       // Bevel radius (box stones only; the wedge geometry carries its own).
       const minH = Math.min(s.hx, s.hy, s.hz);
+      // 3.5: a piece the organs' view draws as a bell or a wheel is not drawn as a box here (it stays in place for picking).
+      if (this.apart.has(id)) {
+        a[o] = a[o + 1] = a[o + 2] = 0;
+        a[o + 3] = 0;
+        a[o + 4] = a[o + 5] = a[o + 6] = 1;
+        continue;
+      }
       a[o + 3] = seg > 0 && g.kind !== "wedge" ? Math.min(style.geometry.bevelRadius * (0.75 + 0.5 * frac(shade * 3.7)), minH * 0.42) : 0;
       // A slightly irregular, hand-laid look: shrink each block a little (visual only).
       const j = g.kind === "stone" && s.part !== "merlon" ? S.sizeJitter : 0;

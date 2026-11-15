@@ -59,6 +59,7 @@ import { GrassTufts } from "./grass";
 import { Birds } from "./birds";
 import { Braziers } from "./braziers";
 import { Works, type WorksState } from "./works";
+import { OrganView, type OrganState } from "./organs";
 
 export type { CameraPose, GameRendererApi, InsetPose, InsetRect, Listener, PathHit, QualityTier, RenderStats } from "./api";
 export type { KeyframePart, RenderKeyframe } from "./keyframe";
@@ -106,6 +107,9 @@ export class GameRenderer implements GameRendererApi {
   private ladders = new Ladders();
   /** Masons' hoists and the stones they put back (M4; built with the layout). */
   private works: Works | null = null;
+  /** 3.5: the bell, the crane and the signal mast (built with the layout). */
+  private organs: OrganView | null = null;
+  private bellRinging: [number, number] = [-1, -1];
   /** The ring on a courtyard being stormed (M4). */
   private storm = new Storm();
   private decals: Decals;
@@ -415,6 +419,16 @@ export class GameRenderer implements GameRendererApi {
       }),
     );
     this.registerKeyframePart(
+      "organs",
+      part<OrganState | null>({
+        capture: () => (this.organs ? this.organs.captureState() : null),
+        apply: (st) => {
+          if (st && this.organs) this.organs.restoreState(st);
+        },
+        bytes: (st) => (st ? roughBytes(st) : 0),
+      }),
+    );
+    this.registerKeyframePart(
       "works",
       part<WorksState | null>({
         capture: (now) => (this.works ? this.works.captureState(now) : null),
@@ -665,6 +679,20 @@ export class GameRenderer implements GameRendererApi {
     }
     this.works = new Works(layout);
     this.scene.add(this.works.root);
+    if (this.organs) {
+      this.scene.remove(this.organs.root);
+      this.organs.dispose();
+    }
+    this.organs = new OrganView(layout, this.stones);
+    this.organs.setBellRinging(0, this.bellRinging[0]);
+    this.organs.setBellRinging(1, this.bellRinging[1]);
+    this.scene.add(this.organs.root);
+  }
+
+  /** 3.5: a castle's bell as the page's organ watch reports it: seconds since it began ringing, or -1 while it hangs still. */
+  setBellRinging(castle: number, seconds: number): void {
+    if (castle === 0 || castle === 1) this.bellRinging[castle] = seconds;
+    this.organs?.setBellRinging(castle, seconds);
   }
 
   setQuality(tier: QualityTier): void {
@@ -698,6 +726,8 @@ export class GameRenderer implements GameRendererApi {
     this.splashes.bodies(this.now, frame.parts, frame.partCount, (x, z) => this.terrain.heightAt(x, z));
     this.ladders.update(frame.ladders, frame.ladderCount);
     this.works?.update(frame.works, frame.worksCount);
+    this.organs?.setWorks(frame.works, frame.worksCount);
+    this.organs?.setWind(frame.windX || 0, frame.windZ || 0);
     // M3: the plots and the kegs at the walls.
     if (frame.plots && frame.plotCount) this.estate.setPlots(frame.plots, frame.plotCount);
     if (frame.kegs) this.estate.setKegs(frame.kegs, frame.kegCount);
@@ -825,6 +855,7 @@ export class GameRenderer implements GameRendererApi {
     this.marks.clear();
     this.ladders.clear();
     this.works?.clear();
+    this.organs?.clear();
     this.storm.clear();
     for (const b of Object.values(this.bursts)) b.clear();
     this.shock.clear();
@@ -1431,6 +1462,7 @@ export class GameRenderer implements GameRendererApi {
       }
       this.wear?.update(this.now, dt);
       this.stones.flush();
+      this.organs?.update(dt, this.now);
       this.flags?.update(this.stones, dt);
     }
     this.storm.update(real, this.now);
@@ -1603,6 +1635,7 @@ export class GameRenderer implements GameRendererApi {
     this.chalk.dispose();
     this.ladders.dispose();
     this.works?.dispose();
+    this.organs?.dispose();
     this.storm.dispose();
     this.estate.dispose();
     this.powderView.dispose();
