@@ -25,7 +25,7 @@ import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } fro
 export const MATCH_TICKS = 4100;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "29bc6f70", world: "52725556" } as const;
+export const MATCH_HASH = { state: "c8589b3e", world: "5cbe99c5" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
@@ -91,7 +91,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "b02228d7", world: "ec86aec6" } as const;
+export const WAVE_MATCH_HASH = { state: "cb47b7bb", world: "0cf54f26" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -133,7 +133,7 @@ export const ESTATE_MATCH_TICKS = 6900;
 export const ESTATE_MATCH_EXTRA_GOLD = 250;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "3267f17b", world: "cebf40a6" } as const;
+export const ESTATE_MATCH_HASH = { state: "464b61f8", world: "900c1b24" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
