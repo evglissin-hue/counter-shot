@@ -86,7 +86,7 @@ const adv = async (seconds) => {
 /** A screenshot with the note and the toast held up (their timers run out while a slow machine takes the picture). */
 const shotHeld = async (path, clip) => {
   await page.evaluate(() => {
-    window.__hold = ["note", "feat-toast"].map((id) => { const el = document.getElementById(id); const was = el.textContent.trim() !== ""; if (was) el.hidden = false; const o = new MutationObserver(() => { if (was && el.hidden) el.hidden = false; }); o.observe(el, { attributes: true, attributeFilter: ["hidden"] }); return o; });
+    window.__hold = ["note", "feat-toast"].map((id) => { const el = document.getElementById(id); const was = (id === "note" ? el.textContent : document.getElementById("feat-toast-name").textContent).trim() !== ""; if (was) el.hidden = false; const o = new MutationObserver(() => { if (was && el.hidden) el.hidden = false; }); o.observe(el, { attributes: true, attributeFilter: ["hidden"] }); return o; });
   });
   await page.screenshot({ path, ...(clip ? { clip } : {}) });
   await page.evaluate(() => window.__hold.forEach((o) => o.disconnect()));
@@ -550,11 +550,14 @@ try {
   await page.evaluate(() => window.__sandbox.patchMatch({ spotter: [true, true] }));
   await expect("with a spotter's tower the mortar's ring has a second, wind ring, apart from the still-air one", () => { const r = window.__sandbox.windRing; return !!r && !!r.still && Math.hypot(r.ring.x - r.still.x, r.ring.z - r.still.z) > 0.05; });
   await page.screenshot({ path: "tools/.shots/3.5/mortar-wind-ring.png" });
+  console.log("     the wind moves the shell's mark by", await page.evaluate(() => { const r = window.__sandbox.windRing; return r ? Math.hypot(r.ring.x - r.still.x, r.ring.z - r.still.z).toFixed(1) : "?"; }), "m");
   await page.evaluate(() => { window.__sandbox.holdCharge(null); window.__sandbox.patchMatch(null); window.__sandbox.select(0); });
   // ---- 3.5: the bell rings when enemy men cross the stream towards its castle (the page keeps when it began, for the 3D bell) ----
   for (let i = 0; i < 8 && (await page.evaluate(() => window.__sandbox.bells().rings.reduce((a, b) => a + b, 0))) === 0; i++) await adv(30);
   await expect("a bell has begun to ring once waves crossed the stream (once per castle per 20 s at most)", () => { const b = window.__sandbox.bells(); return b.rings.reduce((a, c) => a + c, 0) >= 1 && b.rings.every((n) => n <= Math.ceil(window.__sandbox.match.tick / (20 * 60))); });
   // ---- 3.5: the organs: notes when yours fall or return, a toast for theirs, why one waits (laid over the report) ----
+  // Every note the page shows is kept (a later note may replace one before the poll sees it).
+  await page.evaluate(() => { window.__notes = []; const n = document.getElementById("note"); new MutationObserver(() => { const t = n.textContent; if (t && window.__notes[window.__notes.length - 1] !== t) window.__notes.push(t); }).observe(n, { childList: true, characterData: true, subtree: true }); });
   const organs = (mine, theirs) => page.evaluate(([mine, theirs]) => {
     const o = window.__sandbox.match.organs.map((side) => side.map((x) => ({ ...x })));
     for (const [k, v] of Object.entries(mine)) o[1][k] = { ...o[1][k], ...v };
@@ -563,10 +566,10 @@ try {
   }, [mine, theirs]);
   await expect("each castle's three organs are reported, all up at the start", () => window.__sandbox.match.organs.length === 2 && window.__sandbox.match.organs.every((s) => s.length === 3 && s.every((o) => o.up === true)));
   await organs({ 0: { up: false, share: 0.5, wait: 0 } }, {});
-  await expect("your bell down says your guns fire late", () => document.getElementById("note").textContent === "Your bell is down: your guns fire late");
+  await expect("your bell down says your guns fire late", () => window.__notes.includes("Your bell is down: your guns fire late"));
   await shotHeld("tools/.shots/3.5/note-bell-down.png");
   await organs({ 1: { up: false, share: 0.4, wait: 2 } }, {});
-  await expect("your crane down says masons build only the lowest 4 m", () => document.getElementById("note").textContent === "Your crane is down: masons build only the lowest 4 m");
+  await expect("your crane down says masons build only the lowest 4 m", () => window.__notes.includes("Your crane is down: masons build only the lowest 4 m"));
   await expect("the idle masons' line says why the bell waits (the crane is down)", () => document.getElementById("masons").textContent === "bell waits" || document.getElementById("masons").textContent === "crane down");
   await organs({ 0: { up: false, share: 0.5, wait: 1 }, 1: { up: true, share: 1, wait: 0 } }, {});
   await expect("the masons' line reads the bell waits for its tower, in full in the tooltip", () => document.getElementById("masons").textContent === "bell waits" && document.getElementById("masons").title === "The bell waits for its tower");
@@ -576,11 +579,11 @@ try {
   await expect("works repairs off says so with the key", () => document.getElementById("masons").title === "Works repairs are off (Alt+5)");
   await shotHeld("tools/.shots/3.5/masons-line-off.png", { x: 760, y: 540, width: 340, height: 270 });
   await organs({ 0: { up: true, share: 1, wait: 0 } }, {});
-  await expect("your bell back says it rings again", () => document.getElementById("note").textContent === "Your bell rings again");
+  await expect("your bell back says it rings again", () => window.__notes.includes("Your bell rings again"));
   await organs({ 2: { up: false, share: 0.5, wait: 0 } }, {});
-  await expect("your signal mast down says orders reach only new waves", () => document.getElementById("note").textContent === "Your signal mast is down: orders reach only new waves");
+  await expect("your signal mast down says orders reach only new waves", () => window.__notes.includes("Your signal mast is down: orders reach only new waves"));
   await organs({ 2: { up: true, share: 1, wait: 0 } }, {});
-  await expect("your signal mast back up", () => document.getElementById("note").textContent === "Your signal mast is back up");
+  await expect("your signal mast back up", () => window.__notes.includes("Your signal mast is back up"));
   await organs({}, { 0: { up: false, share: 0.3, wait: 0 } });
   await expect("their bell down is a toast, not a note about you", () => { const t = document.getElementById("feat-toast"); return !t.hidden && document.getElementById("feat-toast-name").textContent === "Their bell is down" && document.getElementById("feat-toast-hint").textContent === ""; });
   await shotHeld("tools/.shots/3.5/toast-their-bell.png");

@@ -645,7 +645,7 @@ export class Sound {
       this.craneVoices[castle] = v;
     }
     v.pan.pan.setTargetAtTime(p.pan, ctx.currentTime, 0.1);
-    v.gain.gain.setTargetAtTime(0.3 * p.gain, ctx.currentTime, 0.3);
+    v.gain.gain.setTargetAtTime(1.4 * p.gain, ctx.currentTime, 0.3);
   }
 
   /** A war drum: a deep skin struck hard. */
