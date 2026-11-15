@@ -11,7 +11,8 @@ import { GUIDED_OPTIONS, Match, MATCH_OPTIONS, Team, teamOf, type MatchInput } f
 await RD.init();
 const R = RD as unknown as Rapier;
 const layout = buildLayout(1, GAME_LAYOUT);
-const quiet = (seed = 3, more: Record<string, unknown> = {}) => new Match(R, layout, { seed, barracks: false, plan: false, ...more });
+const SPOT = [...START_BUILDINGS, { plot: 7, kind: "spotter" as const }];
+const quiet = (seed = 3, more: Record<string, unknown> = {}) => new Match(R, layout, { seed, barracks: false, plan: false, startBuildings: [SPOT, SPOT], ...more });
 const run = (m: Match, ticks: number, each?: (m: Match) => void) => {
   for (let i = 0; i < ticks; i++) {
     m.step();

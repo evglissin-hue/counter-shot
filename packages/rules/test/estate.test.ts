@@ -307,7 +307,7 @@ test("the enemy castle follows its build order, paying like anyone, and rebuilds
   m.world.explode(p.x, 1.4, p.z);
   run(m, 70);
   assert.equal(b.state, PlotState.Rising, "rebuilding its barracks");
-  assert.equal(PLOTS.length, 6);
+  assert.equal(PLOTS.length, 8);
   m.free();
 });
 

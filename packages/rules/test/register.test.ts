@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, MATCH_EMPLACEMENTS, REGISTER, SPOTTER, UNMANNED, weaponOf, WEAPONS, Unit } from "@keepfall/content";
+import { buildLayout, GAME_LAYOUT, MATCH_EMPLACEMENTS, REGISTER, SPOTTER, START_BUILDINGS, UNMANNED, weaponOf, WEAPONS, Unit } from "@keepfall/content";
 import { MinionState, OutCause, SandboxSim, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Register, Team, type MatchInput } from "@keepfall/rules";
 
@@ -12,8 +12,10 @@ const R = RD as unknown as Rapier;
 const layout = buildLayout(1, GAME_LAYOUT);
 
 const quiet = { barracks: false, garrison: false, masons: false, gunnery: false, plan: false } as const;
+/** 3.5: both castles start with a spotter's tower here, so marks last SPOTTER.life and every gun shares them (the machines tests cover the castle without one). */
+const SPOT = [...START_BUILDINGS, { plot: 7, kind: "spotter" as const }];
 const newMatch = (seed = 3, opts: Record<string, unknown> = {}) => {
-  const m = new Match(R, layout, { seed, ...quiet, ...opts });
+  const m = new Match(R, layout, { seed, ...quiet, startBuildings: [SPOT, SPOT], ...opts });
   m.world.wind.x = m.world.wind.z = 0;
   return m;
 };
@@ -57,7 +59,7 @@ test("a mark is made only from the team's own shot by hand, within the window; o
   assert.equal(marks[0].n, 1);
   assert.deepEqual([marks[0].x, marks[0].z], [land.x, land.z]);
   assert.equal(marks[0].emplacement, 0);
-  assert.equal(marks[0].fades - marks[0].made, SPOTTER.lifeAlone);
+  assert.equal(marks[0].fades - marks[0].made, SPOTTER.life);
   assert.equal(m.register.list(Team.Enemy).length, 0, "the other side has none");
   // One landing, one mark.
   m.queue(m.tick, Team.Player, { kind: "mark", emplacement: 0 });
@@ -126,7 +128,7 @@ test("marks fade at life, a hand shot landing inside refreshes one, a seventh re
   m.world.landings.length = 0;
   land(0, false, k.x + REGISTER.radius - 0.5, k.z);
   reg.afterStep(was - 100);
-  assert.equal(k.fades, was - 100 + SPOTTER.lifeAlone, "a hand shot inside refreshes it");
+  assert.equal(k.fades, was - 100 + SPOTTER.life, "a hand shot inside refreshes it");
   m.world.landings.length = 0;
   m.free();
 });
