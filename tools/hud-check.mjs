@@ -32,7 +32,7 @@ await page.addInitScript(() => {
   const post = Worker.prototype.postMessage;
   window.__sent = [];
   Worker.prototype.postMessage = function (m, ...rest) {
-    if (m && m.t === "input" && m.input && (m.input.kind === "mark" || m.input.kind === "salvo")) window.__sent.push(m.input);
+    if (m && m.t === "input" && m.input && (m.input.kind === "mark" || m.input.kind === "salvo" || m.input.kind === "household")) window.__sent.push(m.input);
     return post.call(this, m, ...rest);
   };
 });
@@ -592,6 +592,79 @@ try {
   await organs({}, { 2: { up: false, share: 0.3, wait: 0 } });
   await expect("their signal mast down is a toast too", () => document.getElementById("feat-toast-name").textContent === "Their signal mast is down");
   await page.evaluate(() => window.__sandbox.patchMatch(null));
+  // ---- 3.6: the household: the weapon card's crew, the panel (J), its three Replace first buttons, notes, the minimap's ring ----
+  mkdirSync("tools/.shots/3.6", { recursive: true });
+  const crews = (men, level, way) => page.evaluate(([men, level, way]) => {
+    const n = window.__sandbox.guns.length;
+    window.__sandbox.patchMatch({ household: window.__roster, crews: Int8Array.from({ length: n * 3 }, (_, i) => [men, level, way][i % 3]) });
+  }, [men, level, way]);
+  await page.evaluate(() => {
+    const b = window.__sandbox.emplacementBase;
+    const S = (state, person, name, level) => ({ state, person, name, shots: 0, level, dueIn: -1 });
+    window.__roster = {
+      reserve: 4, max: 6, refillIn: 42 * 60, first: "guns", lost: 0,
+      stations: [
+        { kind: 0, index: b, seats: [S(5, 1, "Tam Greaves", 2), S(5, 2, "Wat Cole", 0)] },
+        { kind: 0, index: b + 1, seats: [S(5, 3, "Hob Pike", 1), S(2, -1, "", 0)] },
+        { kind: 1, index: 0, seats: [S(5, 4, "Dick Mott", 1)] },
+        { kind: 2, index: 0, seats: [S(5, 5, "Rob Hale", 1)] },
+        { kind: 3, index: 0, seats: [S(5, 6, "Kit Fenn", 1)] },
+        { kind: 4, index: 0, seats: [S(1, -1, "", 0)] },
+      ],
+    };
+    window.__sandbox.patchMatch({ household: window.__roster });
+  });
+  await crews(2, 2, 0);
+  await expect("the weapon card shows two crew figures, filled, and skill pips for a seasoned crew", () => document.querySelectorAll("#w-men .man").length === 2 && document.querySelectorAll("#w-skill i.on").length === 2 && document.getElementById("w-skill").title === "seasoned crew" && document.getElementById("w-crew-note").hidden);
+  await shotHeld("tools/.shots/3.6/weapon-card-two.png", { x: 0, y: 650, width: 360, height: 160 });
+  await crews(1, 1, 1);
+  await expect("one man at the gun: a hollow figure's place is his replacement's dot, and the card says one hand short", () => document.querySelectorAll("#w-men .man").length === 1 && document.querySelectorAll("#w-men .way").length === 1 && document.getElementById("w-crew-note").textContent === "One hand short: loads slower");
+  await crews(0, 0, 0);
+  await expect("no man at the gun: two hollow figures, no pips, and the card says your own hands", () => document.querySelectorAll("#w-men .hollow").length === 2 && document.getElementById("w-skill").hidden && document.getElementById("w-crew-note").textContent === "No crew: your own hands, twice as slow, and it never fires alone");
+  await page.evaluate(() => window.__sandbox.redrawMap());
+  await expect("the minimap marks every uncrewed gun in both castles as a hollow ring (apart from the one you ride)", () => { const k = window.__sandbox.mapGunKinds; return k.filter((x) => x === 4).length >= 6; });
+  await crews(2, 2, 0);
+  await expect("a full crew carries no line", () => document.getElementById("w-crew-note").hidden);
+  // The panel: J opens it, the reserve line shows, Esc and J close it.
+  const key = (code) => page.evaluate((c) => { window.dispatchEvent(new KeyboardEvent("keydown", { code: c })); window.dispatchEvent(new KeyboardEvent("keyup", { code: c })); }, code);
+  await key("KeyJ");
+  await expect("J opens the household panel", () => window.__sandbox.householdPanel.open);
+  await expect("the panel reads the reserve", () => window.__sandbox.householdPanel.reserve === "Reserve 4 of 6, one more in 0:42");
+  await expect("the panel lists the guns by place with their men, the masons, boys, bell and mast", () => { const l = window.__sandbox.householdPanel.lines.join("|"); return /1 Long gun.*Tam Greaves.*Wat Cole/.test(l) && /2 Mortar.*Hob Pike.*on the way/.test(l) && /Masons.*Dick/.test(l) && /Powder boys.*Rob/.test(l) && /Bell.*Kit/.test(l) && /Signal mast.*on the way/.test(l); });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "tools/.shots/3.6/household-panel.png" });
+  const settle = (n = 3) => page.evaluate(async (n) => { const f = window.__sandbox.frames; const t = performance.now(); while (window.__sandbox.frames < f + n && performance.now() - t < 60000) await new Promise((r) => setTimeout(r, 50)); }, n);
+  for (const first of ["walls", "powder", "guns"]) {
+    // Click and read inside the page at once: the page keeps what you chose for a moment over the report, and a slow machine draws few frames.
+    const r = await page.evaluate((f) => { window.__sent.length = 0; document.querySelector(`#household [data-first="${f}"]`).click(); return { sent: window.__sent.slice(), pressed: window.__sandbox.householdPanel.first.join() }; }, first);
+    check(`Replace first: ${first} sends the household input and shows pressed`, r.sent.some((i) => i.kind === "household" && i.first === first) && r.pressed === first);
+    await settle(2);
+  }
+  await key("Escape");
+  await expect("Esc closes the panel", () => !window.__sandbox.householdPanel.open);
+  await settle();
+  await press("#household-btn");
+  await expect("the Household button in the command card opens it", () => window.__sandbox.householdPanel.open);
+  await settle();
+  await key("KeyJ");
+  await expect("J closes it again", () => !window.__sandbox.householdPanel.open);
+  // Notes for people lost: named from the roster, merged when several fall at once.
+  await page.evaluate(() => { window.__notes.length = 0; });
+  const me = await page.evaluate(() => window.__sandbox.match.team);
+  await page.evaluate((me) => window.__sandbox.householdEvent(33, me, 0, 0, 1), me);
+  await adv(1);
+  await expect("a gun's layer down is named, with his seat and what happens next", () => window.__notes.includes("Tam Greaves, layer of the long gun, is down. A green hand takes his place."));
+  await page.evaluate((me) => { window.__sandbox.householdEvent(33, me, 0, 0, 2); window.__sandbox.householdEvent(33, me, 1, 0, 3); window.__sandbox.householdEvent(33, me, 3, 0, 6); }, me);
+  await adv(1);
+  await expect("three at once are one note", () => window.__notes.includes("3 of your household are down"));
+  await page.evaluate((me) => window.__sandbox.householdEvent(35, me, 0), me);
+  await adv(1);
+  await expect("a dry reserve says so", () => window.__notes.includes("Your reserve is empty: places stay empty until it gains one (one a minute)"));
+  // A bell ringer down: the bell is silent, and the minimap's sign reads it as down.
+  await page.evaluate(() => { const o = window.__sandbox.match.organs.map((s) => s.map((x) => ({ ...x }))); o[1][0].keeper = false; window.__sandbox.patchMatch({ organs: o }); });
+  await adv(1);
+  await expect("your bell without its ringer says why it is silent", () => window.__notes.includes("Your bell ringer is down: the bell is silent"));
+  await page.evaluate(() => window.__sandbox.patchMatch({ crews: null, household: null }));
   // The Practice range has no powder: no #powder, no pips, every gun fires.
   await page.goto("about:blank");
   await load("practice-webgl-low-fixed");

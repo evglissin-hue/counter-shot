@@ -4466,6 +4466,13 @@ else {
   householdEvent(kind: number, a: number, b = 0, c = 0, d = 0) {
     householdEvent(kind, a, b, c, d, lastFrameTick);
   },
+  /** 3.6 test hooks: the match id of your first emplacement, the marks the minimap last drew for each gun (Gun.*), and how many emplacements there are. */
+  get emplacementBase() {
+    return BASE;
+  },
+  get mapGunKinds() {
+    return ALL_EMP.map((_, i) => mapGuns[i * GUN_STRIDE + 2]);
+  },
   /** 3.6 test hook: the household panel's state (open, the reserve line, the lines, which first is pressed). */
   get householdPanel() {
     return {
