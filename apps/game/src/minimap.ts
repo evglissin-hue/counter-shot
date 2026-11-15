@@ -170,6 +170,8 @@ export interface MinimapState {
   match: boolean;
   /** 3.3: each castle's powder store (charges) and what it holds at most: the bar under a magazine's keg sign. Null: no powder in this match. */
   stores?: [{ stock: number; cap: number }, { stock: number; cap: number }] | null;
+  /** 3.5: each castle's organs (the bell, the crane, the signal mast): whether each works. Red when down; undefined: all shown standing. */
+  organs?: [Array<{ up: boolean }>, Array<{ up: boolean }>] | null;
   /** 3.2: your team's marks (world x, z and number): a chalk-white circled number. Never the other side's. */
   marks?: Array<{ n: number; x: number; z: number }>;
 }
@@ -192,9 +194,19 @@ const GROUP_CELL = 26;
 const FLASH_MS = 700, PLATE_MS = 260;
 
 // Signs for the buildings, drawn about their centre.
-let signs: { keg: Path2D; hoops: Path2D; pikes: Path2D; heads: Path2D; wheel: Path2D; spokes: Path2D; flame: Path2D; flag: Path2D } | null = null;
+let signs: { tower: Path2D; platform: Path2D; bell: Path2D; bellTop: Path2D; crane: Path2D; mast: Path2D; keg: Path2D; hoops: Path2D; pikes: Path2D; heads: Path2D; wheel: Path2D; spokes: Path2D; flame: Path2D; flag: Path2D } | null = null;
 function getSigns() {
   return (signs ??= {
+    // A spotter's tower: splayed legs with a brace, a platform with a post at each end (3.5).
+    tower: new Path2D("M-3.2 6 L-2 -1.6 M3.2 6 L2 -1.6 M-2.7 3 L2.7 1 M2.7 3 L-2.7 1"),
+    platform: new Path2D("M-4.6 -2.4 H4.6 M-3.8 -2.4 V-5.6 M3.8 -2.4 V-5.6"),
+    // A bell: a flared body with a lip and a yoke (3.5).
+    bell: new Path2D("M-1.2 -3.6 C-1.2 -1 -3.8 0.4 -4 3.2 H4 C3.8 0.4 1.2 -1 1.2 -3.6 Z"),
+    bellTop: new Path2D("M-2.2 -4.6 H2.2 M0 -4.6 V-3.6 M-1.8 4.9 H1.8"),
+    // A crane: a mast, a jib out to one side, a stay and a hook (3.5).
+    crane: new Path2D("M-3 5 V-4.6 H4.6 M-3 -1 L2 -4.6 M3.6 -4.6 V-1.2"),
+    // A signal mast: a pole, a yard and a pennant flying from it (3.5).
+    mast: new Path2D("M-2.4 5.2 V-5 M-4.4 -3.8 H0 M0 -3.8 L5 -2.6 L0 -1.4"),
     keg: new Path2D("M-3.6 -4.6 C-5.2 -1.6 -5.2 1.6 -3.6 4.6 L3.6 4.6 C5.2 1.6 5.2 -1.6 3.6 -4.6 Z"),
     hoops: new Path2D("M-4.9 -2.1 H4.9 M-4.9 2.1 H4.9"),
     pikes: new Path2D("M-5 5.5 L5 -5.5 M5 5.5 L-5 -5.5"),
@@ -655,6 +667,7 @@ export class Minimap {
     }
     this.plotsOf(st, c);
     this.keepOf(st, c, W, share(KEEP));
+    this.organsOf(st, c, W);
     // What was just hit flashes once, fading.
     const hit: Array<() => void> = [];
     for (const s of segs) {
@@ -750,6 +763,12 @@ export class Minimap {
         ctx.stroke(sg.spokes);
         circle(ctx, 0, 0, 1.1);
       } else if (k === 2) ctx.fill(sg.flame);
+      else if (k === 4) {
+        // A spotter's tower (3.5): a watch platform on legs.
+        ctx.lineWidth = 1.4;
+        ctx.stroke(sg.tower);
+        ctx.stroke(sg.platform);
+      }
       else if (k === 3) {
         // A magazine: a keg, and under it a thin bar for the store (a working magazine only: a rising or ruined one holds none).
         ctx.translate(0, -1.6);
@@ -760,6 +779,64 @@ export class Minimap {
       }
       ctx.restore();
       if (k === 3 && s === 2) this.stockBar(st, c, a, b + hd - 3.4, hw - 3);
+    }
+  }
+
+  /**
+   * 3.5: each castle's organs as one small sign in its place: the bell in its tower's dark middle (the back right one), the
+   * crane on its own little tile by the masons' yard, the signal mast in the keep's dark floor beside the banner. In ink
+   * like the rest; red, struck through, when that organ is down.
+   */
+  private organsOf(st: MinimapState, c: 0 | 1, W: (x: number, cz: number) => [number, number]) {
+    const ctx = this.ctx!;
+    const sg = getSigns();
+    const up = (k: number) => st.organs?.[c]?.[k]?.up !== false;
+    const T = S.half;
+    // The bell's tower: castle 0's back right tower is at +x, castle 1's at -x (the layout mirrors castle 1 across z only).
+    for (let k = 0; k < 3; k++) {
+      let a: number, b: number;
+      if (k === 0) [a, b] = W(c === 0 ? T : -T, T);
+      else if (k === 1) [a, b] = W(11.8, -5.2);
+      else {
+        const [ka, kb] = W(0, S.keepZ);
+        a = ka - 0.5;
+        b = kb + 5.2;
+      }
+      const ok = up(k);
+      if (k === 1) {
+        // The crane has no walls of its own: a small tile, as a building has.
+        const hw = 6;
+        ctx.fillStyle = ok ? TILE : "#2a1c18";
+        ctx.strokeStyle = ok ? TILE_EDGE : RED;
+        ctx.lineWidth = 1.1;
+        ctx.setLineDash(ok ? [] : [3, 2.4]);
+        rrect(ctx, a - hw, b - hw, hw * 2, hw * 2, 2.5);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.save();
+      ctx.translate(a, b);
+      const sc = k === 0 ? 0.82 : k === 1 ? 0.8 : 0.74;
+      ctx.scale(sc, sc);
+      ctx.strokeStyle = ok ? PAPER : RED;
+      ctx.fillStyle = ok ? PAPER : RED;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = 1.6;
+      if (k === 0) {
+        ctx.fill(sg.bell);
+        ctx.stroke(sg.bellTop);
+      } else if (k === 1) ctx.stroke(sg.crane);
+      else ctx.stroke(sg.mast);
+      if (!ok) {
+        ctx.lineWidth = 1.9;
+        ctx.beginPath();
+        ctx.moveTo(-6, 6);
+        ctx.lineTo(6, -6);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   }
 

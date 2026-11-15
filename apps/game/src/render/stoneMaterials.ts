@@ -40,7 +40,7 @@ import { N, aaLine, boxUV, bumpNormal, median3, qrot } from "./tslUtils";
 import { applyCloudShadow } from "./clouds";
 import { WEAR_CHIPS, crackLines, dustOver, faceBits, sootOver, wearFinish, wearVarying } from "./wearShading";
 
-export type GroupKind = "stone" | "wedge" | "wood" | "plaster" | "roof" | "pole";
+export type GroupKind = "stone" | "wedge" | "wood" | "plaster" | "roof" | "pole" | "iron";
 
 export interface InstanceNodes {
   local: N;
@@ -378,6 +378,20 @@ function pole(ctx: Ctx): THREE.MeshStandardNodeMaterial {
   return mat;
 }
 
+/** 3.5: cast iron (the bell's box): dark, a little glossy, with the grain of the noise so it is not flat. */
+function iron(ctx: Ctx): THREE.MeshStandardNodeMaterial {
+  const { style, noise } = ctx;
+  const mat = newMaterial(style);
+  mat.name = `${style.name}-iron`;
+  const I = applyInstancing(mat, false);
+  const p: N = I.vLocal;
+  mat.colorNode = wearFinish(color(0x2a2927).mul(texture(noise, vec2(p.x.add(p.z).mul(4.0), p.y.mul(0.5))).g.mul(0.5).add(0.75)), wearVarying(), noise);
+  mat.roughness = 0.38;
+  mat.metalness = 0.55;
+  applyCloudShadow(mat);
+  return mat;
+}
+
 /** Cheap material for the shadow-only proxies (plain boxes, no bevel). */
 export function makeProxyMaterial(isWedge: boolean): THREE.MeshBasicNodeMaterial {
   const mat = new THREE.MeshBasicNodeMaterial();
@@ -400,5 +414,7 @@ export function makeGroupMaterial(kind: GroupKind, ctx: Ctx): THREE.MeshStandard
       return roof(ctx);
     case "pole":
       return pole(ctx);
+    case "iron":
+      return iron(ctx);
   }
 }

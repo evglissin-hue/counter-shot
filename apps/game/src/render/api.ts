@@ -174,6 +174,8 @@ export interface GameRendererApi {
   updateNav(kind: Uint8Array, floor: Float32Array): void;
   /** How far a courtyard's storm has gone (0..1; castle 0 is the enemy's) and whether its attackers outnumber its defenders now. */
   setStorm(castle: number, progress: number, holding: boolean): void;
+  /** 3.5: a castle's bell ringing: seconds since it began (the page's organ watch), or -1 while it hangs still. The bell swings while it rings. */
+  setBellRinging(castle: number, seconds: number): void;
 
   /**
    * S3: a picture of the renderer's world (every part's state and the last frame applied) that `apply` can put back.

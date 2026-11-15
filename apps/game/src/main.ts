@@ -1259,6 +1259,7 @@ function drawMap() {
     match,
     stores: info?.powder ? [info.powder[0], info.powder[1]] : null,
     marks: regInfo()?.marks.map((m) => ({ n: m.n, x: m.x, z: m.z })),
+    organs: info?.organs ?? null,
     ...mapPatch,
   });
 }
