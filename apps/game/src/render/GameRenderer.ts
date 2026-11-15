@@ -945,6 +945,7 @@ export class GameRenderer implements GameRendererApi {
   /** 3.6: the household's report of the crews (CREW_STRIDE numbers per emplacement, men first); null: two men at every gun. */
   setCrews(counts: Int8Array | null) {
     this.crewCounts = counts;
+    this.estate.household = counts !== null;
   }
 
   private spawnMuzzle(em: number) {
