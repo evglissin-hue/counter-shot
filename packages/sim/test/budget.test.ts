@@ -148,3 +148,13 @@ test("a toppling tower wakes the rubble that lies on it, not what lies beside it
   assert.equal(c.frozen[beside], 1, "the piece beside it stayed settled");
   sim.free();
 });
+
+test("rubble on a moving part beyond the room turns to dust rather than hanging in the air", () => {
+  const c = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: true, settle: true, budget: 3 });
+  const ids = spares(8);
+  ids.forEach((id, k) => freezeAt(c, id, k * 0.01, 40, 0));
+  c.wakeFrozen(ids);
+  assert.equal(ids.filter((id) => !c.frozen[id] && !c.shattered[id]).length, 3, "as many wake as there is room for");
+  assert.equal(ids.filter((id) => c.shattered[id]).length, 5, "the rest is dust");
+  c.free();
+});

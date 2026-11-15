@@ -933,12 +933,17 @@ export class CastleSim {
     }
   }
 
-  /** Wake frozen pieces by id (what lies on a part that is about to move): dynamic again, as thaw does. */
+  /**
+   * Wake frozen pieces by id (what lies on a part that is about to move): dynamic again, as thaw does. T9: with a
+   * budget, those past the room turn to dust instead (rubble left fixed in the air would hang there when the part
+   * under it moves away).
+   */
   wakeFrozen(ids: number[]) {
     let any = false;
     for (const id of ids) {
       if (!this.frozen[id]) continue;
-      this.wake(id);
+      if (this.opts.budget && this.room() <= 0) this.shatter(id);
+      else this.wake(id);
       any = true;
     }
     if (any) this.frozenList = this.frozenList.filter((i) => this.frozen[i] === 1);
