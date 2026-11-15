@@ -40,7 +40,7 @@ test("targets: nothing without the key, the structure under the sight riding, yo
 });
 
 test("the enemy's castle shows only while your spotter's tower works; your own always", () => {
-  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 5, forced: -1, spotter: false }), [5]);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 2, forced: -1, spotter: false }), [2]);
   assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 6, forced: -1, spotter: false }), []);
   assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 6, forced: -1, spotter: true }), [6]);
   assert.deepEqual(eyeTargets(list, { held: true, overview: true, me: 0, under: 6, forced: -1, spotter: false }), [0, 1, 2, 3, 4]);

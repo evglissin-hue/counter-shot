@@ -11,12 +11,17 @@ export const BELL_RING_SECONDS = BELL_STROKES * BELL_GAP + 1.5;
 
 export class OrganWatch {
   private since: [number, number] = [-1, -1];
+  /** How many times each castle's bell has begun to ring (for the checks). */
+  rings: [number, number] = [0, 0];
 
   constructor(private clock: () => number = () => performance.now() / 1000) {}
 
   /** The bell of a castle began to ring now. */
   ring(castle: number) {
-    if (castle === 0 || castle === 1) this.since[castle] = this.clock();
+    if (castle === 0 || castle === 1) {
+      this.since[castle] = this.clock();
+      this.rings[castle]++;
+    }
   }
 
   /** The bell stopped short (it fell). */
@@ -38,6 +43,7 @@ export class OrganWatch {
 
   reset() {
     this.since = [-1, -1];
+    this.rings = [0, 0];
   }
 }
 

@@ -1514,10 +1514,11 @@ function cutPath(path: Float32Array, hit: PathHit): Float32Array {
 
 /**
  * 3.5: does your spotter's tower work (the long gun's aim help, the mortar's wind ring, the mason's eye on their
- * castle)? The Practice range has no match: it counts as standing there.
+ * castle)? The Practice range has no match: it counts as standing there, and so does the guided match, whose coach tells
+ * you to hold C on their keep (the lesson must not send you to a tower you have no way to build yet).
  */
 function spotterWorks(): boolean {
-  return !isMatch() || !matchInfo || matchInfo.spotter?.[ME] !== false;
+  return !isMatch() || mode === "guided" || !matchInfo || matchInfo.spotter?.[ME] !== false;
 }
 
 let predicted: { x: number; y: number; z: number } | null = null;
@@ -4240,6 +4241,10 @@ else {
   },
   get mapBig() {
     return mapBig;
+  },
+  /** 3.5 test hook: how many times each castle's bell has begun to ring, and since when it rings now (-1: not). */
+  bells() {
+    return { rings: [...organWatch.rings], since: [organWatch.bellRinging(0), organWatch.bellRinging(1)] };
   },
   /** M6 test hook: lay fields over every match report the page gets (null: none). */
   patchMatch(p: Partial<MatchInfo> | null) {

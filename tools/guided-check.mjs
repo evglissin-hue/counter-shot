@@ -187,6 +187,11 @@ try {
   await expect("the eye showed by itself on their keep: Holds 100%", () => window.__eyeSeen.includes("Holds 100%"), null, 20000);
   await shot("guided-eye");
   await expect("and it went again after 3 s", () => window.__sandbox.eye.labels.length === 0, null, 20000);
+  // 3.5: the eye on their castle is earned by a spotter's tower, but the guided match counts one as standing: holding C, as the step says, works.
+  await page.evaluate(() => { const s = window.__sandbox.eye.list[0]; window.__sandbox.aimAtPoint(0, s.cx, 8, s.cz); });
+  await page.keyboard.down("KeyC");
+  await expect("holding C on their keep shows the eye in the guided match (no spotter's tower to build yet)", () => window.__sandbox.eye.labels.includes("Holds 100%") && !/spotter/.test(document.getElementById("note").textContent), null, 20000);
+  await page.keyboard.up("KeyC");
   // Their keep holds under 60%: the step is done.
   const list = await page.evaluate(() => window.__sandbox.eye.list.map((s) => ({ ...s })));
   list[0] = { ...list[0], holds: 0.55, weakest: 3, heat: list[0].heat.map((_, i) => (i === 3 ? 0.45 : 0)) };
