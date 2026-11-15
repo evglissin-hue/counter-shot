@@ -537,6 +537,11 @@ export class CastleSim {
       // M5: only masonry, timber and shot break a piece. A man, a ladder or a keg pressing on one never does:
       // a ragdoll set down a little inside a deck plank was pushed out with half a meganewton, and every fight on a bridge broke it.
       if (a === undefined || b === undefined) return;
+      // A gate leaf tipping or swinging loose in its frame (it fills its opening to within 8 mm) never breaks the wall around it: only masonry, timber and shot do.
+      if (a >= 0 && b >= 0 && ((this.layout.stones[a].part === "gate") !== (this.layout.stones[b].part === "gate"))) {
+        if (this.layout.stones[a].part !== "gate" && !this.dynamic[a]) return;
+        if (this.layout.stones[b].part !== "gate" && !this.dynamic[b]) return;
+      }
       // M5 (settle): settled rubble wakes only when something strikes it, not under the weight of the heap on it
       // (frozen inside a deep heap, a stone felt it and woke its neighbours, over and over).
       if (a >= 0 && (!this.dynamic[a] || (this.frozen[a] && !this.resting(e.collider2())))) breaks.push(a);

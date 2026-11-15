@@ -143,7 +143,7 @@ test("a set keg throws men less far than one a sapper carries", () => {
   const sim = world();
   const bursts: BurstDef[] = [];
   const sp = new Specialists(sim.minions, sim.nav, sim.terrain, 1, () => {}, (_x, _y, _z, b) => bursts.push(b));
-  sp.orders = sim.army!.order;
+  sp.orderOf = (m) => sim.army!.orderOf(m);
   const [a, b] = mix(sim, 1, [Unit.Sapper, Unit.Sapper]);
   place(sim, a, 10.5, -30);
   // The first sets his keg and it burns down.

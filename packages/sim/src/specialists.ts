@@ -78,8 +78,8 @@ export class Specialists {
   private rng: Rng;
   /** Sappers carrying a keg when last seen standing (ids), to notice the ones who fall with it. */
   private carriers: number[] = [];
-  /** Each team's order (the army's array; set where the two are wired together): a musketeer on Hold shoots across the stream, on any other order only at men he could walk to. */
-  orders: readonly number[] | null = null;
+  /** A man's order (the army's orderOf; set where the two are wired together): a musketeer on Hold shoots across the stream, on any other order only at men he could walk to. */
+  orderOf: ((m: Minion) => number) | null = null;
   /** The castles' local fields: a sapper steers by them on his way to his spot where they cover him. */
   local: LocalFields | null = null;
   private dir: [number, number] = [0, 0];
@@ -216,7 +216,7 @@ export class Specialists {
   private musketeer(m: Minion, tick: number, out: Steer): boolean {
     // m.target is his mark; m.cool his reload; m.aux the ticks he has aimed (a new minion's aux is -1).
     if (m.aux < 0) m.aux = 0;
-    const hold = this.orders !== null && this.orders[m.team] === Order.Hold;
+    const hold = this.orderOf !== null && this.orderOf(m) === Order.Hold;
     let t = m.target >= 0 ? this.minions.list[m.target] : null;
     if (t && (t.state !== MinionState.Upright || t.team === m.team)) t = null;
     if (t) {
@@ -263,7 +263,7 @@ export class Specialists {
    */
   private fair(m: Minion, t: Minion, hold: boolean): boolean {
     if (hold) return true;
-    if (this.orders !== null && this.orders[t.team] === Order.Hold) {
+    if (this.orderOf !== null && this.orderOf(t) === Order.Hold) {
       const dx = t.x - m.x, dz = t.z - m.z;
       if (dx * dx + dz * dz > MUSKET.holdStand * MUSKET.holdStand) return false;
     }
