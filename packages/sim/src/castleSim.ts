@@ -21,7 +21,7 @@
 // same collapse on every machine when used with the deterministic build.
 
 import type RAPIER_NS from "@dimforge/rapier3d-deterministic-compat";
-import type { CastleLayout, Stone } from "@keepfall/content";
+import { CASTLE_SHAPE, keepStructure, structureList, type CastleLayout, type Stone } from "@keepfall/content";
 import { aim } from "./ballistics";
 import { dsqrt, hashBytes, hex8 } from "@keepfall/core";
 
@@ -56,6 +56,12 @@ export interface SimOptions {
    * a minute. Off in the lab, whose reference hash predates it.
    */
   settle?: boolean;
+  /**
+   * T9: the most loose bodies awake at once (content's BUDGET.moving). Beyond it, masonry that comes loose turns to
+   * dust, settled rubble stays settled when struck, a burst pulverises the heart of a heap and a keep or tower fall
+   * keeps fewer bodies. Undefined or 0: off (the lab, whose reference hash predates it).
+   */
+  budget?: number;
 }
 
 /** settle: a piece slower than this (m/s, rad/s) for SETTLE_TICKS in a row is frozen where it lies (a heap under it would be as slow). */
@@ -190,6 +196,8 @@ export class CastleSim {
   private nbBelow: { off: Int32Array; ids: Int32Array };
   private grounded: Uint8Array;
   private castleOf: Uint8Array;
+  /** 3.5: 1 for an organ's key piece (the bell, the crane's jib, the mast's yard): never turned to dust for the budget, so a fallen machine shows where it lies. */
+  private organKey: Uint8Array;
   /** Beams that need all their supports (bridge stringers), in id order. */
   private spans: Int32Array;
   /**
@@ -216,6 +224,10 @@ export class CastleSim {
   private maxSpan: number;
   /** settle: loose pieces awake as of the last step (it acts only during a big collapse). */
   private moving = 0;
+  /** T9: kinematic pieces of a tipping part (claimed, not yet let go): they move, though freezeResting skips them. */
+  private tipping = 0;
+  /** T9: pieces woken (loosened, thawed, let go) since the last freezeResting; it counts them in `moving` from then on. */
+  private woken = 0;
   /** M5: tough pieces a blast cracked this step without breaking them loose (for the page: splinters and a crack). */
   cracked: number[] = [];
   /**
@@ -224,6 +236,11 @@ export class CastleSim {
    * carryOff() refuse them. Always 0 in a layout without structures.
    */
   readonly busy: Uint8Array;
+  /** Per castle: its keep's storey boards (id order), the keep's middle and each board's top (stone y + hy). For the win check. */
+  private keepBoards: number[][] = [[], []];
+  private keepCx: number[] = [0, 0];
+  private keepCz: number[] = [0, 0];
+  private boardTop: Float64Array;
   /**
    * 3.4: the statics pass reports the poses of the pieces it moves itself (a
    * toppling part, brittle stones in flight) here, after the pieces the world
@@ -243,6 +260,21 @@ export class CastleSim {
     this.shatterReported = new Uint8Array(n);
     this.hits = new Uint8Array(n);
     this.busy = new Uint8Array(n);
+    this.boardTop = new Float64Array(n);
+    if (layout.keepFloors) {
+      const sl = structureList(layout);
+      for (let c = 0; c < 2; c++) {
+        const k = sl[keepStructure(c)];
+        this.keepCx[c] = k.cx;
+        this.keepCz[c] = k.cz;
+        for (const id of k.stones) {
+          const st = layout.stones[id];
+          if (st.part !== "storey") continue;
+          this.keepBoards[c].push(id);
+          this.boardTop[id] = st.y + st.hy;
+        }
+      }
+    }
     this.toughIds = Int32Array.from(layout.stones.filter((s) => (s.tough ?? 1) > 1).map((s) => s.id));
     this.spanOf = new Uint8Array(n);
     this.maxSpan = opts.span;
@@ -266,6 +298,8 @@ export class CastleSim {
     this.nbBelow = flat(layout.below);
     this.grounded = new Uint8Array(n);
     this.castleOf = new Uint8Array(n);
+    this.organKey = new Uint8Array(n);
+    for (const o of layout.organs) if (o.key >= 0 && o.key < n) this.organKey[o.key] = 1;
     const spans: number[] = [];
     for (let i = 0; i < n; i++) {
       this.grounded[i] = layout.stones[i].grounded ? 1 : 0;
@@ -424,6 +458,9 @@ export class CastleSim {
             if (ex * ex + ey * ey + ez * ez <= r2) found.push(id);
           }
         }
+    // T9: a shell bursting in a heap pulverises its heart: rubble (settled or loose) within the core turns to dust
+    // instead of being thrown, which also keeps a mortar burst from waking a whole heap of it.
+    if (this.opts.budget) this.pulverise(x, y, z, radius * shatter);
     // Rubble already lying loose nearby is thrown too: thaw it first.
     this.thaw(x, y, z, reach);
     const rubble: number[] = [];
@@ -449,6 +486,7 @@ export class CastleSim {
         continue;
       }
       this.loosen(id);
+      if (this.shattered[id]) continue; // T9: no room, it went to dust
       // (scaled with the reach, so a hard piece is thrown the same way, only less hard)
       this.throwPiece(id, ex * h, ey * h, ez * h, d2, r2, power, lift);
     }
@@ -624,11 +662,31 @@ export class CastleSim {
       }
     }
 
-    // Win check: a banner that falls well below its keep's walls.
+    // Win check: a banner that falls well below its keep's walls. With keep floors it is also down once no storey board is tipping
+    // and the banner is off its keep (outside the footprint, or no standing board at or below it): a felled keep ends the match.
     for (let c = 0; c < 2; c++) {
       if (this.toppled[c]) continue;
       const p = this.bodies[this.layout.bannerIds[c]].translation();
-      if (p.y < this.layout.bannerFallY) this.toppled[c] = true;
+      if (p.y < this.layout.bannerFallY) {
+        this.toppled[c] = true;
+        continue;
+      }
+      const boards = this.keepBoards[c];
+      if (!this.layout.keepFloors || boards.length === 0) continue;
+      let tipping = false;
+      for (let k = 0; k < boards.length; k++) if (this.busy[boards[k]] !== 0) { tipping = true; break; }
+      if (tipping) continue;
+      const half = CASTLE_SHAPE.keepHalf + 0.5;
+      if (Math.abs(p.x - this.keepCx[c]) > half || Math.abs(p.z - this.keepCz[c]) > half) {
+        this.toppled[c] = true;
+        continue;
+      }
+      let stands = false;
+      for (let k = 0; k < boards.length; k++) {
+        const id = boards[k];
+        if (this.dynamic[id] === 0 && this.boardTop[id] <= p.y + 0.25) { stands = true; break; }
+      }
+      if (!stands) this.toppled[c] = true;
     }
     void R;
   }
@@ -669,6 +727,7 @@ export class CastleSim {
         continue;
       }
       this.loosen(id);
+      if (this.shattered[id]) continue; // T9: no room, it went to dust
       const body = this.bodies[id];
       const fall = 1 - d2 / r2; // 1 at the centre, 0 at the edge
       // Debris flies along the shot and bursts out from the point of impact, with a little lift.
@@ -736,6 +795,7 @@ export class CastleSim {
       if (st.tough !== undefined && st.part === "storey") continue; // (as a full ball's blast)
       if (this.withstands(id)) continue;
       this.loosen(id);
+      if (this.shattered[id]) continue; // T9: no room, it went to dust
       const body = this.bodies[id];
       const k = body.mass() * speed * this.opts.push * 0.5;
       body.applyImpulse({ x: dx * k, y: dy * k + 0.2 * k, z: dz * k }, true);
@@ -775,6 +835,7 @@ export class CastleSim {
       body.setBodyType(this.R.RigidBodyType.Dynamic, true);
       body.recomputeMassPropertiesFromColliders();
     }
+    this.woken++;
     this.restSteps[id] = 0;
     const t = body.translation(), r = body.rotation();
     // The piece's own up axis (its local y) in the world.
@@ -869,6 +930,7 @@ export class CastleSim {
       body.setEnabled(false);
     } else {
       this.busy[id] = 1;
+      this.tipping++;
       body.setBodyType(this.R.RigidBodyType.KinematicPositionBased, true);
       if (this.layout.keepFloors) body.collider(0).setCollisionGroups(TIPPING_GROUPS);
     }
@@ -888,6 +950,8 @@ export class CastleSim {
   letGo(id: number, x: number, y: number, z: number, qx: number, qy: number, qz: number, qw: number, vx: number, vy: number, vz: number, wx: number, wy: number, wz: number) {
     const body = this.bodies[id];
     this.busy[id] = 0;
+    this.tipping--;
+    this.woken++;
     body.setTranslation({ x, y, z }, false);
     body.setRotation({ x: qx, y: qy, z: qz, w: qw }, false);
     body.setBodyType(this.R.RigidBodyType.Dynamic, true);
@@ -907,23 +971,31 @@ export class CastleSim {
     this.frozen[id] = 0;
   }
 
-  /** Thaw frozen rubble over a box (x0..x1, z0..z1) and at or above y0: what lies on a part that is about to move. */
-  thawBoxAbove(x0: number, z0: number, x1: number, z1: number, y0: number) {
-    if (!this.frozenList.length) return;
-    const keep: number[] = [];
+  /**
+   * T9: frozen pieces whose centre lies in the box (x0..x1, z0..z1) at or above y0, in frozenList order, as
+   * [id, x, y, z] quadruples appended to `out`: the candidates for lying on a part that is about to move.
+   */
+  frozenAbove(x0: number, z0: number, x1: number, z1: number, y0: number, out: number[]) {
     for (const id of this.frozenList) {
       const p = this.bodies[id].translation();
-      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0) {
-        this.frozen[id] = 0;
-        const body = this.bodies[id];
-        body.setBodyType(this.R.RigidBodyType.Dynamic, true);
-        body.recomputeMassPropertiesFromColliders();
-        body.wakeUp();
-      } else {
-        keep.push(id);
-      }
+      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0) out.push(id, p.x, p.y, p.z);
     }
-    this.frozenList = keep;
+  }
+
+  /**
+   * Wake frozen pieces by id (what lies on a part that is about to move): dynamic again, as thaw does. T9: with a
+   * budget, those past the room turn to dust instead (rubble left fixed in the air would hang there when the part
+   * under it moves away).
+   */
+  wakeFrozen(ids: number[]) {
+    let any = false;
+    for (const id of ids) {
+      if (!this.frozen[id]) continue;
+      if (this.opts.budget && this.room() <= 0) this.shatter(id);
+      else this.wake(id);
+      any = true;
+    }
+    if (any) this.frozenList = this.frozenList.filter((i) => this.frozen[i] === 1);
   }
 
   /**
@@ -1068,27 +1140,75 @@ export class CastleSim {
       }
     }
     this.moving = moving;
+    this.woken = 0;
   }
 
-  /** Unfreeze rubble near a point so it can be knocked about again. */
+  /** A frozen piece turns dynamic again where it lies (the caller takes it off frozenList). */
+  private wake(id: number) {
+    this.frozen[id] = 0;
+    const body = this.bodies[id];
+    body.setBodyType(this.R.RigidBodyType.Dynamic, true);
+    body.recomputeMassPropertiesFromColliders();
+    body.wakeUp();
+    this.woken++;
+  }
+
+  /**
+   * Unfreeze rubble near a point so it can be knocked about again. T9: with a budget, nearest first (then by id)
+   * and only while there is room; the rest stays settled (a mortar burst thawed every frozen piece in reach).
+   */
   private thaw(x: number, y: number, z: number, radius: number) {
     if (!this.frozenList.length) return;
     const r2 = radius * radius;
+    if (this.opts.budget) {
+      const near: Array<[number, number]> = [];
+      for (const id of this.frozenList) {
+        const p = this.bodies[id].translation();
+        const ex = p.x - x, ey = p.y - y, ez = p.z - z;
+        const d2 = ex * ex + ey * ey + ez * ez;
+        if (d2 <= r2) near.push([d2, id]);
+      }
+      if (!near.length) return;
+      near.sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+      let any = false;
+      for (const [, id] of near) {
+        if (this.room() <= 0) break;
+        this.wake(id);
+        any = true;
+      }
+      if (any) this.frozenList = this.frozenList.filter((i) => this.frozen[i] === 1);
+      return;
+    }
     const keep: number[] = [];
     for (const id of this.frozenList) {
       const p = this.bodies[id].translation();
       const ex = p.x - x, ey = p.y - y, ez = p.z - z;
-      if (ex * ex + ey * ey + ez * ez <= r2) {
-        this.frozen[id] = 0;
-        const body = this.bodies[id];
-        body.setBodyType(this.R.RigidBodyType.Dynamic, true);
-        body.recomputeMassPropertiesFromColliders();
-        body.wakeUp();
-      } else {
-        keep.push(id);
-      }
+      if (ex * ex + ey * ey + ez * ez <= r2) this.wake(id);
+      else keep.push(id);
     }
     this.frozenList = keep;
+  }
+
+  /** T9: how many more loose bodies may wake now: the budget less what moves (as of the last step, plus tipping parts and pieces woken since). Infinity when off. */
+  room(): number {
+    const b = this.opts.budget;
+    return b ? b - (this.moving + this.tipping + this.woken) : Infinity;
+  }
+
+  /** T9: rubble (settled or loose) whose centre lies within `core` of a point turns to dust: never a banner, a storey board or a claimed piece. */
+  private pulverise(x: number, y: number, z: number, core: number) {
+    const c2 = core * core;
+    const banners = this.layout.bannerIds;
+    let frozenHit = false;
+    for (const id of this.dynList) {
+      if (this.shattered[id] || this.busy[id] || id === banners[0] || id === banners[1] || this.layout.stones[id].part === "storey" || this.organKey[id]) continue;
+      const p = this.bodies[id].translation();
+      const ex = p.x - x, ey = p.y - y, ez = p.z - z;
+      if (ex * ex + ey * ey + ez * ez > c2) continue;
+      if (this.frozen[id]) frozenHit = true;
+      this.shatter(id);
+    }
+    if (frozenHit) this.frozenList = this.frozenList.filter((i) => this.frozen[i] === 1);
   }
 
   /** settle: is the body of this collider barely moving (under 2 m/s), so its push on frozen rubble is weight, not a blow? Always false without settle. */
@@ -1128,6 +1248,15 @@ export class CastleSim {
 
   private loosen(id: number) {
     if (this.dynamic[id]) return;
+    // T9: with no room left, masonry that comes loose turns to dust (never a storey board, a banner, a gate leaf or, 3.5, an organ's key piece).
+    if (this.opts.budget && this.room() <= 0) {
+      const part = this.layout.stones[id].part;
+      if (part !== "storey" && part !== "banner" && part !== "gate" && !this.organKey[id]) {
+        this.shatter(id);
+        return;
+      }
+    }
+    this.woken++;
     this.dynamic[id] = 1;
     this.dynList.push(id);
     this.supportDirty |= 1 << this.castleOf[id];
@@ -1155,15 +1284,8 @@ export class CastleSim {
     const keep: number[] = [];
     for (const f of this.frozenList) {
       const p = this.bodies[f].translation();
-      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0 && p.y <= y1) {
-        this.frozen[f] = 0;
-        const body = this.bodies[f];
-        body.setBodyType(this.R.RigidBodyType.Dynamic, true);
-        body.recomputeMassPropertiesFromColliders();
-        body.wakeUp();
-      } else {
-        keep.push(f);
-      }
+      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0 && p.y <= y1) this.wake(f);
+      else keep.push(f);
     }
     this.frozenList = keep;
   }

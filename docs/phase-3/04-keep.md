@@ -142,6 +142,6 @@ Eight Knight mirrors played again with 300 and 120 bodies (`k34-bodies`, the fin
 
 **Open.**
 - The owner's question above (the mason's eye free, or earned) is unanswered; it stays free.
-- T9: the most stones moving in a match stays over 600 (falls breaking what they land on); towers topple twice a match. Levers: fewer bodies still, towers judged with the curtain walls that brace them, or stiffer towers.
+- T9: the most stones moving in a match stays over 600 (falls breaking what they land on); towers topple twice a match. Levers: fewer bodies still, towers judged with the curtain walls that brace them, or stiffer towers. Taken up by the budget pass (`budget.md`, November 15): p99 of the most stones moving 500; and a felled keep now ends the match however its banner lands.
 - Rule 13 with masons: the masons stand in the line of fire and are mostly down, so a full crew does not slow the perfect gunner as the spec aims.
 - T5 and T8 got worse; magazines blow in 54% of matches (3.3's tuning, put off by the owner).

@@ -22,7 +22,7 @@ import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } from "./match";
 
-export const MATCH_TICKS = 4100;
+export const MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
 export const MATCH_HASH = { state: "c8589b3e", world: "5cbe99c5" } as const;
@@ -41,7 +41,7 @@ export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [765, Team.Player, fire(0, -0.0196, 0.1198)],
   [1005, Team.Player, fire(0, 0, 0.1198)],
   [1245, Team.Player, fire(0, 0.0196, 0.1198)],
-  [1470, Team.Player, fire(1, 0, 0.9077)],
+  [1470, Team.Player, fire(1, 0, 0.9078)],
   [1485, Team.Player, fire(0, -0.0196, 0.1198)],
   [1725, Team.Player, fire(0, 0, 0.1198)],
   [1965, Team.Player, fire(0, 0.0196, 0.1198)],
@@ -56,9 +56,13 @@ export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [3630, Team.Player, fire(1, 0.0099, 0.9613)],
   [3645, Team.Player, fire(0, -0.0196, 0.0707)],
   [3885, Team.Player, fire(0, 0, 0.0707)],
+  [4125, Team.Player, fire(0, 0.0196, 0.0594)],
+  [4350, Team.Player, fire(1, -0.0039, 0.9958)],
+  [4365, Team.Player, fire(0, -0.0196, 0.0594)],
+  [4605, Team.Player, fire(0, 0, 0.0594)],
   // The keep has fallen by now: these are refused.
-  [4000, Team.Player, fire(1, 0.0099, 0.9613)],
-  [4030, Team.Player, fire(0, 0.02, 0.03)],
+  [4700, Team.Player, fire(1, -0.0039, 0.9958)],
+  [4730, Team.Player, fire(0, 0.02, 0.03)],
   // Not the enemy's emplacement: refused.
   [100, Team.Enemy, fire(0, 0, 0.03)],
 ];
