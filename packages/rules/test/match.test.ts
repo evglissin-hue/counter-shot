@@ -167,6 +167,7 @@ test("the wave match: both barracks, orders, a breach and unmanned guns replay t
   assert.ok(a.spent[0] > 0, "the enemy paid for repairs (and any rebuilding)");
   assert.deepEqual(a.shots, [0, 4], "four shots by hand: down the road, one marked, and two at the wall");
   assert.ok(a.autoShots[1] > 0, "3.2: the player's guns nobody mans fired on the marked road (before marks they never fired in this match)");
-  assert.ok(a.fallen[0] > 0 && a.fallen[1] > 0, "both sides lost pikemen");
+  // 3.5: without a spotter's tower a mark serves only its own gun, so the player's unmanned guns thin the wave better and may lose no pikemen.
+  assert.ok(a.fallen[0] > 0, "the enemy lost pikemen");
   assert.deepEqual(a.hash, WAVE_MATCH_HASH);
 });

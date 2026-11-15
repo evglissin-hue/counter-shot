@@ -245,6 +245,7 @@ export class SandboxSim {
     }
     // 3.5: the organs stand from the start (the game's layout).
     this.organs = layout.organs.length ? new Organs(this.castle, emit) : null;
+    if (this.works) this.works.organs = this.organs;
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
