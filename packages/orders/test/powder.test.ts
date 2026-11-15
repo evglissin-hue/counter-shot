@@ -17,15 +17,15 @@ function fixture(over: Partial<OrdersView> = {}): OrdersView {
     upgrade: null,
     mountDown: false,
   }));
-  const plots: PlotView[] = [{ kind: "barracks", state: "standing" }, ...Array.from({ length: 4 }, (): PlotView => ({ kind: null, state: "empty" })), { kind: "magazine", state: "standing" }];
+  const plots: PlotView[] = [{ kind: "barracks", state: "standing" }, ...Array.from({ length: 4 }, (): PlotView => ({ kind: null, state: "empty" })), { kind: "magazine", state: "standing" }, ...Array.from({ length: 2 }, (): PlotView => ({ kind: null, state: "empty" }))];
   return {
     team: 1,
     gold: 300,
     plots,
     guns,
     foundry: false,
-    barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null],
-    repairs: { gate: true, walls: true, towers: true, keep: true },
+    barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null, null, null],
+    repairs: { gate: true, walls: true, towers: true, keep: true, works: true },
     order: 0,
     route: "centre",
     riding: -1,

@@ -5,7 +5,7 @@
 //
 // dry=1 prints the pairs and the match count and plays nothing.
 //
-// Items: every building kind (mill, barracks, foundry), every gun kind
+// Items: every building kind (mill, barracks, foundry, magazine, spotter: the Spotter's Tower, 3.5), every gun kind
 // (longGun, mortar, chainShot, swivel) and every upgrade (heavyShot, rifled,
 // ...). For each, a pair of plans on the common seeds against the stock Knight
 // plan, from both castles (the openings search's panel): the stock Knight plan
@@ -21,7 +21,7 @@
 //   pair differs by the item only); "with" adds the item as a new step right
 //   after the step whose `after` (a step without one takes the one before it)
 //   is nearest 300 s, taking that step's `after`. A building goes on the first
-//   free plot, a gun on the first free slot that allows it, an upgrade on the
+//   free plot its kind may take (BUILDINGS[kind].plots), a gun on the first free slot that allows it, an upgrade on the
 //   slot of that gun (a stock gun's, else the one the plan buys it for).
 //
 // The difference is in win rate points (wins plus half the draws, over all
@@ -33,7 +33,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 import { doneIds, parseArgs, root, runPool, runReport, seedList, stamp, writeRunInfo } from "./observatory.mjs";
-import { content, FREE_PLOTS, PANEL_PLAN, panelSetups, planName, readLines, scorePlan, stockSteps, validatePlan } from "./observatory-plans.mjs";
+import { content, PANEL_PLAN, panelSetups, planName, plotsFor, readLines, scorePlan, stockSteps, validatePlan } from "./observatory-plans.mjs";
 
 const { ASHWRIGHT_SLOTS, BUILDING_KINDS, BUILDINGS, UPGRADE_KINDS, UPGRADES, WEAPON_COST, WEAPON_KINDS } = content;
 
@@ -95,8 +95,8 @@ export function pairFor(base, item) {
   }
   let plain = base, step;
   if (BUILDING_KINDS.includes(item)) {
-    const plot = FREE_PLOTS.find((p) => !base.some((s) => s.kind === "build" && s.plot === p));
-    if (plot === undefined) return { error: "no free plot" };
+    const plot = plotsFor(item).find((p) => !base.some((s) => s.kind === "build" && s.plot === p));
+    if (plot === undefined) return { error: "no free plot it may stand on" };
     step = { kind: "build", plot, building: item, ...(item === "barracks" ? { mix: "mixed", route: "centre" } : {}) };
   } else if (WEAPON_KINDS.includes(item)) {
     const slot = ASHWRIGHT_SLOTS.findIndex((s, i) => s.empty && s.allowed.includes(item) && !base.some((q) => q.kind === "buy" && q.slot === i));

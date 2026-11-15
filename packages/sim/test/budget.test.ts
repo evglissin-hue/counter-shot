@@ -80,6 +80,23 @@ test("with no room, loose masonry turns to dust; a storey board or a gate leaf d
   c.free();
 });
 
+test("3.5: with no room, an organ's key piece (the bell, the jib, the yard) stays a body; its other pieces turn to dust", () => {
+  const c = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: true, settle: true, budget: 4 });
+  const ids = spares(4);
+  for (const id of ids) c.knockLoose(id, 0, 0, 0);
+  assert.ok(c.room() <= 0, "the budget is used up");
+  assert.ok(layout.organs.length > 0, "the game's layout has organs");
+  for (const o of layout.organs) {
+    c.knockLoose(o.key, 0, 0, 0);
+    assert.equal(c.shattered[o.key], 0, `organ ${o.organ} of castle ${o.castle}: its key piece is a body`);
+    assert.equal(c.dynamic[o.key], 1);
+    const other = o.key === o.first ? o.first + 1 : o.first;
+    c.knockLoose(other, 0, 0, 0);
+    assert.equal(c.shattered[other], 1, "another piece of it is dust");
+  }
+  c.free();
+});
+
 test("without a budget, room is unlimited and nothing turns to dust for lack of room", () => {
   const c = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: true });
   assert.equal(c.room(), Infinity);

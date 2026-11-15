@@ -112,6 +112,14 @@ export interface AiLevel {
   footShell: boolean;
   /** 3.4: it buys a buttress on the face being cut once its own keep holds under 0.5. */
   buttresses: boolean;
+  /**
+   * 3.5: from a Knight up, it may go after the enemy's organs by hand (the bell when two of its waves are past the stream,
+   * the crane while a way in is open, the roof and mast when the enemy's men outnumber its own by half again). organAims is
+   * the share of its looks in which it does; after bringing an organ down it leaves organs alone for organRest ticks.
+   */
+  organs: boolean;
+  organAims: number;
+  organRest: number;
 }
 
 /** The numbers every level's orders share. */
@@ -160,6 +168,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 0,
     footShell: false,
     buttresses: false,
+    organs: false,
+    organAims: 0,
+    organRest: 0,
   },
   knight: {
     name: "Knight",
@@ -191,6 +202,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 6,
     footShell: false,
     buttresses: true,
+    organs: true,
+    organAims: 0.5,
+    organRest: 45 * 60,
   },
   warlord: {
     name: "Warlord",
@@ -222,6 +236,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 20,
     footShell: true,
     buttresses: true,
+    organs: true,
+    organAims: 0.7,
+    organRest: 30 * 60,
   },
   // M6: the guided first match's castle. Placeholder numbers (a slower,
   // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
@@ -255,6 +272,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 0,
     footShell: false,
     buttresses: false,
+    organs: false,
+    organAims: 0,
+    organRest: 0,
   },
 };
 
@@ -263,7 +283,8 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
  * it can be paid for above the reserve; one that can no longer be done (the
  * plot is taken, the slot armed) is passed over. `after` holds a step back
  * until that many seconds of the match have passed. Slots are the castle's
- * own (0 to 7), plots its own (0 to 5).
+ * own (0 to 7), plots its own (0 to 7; 3.5: each kind only on the plots it
+ * may take, BUILDINGS[kind].plots).
  */
 export type AiStep =
   | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number; stage?: number }
@@ -289,6 +310,8 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "buy", slot: 4, weapon: "chainShot", after: 200 },
     { kind: "build", plot: 3, building: "foundry", after: 240 },
     { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
+    // 3.5: a spotter's tower behind the keep (marks that last and that every gun shares).
+    { kind: "build", plot: 7, building: "spotter", after: 280 },
     { kind: "buy", slot: 7, weapon: "mortar", after: 330 },
     { kind: "buy", slot: 5, weapon: "swivel" },
     { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
@@ -301,6 +324,8 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "build", plot: 2, building: "barracks", mix: "breach", route: "left", after: 70 },
     { kind: "build", plot: 3, building: "foundry", after: 120 },
     { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
+    // 3.5: a spotter's tower behind the keep.
+    { kind: "build", plot: 7, building: "spotter", after: 150 },
     { kind: "buy", slot: 7, weapon: "mortar", after: 180 },
     { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
     { kind: "buy", slot: 4, weapon: "chainShot" },
@@ -351,5 +376,5 @@ export const TUTOR = {
    * minutes of waves at its gate and no storm began). Walls and towers mended
    * show the masons at work and close the breaches a long gun opens.
    */
-  repairs: [[], [], ["walls"], ["walls", "towers"]] as RepairKind[][],
+  repairs: [[], [], ["walls", "works"], ["walls", "towers", "works"]] as RepairKind[][],
 };

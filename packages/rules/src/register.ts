@@ -7,7 +7,7 @@
 //   the team came down (the world's `landings`, auto false). It is the landing
 //   point with REGISTER.radius. A team holds REGISTER.max marks in numbered
 //   places 1 to 6: a new mark takes the lowest free place, or the oldest
-//   mark's place. A mark fades REGISTER.life ticks after it was made; a shot
+//   mark's place. A mark fades SPOTTER.life ticks after it was made (3.5: SPOTTER.lifeAlone, and only its own gun shares it, without a working spotter's tower); a shot
 //   by hand of the team landing inside it refreshes it.
 // - Fire for effect: { kind: "salvo", mark, mortar? } (mark 1 to 6). Every gun
 //   of the team that is armed, loaded, standing (mounts.up) and can reach the
@@ -24,7 +24,7 @@
 // The Practice range uses the same class on its SandboxSim (one team, its four
 // guns), so nothing here may depend on Match.
 
-import { REGISTER, UNMANNED } from "@keepfall/content";
+import { REGISTER, SPOTTER, UNMANNED } from "@keepfall/content";
 import type { Emplacement } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, hashString, Rng } from "@keepfall/core";
 import { clearOfCastle, solveAim, Spin, yawTowards, type SandboxSim } from "@keepfall/sim";
@@ -41,6 +41,8 @@ export interface Mark {
   /** Tick it was made (the oldest is replaced first), and tick it fades (refreshed by a shot landing inside). */
   made: number;
   fades: number;
+  /** 3.5: the ticks it was given when it was made or last refreshed (the page shows how much of it is left). */
+  life: number;
 }
 
 /** A team's last shot by hand that came down, per emplacement: where and when (for marking within the window). */
@@ -76,6 +78,8 @@ export interface RegisterHost {
   /** Would a shot from the emplacement at a point put a bridge at risk, its error scaled by errScale? (Absent: no check.) */
   bridgeAtRisk?(e: Emplacement, x: number, z: number, errScale: number): boolean;
   aimed?(emplacement: number, yaw: number, pitch: number): void;
+  /** 3.5: does the team have a working spotter's tower? (Absent: it does, as in the Practice range.) */
+  spotter?(team: number): boolean;
 }
 
 /** Ground distance between two points. */
@@ -133,9 +137,20 @@ export class Register {
       at = 0;
       for (let i = 1; i < places.length; i++) if (places[i]!.made < places[at]!.made) at = i;
     }
-    places[at] = { n: at + 1, x: l.x, y: l.y, z: l.z, emplacement, made: tick, fades: tick + REGISTER.life };
+    const life = this.lifeOf(team);
+    places[at] = { n: at + 1, x: l.x, y: l.y, z: l.z, emplacement, made: tick, fades: tick + life, life };
     this.landings[emplacement] = null;
     return true;
+  }
+
+  /** 3.5: does the team's spotter's tower stand and work (absent in the Practice range: it does)? */
+  private spotting(team: number): boolean {
+    return this.host.spotter ? this.host.spotter(team) : true;
+  }
+
+  /** 3.5: the ticks a mark of the team lasts now. */
+  private lifeOf(team: number): number {
+    return this.spotting(team) ? SPOTTER.life : SPOTTER.lifeAlone;
   }
 
   /** The height a shot at a point of a mark is aimed at: the mark's own if it lay on masonry, else a man's chest above the ground. */
@@ -167,8 +182,11 @@ export class Register {
     const m = this.mark(team, n);
     if (!m) return [];
     const found: Array<{ id: number; d: number }> = [];
+    const shared = this.spotting(team);
     for (const e of this.host.emplacements) {
       if (e.empty || this.host.owner(e.id) !== team) continue;
+      // 3.5: without a spotter's tower a mark serves only the gun that made it.
+      if (!shared && e.id !== m.emplacement) continue;
       if (e.weapon === "mortar" && !mortar) continue;
       if ((loaded && this.host.world.reload[e.id] !== 0) || !this.host.world.mounts.up(e.id)) continue;
       // 3.3: a gun whose box cannot pay for a shot leaves the salvo out (the Practice range has no boxes to empty).
@@ -193,15 +211,32 @@ export class Register {
     return true;
   }
 
-  /** Is a point inside one of the team's marks? (Guns nobody mans read this when they lay on a man.) */
-  onMark(team: number, x: number, z: number): boolean {
-    for (const m of this.marks[team]) if (m && ground(m.x, m.z, x, z) <= REGISTER.radius) return true;
+  /**
+   * Is a point inside one of the team's marks? (Guns nobody mans read this when they lay on a man.)
+   * 3.5: without a spotter's tower only the marks the given emplacement made count (no emplacement given: any).
+   */
+  onMark(team: number, x: number, z: number, emplacement = -1): boolean {
+    const shared = emplacement < 0 || this.spotting(team);
+    for (const m of this.marks[team]) if (m && (shared || m.emplacement === emplacement) && ground(m.x, m.z, x, z) <= REGISTER.radius) return true;
     return false;
   }
 
   /** Before the world steps: fade marks, fire the salvo shots due this tick (queued into the world). */
   beforeStep(tick: number) {
-    for (const places of this.marks) for (let i = 0; i < places.length; i++) if (places[i] && places[i]!.fades <= tick) places[i] = null;
+    for (let team = 0; team < 2; team++) {
+      const places = this.marks[team];
+      // 3.5: with no working spotter's tower a mark that would outlive SPOTTER.lifeAlone fades then instead.
+      const cap = this.spotting(team) ? Infinity : tick + SPOTTER.lifeAlone;
+      for (let i = 0; i < places.length; i++) {
+        const m = places[i];
+        if (!m) continue;
+        if (m.fades > cap) {
+          m.fades = cap;
+          m.life = Math.min(m.life, SPOTTER.lifeAlone);
+        }
+        if (m.fades <= tick) places[i] = null;
+      }
+    }
     if (this.queued.length === 0 || !this.queued.some((q) => q.tick <= tick)) return;
     const due = this.queued.filter((q) => q.tick <= tick);
     const rest = this.queued.filter((q) => q.tick > tick);
@@ -236,13 +271,17 @@ export class Register {
       const team = this.host.owner(l.emplacement);
       if (team !== 0 && team !== 1) continue;
       this.landings[l.emplacement] = { x: l.x, y: l.y, z: l.z, tick };
-      for (const m of this.marks[team]) if (m && ground(m.x, m.z, l.x, l.z) <= REGISTER.radius) m.fades = tick + REGISTER.life;
+      const life = this.lifeOf(team);
+      for (const m of this.marks[team]) if (m && ground(m.x, m.z, l.x, l.z) <= REGISTER.radius) {
+        m.fades = tick + life;
+        m.life = life;
+      }
     }
   }
 
   /** Everything above, into the match's hash. */
   hashInto(out: number[]) {
-    for (const places of this.marks) for (const m of places) out.push(...(m ? [1, m.n, m.x, m.y, m.z, m.emplacement, m.made, m.fades] : [0]));
+    for (const places of this.marks) for (const m of places) out.push(...(m ? [1, m.n, m.x, m.y, m.z, m.emplacement, m.made, m.fades, m.life] : [0]));
     for (const l of this.landings) out.push(...(l ? [1, l.x, l.y, l.z, l.tick] : [0]));
     out.push(this.salvoAt[0], this.salvoAt[1], this.queued.length, this.draws);
     for (const q of this.queued) out.push(q.tick, q.team, q.emplacement, q.mark, q.made);

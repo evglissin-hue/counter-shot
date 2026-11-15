@@ -336,3 +336,24 @@ export function flightTo(e: Emplacement, yaw: number, pitch: number, charge: num
   }
   return null;
 }
+
+// ---- 3.5: reading the field for the organs ----
+
+/**
+ * How many of a team's marching waves are past the stream: the middle of a wave's men standing on the enemy's side of
+ * MID_Z (castle 0's own side is z above it). Its men are seen from the walls like any others.
+ */
+export function wavesPast(m: Match, team: number): number {
+  const sum = new Map<number, [number, number]>();
+  for (const mi of m.world.minions.list) {
+    if (mi.team !== team || mi.state !== MinionState.Upright || mi.wave < 0 || mi.role !== Role.March) continue;
+    const s = sum.get(mi.wave);
+    if (s) {
+      s[0] += mi.z;
+      s[1]++;
+    } else sum.set(mi.wave, [mi.z, 1]);
+  }
+  let n = 0;
+  for (const [z, k] of sum.values()) if (team === 0 ? z / k < MID_Z : z / k > MID_Z) n++;
+  return n;
+}

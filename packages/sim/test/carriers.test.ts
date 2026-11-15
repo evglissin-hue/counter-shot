@@ -561,13 +561,13 @@ test("the same setup replays to the same hash, and a shot paid for changes it", 
   c2.free();
 });
 
-test("buildings: the magazine's pieces are 24 to 36 on every plot, inside it, and it costs what the brief says", () => {
+test("buildings: the magazine's pieces are 18 to 36 on every plot it may take (18 on the shallow plots behind the keep), and it costs what the brief says", () => {
   assert.equal(BUILDINGS.magazine.cost, 140);
   assert.equal(BUILDINGS.magazine.buildTicks, 12 * 60);
   assert.equal(BUILDINGS.mill.income, 0);
-  for (const r of layout.plots.filter((p) => p.castle === 0 && p.kind === 3)) {
-    assert.ok(r.count >= 24 && r.count <= 36, `plot ${r.plot}: ${r.count} pieces`);
-  }
+  const plots = layout.plots.filter((p) => p.castle === 0 && p.kind === 3);
+  assert.deepEqual(plots.map((r) => r.plot), BUILDINGS.magazine.plots, "laid out only on the plots it may take (3.5)");
+  for (const r of plots) assert.ok(r.count >= 18 && r.count <= 36, `plot ${r.plot}: ${r.count} pieces`);
   assert.equal(shotCost({ ...MATCH_EMPLACEMENTS[0], empty: true }), 0);
 });
 

@@ -30,8 +30,8 @@ type World = InstanceType<Rapier["World"]>;
 type Body = ReturnType<World["createRigidBody"]>;
 type EventQueue = InstanceType<Rapier["EventQueue"]>;
 
-export const DENSITY: Record<Stone["material"], number> = { stone: 2300, wood: 600, plaster: 1400, roof: 1100, banner: 400 };
-const FRICTION: Record<Stone["material"], number> = { stone: 0.75, wood: 0.6, plaster: 0.65, roof: 0.55, banner: 0.5 };
+export const DENSITY: Record<Stone["material"], number> = { stone: 2300, wood: 600, plaster: 1400, roof: 1100, banner: 400, iron: 7800 };
+const FRICTION: Record<Stone["material"], number> = { stone: 0.75, wood: 0.6, plaster: 0.65, roof: 0.55, banner: 0.5, iron: 0.4 };
 
 export interface SimOptions {
   /** How many sideways bonds masonry can bridge before it falls. */
@@ -196,6 +196,8 @@ export class CastleSim {
   private nbBelow: { off: Int32Array; ids: Int32Array };
   private grounded: Uint8Array;
   private castleOf: Uint8Array;
+  /** 3.5: 1 for an organ's key piece (the bell, the crane's jib, the mast's yard): never turned to dust for the budget, so a fallen machine shows where it lies. */
+  private organKey: Uint8Array;
   /** Beams that need all their supports (bridge stringers), in id order. */
   private spans: Int32Array;
   /**
@@ -296,6 +298,8 @@ export class CastleSim {
     this.nbBelow = flat(layout.below);
     this.grounded = new Uint8Array(n);
     this.castleOf = new Uint8Array(n);
+    this.organKey = new Uint8Array(n);
+    for (const o of layout.organs) if (o.key >= 0 && o.key < n) this.organKey[o.key] = 1;
     const spans: number[] = [];
     for (let i = 0; i < n; i++) {
       this.grounded[i] = layout.stones[i].grounded ? 1 : 0;
@@ -571,6 +575,11 @@ export class CastleSim {
       // M5: only masonry, timber and shot break a piece. A man, a ladder or a keg pressing on one never does:
       // a ragdoll set down a little inside a deck plank was pushed out with half a meganewton, and every fight on a bridge broke it.
       if (a === undefined || b === undefined) return;
+      // A gate leaf tipping or swinging loose in its frame (it fills its opening to within 8 mm) never breaks the wall around it: only masonry, timber and shot do.
+      if (a >= 0 && b >= 0 && ((this.layout.stones[a].part === "gate") !== (this.layout.stones[b].part === "gate"))) {
+        if (this.layout.stones[a].part !== "gate" && !this.dynamic[a]) return;
+        if (this.layout.stones[b].part !== "gate" && !this.dynamic[b]) return;
+      }
       // M5 (settle): settled rubble wakes only when something strikes it, not under the weight of the heap on it
       // (frozen inside a deep heap, a stone felt it and woke its neighbours, over and over).
       if (a >= 0 && (!this.dynamic[a] || (this.frozen[a] && !this.resting(e.collider2())))) breaks.push(a);
@@ -1192,7 +1201,7 @@ export class CastleSim {
     const banners = this.layout.bannerIds;
     let frozenHit = false;
     for (const id of this.dynList) {
-      if (this.shattered[id] || this.busy[id] || id === banners[0] || id === banners[1] || this.layout.stones[id].part === "storey") continue;
+      if (this.shattered[id] || this.busy[id] || id === banners[0] || id === banners[1] || this.layout.stones[id].part === "storey" || this.organKey[id]) continue;
       const p = this.bodies[id].translation();
       const ex = p.x - x, ey = p.y - y, ez = p.z - z;
       if (ex * ex + ey * ey + ez * ez > c2) continue;
@@ -1239,10 +1248,10 @@ export class CastleSim {
 
   private loosen(id: number) {
     if (this.dynamic[id]) return;
-    // T9: with no room left, masonry that comes loose turns to dust (never a storey board, a banner or a gate leaf).
+    // T9: with no room left, masonry that comes loose turns to dust (never a storey board, a banner, a gate leaf or, 3.5, an organ's key piece).
     if (this.opts.budget && this.room() <= 0) {
       const part = this.layout.stones[id].part;
-      if (part !== "storey" && part !== "banner" && part !== "gate") {
+      if (part !== "storey" && part !== "banner" && part !== "gate" && !this.organKey[id]) {
         this.shatter(id);
         return;
       }

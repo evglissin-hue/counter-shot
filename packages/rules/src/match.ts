@@ -15,7 +15,7 @@ import {
   BUTTRESS_FACES,
   type ButtressFace,
   CASTLE_SHAPE,
-  DEFEND,
+  BELL,
   ENEMY_ROUTES,
   GARRISON,
   KEEP_STOREYS,
@@ -39,6 +39,8 @@ import {
   WEAPON_KINDS,
   weaponOf,
   WEAPONS,
+  ORGAN_KINDS,
+  type OrganKind,
   type BuildingKind,
   type CastleLayout,
   type Emplacement,
@@ -61,7 +63,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 12;
+export const MATCH_RULES_VERSION = 13;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -82,7 +84,7 @@ export type MatchInput =
   /** The team gives up: the other team wins. */
   | { kind: "surrender" }
   // M3: building, buying, upgrading and each barracks' waves.
-  /** Build on one of the team's plots (0 to 5), or rebuild the ruin of the same kind there. */
+  /** Build on one of the team's plots (0 to 7; 3.5: only a kind that may stand there), or rebuild the ruin of the same kind there. */
   | { kind: "build"; plot: number; building: BuildingKind }
   /** 3.4 rule 11: a buttress for the team's keep, on one of its faces (in the owner's words; refused unless that face is bare and the gold is there). */
   | { kind: "buttress"; face: ButtressFace }
@@ -287,6 +289,8 @@ export class Match {
   readonly applied: Array<[number, 0 | 1, string]> = [];
   /** Each team's barracks route for its next waves, and waves sent so far. */
   readonly route: [RouteName, RouteName] = ["centre", "centre"];
+  /** 3.5: whether each team's signal mast worked at the last step (a mast that works again re-sends the standing order). */
+  private mastUp: [boolean, boolean] = [true, true];
   readonly waves: [number, number] = [0, 0];
   /** The emplacement each team rides (-1: none). */
   readonly manned: [number, number] = [-1, -1];
@@ -378,7 +382,8 @@ export class Match {
           const dx = x - e.x, dz = z - e.z;
           return bridgeAtRisk(e, x, z, UNMANNED[e.weapon] ?? UNMANNED.longGun!, dsqrt(dx * dx + dz * dz), false, errScale);
         },
-        aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
+        aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch),
+        spotter: (team) => this.spotter(team) },
       opts.seed,
     );
   }
@@ -414,6 +419,17 @@ export class Match {
   /** 3.4: the state of a team's buttress on a face: 0 empty, 1 rising, 2 standing. */
   buttress(team: number, face: ButtressFace): 0 | 1 | 2 {
     return this.estate.buttressState(team, face);
+  }
+
+  /** 3.5: does a team's organ work (true in a world without organs)? */
+  organUp(team: number, organ: OrganKind): boolean {
+    const o = this.world.organs;
+    return !o || o.working(team, ORGAN_KINDS.indexOf(organ));
+  }
+
+  /** 3.5: does a team have a working spotter's tower (its marks last SPOTTER.life and every gun shares them)? */
+  spotter(team: number): boolean {
+    return this.estate.spotter(team);
   }
 
   /**
@@ -482,6 +498,12 @@ export class Match {
     }
     this.world.step();
     this.register.afterStep(tick);
+    // 3.5: a mast that works again reaches the waves in the field with the team's standing order (roads are not replayed).
+    for (const t of [0, 1] as const) {
+      const up = this.organUp(t, "mast");
+      if (up && !this.mastUp[t]) this.army.setOrder(t, this.army.order[t], true);
+      this.mastUp[t] = up;
+    }
     if (this.result) return;
     // M3: bounties, masonry and trick shots from this step; then income, through the one income function.
     this.economy.step(tick);
@@ -546,14 +568,15 @@ export class Match {
         return;
       }
       case "order":
-        if (input.order === Order.Advance || input.order === Order.Hold || input.order === Order.Push) this.army.setOrder(team, input.order);
+        if (input.order === Order.Advance || input.order === Order.Hold || input.order === Order.Push) this.army.setOrder(team, input.order, this.organUp(team, "mast"));
         return;
       case "route":
         if (!ROUTE_NAMES.includes(input.route)) return;
         this.route[team] = input.route;
         this.estate.setRoutes(team, input.route);
-        // The army pass: the waves already out that have not crossed take the new road too (holding ones walk to its marker).
-        this.army.setRoute(team, ROUTE_NAMES.indexOf(input.route));
+        // The army pass: the waves already out that have not crossed take the new road too (holding ones walk to its marker),
+        // while the mast works; without it only waves that muster later take the road.
+        if (this.organUp(team, "mast")) this.army.setRoute(team, ROUTE_NAMES.indexOf(input.route));
         return;
       case "man": {
         const e = input.emplacement;
@@ -703,6 +726,9 @@ export class Match {
   private lay(e: Emplacement, g: Gun, team: Team, U: UnmannedDef) {
     const gate = MUSTER[team];
     let best = -1, bestD = Infinity, bestMarked = false;
+    // 3.5: with the bell down a gun nobody mans sees the enemy late (BELL.late m from its gate) and marks do nothing for it.
+    const belled = this.organUp(team, "bell");
+    const reach = belled ? BELL.defend : BELL.late;
     for (const m of this.world.minions.list) {
       if (m.state !== MinionState.Upright || m.wave < 0 || m.team === team) continue;
       const dx = m.x - e.x, dz = m.z - e.z;
@@ -711,9 +737,9 @@ export class Match {
       if (yawTowards(e, m.x, m.z) === null) continue;
       const gx = m.x - gate.x, gz = m.z - gate.z;
       // 3.2: a man on one of the team's marks may be engaged anywhere in range, and counts as nearer the gate.
-      const onMark = this.register.onMark(team, m.x, m.z);
+      const onMark = belled && this.register.onMark(team, m.x, m.z, e.id);
       const threat = onMark ? (gx * gx + gz * gz) * (REGISTER.nearScale * REGISTER.nearScale) : gx * gx + gz * gz;
-      if ((!onMark && threat > DEFEND * DEFEND) || threat >= bestD) continue;
+      if ((!onMark && threat > reach * reach) || threat >= bestD) continue;
       if (m.id === g.skip) continue;
       const keg = m.unit === Unit.Sapper && (m.task === SapperTask.Carry || m.task === SapperTask.Plant);
       if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg, onMark ? REGISTER.errScale : 1)) continue;
@@ -831,6 +857,7 @@ export class Match {
     this.economy.hashInto(nums);
     this.estate.hashInto(nums);
     nums.push(this.enemyWaves);
+    nums.push(this.mastUp[0] ? 1 : 0, this.mastUp[1] ? 1 : 0);
     for (const p of this.plotWaves) nums.push(...p);
     this.register.hashInto(nums);
     const f = new Float64Array(nums);
@@ -839,5 +866,5 @@ export class Match {
 }
 
 function allOn(): Record<RepairKind, boolean> {
-  return { gate: true, walls: true, towers: true, keep: true };
+  return { gate: true, walls: true, towers: true, keep: true, works: true };
 }

@@ -6,6 +6,7 @@
 // themselves are the world's (sim structures.ts): they rise, work and fall.
 
 import {
+  allowedOn,
   BUILDING_KINDS,
   BUILDING_REBUILD,
   BUILDINGS,
@@ -73,9 +74,9 @@ export class Estate {
     return k >= 0 ? BUILDING_KINDS[k] : null;
   }
 
-  /** Build on an empty plot, or rebuild a ruin there, if the team can pay. */
+  /** Build on an empty plot (3.5: only a kind that may stand there), or rebuild a ruin there, if the team can pay. */
   build(team: number, plot: number, kind: BuildingKind, tick: number): boolean {
-    if (plot < 0 || plot >= PLOTS.length || !BUILDINGS[kind]) return false;
+    if (plot < 0 || plot >= PLOTS.length || !BUILDINGS[kind] || !allowedOn(kind, plot)) return false;
     const s = this.structures.slot(team, plot);
     // 3.3: a team holds one magazine, standing or rising (a ruin does not count): another is refused, and so is rebuilding a ruin beside one.
     if (kind === "magazine") {
@@ -176,6 +177,12 @@ export class Estate {
     return n;
   }
 
+  /** 3.5: does the team have a working spotter's tower? */
+  spotter(team: number): boolean {
+    for (let p = 0; p < PLOTS.length; p++) if (this.kindOn(team, p) === "spotter" && this.structures.works(team, p)) return true;
+    return false;
+  }
+
   /** Does the team have a working Foundry? */
   foundry(team: number): boolean {
     for (let p = 0; p < PLOTS.length; p++) if (this.kindOn(team, p) === "foundry" && this.structures.works(team, p)) return true;
@@ -207,7 +214,7 @@ export class Estate {
     let done = false, impossible = false;
     if (step.kind === "build") {
       const s = this.structures.slot(team, step.plot);
-      if (s.state !== PlotState.Empty) impossible = true;
+      if (s.state !== PlotState.Empty || !allowedOn(step.building, step.plot)) impossible = true;
       else if (this.build(team, step.plot, step.building, tick)) {
         done = true;
         if (step.building === "barracks") this.setBarracks(team, step.plot, (step.mix as MixName) ?? undefined, step.route);

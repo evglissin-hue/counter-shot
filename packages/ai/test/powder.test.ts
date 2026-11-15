@@ -131,7 +131,8 @@ test("with no magazine anywhere it builds a new one on a free plot, back plots f
     m.step();
   }
   const first = sent.map(([, input]) => input).find((input) => input.kind === "build" || input.kind === "buy" || input.kind === "upgrade");
-  assert.deepEqual(first, { kind: "build", plot: 5, building: "magazine" });
+  // 3.5: the last free plot a magazine may take (plots 2 to 7).
+  assert.deepEqual(first, { kind: "build", plot: 7, building: "magazine" });
   m.free();
 });
 

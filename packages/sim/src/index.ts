@@ -19,6 +19,7 @@ export * from "./gunnery";
 export * from "./structures";
 export * from "./statics";
 export * from "./buttresses";
+export * from "./organs";
 export * from "./specialists";
 export * from "./mounts";
 export * from "./sweep";

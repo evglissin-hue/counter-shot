@@ -5,10 +5,14 @@ import { STRUCTURE } from "@keepfall/content";
 import type { StructureInfo } from "./protocol";
 
 /**
- * Is the eye free for everyone? The owner has not answered whether it should be earned (a building, a tool, a
- * veteran's right); until they do it is free, as the spec's default says. One constant to change.
+ * Is the eye free? The owner's answer (3.5, November 15): your own castle's keep and towers always; the enemy's only
+ * while your spotter's tower works (the Practice range counts it as standing). The guided match's one look at their
+ * keep (`forced`) comes through either way.
  */
 export const EYE_FREE = true;
+
+/** The one line held C says on the enemy's castle without a working spotter's tower. */
+export const EYE_NEEDS_SPOTTER = "Build a spotter's tower to read their castle";
 
 /** A structure's state (sim StaticState). */
 export const enum Life {
@@ -102,6 +106,8 @@ export interface EyeAsk {
   me: number;
   under: number;
   forced: number;
+  /** 3.5: does your spotter's tower work (the enemy's structures show only then)? */
+  spotter: boolean;
 }
 
 /** Which structures to draw the eye on now (indices into the list): none unless the eye is free and asked for. */
@@ -109,9 +115,10 @@ export function eyeTargets(list: readonly StructureInfo[], ask: EyeAsk): number[
   const out: number[] = [];
   if (!EYE_FREE || !list.length) return out;
   const fine = (i: number) => i >= 0 && i < list.length && list[i].state !== Life.Fallen;
+  const earned = (i: number) => ask.spotter || list[i].castle === ask.me;
   if (ask.held) {
     if (ask.overview) for (const s of list) if (s.castle === ask.me && s.state !== Life.Fallen) out.push(s.index);
-    if (fine(ask.under) && !out.includes(ask.under)) out.push(ask.under);
+    if (fine(ask.under) && earned(ask.under) && !out.includes(ask.under)) out.push(ask.under);
   }
   if (fine(ask.forced) && !out.includes(ask.forced)) out.push(ask.forced);
   return out;

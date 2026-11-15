@@ -1,5 +1,5 @@
-// Plots and buildings (phase 2 M3), as data: where each courtyard's six plots
-// lie, what each building costs and does, how long it takes to rise, and the
+// Plots and buildings (phase 2 M3), as data: where each courtyard's eight plots
+// lie (six until 3.5), what each building costs and does, how long it takes to rise, and the
 // pieces it is built from. Buildings are masonry like the walls: every piece
 // is a physics piece in the castle's layout (see castle.ts, layout option
 // plots), there from the start for every plot and kind but out of the world
@@ -16,9 +16,9 @@ import { DPI, dcos, dsin, quatYX } from "@keepfall/core";
 import type { Material, Part, Quat } from "./castle";
 import { DIST } from "./field";
 
-export type BuildingKind = "barracks" | "mill" | "foundry" | "magazine";
-/** Building kinds in their fixed order (Stone.building and every list of kinds use it). */
-export const BUILDING_KINDS: BuildingKind[] = ["barracks", "mill", "foundry", "magazine"];
+export type BuildingKind = "barracks" | "mill" | "foundry" | "magazine" | "spotter";
+/** Building kinds in their fixed order (Stone.building and every list of kinds use it). 3.5 adds the spotter's tower last, so the older kinds keep their numbers. */
+export const BUILDING_KINDS: BuildingKind[] = ["barracks", "mill", "foundry", "magazine", "spotter"];
 
 export interface BuildingDef {
   kind: BuildingKind;
@@ -31,6 +31,8 @@ export interface BuildingDef {
   income: number;
   /** What it does, for the build wheel. */
   blurb: string;
+  /** 3.5 rule 5: the plots it may stand on (the layout lays it out only there, and the match refuses it anywhere else). */
+  plots: number[];
 }
 
 /**
@@ -41,11 +43,32 @@ export interface BuildingDef {
  * through waiting: buildings rise in seconds, and nothing is bought on a timer.
  */
 export const BUILDINGS: Record<BuildingKind, BuildingDef> = {
-  barracks: { kind: "barracks", name: "Barracks", cost: 220, buildTicks: 18 * 60, income: 0, blurb: "Sends a wave of 8 every 25 s: set its mix and route" },
-  mill: { kind: "mill", name: "Powder Mill", cost: 160, buildTicks: 12 * 60, income: 0, blurb: "Makes 0.5 powder a second while it stands" },
-  foundry: { kind: "foundry", name: "Foundry", cost: 250, buildTicks: 15 * 60, income: 0, blurb: "Upgrades for your guns" },
-  magazine: { kind: "magazine", name: "Magazine", cost: 140, buildTicks: 12 * 60, income: 0, blurb: "Stores up to 120 powder for your boys; blows up if it is wrecked with powder in it" },
+  barracks: { kind: "barracks", name: "Barracks", cost: 220, buildTicks: 18 * 60, income: 0, blurb: "Sends a wave of 8 every 25 s: set its mix and route", plots: [0, 1, 2, 3, 4, 5] },
+  mill: { kind: "mill", name: "Powder Mill", cost: 160, buildTicks: 12 * 60, income: 0, blurb: "Makes 0.5 powder a second while it stands", plots: [0, 1, 2, 3, 4, 5] },
+  foundry: { kind: "foundry", name: "Foundry", cost: 250, buildTicks: 15 * 60, income: 0, blurb: "Upgrades for your guns", plots: [0, 1, 2, 3, 4, 5] },
+  magazine: { kind: "magazine", name: "Magazine", cost: 140, buildTicks: 12 * 60, income: 0, blurb: "Stores up to 120 powder for your boys; blows up if it is wrecked with powder in it", plots: [2, 3, 4, 5, 6, 7] },
+  // 3.5 rule 6: a timber watch platform taller than the walls, at the back of the courtyard.
+  spotter: { kind: "spotter", name: "Spotter's Tower", cost: 180, buildTicks: 15 * 60, income: 0, blurb: "Marks last 240 s and every gun shares them; a longer aim help, the wind at the mortar's ring, the mason's eye on their castle", plots: [4, 5, 6, 7] },
 };
+
+/** May a building of this kind stand on this plot (3.5 rule 5)? */
+export function allowedOn(kind: BuildingKind, plot: number): boolean {
+  return BUILDINGS[kind]?.plots.includes(plot) ?? false;
+}
+
+/**
+ * 3.5 rule 6: what a standing spotter's tower does for its castle's marks (the
+ * register's REGISTER.life without it becomes these two cases): with it a mark
+ * lasts `life` ticks and every gun of the castle shares it; without it a mark
+ * lasts `lifeAlone` ticks and serves only the gun that made it. The page reads
+ * `arcSeconds` for the long gun's aim help (a full second of its arc, not half).
+ */
+export const SPOTTER = {
+  life: 240 * 60,
+  lifeAlone: 90 * 60,
+  arcSeconds: 1,
+  arcSecondsAlone: 0.5,
+} as const;
 
 /** A building works while at least this share of its pieces stand; a ruin is rebuilt for this share of its cost. */
 export const BUILDING_WORKS = 0.6;
@@ -63,9 +86,11 @@ export interface Plot {
 }
 
 /**
- * The six plots of a courtyard (castle 0's frame): the two front plots where
- * the old houses stood, either side of the gate corridor, and four between
- * the keep and the side walls.
+ * The eight plots of a courtyard (castle 0's frame): the two front plots where
+ * the old houses stood, either side of the gate corridor, four between the
+ * keep and the side walls, and (3.5) two behind the keep, clear of the keep's
+ * masons (1.7 m off its back face), the back wall's (12.6 m out) and the
+ * refuge behind the keep's middle.
  */
 export const PLOTS: Plot[] = [
   { index: 0, x: -7.5, z: -8.5, w: 6, d: 4, name: "front left" },
@@ -74,6 +99,8 @@ export const PLOTS: Plot[] = [
   { index: 3, x: 9.3, z: -1.9, w: 3.4, d: 4, name: "right, by the keep" },
   { index: 4, x: -9.3, z: 5.6, w: 3.4, d: 4.6, name: "back left" },
   { index: 5, x: 9.3, z: 5.6, w: 3.4, d: 4.6, name: "back right" },
+  { index: 6, x: -7.8, z: 10.8, w: 3.6, d: 2.4, name: "behind the keep, left" },
+  { index: 7, x: 7.8, z: 10.8, w: 3.6, d: 2.4, name: "behind the keep, right" },
 ];
 
 /** A plot's centre in the world, for a castle (castle 1 is mirrored; x is the same in both). */
@@ -102,6 +129,7 @@ export const PRACTICE_BUILDINGS: Array<{ plot: number; kind: BuildingKind }> = [
   { plot: 3, kind: "magazine" },
   { plot: 4, kind: "mill" },
   { plot: 5, kind: "barracks" },
+  { plot: 7, kind: "spotter" },
 ];
 
 /** One piece of a building, in castle 0's frame. */
@@ -260,6 +288,20 @@ export function buildingPieces(kind: BuildingKind, plot: Plot): BuildingPiece[] 
       const a = dir * tilt;
       out.push({ part: "roof", material: "wood", hx: hx - GAP, hy: thick - GAP, hz: d / 2 - 0.05 - GAP, x: lx, y: low + (lw * st) / ct / 2 + thick + 0.02, z: cz, q: [0, 0, dsin(a / 2), dcos(a / 2)], course: 9 });
     }
+  } else if (kind === "spotter") {
+    // 3.5: a timber watch platform 12 m high on a 2.4 m square: four legs of three lengths, braced by ring beams at 4 and
+    // 8 m, two boards on the legs' tops, four short posts and a little roof over the platform (the page adds a ladder,
+    // a railing and the spotter with his glass).
+    const half = 1.05, leg = 0.13, len = 4;
+    for (let k = 0; k < 3; k++) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add("house", "wood", leg, len / 2, leg, cx + sx * half, len / 2 + len * k, cz + sz * half, k * 8);
+    const inner = half - leg;
+    for (const y of [4, 8]) {
+      for (const sz of [-1, 1]) add("house", "wood", inner, 0.1, 0.08, cx, y, cz + sz * half, y * 2);
+      for (const sx of [-1, 1]) add("house", "wood", 0.08, 0.1, inner, cx + sx * half, y, cz, y * 2);
+    }
+    for (const sz of [-1, 1]) add("house", "wood", 1.3, 0.08, 0.65, cx, 12.08, cz + sz * 0.65, 24);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) add("house", "wood", 0.07, 0.9, 0.07, cx + sx * 1.15, 12.16 + 0.9, cz + sz * 0.5, 25);
+    out.push({ part: "roof", material: "roof", hx: 1.45 - GAP, hy: 0.06 - GAP, hz: 0.9 - GAP, x: cx, y: 13.96 + 0.06, z: cz, q: IDENTITY, course: 28 });
   } else {
     // The foundry: stone throughout, and a tall stone chimney against the back wall.
     stone(0, 2.7, 4, 0);

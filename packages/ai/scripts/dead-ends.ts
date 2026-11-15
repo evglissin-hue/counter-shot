@@ -16,14 +16,23 @@
 // falling or mending past 0.6 (masons undoing each hit for ever: gold and masons are printed); a piece let go moving faster than
 // 40 m/s within 2 s of a Released event (stones thrown from inside masonry); and a keep or tower piece down for over 180 s with
 // its masons allowed and gold over 100 while rubble fills its place the whole time (a foot never mended).
+// 3.5 adds the machines hunts (each flagged once per organ, castle or team, with numbers): an organ down for over 120 s while its
+// castle's Works repairs are on, its masons stand (two or more), the gold is over 100, no enemy man is within the masons' unsafe
+// distance of it and it waits neither on its footing nor on the crane (one that cannot be rebuilt); one waiting on its footing (the tower top or the keep's roof) for over 240 s while the repairs of that
+// footing are on; before the match, that every crane piece is low work or the crane's own and rests on the ground or a lower crane
+// piece, and that the bell and the mast rest on masonry that masons rebuild (the tower top, the keep's top floor); orders lost for
+// good (a man mustered while his team's mast is down must carry the team's standing order: needs army.orderOf, else skipped with a
+// note). plots=full starts both castles with all eight plots built (one kind each that may stand there) and plays the match, so the
+// blocked-way flags above judge the eight plots; with it, and without, a static check that every repair section's work spot and
+// every gun's powder foot can be reached on foot from the masons' yard (the army's local field).
 // The banner rule adds two keep hunts (each flagged once per keep): a keep that fell (Topple or Crush) with its course below the
 // lowest storey (KEEP_STOREYS[0] - 1) and no result 10 s later; and a keep whose own standing masonry (part "keep", not loose) is
 // under 25% of what was built for 60 s while the match goes on.
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
-// npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21]
+// npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21] [plots=full]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, holdMarker, inCourtyard, KEEP_STOREYS, MUSTER, ROUTE_NAMES, sectionOf, Unit, WEAPON_COST, type Difficulty } from "@keepfall/content";
-import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, MinionState, Order, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
+import { allowedOn, BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, KEEP_STOREYS, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, REPAIR, repairSections, ROUTE_NAMES, sectionOf, stoneBounds, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
+import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, LOCAL_INF, MinionState, Order, OrganWait, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
 
@@ -32,6 +41,12 @@ const R = RD as unknown as Rapier;
 const arg = (k: string, d: string) => process.argv.find((a) => a.startsWith(k + "="))?.split("=")[1] ?? d;
 const sides = [arg("enemy", "knight"), arg("player", "knight")];
 const secs = Number(arg("secs", "720")), seed = Number(arg("seed", "21"));
+/** plots=full: both castles start with all eight plots built, one kind each that may stand there (two spotter's towers on 6 and 7 are fine). */
+const full = arg("plots", "") === "full";
+const FULL_KINDS: BuildingKind[] = ["barracks", "foundry", "mill", "mill", "barracks", "magazine", "spotter", "spotter"];
+const fullPlots = FULL_KINDS.map((kind, plot) => ({ plot, kind }));
+for (const b of fullPlots) if (!allowedOn(b.kind, b.plot)) throw new Error(`plots=full: a ${b.kind} may not stand on plot ${b.plot}`);
+if (FULL_KINDS.length !== PLOTS.length) throw new Error("plots=full: one kind for each plot");
 /** How long (s) a gun may stay out, a slot stay blocked, a gunner stay idle, or gold pile up before it is flagged. */
 const LIMIT = { out: Number(arg("out", "240")), blocked: 240, idle: 150, gold: 600, goldFor: 180 };
 
@@ -56,7 +71,7 @@ const ARMY = {
   noSpot: 60, // s a ladder crew may carry near the wall with no spot
 };
 
-const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false });
+const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false, ...(full ? { startBuildings: [fullPlots, fullPlots] } : {}) });
 const ais = sides.map((s, team) => (s === "idle" ? null : new AiPlayer(m, team, s as Difficulty, seed)));
 const M = m.world.mounts;
 const castleOf = (i: number) => (m.emplacements[i].z < -75 ? 1 : 0);
@@ -77,6 +92,110 @@ for (let i = 0; i < m.emplacements.length; i++) {
   const lost = Array.from(M.pieces[i]).filter((id) => section[id] < 0).length;
   if (lost) flag(0, `slot ${i} (castle ${castleOf(i)}, ${e.place ?? e.weapon}) stands on ${lost} stones no masons rebuild: once down, its gun is out for good`);
 }
+
+// 3.5 static: the organs. The crane's pieces rest on the ground or on a lower piece of the crane (it never needs masonry that falls, and
+// never needs itself); the bell and the mast must hang together with some piece resting on masonry that masons rebuild (the tower top,
+// the keep's top floor), through pieces that rest on or touch each other.
+const L = m.world.castle.layout;
+const stones: Stone[] = L.stones;
+type Box = [number, number, number, number, number, number];
+const boundsOf = (p: Stone): Box => stoneBounds(p, L.wedge);
+const SUPPORT = 0.06, TOUCH = 0.02;
+/** Does a rest on b: a's foot at b's top (within SUPPORT) and the footprints overlap? */
+const restsOn = (a: Box, b: Box) => Math.abs(a[1] - b[4]) < SUPPORT && a[0] < b[3] - 0.001 && b[0] < a[3] - 0.001 && a[2] < b[5] - 0.001 && b[2] < a[5] - 0.001;
+/** Do the two boxes touch (a gap of TOUCH or less on every axis)? */
+const touches = (a: Box, b: Box) => a[0] <= b[3] + TOUCH && b[0] <= a[3] + TOUCH && a[1] <= b[4] + TOUCH && b[1] <= a[4] + TOUCH && a[2] <= b[5] + TOUCH && b[2] <= a[5] + TOUCH;
+if (L.organs.length === 0) console.log("note: this layout has no organs: the organ hunts have nothing to look at");
+const bodyOf = new Map<number, Box[]>();
+for (const o of L.organs) {
+  const kind = ORGAN_KINDS[o.organ];
+  const mine = stones.slice(o.first, o.first + o.count);
+  const boxes = mine.map(boundsOf);
+  const where = `castle ${o.castle}'s ${ORGANS[kind].name}`;
+  // The masonry (not an organ, not a building) the organ's pieces rest on, per piece.
+  const mason = stones.filter((q) => q.castle === o.castle && q.organ === undefined && q.plot === undefined && q.part !== "banner");
+  const masonBoxes = new Map<number, Box>();
+  const resting = mine.map((p, i) => {
+    const bx = boxes[i];
+    if (bx[1] < SUPPORT) return { ground: true, base: [] as Stone[] };
+    const base = mason.filter((q) => {
+      if (Math.abs(q.y + q.hy - bx[1]) > 1) return false;
+      let qb = masonBoxes.get(q.id);
+      if (!qb) masonBoxes.set(q.id, (qb = boundsOf(q)));
+      return restsOn(bx, qb);
+    });
+    return { ground: false, base };
+  });
+  if (kind === "crane") {
+    mine.forEach((p, i) => {
+      const own = boxes.some((q, j) => j !== i && boxes[i][1] > q[1] && restsOn(boxes[i], q));
+      if (!resting[i].ground && !own) flag(0, `${where}: piece ${p.id} (foot ${boxes[i][1].toFixed(2)} m) rests on neither the ground nor a lower piece of the crane`);
+      if (p.organ !== o.organ) flag(0, `${where}: piece ${p.id} is not the crane's own`);
+    });
+    const high = boxes.filter((b) => b[1] >= CRANE.low).length;
+    if (o.castle === 0) console.log(`note: ${where}: ${mine.length} pieces, ${mine.length - high} low (foot under ${CRANE.low} m) and ${high} high (the crane's own, laid with it down)`);
+  } else {
+    // Flood from the pieces that rest on masonry through resting and touching.
+    const linked = new Array<boolean>(mine.length).fill(false);
+    const stack: number[] = [];
+    const want = kind === "bell" ? ["tower"] : ["keep", "storey", "floor"];
+    resting.forEach((r, i) => {
+      if (r.ground || r.base.length === 0) return;
+      const parts = [...new Set(r.base.map((q) => q.part))];
+      if (!parts.some((pt) => want.includes(pt))) flag(0, `${where}: piece ${mine[i].id} rests on ${parts.join("/")}, not the ${want[0]}`);
+      const lost = r.base.filter((q) => sectionOf(L)[q.id] < 0).length;
+      if (lost) flag(0, `${where}: piece ${mine[i].id} rests on ${lost} stones no masons rebuild: once down, it waits for ever`);
+      linked[i] = true;
+      stack.push(i);
+    });
+    if (stack.length === 0) flag(0, `${where}: no piece rests on masonry`);
+    for (let i = 0; i < mine.length; i++) if (resting[i].ground && !linked[i]) (linked[i] = true, stack.push(i));
+    while (stack.length) {
+      const i = stack.pop()!;
+      for (let j = 0; j < mine.length; j++) if (!linked[j] && touches(boxes[i], boxes[j])) (linked[j] = true, stack.push(j));
+    }
+    mine.forEach((p, j) => {
+      if (!linked[j]) flag(0, `${where}: piece ${p.id} (foot ${boxes[j][1].toFixed(2)} m) is joined to nothing that stands on the ${want[0]}`);
+    });
+  }
+  bodyOf.set(o.organ + 10 * o.castle, boxes);
+}
+
+// 3.5 static: the work spots and powder feet can be reached on foot from the masons' yard (the army's local field), with the plots
+// as built at the start (all eight under plots=full). Run on the first ticks, when the nav grid has seen the buildings.
+function reach(label: string) {
+  const A0 = m.army;
+  const seen = new Set<string>();
+  let looked = 0, bad = 0;
+  const check = (c: number, what: string, x: number, z: number) => {
+    const key = `${c}:${Math.round(x * 2)}:${Math.round(z * 2)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    looked++;
+    const y = masonYard(c);
+    const covered = A0.local.covers(c, x, z);
+    const cost = covered ? A0.local.cost(c, x, z, y.x, y.z) : LOCAL_INF;
+    if (cost >= LOCAL_INF) {
+      bad++;
+      flag(0, `${label}: castle ${c}'s ${what} at (${x.toFixed(1)}, ${z.toFixed(1)}) cannot be reached on foot from the masons' yard (${covered ? "no way in the local field" : "outside the castle's box"})`);
+    }
+  };
+  for (const sec of repairSections(L)) {
+    for (const id of sec.stones) {
+      const w = workSpot(L, sec, id);
+      check(sec.castle, `${sec.kind} work spot (${sec.name})`, w.x, w.z);
+    }
+  }
+  for (let i = 0; i < m.emplacements.length; i++) {
+    const e = m.emplacements[i];
+    if (e.empty && !e.allowed) continue;
+    const f = powderFoot(e);
+    check(castleOf(i), `powder foot of slot ${i} (${e.place ?? e.weapon})`, f.x, f.z);
+  }
+  console.log(`reach (${label}): ${looked} distinct work spots and powder feet looked at, ${bad} cannot be reached`);
+}
+for (let k = 0; k < 5; k++) m.step();
+reach(full ? "all eight plots built" : "the start plots");
 
 const n = m.emplacements.length;
 const report = new Int16Array(n * 2);
@@ -116,14 +235,20 @@ const everPlanted = new Set<number>(), carrySince = new Map<number, number>(), c
 /** Ladders whose crew stood near the enemy wall, carrying, with no way in open (the ones a ladder was for). */
 const chance = new Set<number>();
 const ORDERS = ["Advance", "Hold", "Push"];
+/** The order a man marches by: his wave's (a wave mustered under Hold keeps holding until the mast reaches it), else the team's. */
+function manOrder(x: Minion): number {
+  const f = (A as unknown as { orderOf?: (x: Minion) => number }).orderOf;
+  return typeof f === "function" ? f.call(A, x) : A.order[x.team];
+}
 /** The field a man marches on now, or -1 when he holds by order (as the army chooses it). */
 function marchField(x: Minion): number {
   const route = routeField(x.team, x.route);
-  if (A.order[x.team] === Order.Push) {
+  const order = manOrder(x);
+  if (order === Order.Push) {
     const b = breachField(x.team);
     return A.flow.at(b, x.x, x.z) < FLOW_INF ? b : route;
   }
-  if (A.order[x.team] === Order.Hold) {
+  if (order === Order.Hold) {
     const hz = holdMarker(x.team as 0 | 1, ROUTE_NAMES[x.route]).z;
     const past = x.team === 1 ? x.z - hz : hz - x.z;
     if (past > 1.5) return routeField(1 - x.team, x.route);
@@ -192,7 +317,7 @@ function armySecond(t: number) {
     }
     if (t - a.since >= ARMY.stuckFor * 60 && !stillFlagged.has(x.id)) {
       stillFlagged.add(x.id);
-      if (stillFlagged.size <= ARMY.stuckCap) flag(t, `team ${c}'s ${["pike", "mason", "ladder", "sapper", "musket", "boy"][x.unit]} ${x.id} stood ${ARMY.stuckFor} s with nothing to fight at (${x.x.toFixed(1)}, ${x.z.toFixed(1)}), under ${ARMY.stuckMetres} m of progress (order ${ORDERS[A.order[c]]}, wave ${x.wave}, route ${ROUTE_NAMES[x.route]})`);
+      if (stillFlagged.size <= ARMY.stuckCap) flag(t, `team ${c}'s ${["pike", "mason", "ladder", "sapper", "musket", "boy"][x.unit]} ${x.id} stood ${ARMY.stuckFor} s with nothing to fight at (${x.x.toFixed(1)}, ${x.z.toFixed(1)}), under ${ARMY.stuckMetres} m of progress (team order ${ORDERS[A.order[c]]}, his wave's ${ORDERS[manOrder(x)]}, wave ${x.wave}, route ${ROUTE_NAMES[x.route]})`);
       else stuckMore++;
     }
   }
@@ -235,11 +360,46 @@ const keepFell = [-1, -1], keepFellCourse = [-1, -1], keepFellFlagged = [false, 
 const keepBuilt = [0, 0], keepLowSince = [-1, -1], keepLowFlagged = [false, false];
 const keepIds = [0, 1].map((c) => (structs.length ? structs[c * 5].stones.filter((id) => layout.stones[id].part === "keep") : []));
 for (let c = 0; c < 2; c++) keepBuilt[c] = keepIds[c].filter((id) => !dyn[id]).length;
-const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})`;
+const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})${m.world.organs && !m.organUp(c as 0 | 1, "crane") ? ", the crane down" : ""}`;
+
+// 3.5 machines hunts: state. Per organ in layout order: since when it has been down with the Works work possible (-1: not), since when
+// it has waited on its footing with that footing's repairs on, and whether each was flagged; the seconds it was down.
+const ORG = { down: 120, footing: 240, masons: 2, gold: 100 };
+const organs = m.world.organs;
+const nOrg = L.organs.length;
+const oDownSince = new Array<number>(nOrg).fill(-1), oFootSince = new Array<number>(nOrg).fill(-1);
+const oDownFlagged = new Array<boolean>(nOrg).fill(false), oFootFlagged = new Array<boolean>(nOrg).fill(false);
+const oDownTicks = new Array<number>(nOrg).fill(0), oDowns = new Array<number>(nOrg).fill(0), oWasDown = new Array<boolean>(nOrg).fill(false);
+const WAIT_NAMES = ["none", "its footing", "the crane", "Works repairs off", "busy masons"];
+const hasOrderOf = typeof (A as unknown as { orderOf?: unknown }).orderOf === "function";
+const orderOf = (x: Minion): number => (A as unknown as { orderOf: (x: Minion) => number }).orderOf(x);
+if (!hasOrderOf) console.log("note: army.orderOf is not there yet: the lost-orders hunt is skipped");
+/** Per man: the tick he was first seen mustered; per team, the tick of the last change of standing order; and whether the lost-orders flag was raised. */
+const musterSeen = new Set<number>();
+const lastChange = [-1, -1], orderLostFlagged = [false, false];
+let orderChecks = 0, orderChecksDown = 0;
+function ordersHunt(t: number) {
+  if (!hasOrderOf) return;
+  for (const x of m.world.minions.list) {
+    if (x.wave < 0 || musterSeen.has(x.id)) continue;
+    musterSeen.add(x.id);
+    const c = x.team;
+    // A change this very sample may not have reached the man yet: judged only when the order has stood since before this sample.
+    if (t - lastChange[c] < 12 || !ais[c]) continue;
+    orderChecks++;
+    if (m.organUp(c as 0 | 1, "mast")) continue;
+    orderChecksDown++;
+    if (orderOf(x) !== A.order[c] && !orderLostFlagged[c]) {
+      orderLostFlagged[c] = true;
+      flag(t, `team ${c}'s man ${x.id} (wave ${x.wave}) mustered with its signal mast down carries order ${ORDERS[orderOf(x)]} while the team's standing order is ${ORDERS[A.order[c]]} (a wave that musters after a change must carry the new order)`);
+    }
+  }
+}
 
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   for (const ai of ais) ai?.step();
   m.step();
+  if (tick % 6 === 5) ordersHunt(m.tick);
   // The orders each AI gives, read every tick (an order input can land between two samples).
   for (const c of [0, 1]) {
     if (!ais[c]) continue;
@@ -247,6 +407,7 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
     if (o !== lastOrder[c]) {
       const prev = changes[c][changes[c].length - 1];
       changes[c].push(m.tick);
+      lastChange[c] = m.tick;
       lastOrder[c] = o;
       if (prev !== undefined && m.tick - prev < ARMY.churnGap * 60 && !flipFlagged[c]) {
         flipFlagged[c] = true;
@@ -325,6 +486,45 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   if (tick % 60 !== 59) continue;
   const t = m.tick;
   armySecond(t);
+  if (organs) {
+    for (let k = 0; k < nOrg; k++) {
+      const c = L.organs[k].castle, kind = ORGAN_KINDS[L.organs[k].organ];
+      const down = !organs.works[k];
+      if (down) oDownTicks[k] += 60;
+      if (down && !oWasDown[k]) oDowns[k]++;
+      oWasDown[k] = down;
+      const wait = organs.wait[k];
+      const crew = m.world.works ? m.world.works.status(c) : null;
+      const able = !!crew && crew.masons >= ORG.masons && m.gold[c] > ORG.gold;
+      const where = `castle ${c}'s ${ORGANS[kind].name}`;
+      // Enemy men within the masons' unsafe distance of the organ's middle (as laid out): masons rightly keep away.
+      const ids = organs.ids[k];
+      let ox = 0, oz = 0;
+      for (const id of ids) (ox += L.stones[id].x, oz += L.stones[id].z);
+      ox /= ids.length;
+      oz /= ids.length;
+      const threat = A.enemyNear(c, ox, oz, REPAIR.unsafe);
+      const state = `wait: ${WAIT_NAMES[wait] ?? wait}, ${organs.up[k]} of ${ids.length} pieces stand; ${crew ? crew.masons : 0} masons (${crew ? crew.job : "-"}), gold ${m.gold[c]}, repairs ${JSON.stringify(m.repairs[c])}`;
+      // An organ down while the Works work is possible, no enemy near it, and it waits neither on its footing nor on the
+      // crane (which is judged by its own entry): it should be going back up.
+      if (down && m.repairs[c].works && able && !threat && wait !== OrganWait.Footing && wait !== OrganWait.Crane) {
+        if (oDownSince[k] < 0) oDownSince[k] = t;
+        if (!oDownFlagged[k] && t - oDownSince[k] > ORG.down * 60) {
+          oDownFlagged[k] = true;
+          flag(t, `${where} has been down ${((t - oDownSince[k]) / 60).toFixed(0)} s with Works repairs on, masons standing and gold to spend, and is not waiting on its footing (${state})`);
+        }
+      } else oDownSince[k] = -1;
+      // An organ waiting on its footing (the tower top, the keep's roof) while that footing's repairs are on and its masons can work.
+      const footOn = kind === "bell" ? m.repairs[c].towers : kind === "mast" ? m.repairs[c].keep : false;
+      if (down && wait === OrganWait.Footing && footOn && able) {
+        if (oFootSince[k] < 0) oFootSince[k] = t;
+        if (!oFootFlagged[k] && t - oFootSince[k] > ORG.footing * 60) {
+          oFootFlagged[k] = true;
+          flag(t, `${where} has waited ${((t - oFootSince[k]) / 60).toFixed(0)} s on its footing with that footing's repairs on, masons standing and gold to spend: the footing is never mended (${state})`);
+        }
+      } else oFootSince[k] = -1;
+    }
+  }
   if (statics) {
     for (const d of structs) {
       // Groaning, or holding under 0.3, for over 120 s without falling or mending past 0.6.
@@ -425,7 +625,7 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       // The magazine: a ruin (or a rebuild with no piece raised) for 90 s while the gold for the rebuild was there, and no other magazine stands.
       const st = m.world.structures!;
       let bad = false, other = false;
-      for (let p = 0; p < 6; p++) {
+      for (let p = 0; p < PLOTS.length; p++) {
         const s = st.slot(c, p);
         if (s.kind !== MAGAZINE) continue;
         if (s.state === PlotState.Standing || (s.state === PlotState.Rising && s.up > 0)) other = true;
@@ -436,7 +636,7 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       else if (magSince[c] < 0) magSince[c] = t;
       if (!magFlagged[c] && magSince[c] >= 0 && t - magSince[c] > POW.ruin * 60) {
         magFlagged[c] = true;
-        const mp = [0, 1, 2, 3, 4, 5].filter((p) => st.slot(c, p).kind === MAGAZINE).map((p) => `plot ${p} state ${st.slot(c, p).state} up ${st.slot(c, p).up}`).join("; ");
+        const mp = PLOTS.map((q) => q.index).filter((p) => st.slot(c, p).kind === MAGAZINE).map((p) => `plot ${p} state ${st.slot(c, p).state} up ${st.slot(c, p).up}`).join("; ");
         flag(t, `castle ${c}'s magazine could not be rebuilt for ${POW.ruin} s with the gold there (${mp}; gold ${m.gold[c]}; stock ${stockOf(c)}, boxes ${boxes(c)})`);
       }
     }
@@ -506,6 +706,14 @@ const summary = [0, 1].map((c) => {
 console.log(`seed ${seed}, ${sides[0]} (castle 0) against ${sides[1]} (castle 1), ${clock(end)} played: ${m.result ? (m.result.winner < 0 ? `a draw (${m.result.reason})` : `won by castle ${m.result.winner} (${m.result.reason})`) : "no result yet"}`);
 for (const s of summary) console.log("  " + s);
 console.log("  army: " + armyLine);
+if (organs) {
+  const names = [0, 1].map((c) => ORGAN_KINDS.map((kn, o) => {
+    const k = organs.index(c, o);
+    return k < 0 ? `${kn} -` : `${kn} down ${oDowns[k]}x, ${(oDownTicks[k] / 60).toFixed(0)} s`;
+  }).join(", "));
+  console.log(`  organs: castle 0: ${names[0]}; castle 1: ${names[1]}`);
+  if (hasOrderOf) console.log(`  orders: ${orderChecks} newly mustered men checked, ${orderChecksDown} of them with the mast down`);
+}
 console.log(flags.length ? `${flags.length} flagged` : "nothing flagged");
 m.free();
 process.exit(flags.length ? 1 : 0);

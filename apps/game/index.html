@@ -196,6 +196,8 @@ input[type="range"] { accent-color: var(--brass); width: 120px; }
 .yard .plot b, .yard .gunpick b { font: 500 13px/1 var(--mono); color: var(--brass); }
 .yard .plot { gap: 1px; }
 .yard .plot span { font-size: 10px; line-height: 1; }
+.yard .plot.thin { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 0 1px; }
+.yard .plot.thin span { font-size: 8px; }
 .yard .plot.empty { border-style: dashed; background: transparent; color: var(--ink-dim); }
 .yard .plot.ruin { border-color: var(--bad); color: var(--bad); }
 .yard .plot.sel, .yard .gunpick.sel { outline: 2px solid var(--aim); outline-offset: 1px; }
@@ -239,6 +241,7 @@ button[aria-pressed="true"] { box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.22), 0 
 .feat-toast small { font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase; color: var(--brass); }
 .feat-toast b { font: 20px/1.1 var(--display); font-weight: 400; }
 .feat-toast span { font: 400 12px/1.3 var(--ui); color: var(--ink-dim); }
+.feat-toast span:empty { display: none; }
 .feat-toast.show { animation: note-in 260ms ease-out; }
 .feats { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px 16px; max-height: min(56vh, 460px); overflow: auto; }
 .feats li { display: grid; grid-template-columns: 1fr auto; gap: 0 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
@@ -649,7 +652,7 @@ body.photoing #replay { visibility: hidden; }
       <div class="gangs" id="gangs" hidden></div>
       <div class="seg" role="group" aria-label="Orders for all your waves (Ctrl+1, 2, 3)"><button data-order="0" title="Advance on the enemy gate (Ctrl+1)">Advance</button><button data-order="1" title="Hold at the midfield markers (Ctrl+2)">Hold</button><button data-order="2" title="Push through the nearest breach (Ctrl+3)">Push</button></div>
       <div class="cmd-head"><span>Repairs</span><span class="masons" id="masons"></span></div>
-      <div class="seg toggles" role="group" aria-label="Your masons' repairs (Alt+1, 2, 3, 4)"><button data-repair="gate" aria-pressed="true" title="Masons repair the gate (Alt+1)">Gate</button><button data-repair="walls" aria-pressed="true" title="Masons repair the walls (Alt+2)">Walls</button><button data-repair="towers" aria-pressed="true" title="Masons repair the towers (Alt+3)">Towers</button><button data-repair="keep" aria-pressed="true" title="Masons repair the keep (Alt+4)">Keep</button></div>
+      <div class="seg toggles" role="group" aria-label="Your masons' repairs (Alt+1 to 5)"><button data-repair="gate" aria-pressed="true" title="Masons repair the gate (Alt+1)">Gate</button><button data-repair="walls" aria-pressed="true" title="Masons repair the walls (Alt+2)">Walls</button><button data-repair="towers" aria-pressed="true" title="Masons repair the towers (Alt+3)">Towers</button><button data-repair="keep" aria-pressed="true" title="Masons repair the keep (Alt+4)">Keep</button><button data-repair="works" aria-pressed="true" title="Masons repair the bell, the crane and the signal mast (Alt+5)">Works</button></div>
       <span class="mono" id="army-count" hidden></span>
       <div id="marks-row" class="marks-row" hidden>
         <div class="cmd-head"><span>Marks</span><span id="salvo-line"></span></div>
@@ -683,7 +686,7 @@ body.photoing #replay { visibility: hidden; }
       <dt>L</dt><dd>Road your waves take: left, centre, right</dd>
       <dt>T, F</dt><dd>T: mark where your shot landed. Guns nobody mans shoot true on marked ground. F then its number: every gun that bears fires there.</dd>
       <dt>Ctrl+1, 2, 3</dt><dd>Waves: advance on the gate, hold at midfield, push the breach</dd>
-      <dt>Alt+1 to 4</dt><dd>Masons' repairs on or off: gate, walls, towers, keep</dd>
+      <dt>Alt+1 to 5</dt><dd>Masons' repairs on or off: gate, walls, towers, keep, works</dd>
       <dt>Enter</dt><dd>Order line: type orders in plain words ("mill, then waves left"), Enter sends, Esc closes. Aiming goes on behind it</dd>
       <dt id="steward-voice-dt" hidden>Y (hold)</dt><dd id="steward-voice-dd" hidden>Speak an order; let go to send it</dd>
       <dt>C (hold)</dt><dd>The mason's eye: tints the keep or tower under your sight by how near it is to falling, with a plumb line and the way it would fall. In the overview, your own castle and the enemy's under the mouse</dd>
@@ -738,7 +741,7 @@ body.photoing #replay { visibility: hidden; }
   <div id="paused" class="pausedbadge glass" hidden role="status">Paused <span class="small"><kbd>P</kbd> resumes</span></div>
   <div id="floats" class="floats" aria-hidden="true"></div>
   <div id="feed" class="feed" aria-hidden="true"></div>
-  <div id="feat-toast" class="feat-toast glass" hidden role="status"><small>Feat</small><b id="feat-toast-name"></b><span id="feat-toast-hint"></span></div>
+  <div id="feat-toast" class="feat-toast glass" hidden role="status"><small id="feat-toast-tag">Feat</small><b id="feat-toast-name"></b><span id="feat-toast-hint"></span></div>
   <div id="msgs" class="msgs">
     <div id="note" class="hint glass" hidden role="status"></div>
     <div id="trick" class="hint glass trick" hidden role="status"></div>

@@ -12,6 +12,7 @@ import {
   BUILDING_REBUILD,
   BUTTRESS,
   BUTTRESS_FACES,
+  allowedOn,
   BUILDINGS,
   MIX_NAMES,
   PLOTS,
@@ -41,7 +42,9 @@ const KIND_NAMES = BUILDING_KINDS.map((k) => BUILDINGS[k].name);
  * The names on the courtyard map's plots: short, with soft hyphens, so a narrow plot (by the keep, at the back) breaks
  * a long word ("Maga-zine") instead of cutting it off. The list beside the map gives the full names.
  */
-const TILE_NAMES = KIND_NAMES.map((n) => n.replace("Powder Mill", "Mill").replace("Magazine", "Maga\u00adzine").replace("Foundry", "Found\u00adry").replace("Barracks", "Bar\u00adracks"));
+const TILE_NAMES = KIND_NAMES.map((n) => n.replace("Powder Mill", "Mill").replace("Magazine", "Maga\u00adzine").replace("Foundry", "Found\u00adry").replace("Barracks", "Bar\u00adracks").replace("Spotter's Tower", "Spot\u00adter"));
+/** The names on a thin plot's tile (3.5: the two behind the keep), a few letters each, by kind. */
+const THIN_NAMES = ["Bar.", "Mill", "Fdry", "Mag.", "Spot"];
 const ROUTE_LABEL: Record<RouteName, string> = { left: "Left flank", centre: "Centre road", right: "Right flank" };
 
 interface PlotInfo {
@@ -65,10 +68,18 @@ interface Choice {
   from?: boolean;
 }
 
-/** Menu pages besides the list (-1) and the plots (0 to 5): the gun you ride, a gun slot (+ slot), the guns to upgrade. */
-const RIDDEN = 6, SLOT = 10, UPGRADE_LIST = 20, BUTTRESS_LIST = 30;
+/** Menu pages besides the list (-1) and the plots (0 to 7): the gun you ride, a gun slot (+ slot), the guns to upgrade. */
+const RIDDEN = 9, SLOT = 10, UPGRADE_LIST = 20, BUTTRESS_LIST = 30;
 /** Plots a new building takes first: the back ones, out of the enemy's easy reach, then the sides, then the front. */
-const PLOT_ORDER = [4, 5, 2, 3, 1, 0];
+const PLOT_ORDER = [6, 7, 4, 5, 2, 3, 1, 0];
+
+/** 3.5: the plots a kind may take, as a player counts them (from 1): "Plots 5 to 8", "Plots 1, 3 and 6". */
+export function plotsText(plots: number[]): string {
+  const p = [...plots].sort((a, b) => a - b).map((n) => n + 1);
+  if (p.length === 1) return `Plot ${p[0]}`;
+  if (p[p.length - 1] - p[0] === p.length - 1) return `Plots ${p[0]} to ${p[p.length - 1]}`;
+  return `Plots ${p.slice(0, -1).join(", ")} and ${p[p.length - 1]}`;
+}
 
 export interface WheelState {
   gold: number;
@@ -91,7 +102,7 @@ export interface WheelState {
 
 export class BuildWheel {
   isOpen = false;
-  /** -1 nothing chosen; 0..5 a plot; 6 the gun. */
+  /** -1 nothing chosen; 0..7 a plot; 9 the gun. */
   private target = -1;
   private plots: PlotInfo[] = PLOTS.map(() => ({ kind: -1, state: EMPTY, share: 0, health: 0 }));
   private state: WheelState = { gold: 0, team: 1, barracks: null, foundry: false, gun: null, gunSlot: 0, guns: [] };
@@ -214,8 +225,11 @@ export class BuildWheel {
       const x = s.team === 1 ? -p.x : p.x;
       const z = p.z;
       const what = v.kind < 0 ? "Empty" : `${TILE_NAMES[v.kind]}${v.state === RISING ? ` ${Math.round(v.share * 100)}%` : v.state === RUINED ? " (ruined)" : ""}`;
-      const cls = `plot${this.target === i ? " sel" : ""}${v.state === RUINED ? " ruin" : ""}${v.kind < 0 ? " empty" : ""}`;
-      return `<button class="${cls}" data-pick="${i}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b><span>${what}</span></button>`;
+      const cls = `plot${p.d < 3 ? " thin" : ""}${this.target === i ? " sel" : ""}${v.state === RUINED ? " ruin" : ""}${v.kind < 0 ? " empty" : ""}`;
+      // A thin plot (behind the keep) is too narrow for a word beside its number: an empty one shows only the number, a built one a short name.
+      const thin = p.d < 3;
+      const short = v.kind < 0 ? "" : `${THIN_NAMES[v.kind] ?? ""}${v.state === RISING ? ` ${Math.round(v.share * 100)}%` : v.state === RUINED ? " (ruin)" : ""}`;
+      return `<button class="${cls}" data-pick="${i}" title="Plot ${i + 1}: ${what}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b>${thin && !short ? "" : `<span>${thin ? short : what}</span>`}</button>`;
     };
     const gold = `<b class="goldtxt">${s.gold} gold</b>`;
     const slotGun = t >= SLOT && t < SLOT + 8 ? s.guns[t - SLOT] : t === RIDDEN ? s.gun : null;
@@ -248,6 +262,7 @@ export class BuildWheel {
     const out: Choice[] = [];
     if (v.state === EMPTY) {
       for (const k of BUILDING_KINDS as BuildingKind[]) {
+        if (!allowedOn(k, i)) continue; // 3.5: a plot's page offers only the kinds that may stand there
         const b = BUILDINGS[k];
         out.push({ label: b.name, detail: `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`, cost: b.cost, ok: s.gold >= b.cost, input: { kind: "build", plot: i, building: k } });
       }
@@ -292,16 +307,18 @@ export class BuildWheel {
       const cost = Math.round(BUILDINGS[k].cost * BUILDING_REBUILD);
       out.push({ label: `Rebuild the ${BUILDINGS[k].name}`, detail: `Plot ${i + 1}, ${plotName(s.team, i)}; half price`, cost, ok: s.gold >= cost, input: { kind: "build", plot: i, building: k } });
     });
-    const free = PLOT_ORDER.find((p) => this.plots[p].state === EMPTY);
+    const freeFor = (k: BuildingKind) => PLOT_ORDER.find((p) => this.plots[p].state === EMPTY && allowedOn(k, p));
     // The magazine: one a castle, standing or rising (a ruin is rebuilt from the list above).
     const hasMagazine = this.plots.some((v) => v.kind >= 0 && BUILDING_KINDS[v.kind] === "magazine" && (v.state === STANDING || v.state === RISING));
     // Gold first (the cheapest and the one a new castle wants), then waves, then upgrades.
-    for (const k of ["mill", "barracks", "foundry", "magazine"] as BuildingKind[]) {
+    for (const k of ["mill", "barracks", "foundry", "magazine", "spotter"] as BuildingKind[]) {
       const b = BUILDINGS[k];
       if (k === "magazine" && s.powder === null) continue; // a match without powder has no use for one
       const one = k === "magazine" && hasMagazine;
+      const free = freeFor(k);
       const ok = free !== undefined && s.gold >= b.cost && !one;
-      const detail = one ? "You have one" : free === undefined ? "Every plot is taken" : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build`;
+      const where = b.plots.length < PLOTS.length ? `. ${plotsText(b.plots)}` : "";
+      const detail = one ? "You have one" : free === undefined ? `No free plot: it takes ${plotsText(b.plots).toLowerCase()}` : `${b.blurb}; ${Math.round(b.buildTicks / 60)} s to build${where}`;
       out.push({ label: b.name, detail, cost: b.cost, ok, input: free === undefined || one ? null : { kind: "build", plot: free, building: k } });
     }
     // Powder: bought at once at the working magazine.

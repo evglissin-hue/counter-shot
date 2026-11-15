@@ -8,21 +8,25 @@
 // wall and fires along +Z.
 
 import { DPI, dcos, dsin, dsqrt, quatY, quatYX, Rng } from "@keepfall/core";
-import { BUILDING_KINDS, buildingPieces, PLOTS } from "./buildings";
+import { BUILDING_KINDS, BUILDINGS, buildingPieces, PLOTS } from "./buildings";
 import { DIST } from "./field";
 import { BRIDGES, bridgePieces, valleyHeight, type BridgeSite } from "./map";
 import { BUTTRESS, BUTTRESS_FACES, type ButtressFace } from "./buttress";
+import { ORGAN_KINDS, organPieces } from "./organs";
 
 export type Shape = "box" | "wedge";
-export type Material = "stone" | "wood" | "plaster" | "roof" | "banner";
+/** 3.5: "iron" is the bell's (density 7,800). */
+export type Material = "stone" | "wood" | "plaster" | "roof" | "banner" | "iron";
 /**
  * "floor" is the lab layout's single keep platform. "storey" is a board of the
  * keep's timber floors (layout option keepFloors): only bursts and direct hits
  * break one, not falling rubble, so each shell caves in one level.
  * "buttress" is a pier of a keep's buttress (3.4, layout option buttresses):
  * masonry of the keep once it is bought, withdrawn until then.
+ * "organ" is a piece of one of a castle's organs (3.5, layout option organs:
+ * the bell, the crane, the signal mast; Stone.organ says which).
  */
-export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge" | "buttress";
+export type Part = "wall" | "tower" | "keep" | "merlon" | "house" | "roof" | "gate" | "floor" | "storey" | "banner" | "bridge" | "buttress" | "organ";
 export type Quat = [number, number, number, number];
 
 export interface Stone {
@@ -49,9 +53,11 @@ export interface Stone {
   span?: boolean;
   /** A bridge deck plank: the nav grid walks on it whatever lies below. */
   deck?: boolean;
-  /** A piece of a plot's building (M3, layout option plots): the plot (0 to 5) and the building kind (index into BUILDING_KINDS). */
+  /** A piece of a plot's building (M3, layout option plots): the plot (0 to 7) and the building kind (index into BUILDING_KINDS). */
   plot?: number;
   building?: number;
+  /** 3.5: a piece of one of the castle's organs (layout option organs): the organ (index into ORGAN_KINDS). */
+  organ?: number;
   /**
    * Dressed, well bonded masonry (M5, layout option keep): a blast reaches
    * only 1/hard as far into this piece, and a ball that strikes it keeps less
@@ -114,6 +120,13 @@ export interface CastleLayout {
    * it is bought.
    */
   buttresses: Array<{ castle: 0 | 1; face: ButtressFace; first: number; count: number }>;
+  /**
+   * 3.5 (layout option organs): each castle's organs, castle 0's then castle
+   * 1's, each in ORGAN_KINDS order, with the id range of its pieces (lowest
+   * first) and the id of its key piece. Empty without the option. They stand
+   * from the first tick.
+   */
+  organs: Array<{ castle: 0 | 1; organ: number; first: number; count: number; key: number }>;
 }
 
 export { DIST } from "./field";
@@ -469,6 +482,8 @@ type PlotRange = { plot: number; kind: number; first: number; count: number };
 
 type ButtressRange = { side: "front" | "back" | "west" | "east"; first: number; count: number };
 
+type OrganRange = { organ: number; first: number; count: number; key: number };
+
 function oneCastle(
   seed: number,
   wedge: WedgeSpec,
@@ -476,7 +491,9 @@ function oneCastle(
   plots: boolean,
   keep: KeepOptions = {},
   buttresses = false,
-): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[]; buttresses: ButtressRange[] } {
+  organs = false,
+  castle: 0 | 1 = 0,
+): { stones: Stone[]; bannerId: number; platformTop: number; plots: PlotRange[]; buttresses: ButtressRange[]; organs: OrganRange[] } {
   const b = new Builder(seed);
   const e = TOWER_R_OUT - 0.13; // wall ends just inside the tower's skin
   // Front wall (z = -T) with the gate, back wall, and the two side walls.
@@ -512,9 +529,10 @@ function oneCastle(
   const butt = buttresses ? b.buttresses(keep.footHard ?? keep.hard) : [];
   const ranges: PlotRange[] = [];
   if (plots) {
-    // M3: every kind of building stands ready on every plot (the sim keeps only what is built).
+    // M3: every kind of building stands ready on every plot it may take (3.5 rule 5; the sim keeps only what is built).
     for (const plot of PLOTS) {
       BUILDING_KINDS.forEach((kind, k) => {
+        if (!BUILDINGS[kind].plots.includes(plot.index)) return;
         const first = b.stones.length;
         for (const p of buildingPieces(kind, plot)) b.add({ ...p, shape: "box", plot: plot.index, building: k });
         ranges.push({ plot: plot.index, kind: k, first, count: b.stones.length - first });
@@ -541,7 +559,21 @@ function oneCastle(
     q: IDENTITY,
     course: KEEP_COURSES,
   });
-  return { stones: b.stones, bannerId: banner.id, platformTop, plots: ranges, buttresses: butt };
+  // 3.5: the organs, after the banner (so every piece before them keeps its id and its shade).
+  const organRanges: OrganRange[] = [];
+  if (organs) {
+    ORGAN_KINDS.forEach((kind, k) => {
+      const first = b.stones.length;
+      let key = -1;
+      for (const p of organPieces(kind, castle)) {
+        const { key: isKey, ...piece } = p;
+        const st = b.add({ ...piece, shape: "box", organ: k });
+        if (isKey) key = st.id;
+      }
+      organRanges.push({ organ: k, first, count: b.stones.length - first, key });
+    });
+  }
+  return { stones: b.stones, bannerId: banner.id, platformTop, plots: ranges, buttresses: butt, organs: organRanges };
 }
 
 /** Builds both castles and the neighbour graph. Same input, same output, on every machine. */
@@ -566,6 +598,8 @@ export interface LayoutOptions {
   keep?: KeepOptions;
   /** 3.4: buttresses laid out against each keep's four faces (BUTTRESS), withdrawn until bought. Off in the lab, whose reference hash predates them. */
   buttresses?: boolean;
+  /** 3.5: each castle's organs (content organs.ts: the bell, the crane, the signal mast), standing from the start. Off in the lab, whose reference hash predates them. */
+  organs?: boolean;
 }
 
 /** How a keep is built (M5). Everything absent is the old keep. */
@@ -583,16 +617,17 @@ export interface KeepOptions {
 /** The match keep: thick, hard walls and floors that crack under the first shell and give way under the next; 3.4: a harder foot (and buttresses), so cutting it is a siege of its own. */
 export const MATCH_KEEP: KeepOptions = { thick: 2.0, hard: 2, storeyHits: 2, footHard: 4 };
 
-/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots, the sturdy keep, the keep's buttresses (3.4). */
-export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true, keep: MATCH_KEEP, buttresses: true };
+/** The game's world (practice range and matches): wedges mirrored properly, timber floors in the keeps, the valley's bridges, the courtyards' plots, the sturdy keep, the keep's buttresses (3.4), the organs (3.5). */
+export const GAME_LAYOUT: LayoutOptions = { mirrorWedges: true, keepFloors: true, bridges: BRIDGES, plots: true, keep: MATCH_KEEP, buttresses: true, organs: true };
 
 export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
   const wedge = makeWedge();
   const floors = opts.keepFloors === true;
   const withPlots = opts.plots === true;
   const butt = opts.buttresses === true;
-  const enemy = oneCastle(seed, wedge, floors, withPlots, opts.keep, butt);
-  const player = oneCastle(seed + 1, wedge, floors, withPlots, opts.keep, butt);
+  const withOrgans = opts.organs === true;
+  const enemy = oneCastle(seed, wedge, floors, withPlots, opts.keep, butt, withOrgans, 0);
+  const player = oneCastle(seed + 1, wedge, floors, withPlots, opts.keep, butt, withOrgans, 1);
   const stones: Stone[] = [];
   for (const s of enemy.stones) stones.push({ ...s, id: stones.length, castle: 0 });
   const offset = stones.length;
@@ -702,6 +737,10 @@ export function buildLayout(seed = 1, opts: LayoutOptions = {}): CastleLayout {
       ...player.plots.map((r) => ({ castle: 1 as const, ...r, first: r.first + offset })),
     ],
     buttresses: [...faceRanges(0, enemy.buttresses, 0), ...faceRanges(1, player.buttresses, offset)],
+    organs: [
+      ...enemy.organs.map((r) => ({ castle: 0 as const, ...r })),
+      ...player.organs.map((r) => ({ castle: 1 as const, ...r, first: r.first + offset, key: r.key + offset })),
+    ],
   };
 }
 

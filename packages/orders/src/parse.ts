@@ -1,5 +1,6 @@
 import {
   BUILDING_REBUILD,
+  allowedOn,
   BUILDINGS,
   BUTTRESS,
   BUTTRESS_FACES,
@@ -77,7 +78,7 @@ import {
 } from "./words";
 
 /** Plots a new building takes first (the build menu's own order): the back ones, then the sides, then the front. */
-const PLOT_ORDER = [4, 5, 2, 3, 1, 0];
+const PLOT_ORDER = [6, 7, 4, 5, 2, 3, 1, 0];
 
 const R_SURRENDER = "Not by words: surrender or leave from the menu";
 const R_FIRE = "Fire and aim are yours: the steward only gives orders";
@@ -443,6 +444,14 @@ function buttress(t: Tokens, w: OrdersView, nope: () => Res): Res {
 
 // Building
 
+/** The plots a kind may take, as a player counts them: "plots 5 to 8", "plots 1, 3 and 6". */
+function plotsText(plots: number[]): string {
+  const p = [...plots].sort((a, b) => a - b).map((n) => n + 1);
+  if (p.length === 1) return `plot ${p[0]}`;
+  if (p[p.length - 1] - p[0] === p.length - 1) return `plots ${p[0]} to ${p[p.length - 1]}`;
+  return `plots ${p.slice(0, -1).join(", ")} and ${p[p.length - 1]}`;
+}
+
 function build(t: Tokens, w: OrdersView, nope: () => Res): Res {
   const rebuild = t.some((x) => REBUILD_WORDS.has(x));
   takeWord(t, (x) => REBUILD_WORDS.has(x) || BUILD_VERBS.has(x) || isOrd(x));
@@ -453,7 +462,7 @@ function build(t: Tokens, w: OrdersView, nope: () => Res): Res {
   if (plotNum !== undefined && (plotNum < 1 || plotNum > w.plots.length)) return fail(`No plot ${plotNum}`);
   const named = plotNum !== undefined || words.length > 0;
   const tokensOf = (i: number) => new Set(lean(plotName(w.team, i)));
-  const matches = (plotNum !== undefined ? [plotNum - 1] : PLOT_ORDER).filter((i) => words.every((x) => tokensOf(i).has(x)));
+  const matches = (plotNum !== undefined ? [plotNum - 1] : PLOT_ORDER.filter((i) => i < w.plots.length)).filter((i) => words.every((x) => tokensOf(i).has(x)));
   const plotSay = (i: number) => `plot ${i + 1}, ${plotName(w.team, i)}`;
 
   if (rebuild) {
@@ -469,7 +478,10 @@ function build(t: Tokens, w: OrdersView, nope: () => Res): Res {
 
   if (!kind) return nope();
   if (kind === "magazine" && magazineUp(w)) return fail("You have a magazine already");
-  const eligible = matches.filter((i) => w.plots[i].state === "empty" || (named && w.plots[i].state === "ruined" && w.plots[i].kind === kind));
+  // 3.5 rule 5: each kind stands only on the plots it lists; a plot it may not take is refused, saying which it may.
+  const allowed = matches.filter((i) => allowedOn(kind, i));
+  if (matches.length > 0 && allowed.length === 0) return fail(`The ${BUILDINGS[kind].name} may only stand on ${plotsText(BUILDINGS[kind].plots)}`);
+  const eligible = allowed.filter((i) => w.plots[i].state === "empty" || (named && w.plots[i].state === "ruined" && w.plots[i].kind === kind));
   if (eligible.length === 0) {
     if (!named) return fail("No free plot");
     if (matches.length === 0) return fail("No plot is called that");
@@ -751,7 +763,7 @@ function repair(t: Tokens, w: OrdersView, nope: () => Res): Res {
     for (const k of picked) target.set(k, !off);
   }
   const steps: Step[] = [];
-  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep" };
+  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep", works: "the works" };
   for (const k of REPAIR_KINDS) {
     const on = target.get(k);
     if (on === undefined || w.repairs[k] === on) continue;

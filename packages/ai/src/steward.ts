@@ -6,6 +6,7 @@
 
 import {
   AI_PLANS,
+  allowedOn,
   BUILDING_KINDS,
   BUILDING_REBUILD,
   BUILDINGS,
@@ -16,6 +17,7 @@ import {
   PLOTS,
   POWDER,
   REGISTER,
+  REPAIR_KINDS,
   ROUTE_NAMES,
   TUTOR,
   UPGRADES,
@@ -46,7 +48,7 @@ export class Steward {
   private order: Order = Order.Advance;
   /** Tick its standing order was last changed (an order holds a while before it changes again). */
   private orderAt = -1e9;
-  private repairs: Record<RepairKind, boolean> = { gate: true, walls: true, towers: true, keep: true };
+  private repairs: Record<RepairKind, boolean> = { gate: true, walls: true, towers: true, keep: true, works: true };
   /** Each barracks plot's route and mix as it last set them (to send only changes), and which route its waves take next in turn. */
   private routes: Array<RouteName | null> = PLOTS.map(() => null);
   private mixes: Array<MixName | null> = PLOTS.map(() => null);
@@ -194,9 +196,9 @@ export class Steward {
     }
     const cost = BUILDINGS.magazine.cost;
     if (ruin && this.gold < cost) return false;
-    // Back plots first (the plot numbers run front to back, so the last free one).
+    // Back plots first (the plot numbers run front to back, so the last free one), on a plot a magazine may take (3.5).
     for (let p = PLOTS.length - 1; p >= 0; p--) {
-      if (st.slot(team, p).state !== PlotState.Empty) continue;
+      if (st.slot(team, p).state !== PlotState.Empty || !allowedOn("magazine", p)) continue;
       if (this.gold >= cost) {
         this.send(tick, { kind: "build", plot: p, building: "magazine" });
         this.magAskedAt = tick;
@@ -242,7 +244,8 @@ export class Steward {
   /** Could a step still be done (or is it in the way of nothing)? */
   private possible(s: AiStep): boolean {
     const m = this.m;
-    if (s.kind === "build") return m.world.structures!.slot(this.team, s.plot).state === PlotState.Empty;
+    // 3.5: a build step on a plot its kind may not take is passed over (the match would refuse it).
+    if (s.kind === "build") return allowedOn(s.building, s.plot) && m.world.structures!.slot(this.team, s.plot).state === PlotState.Empty;
     const e = m.emplacements[firstSlot(this.team) + s.slot];
     if (!e) return false;
     if (s.kind === "buy") return !!e.empty && (e.allowed ?? []).includes(s.weapon);
@@ -433,13 +436,15 @@ export class Steward {
     this.send(tick, { kind: "order", order });
   }
 
-  /** Repairs: the keep and the gate always; walls and towers while there is gold for them. */
+  /** Repairs: the keep, the gate and (3.5) the works always; walls and towers while there is gold for them. */
   private switches(tick: number) {
     const g = this.gold, r = this.repairs;
     // With a margin either way, so the switches do not flick back and forth as gold comes and goes.
     const tutor = this.stage ? TUTOR.repairs[this.stage()] : null;
-    const want: Record<RepairKind, boolean> = tutor ? { gate: tutor.includes("gate"), walls: tutor.includes("walls"), towers: tutor.includes("towers"), keep: false } : { gate: true, keep: true, walls: r.walls ? g >= 15 : g >= 40, towers: r.towers ? g >= 50 : g >= 120 };
-    for (const k of ["gate", "walls", "towers", "keep"] as RepairKind[]) {
+    const want: Record<RepairKind, boolean> = tutor
+      ? { gate: tutor.includes("gate"), walls: tutor.includes("walls"), towers: tutor.includes("towers"), keep: false, works: tutor.includes("works") }
+      : { gate: true, keep: true, works: true, walls: r.walls ? g >= 15 : g >= 40, towers: r.towers ? g >= 50 : g >= 120 };
+    for (const k of REPAIR_KINDS) {
       if (want[k] === this.repairs[k]) continue;
       this.repairs[k] = want[k];
       this.send(tick, { kind: "repair", repair: k, on: want[k] });

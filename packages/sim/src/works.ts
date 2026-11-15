@@ -11,12 +11,13 @@
 // Deterministic: crews and masons in a fixed order, Rapier's deterministic
 // queries sorted, + - * / and comparisons.
 
-import { masonRefuge, masonYard, REPAIR, REPAIR_KINDS, repairCost, repairSections, sectionOf, STRUCTURE, Unit, workSpot, type RepairKind, type RepairSection } from "@keepfall/content";
+import { CRANE, masonRefuge, masonYard, ORGAN_KINDS, REPAIR, REPAIR_ORDER, repairCost, repairSections, sectionOf, STRUCTURE, Unit, workSpot, type RepairKind, type RepairSection } from "@keepfall/content";
 import { DPI, dsqrt } from "@keepfall/core";
 import { Action, type Army, type Emit } from "./army";
 import type { CastleSim } from "./castleSim";
 import { EventKind, WORKS_STRIDE } from "./frame";
 import { MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import { OrganWait, type Organs } from "./organs";
 import type { Terrain } from "./terrain";
 
 /** What a match decides about repairs: which kinds of section a castle repairs, and paying for each stone. */
@@ -89,8 +90,12 @@ export class Works {
     structureOf(id: number): number;
     status(i: number): { holds: number };
   } | null = null;
+  /** 3.5: the world's organs (set by the sandbox once both exist; null without organs). Masons obey the crane and say why an organ waits. */
+  organs: Organs | null = null;
   private sections: RepairSection[];
   private sectionOf: Int16Array;
+  /** Per castle, per organ (ORGAN_KINDS order): its Works section (index into sections), or -1. */
+  private organSec: number[][];
   private dir: [number, number] = [0, 0];
 
   constructor(
@@ -102,6 +107,10 @@ export class Works {
   ) {
     this.sections = repairSections(castle.layout);
     this.sectionOf = sectionOf(castle.layout);
+    this.organSec = [0, 1].map((c) => {
+      const mine = this.sections.filter((sec) => sec.castle === c && sec.kind === "works");
+      return ORGAN_KINDS.map((_, k) => (mine[k] ? mine[k].index : -1));
+    });
     this.crews = [0, 1].map((c) => ({
       castle: c as 0 | 1, wave: -1, masons: [], due: [], job: -1, next: -1, spotX: 0, spotZ: 0, spotJob: -1, hold: WorksHold.Idle, left: 0, laid: 0, cleared: 0, spent: 0,
     }));
@@ -164,9 +173,83 @@ export class Works {
     return n;
   }
 
-  /** 3.4: may masons put this piece back (not a buttress that is not bought)? */
+  /** 3.4: may masons put this piece back (not a buttress that is not bought)? 3.5: and, with the crane down, only low work. */
   private may(id: number): boolean {
-    return !this.castle.busy[id] && (this.mendable === null || this.mendable(id));
+    return !this.castle.busy[id] && (this.mendable === null || this.mendable(id)) && !this.high(id);
+  }
+
+  /** 3.5: is this piece high work (its foot at CRANE.low or above) while its castle's crane does not work? The crane's own pieces are never high work. */
+  private high(id: number): boolean {
+    const o = this.organs;
+    if (!o) return false;
+    const s = this.castle.layout.stones[id];
+    if (s.castle === 2) return false;
+    const crane = ORGAN_KINDS.indexOf("crane");
+    if (s.organ === crane || o.working(s.castle, crane)) return false;
+    return s.y - s.hy >= CRANE.low;
+  }
+
+  /**
+   * 3.5: can masons do the work that saves this section's structure now? With the crane working, yes; with it down, only
+   * if the down piece (standing on something) in the course carrying the most for what is left is low work. A tower whose
+   * cut is above CRANE.low waits for the crane, not the crew laying low pieces that do not save it.
+   */
+  private savable(sec: RepairSection): boolean {
+    const o = this.organs, st = this.statics;
+    if (!o || !st || o.working(sec.castle, ORGAN_KINDS.indexOf("crane"))) return true;
+    const i = st.structureOf(sec.stones[0]);
+    if (i < 0) return true;
+    const L = this.castle.layout;
+    let best = -Infinity, high = false;
+    for (const id of sec.stones) {
+      if (!this.castle.dynamic[id] || this.castle.busy[id] || (this.mendable !== null && !this.mendable(id)) || !this.supported(id)) continue;
+      const q = st.ratio(i, L.stones[id].course);
+      if (q > best) {
+        best = q;
+        high = L.stones[id].y - L.stones[id].hy >= CRANE.low;
+      }
+    }
+    return best > -Infinity && !high;
+  }
+
+  /** 3.5: the crane's section when it does not work and has a piece that can go back now, else -1. */
+  private craneFirst(crew: Crew): number {
+    const o = this.organs;
+    const crane = ORGAN_KINDS.indexOf("crane");
+    const k = this.organSec[crew.castle][crane];
+    if (!o || k < 0 || o.working(crew.castle, crane) || !this.allowed(crew.castle, "works")) return -1;
+    const sec = this.sections[k];
+    for (const id of sec.stones) {
+      if (!this.castle.dynamic[id] || !this.may(id) || !this.supported(id)) continue;
+      const w = workSpot(this.castle.layout, sec, id);
+      return this.army.enemyNear(crew.castle, w.x, w.z, unsafe(sec)) ? -1 : k;
+    }
+    return -1;
+  }
+
+  /** 3.5: say why each organ of the crew's castle that is down is not being put back (Organs.wait). */
+  private setWaits(crew: Crew) {
+    const o = this.organs;
+    if (!o) return;
+    const crane = ORGAN_KINDS.indexOf("crane");
+    const craneUp = o.working(crew.castle, crane);
+    for (let k = 0; k < ORGAN_KINDS.length; k++) {
+      const i = o.index(crew.castle, k);
+      if (i < 0) continue;
+      let w: OrganWait;
+      if (o.works[i] || (crew.job >= 0 && crew.job === this.organSec[crew.castle][k])) w = OrganWait.None;
+      else if (!this.allowed(crew.castle, "works")) w = OrganWait.Off;
+      else {
+        let ground = 0, low = 0;
+        for (const id of o.ids[i]) {
+          if (!this.castle.dynamic[id] || !this.supported(id)) continue;
+          ground++;
+          if (!this.high(id)) low++;
+        }
+        w = ground === 0 ? OrganWait.Footing : !craneUp && k !== crane && low === 0 ? OrganWait.Crane : OrganWait.Busy;
+      }
+      o.wait[i] = w;
+    }
   }
 
   /** Does what this piece rests on stand (or is there masonry beside it to bond to)? Gate leaves do not carry the wall over them for this. */
@@ -194,20 +277,32 @@ export class Works {
     return true;
   }
 
-  /** Choose the crew's section (keep it while it has work) and the stone that goes back next. */
+  /** Choose the crew's section and the stone that goes back next, then say why each organ that is down waits. */
   private plan(crew: Crew) {
+    this.planJob(crew);
+    this.setWaits(crew);
+  }
+
+  /**
+   * Choose the crew's section (keep it while it has work) and the stone that goes back next. `avoid`: a section given up
+   * on this plan (the crane, when every piece of it that could go back is blocked where it goes).
+   */
+  private planJob(crew: Crew, avoid = -1) {
     const team = crew.castle;
     if (crew.job >= 0) {
       const sec = this.sections[crew.job];
       if (!this.allowed(team, sec.kind) || this.down(sec) === 0) crew.job = -1;
     }
-    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at.
-    if (this.statics) {
-      const cur = crew.job >= 0 ? this.sections[crew.job] : null;
-      if (!cur || !this.urgent(cur)) {
-        const u = this.pickUrgent(crew);
-        if (u >= 0) crew.job = u;
-      }
+    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at, while the course
+    // that saves it is work they can do (3.5: low work, with the crane down). 3.5: then, with the crane down, the crane
+    // (its own pieces are low work) before anything else: without it nothing above CRANE.low goes back.
+    let cf = this.craneFirst(crew);
+    if (cf === avoid) cf = -1;
+    const cur = crew.job >= 0 ? this.sections[crew.job] : null;
+    if (!(cur && this.statics && this.urgent(cur) && this.savable(cur))) {
+      const u = this.statics ? this.pickUrgent(crew) : -1;
+      if (u >= 0) crew.job = u;
+      else if (cf >= 0) crew.job = cf;
     }
     if (crew.job < 0) crew.job = this.pickJob(crew);
     if (crew.job < 0) {
@@ -272,16 +367,20 @@ export class Works {
       break;
     }
     crew.next = found >= 0 ? found : blocked;
-    if (crew.next < 0) {
+    // 3.5: the crane first, unless every piece of it that could go back is blocked where it goes: then other work meanwhile.
+    const craneBlocked = cf >= 0 && crew.job === cf && found < 0;
+    if (crew.next < 0 || craneBlocked) {
       // Nothing here can go back yet (what it rests on is down in another section): another job first.
       const other = this.pickJob(crew, crew.job);
       if (other >= 0 && other !== crew.job) {
         crew.job = other;
-        this.plan(crew);
+        this.planJob(crew, craneBlocked ? cf : -1);
         return;
       }
-      crew.hold = WorksHold.Idle;
-      return;
+      if (crew.next < 0) {
+        crew.hold = WorksHold.Idle;
+        return;
+      }
     }
     // The crew keeps its place while the next stone is within reach of it, so they do not re-form for every stone.
     const w = workSpot(this.castle.layout, sec, crew.next);
@@ -305,8 +404,8 @@ export class Works {
       if (u >= 0) return u;
     }
     let best = -1, bestScore = Infinity;
-    for (let k = 0; k < REPAIR_KINDS.length; k++) {
-      const kind = REPAIR_KINDS[k];
+    for (let k = 0; k < REPAIR_ORDER.length; k++) {
+      const kind = REPAIR_ORDER[k];
       if (!this.allowed(crew.castle, kind)) continue;
       for (const sec of this.sections) {
         if (sec.castle !== crew.castle || sec.kind !== kind || sec.index === skip) continue;
@@ -344,7 +443,7 @@ export class Works {
   private pickUrgent(crew: Crew, skip = -1): number {
     let best = -1, bestHolds = Infinity;
     for (const sec of this.sections) {
-      if (sec.castle !== crew.castle || sec.index === skip || !this.allowed(crew.castle, sec.kind) || !this.urgent(sec)) continue;
+      if (sec.castle !== crew.castle || sec.index === skip || !this.allowed(crew.castle, sec.kind) || !this.urgent(sec) || !this.savable(sec)) continue;
       let first = -1;
       for (const id of sec.stones) {
         if (this.castle.dynamic[id] && this.may(id) && this.supported(id)) {
@@ -462,7 +561,7 @@ export class Works {
       // Rubble in the place: a stone of this section whose own place is ready goes back there; anything else is carried off.
       const r = p.pieces[0];
       const t = castle.bodies[r].translation();
-      if (this.sectionOf[r] === crew.job && this.supported(r)) {
+      if (this.sectionOf[r] === crew.job && this.supported(r) && !this.high(r)) {
         const q = castle.inPlace(r, this.terrain.handles);
         if (!q.pieces.length && !q.other.length && this.lay(crew, m, r, t.x, t.y, t.z)) return;
         if (crew.hold === WorksHold.Gold) return;

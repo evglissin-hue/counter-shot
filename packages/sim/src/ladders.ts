@@ -215,7 +215,7 @@ export class Ladders {
       if (m.task <= Climb.Wait) {
         // Hold: nobody walks to a ladder or waits at its foot; the army has him again.
         const L = this.list[m.aux];
-        if (army.order[m.team] === Order.Hold || !L || L.state !== LadderState.Planted) {
+        if (army.orderOf(m) === Order.Hold || !L || L.state !== LadderState.Planted) {
           this.release(m);
           continue;
         }
@@ -329,7 +329,7 @@ export class Ladders {
       return;
     }
     const army = this.army;
-    const hold = army.order[L.team] === Order.Hold;
+    const hold = army.orderOf(a) === Order.Hold;
     // The front man leads: with the wave on its field, then for a crenel of the enemy front wall.
     const target = 1 - L.team;
     const face = CASTLE_SHAPE.half + CASTLE_SHAPE.wallThick / 2;

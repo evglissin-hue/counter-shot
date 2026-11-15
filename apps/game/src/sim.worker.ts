@@ -9,14 +9,14 @@ import { ASHWRIGHT_EMPLACEMENTS, boxSize, buildLayout, CASTLE_SHAPE, Earn, UNMAN
 import { AiPlayer } from "@keepfall/ai";
 import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type MatchOptions, type RegisterHost } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
-import { BUTTRESS_FACES, STRUCTURE } from "@keepfall/content";
+import { BUTTRESS_FACES, ORGAN_KINDS, STRUCTURE } from "@keepfall/content";
 import { Lockstep, netHash } from "./lockstep";
 import { MatchLog, makeSetup, writeLog, type LoggedMode, type ReplayFile, type ReplaySetup } from "./matchLog";
 import { NET_VERSION } from "./net";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { placeName } from "./marks";
-import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type StructureInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
+import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type OrganInfo, type StructureInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
 
 /** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
 let gen = 0;
@@ -236,9 +236,19 @@ function matchInfo(): MatchInfo | null {
     ...powderInfo(match),
     structures: structureReport(match.world, match.tick),
     buttresses: [0, 1].map((t) => BUTTRESS_FACES.map((f) => match!.buttress(t, f))) as [number[], number[]],
+    organs: [0, 1].map((t) => ORGAN_KINDS.map((_, k) => organInfo(match!, t, k))) as [OrganInfo[], OrganInfo[]],
+    spotter: [match.spotter(0), match.spotter(1)],
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/** 3.5: one of a team's organs for the page (it works, the share standing, why masons are not at it). */
+function organInfo(match: Match, team: number, organ: number): OrganInfo {
+  const o = match.world.organs;
+  const i = o ? o.index(team, organ) : -1;
+  if (!o || i < 0) return { up: true, share: 1, wait: 0 };
+  return { up: o.works[i], share: o.up[i] / o.ids[i].length, wait: o.wait[i] };
 }
 
 /** 3.4: the structures' bounds (stone layout), once per world. */
@@ -307,7 +317,7 @@ function registerInfo(reg: Register, world: SandboxSim, tick: number, mine: (e: 
       }
       bearCache.set(key, (bear = [reg.bearing(me, m.n, false).length, reg.bearing(me, m.n, true).length, reach.length, reachM.length, soonest(reach), soonest(reachM), why]));
     }
-    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: REGISTER.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1], reach: bear[2], reachM: bear[3], loadS: bear[4], loadMS: bear[5], why: bear[6] === 1 ? "own" : bear[6] === 2 ? "bridge" : "" };
+    return { n: m.n, x: m.x, y: m.y, z: m.z, made: m.made, left: Math.max(0, m.fades - tick), life: m.life, place: placeName(me as 0 | 1, m.x, m.y, m.z, world.terrain.heightAt(m.x, m.z)), bear: bear[0], bearM: bear[1], reach: bear[2], reachM: bear[3], loadS: bear[4], loadMS: bear[5], why: bear[6] === 1 ? "own" : bear[6] === 2 ? "bridge" : "" };
   });
   const canMark: number[] = [];
   for (const e of world.emplacements) if (!e.empty && mine(e) && reg.canMark(me, e.id, tick)) canMark.push(e.id);

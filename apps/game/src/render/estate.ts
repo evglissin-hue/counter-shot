@@ -8,7 +8,7 @@
 // sputtering. Render only: it reads the frame and decides nothing.
 
 import * as THREE from "three/webgpu";
-import { PLOTS, plotCentre } from "@keepfall/content";
+import { BUILDINGS, PLOTS, plotCentre } from "@keepfall/content";
 import { KEG_STRIDE, PLOT_STRIDE } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
 import { TEAM_COLORS } from "./minions";
@@ -16,7 +16,9 @@ import { applyCloudShadow } from "./clouds";
 
 /** Plot states (sim structures.ts PlotState). */
 const EMPTY = 0, RISING = 1, STANDING = 2;
-const BARRACKS = 0, MILL = 1, FOUNDRY = 2;
+const BARRACKS = 0, MILL = 1, FOUNDRY = 2, SPOTTER = 4;
+/** The spotter's tower: how high its platform stands (content buildings.ts). */
+const SPOT_TOP = 12.16;
 const MAX_KEGS = 16;
 
 /** Something to puff: a small cloud of smoke or a spark, at a point (the renderer owns the particles). */
@@ -39,6 +41,10 @@ interface PlotView {
   scaffold: THREE.Group;
   props: THREE.Group[];
   wheel: THREE.Object3D | null;
+  /** 3.5: the spotter's tower's tall scaffold (levels come up with the tower) and the figure on its platform, where the plot may hold one. */
+  tall: THREE.Group | null;
+  levels: THREE.Group[];
+  figure: THREE.Group | null;
   glow: THREE.MeshBasicNodeMaterial | null;
   /** The chimney's top (world), for smoke. */
   chimney: THREE.Vector3;
@@ -173,7 +179,10 @@ export class EstateView {
         this.add(foundry, this.box(0.36, 0.5, 0.36), wood, at(out * 1.3, 0.25, -d / 2 - 0.7));
         this.add(foundry, this.box(0.5, 0.18, 0.22), iron, at(out * 1.3, 0.59, -d / 2 - 0.7));
         this.add(foundry, this.box(0.7, 0.3, 0.5), stoneMat, at(-out * 1.2, 0.15, -d / 2 - 0.6));
-        for (const g of [stakes, scaffold, barracks, mill, foundry]) {
+        // A magazine's tell is its kegs (the powder view): nothing here. A spotter's tower: see buildSpotter.
+        const magazine = new THREE.Group();
+        const spot = BUILDINGS.spotter.plots.includes(p.index) ? this.buildSpotter(castle, c, wood, iron, doorMat) : null;
+        for (const g of [stakes, scaffold, barracks, mill, foundry, magazine, ...(spot ? [spot.group, spot.tall] : [])]) {
           g.visible = false;
           this.root.add(g);
         }
@@ -185,8 +194,11 @@ export class EstateView {
           share: 0,
           stakes,
           scaffold,
-          props: [barracks, mill, foundry],
+          props: [barracks, mill, foundry, magazine, ...(spot ? [spot.group] : [])],
           wheel: hub,
+          tall: spot ? spot.tall : null,
+          levels: spot ? spot.levels : [],
+          figure: spot ? spot.figure : null,
           glow,
           chimney: at(-w / 2 + 0.8, 6.85, d / 2 + 0.46),
           nextPuff: 0,
@@ -243,6 +255,114 @@ export class EstateView {
     return m;
   }
 
+  /** Merge boxes given as [w, h, d, x, y, z] (castle frame: z towards the back; castle 1 is mirrored) into one geometry about the plot's centre. */
+  private boxes(castle: number, list: number[][]): THREE.BufferGeometry {
+    const zs = castle === 0 ? 1 : -1;
+    const gs = list.map(([w, h, d, x, y, z]) => {
+      const g = new THREE.BoxGeometry(w, h, d);
+      g.translate(x, y, z * zs);
+      g.deleteAttribute("uv");
+      return g.toNonIndexed();
+    });
+    const g = mergeGeometries(gs);
+    for (const b of gs) b.dispose();
+    this.geos.push(g);
+    return g;
+  }
+
+  /**
+   * 3.5: the spotter's tower's extras (the tower itself is masonry, content buildings.ts: legs, ring beams, the
+   * platform's boards, four short posts, a roof): a ladder up the gate-side face, a railing round the platform with a
+   * gap at the ladder's head, and a figure with a glass that turns on the platform (see update); and its scaffold,
+   * four tall poles with plank levels every 3 m that come up with the tower. Placed at the plot's centre.
+   */
+  private buildSpotter(castle: number, c: { x: number; z: number }, wood: THREE.Material, iron: THREE.Material, dark: THREE.Material) {
+    const origin = new THREE.Vector3(c.x, 0, c.z);
+    const front = -1; // the gate side, in the castle's own frame
+    const group = new THREE.Group();
+    group.position.copy(origin);
+    const lad: number[][] = [];
+    const zl = front * 1.36;
+    lad.push([0.07, 12.9, 0.07, -0.3, 6.45, zl], [0.07, 12.9, 0.07, 0.3, 6.45, zl]);
+    for (let y = 0.5; y < 12.8; y += 0.42) lad.push([0.66, 0.05, 0.06, 0, y, zl]);
+    const ladder = new THREE.Mesh(this.boxes(castle, lad), wood);
+    group.add(ladder);
+    const rail: number[][] = [];
+    const t = SPOT_TOP, e = 1.28;
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) rail.push([0.07, 1.05, 0.07, sx * e, t + 0.525, sz * e]);
+    for (const h of [0.55, 1.05]) {
+      rail.push([0.05, 0.05, 2 * e, -e, t + h, 0], [0.05, 0.05, 2 * e, e, t + h, 0], [2 * e, 0.05, 0.05, 0, t + h, e]);
+      // The gate side has a gap where the ladder comes up.
+      rail.push([0.9, 0.05, 0.05, -0.85, t + h, front * e], [0.9, 0.05, 0.05, 0.85, t + h, front * e]);
+    }
+    const railing = new THREE.Mesh(this.boxes(castle, rail), wood);
+    group.add(railing);
+    for (const m of [ladder, railing]) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+    }
+    // The figure, at the platform's middle, facing the way the group's yaw sets (see update).
+    const figure = new THREE.Group();
+    figure.position.set(0, t, 0);
+    const tunic = new THREE.MeshStandardNodeMaterial();
+    applyCloudShadow(tunic);
+    tunic.color = new THREE.Color(TEAM_COLORS[castle]);
+    tunic.roughness = 0.85;
+    this.mats.push(tunic);
+    const skin = this.mat(0xc2a07e, 0.8);
+    this.mats.push(skin);
+    const torso = new THREE.Mesh(this.boxes(0, [[0.42, 0.62, 0.26, 0, 1.08, 0]]), tunic);
+    const limbs = new THREE.Mesh(
+      this.boxes(0, [
+        [0.2, 0.78, 0.2, -0.11, 0.39, 0],
+        [0.2, 0.78, 0.2, 0.11, 0.39, 0],
+        [0.1, 0.1, 0.5, 0.17, 1.28, 0.3],
+        [0.1, 0.1, 0.4, -0.12, 1.22, 0.24],
+      ]),
+      dark,
+    );
+    const head = new THREE.Mesh(this.boxes(0, [[0.22, 0.24, 0.22, 0, 1.55, 0], [0.3, 0.05, 0.3, 0, 1.69, 0]]), skin);
+    // The glass: a brass-and-leather tube held to the eye, pointing out and a little up.
+    const glassGeo = new THREE.CylinderGeometry(0.035, 0.05, 0.62, 6);
+    glassGeo.rotateX(Math.PI / 2 - 0.18);
+    glassGeo.translate(0.12, 1.43, 0.66);
+    this.geos.push(glassGeo);
+    const glass = new THREE.Mesh(glassGeo, iron);
+    for (const m of [torso, limbs, head, glass]) {
+      m.castShadow = true;
+      figure.add(m);
+    }
+    group.add(figure);
+    // The scaffold: four tall poles and a ring of planks at each level.
+    const tall = new THREE.Group();
+    tall.position.copy(origin);
+    const so = 1.55;
+    const poles: number[][] = [];
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) poles.push([0.1, 13.4, 0.1, sx * so, 6.7, sz * so]);
+    const pm = new THREE.Mesh(this.boxes(castle, poles), wood);
+    pm.castShadow = true;
+    tall.add(pm);
+    const levels: THREE.Group[] = [];
+    for (let i = 0; i < 4; i++) {
+      const h = 3 * (i + 1);
+      const lv = new THREE.Group();
+      const pl = new THREE.Mesh(
+        this.boxes(castle, [
+          [2 * so + 0.3, 0.07, 0.32, 0, h, -so],
+          [2 * so + 0.3, 0.07, 0.32, 0, h, so],
+          [0.32, 0.07, 2 * so, -so, h, 0],
+          [0.32, 0.07, 2 * so, so, h, 0],
+        ]),
+        wood,
+      );
+      pl.castShadow = true;
+      lv.add(pl);
+      tall.add(lv);
+      levels.push(lv);
+    }
+    return { group, tall, levels, figure };
+  }
+
   /** Plot states from a frame: [castle, plot, kind, state, share raised, health] each. */
   setPlots(data: Float32Array, count: number) {
     for (let i = 0; i < count; i++) {
@@ -252,10 +372,20 @@ export class EstateView {
       v.kind = data[o + 2] | 0;
       v.state = data[o + 3] | 0;
       v.share = data[o + 4];
-      v.stakes.visible = v.state === EMPTY;
-      v.scaffold.visible = v.state === RISING;
-      v.props.forEach((g, k) => (g.visible = v.state === STANDING && v.kind === k));
+      this.show(v);
     }
+  }
+
+  /** What a plot shows for its kind and state: stakes, scaffold (a tall one, rising with the tower, for the spotter's), or the trade. */
+  private show(v: PlotView) {
+    const tower = v.kind === SPOTTER;
+    v.stakes.visible = v.state === EMPTY;
+    v.scaffold.visible = v.state === RISING && !tower;
+    if (v.tall) {
+      v.tall.visible = v.state === RISING && tower;
+      v.levels.forEach((l, i) => (l.visible = v.share * SPOT_TOP + 2 >= 3 * (i + 1)));
+    }
+    v.props.forEach((g, k) => (g.visible = v.state === STANDING && v.kind === k));
   }
 
   /** Kegs burning at walls: [x, y, z, ticks left] each. */
@@ -281,9 +411,7 @@ export class EstateView {
       v.share = st.views[o + 2];
       if (v.wheel) v.wheel.rotation.x = st.views[o + 3];
       v.nextPuff = now + st.views[o + 4];
-      v.stakes.visible = v.state === EMPTY;
-      v.scaffold.visible = v.state === RISING;
-      v.props.forEach((g, k) => (g.visible = v.state === STANDING && v.kind === k));
+      this.show(v);
     });
     this.kegData.fill(0);
     this.kegData.set(st.kegs);
@@ -297,6 +425,7 @@ export class EstateView {
       v.kind = -1;
       v.state = EMPTY;
       v.stakes.visible = v.scaffold.visible = false;
+      if (v.tall) v.tall.visible = false;
       for (const g of v.props) g.visible = false;
     }
     this.kegCount = 0;
@@ -311,11 +440,13 @@ export class EstateView {
       if (v.kind === FOUNDRY) {
         if (v.glow) v.glow.color.setRGB(1.6 + 0.35 * Math.sin(now * 7.1) + 0.2 * Math.sin(now * 13.7), 0.62 + 0.08 * Math.sin(now * 9.3), 0.22);
         if (now >= v.nextPuff) {
-          v.nextPuff = now + 0.45;
-          puff("smoke", v.chimney.x, v.chimney.y, v.chimney.z, 0.32);
+          v.nextPuff = now + 0.3;
+          puff("smoke", v.chimney.x, v.chimney.y, v.chimney.z, 1.0);
         }
       }
       if (v.kind === BARRACKS && now >= v.nextPuff) v.nextPuff = now + 1;
+      // The spotter turns slowly on his platform, looking across the valley and down it, never quite the same way twice.
+      if (v.kind === SPOTTER && v.figure) v.figure.rotation.y = (v.castle === 0 ? Math.PI : 0) + 0.95 * Math.sin(now * 0.3 + v.plot * 1.9 + v.castle) + 0.25 * Math.sin(now * 0.77 + v.plot);
     }
     const m = new THREE.Matrix4();
     const p = new THREE.Vector3();

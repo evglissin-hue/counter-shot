@@ -35,6 +35,7 @@ import { Specialists } from "./specialists";
 import { Structures } from "./structures";
 import { Statics } from "./statics";
 import { Buttresses } from "./buttresses";
+import { Organs } from "./organs";
 import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
@@ -42,7 +43,7 @@ import { Gangs } from "./gangs";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 16;
+export const RULES_VERSION = 17;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -141,6 +142,8 @@ export class SandboxSim {
   /** 3.4: the keep's buttresses (with buttresses in the layout), and the statics pass over every keep and tower (the game's layout). */
   readonly buttresses: Buttresses | null;
   readonly statics: Statics | null;
+  /** 3.5: each castle's organs (the bell, the crane, the signal mast) and whether each works (the game's layout; null without organs). */
+  readonly organs: Organs | null;
   readonly specialists: Specialists | null;
   /** After M5: the masonry each gun stands on, and which guns are knocked out. */
   readonly mounts: Mounts;
@@ -230,7 +233,7 @@ export class SandboxSim {
     this.specialists = this.army
       ? new Specialists(this.minions, this.nav, this.terrain, (hashString("specialists") ^ opts.seed) >>> 0, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot))
       : null;
-    if (this.army && this.specialists) { this.army.specialists = this.specialists; this.specialists.orders = this.army.order; this.specialists.local = this.army.local; }
+    if (this.army && this.specialists) { this.army.specialists = this.specialists; const army = this.army; this.specialists.orderOf = (m) => army.orderOf(m); this.specialists.local = this.army.local; }
     // 3.3: powder boys and the boxes by the guns.
     this.carriers = this.army && opts.powder !== false ? new Carriers(this.minions, this.army, this.structures, this.emplacements, emit, (x, y, z, burst, shot) => this.explode(x, y, z, burst, shot), this.bursts) : null;
     this.carriers?.spawnAll();
@@ -240,6 +243,9 @@ export class SandboxSim {
       const st = this.statics;
       this.works.statics = { ratio: (i, c) => st.ratio(i, c), structureOf: (id) => st.structureOf(id), status: (i) => st.status(i) };
     }
+    // 3.5: the organs stand from the start (the game's layout).
+    this.organs = layout.organs.length ? new Organs(this.castle, emit) : null;
+    if (this.works) this.works.organs = this.organs;
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -286,6 +292,7 @@ export class SandboxSim {
     this.specialists?.afterStep(tick);
     this.carriers?.afterStep(tick);
     this.statics?.step(tick);
+    this.organs?.step(tick);
     if (tick % 60 === 0) this.pruneShots(tick);
     if (tick % NAV_EVERY === NAV_EVERY - 1) this.nav.update();
     for (let i = 0; i < this.reload.length; i++) if (this.reload[i] > 0) this.reload[i]--;
@@ -784,6 +791,7 @@ export class SandboxSim {
     this.carriers?.hashInto(extra);
     this.buttresses?.hashInto(extra);
     this.statics?.hashInto(extra);
+    this.organs?.hashInto(extra);
     this.mounts.hashInto(extra);
     for (const s of this.shots) {
       extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);

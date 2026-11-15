@@ -7,9 +7,10 @@
 // waves setting out, marching drums and tramp, cries and falls, gate blows,
 // buildings rising and falling, masons' ropes, and your castle's alarms.
 
-import { BRIDGES, MID_Z, STREAM, plotCentre, streamOffset, streamWidth, valleyHeight, type CastleLayout, type WeaponKind } from "@keepfall/content";
-import { EVENT_STRIDE, EventKind, KEG_STRIDE, MINION_STRIDE, PLOT_STRIDE, type FrameData } from "@keepfall/sim";
+import { BRIDGES, CRANE, MID_Z, ORGAN_KINDS, STREAM, plotCentre, streamOffset, streamWidth, valleyHeight, type CastleLayout, type WeaponKind } from "@keepfall/content";
+import { EVENT_STRIDE, EventKind, KEG_STRIDE, MINION_STRIDE, PLOT_STRIDE, WORKS_STRIDE, type FrameData } from "@keepfall/sim";
 import type { Listener } from "./render/api";
+import { organWatch } from "./organWatch";
 import type { Sound } from "./sound";
 
 export type Material = "stone" | "wood" | "earth" | "water";
@@ -35,6 +36,8 @@ interface MatchView {
   standing: [number, number];
   gateHits: [number, number];
   ladders: [number, number];
+  /** 3.5: each castle's organs (the bell, the crane, the signal mast), if the match has them. */
+  organs?: [Array<{ up: boolean }>, Array<{ up: boolean }>];
   result?: unknown;
 }
 
@@ -73,12 +76,25 @@ export class Soundscape {
   private kegs = new Set<string>();
   /** When each rope creak in the air ends. */
   private creaks: number[] = [];
+  /** 3.5: each castle's bell and crane: the key piece's stone and where it is now (the jib, the bell itself), and whether it works. */
+  private keyOf: Array<{ bell: number; crane: number }> = [{ bell: -1, crane: -1 }, { bell: -1, crane: -1 }];
+  private keyAt: Array<{ bell: [number, number, number]; crane: [number, number, number] }> = [0, 1].map(() => ({ bell: [0, 10, 0], crane: [0, 5, 0] }));
+  private organUp: boolean[][] = [[true, true, true], [true, true, true]];
+  /** The side of the stream each marching man was last seen on (+1 towards +z), to tell one crossing. */
+  private sides = new Map<number, number>();
 
   constructor(
     private sound: Sound,
     private layout: CastleLayout,
   ) {
     this.gates = layout.stones.filter((s) => s.part === "gate").map((s) => [s.x, s.y, s.z]);
+    for (const o of layout.organs ?? []) {
+      const kind = ORGAN_KINDS[o.organ];
+      if (kind !== "bell" && kind !== "crane") continue;
+      this.keyOf[o.castle][kind] = o.key;
+      const s = layout.stones[o.key];
+      this.keyAt[o.castle][kind] = [s.x, s.y, s.z];
+    }
   }
 
   /** What an impact at a point struck. */
@@ -198,6 +214,7 @@ export class Soundscape {
     this.march(groups, marching, mx, my, mz, ear);
     this.meetings(f, ear);
     this.events(f, ear);
+    this.organs(f);
     this.plots(f, ear);
     this.kegsSet(f);
   }
@@ -273,8 +290,67 @@ export class Soundscape {
         if (this.every("swish", 0.3)) this.sound.swish(b, c, d);
       } else if (kind === EventKind.Laid) {
         this.lift(a | 0);
+      } else if (kind === EventKind.OrganDown && (b | 0) === ORGAN_KINDS.indexOf("bell") && (a === 0 || a === 1)) {
+        // 3.5: the bell falls: a ring in the air is cut short, with a clang.
+        const [x, y, z] = this.keyAt[a].bell;
+        this.sound.bellFall(a, x, y, z);
+        organWatch.cut(a);
       }
     }
+  }
+
+  /**
+   * 3.5: the bell rings from its tower when enemy men cross the stream towards that castle (at most once every 20 s a
+   * castle), and the crane's wheel creaks while masons lay a piece at or above CRANE.low and the crane works.
+   */
+  private organs(f: FrameData) {
+    if (!(this.layout.organs?.length)) return;
+    // Where the key pieces are now (a stone that moved is in the frame).
+    const bellId = [this.keyOf[0].bell, this.keyOf[1].bell], craneId = [this.keyOf[0].crane, this.keyOf[1].crane];
+    for (let i = 0; i < f.stoneCount; i++) {
+      const o = i * 8;
+      const id = f.stones[o] | 0;
+      for (const c of [0, 1]) {
+        if (id === bellId[c]) this.keyAt[c].bell = [f.stones[o + 1], f.stones[o + 2], f.stones[o + 3]];
+        else if (id === craneId[c]) this.keyAt[c].crane = [f.stones[o + 1], f.stones[o + 2], f.stones[o + 3]];
+      }
+    }
+    // Crossings of the stream by men marching on a castle.
+    const M = f.minions;
+    const seen = new Set<number>();
+    for (let i = 0; i < f.minionCount; i++) {
+      const o = i * MINION_STRIDE;
+      if ((M[o + 7] | 0) !== WALK || (M[o + 9] | 0) !== 0) continue; // pikemen on the march
+      const id = M[o] | 0, x = M[o + 1], z = M[o + 3], team = (M[o + 6] | 0) & 1;
+      const side = z - (MID_Z + streamOffset(x)) > 0 ? 1 : -1;
+      seen.add(id);
+      const was = this.sides.get(id);
+      this.sides.set(id, side);
+      if (was === undefined || was === side) continue;
+      const castle = 1 - team;
+      if (side === (this.layout.castleZ[castle] > MID_Z ? 1 : -1)) this.bellRings(castle);
+    }
+    if (this.sides.size > seen.size + 64) for (const id of this.sides.keys()) if (!seen.has(id)) this.sides.delete(id);
+    // The crane's wheel.
+    for (const c of [0, 1]) {
+      let high = false;
+      for (let i = 0; i < f.worksCount && !high; i++) {
+        const o = i * WORKS_STRIDE;
+        if ((f.works[o] | 0) !== c || f.works[o + 7] <= 0) continue;
+        const s = this.layout.stones[f.works[o + 6] | 0];
+        if (s && s.y - s.hy >= CRANE.low) high = true;
+      }
+      const [x, y, z] = this.keyAt[c].crane;
+      this.sound.craneCreak(c, x, y - 7, z, high && this.organUp[c][1]);
+    }
+  }
+
+  /** A castle's bell rings (if it works, and not within 20 s of its last ring). */
+  private bellRings(castle: number) {
+    if (!this.organUp[castle][0] || !this.every(`bell${castle}`, 20)) return;
+    const [x, y, z] = this.keyAt[castle].bell;
+    this.sound.bellRing(castle, x, y, z);
+    organWatch.ring(castle);
   }
 
   /** A stone goes up the hoist: the rope and pulley at the gin pole (at most two at once). */
@@ -336,6 +412,7 @@ export class Soundscape {
       this.keepsSet = true;
       this.sound.setKeeps(this.keep(me), this.keep(foe));
     }
+    if (info.organs) for (const c of [0, 1]) this.organUp[c] = info.organs[c].map((o) => o.up);
     const prev = this.prevMatch;
     this.prevMatch = { waves: [info.waves[0], info.waves[1]], standing: [info.standing[0], info.standing[1]], gateHits: [info.gateHits[0], info.gateHits[1]], ladders: [info.ladders[0], info.ladders[1]] };
     if (!prev || info.result) return;

@@ -222,6 +222,8 @@ export class Army {
   private waveTeam = new Int8Array(64);
   private waveRoute = new Int8Array(64);
   private waveCrew = new Uint8Array(64);
+  /** Per wave: the order it marches by (the team's standing order when it was made, or when its mast last reached it). */
+  private waveOrder = new Uint8Array(64);
   private waveX = new Float64Array(64);
   private waveZ = new Float64Array(64);
   /** Each team's garrison wave (-1 until it has one). */
@@ -269,8 +271,23 @@ export class Army {
     this.head = new Int32Array(this.bnx * this.bnz).fill(-1);
   }
 
-  setOrder(team: number, order: Order) {
+  /**
+   * A team's standing order. With `reach` every wave of the team takes it at once; without (the signal mast is
+   * down), only waves made from now on do, and the men in the field keep their last order.
+   */
+  setOrder(team: number, order: Order, reach = true) {
     this.order[team] = order;
+    if (!reach) return;
+    for (let w = 0; w < this.waves; w++) if (this.waveTeam[w] === team) this.waveOrder[w] = order;
+  }
+
+  /**
+   * The order a man marches by: his wave's. A crew (the garrison, the masons) is inside its walls and hears the team's
+   * standing order whatever the mast does, as does a man with no wave.
+   */
+  orderOf(m: Minion): Order {
+    const w = m.wave;
+    return w >= 0 && w < this.waves && !this.waveCrew[w] ? (this.waveOrder[w] as Order) : this.order[m.team];
   }
 
   /**
@@ -319,10 +336,14 @@ export class Army {
       const c = new Uint8Array(size);
       c.set(this.waveCrew);
       this.waveCrew = c;
+      const o = new Uint8Array(size);
+      o.set(this.waveOrder);
+      this.waveOrder = o;
     }
     this.waveTeam[wave] = team;
     this.waveRoute[wave] = route;
     this.waveCrew[wave] = crew ? 1 : 0;
+    this.waveOrder[wave] = this.order[team];
     return wave;
   }
 
@@ -606,7 +627,7 @@ export class Army {
           }
           speed = m.speed;
         }
-      } else if (this.ladders && this.climbs(m) && (tick + m.id) % LADDER_LOOK === 0 && this.order[m.team] !== Order.Hold) {
+      } else if (this.ladders && this.climbs(m) && (tick + m.id) % LADDER_LOOK === 0 && this.orderOf(m) !== Order.Hold) {
         this.ladders.claim(m, this.flow.at(breachField(m.team), m.x, m.z) < FLOW_INF);
       }
       if (m.task !== Climb.ToLadder) {
@@ -660,7 +681,7 @@ export class Army {
         mx = ux;
         mz = uz;
         // The wave keeps together on its road, and on Push over the last stretch to a breach as well.
-        const cohere = f === routeField(m.team, m.route) || (this.order[m.team] === Order.Push && this.toFront(m) <= MARCH.pushNear);
+        const cohere = f === routeField(m.team, m.route) || (this.orderOf(m) === Order.Push && this.toFront(m) <= MARCH.pushNear);
         speed = m.speed * (cohere ? this.pace(m) : 1);
       }
     } else if (this.hunt(m)) {
@@ -828,9 +849,13 @@ export class Army {
       if (this.canStep(c, nx, nz)) {
         m.x = nx;
         m.z = nz;
-      } else if (this.canStep(c, nx, z0)) m.x = nx;
-      else if (this.canStep(c, x0, nz)) m.z = nz;
-      else if (field >= 0) this.sidestep(m, c, field, speed / 60);
+      } else {
+        if (this.canStep(c, nx, z0)) m.x = nx;
+        else if (this.canStep(c, x0, nz)) m.z = nz;
+        // A slide along an axis he hardly moves on (a way straight at a refused cell, no sideways part) is no way on: he steps instead.
+        const sdx = m.x - x0, sdz = m.z - z0, want = speed / 60;
+        if (field >= 0 && want > 0 && sdx * sdx + sdz * sdz < want * want * 0.0625) this.sidestep(m, c, field, want);
+      }
     }
     const dx = m.x - x0, dz = m.z - z0;
     m.vx = dx * 60;
@@ -978,7 +1003,7 @@ export class Army {
   private marchField(m: Minion): number {
     const team = m.team, r = m.route;
     const route = routeField(team, r);
-    const order = this.order[team];
+    const order = this.orderOf(m);
     if (order === Order.Push) {
       // On his road until the enemy wall is near; then through a breach, if one reaches the courtyard from where he stands.
       if (this.toFront(m) > MARCH.pushNear) return route;
@@ -1004,7 +1029,7 @@ export class Army {
    */
   private holdAside(m: Minion, out: [number, number]): boolean {
     const team = m.team, r = m.route;
-    if (this.order[team] !== Order.Hold || r < 0 || r > 2) return false;
+    if (this.orderOf(m) !== Order.Hold || r < 0 || r > 2) return false;
     const hx = this.holdX[team][r], hz = this.holdZ[team][r];
     const dx = m.x - hx;
     if (dx <= MARCH.holdAlong && dx >= -MARCH.holdAlong) return false;
@@ -1352,7 +1377,7 @@ export class Army {
   /** The army's own state, for the world hash. */
   hashInto(out: number[]) {
     out.push(this.order[0], this.order[1], this.waves, this.flow.builds, this.bridgeTopo, this.garrisonWave[0], this.garrisonWave[1], this.local.builds, this.holdLine.builds);
-    for (let w = 0; w < this.waves; w++) out.push(this.waveRoute[w], this.waveCrew[w]);
+    for (let w = 0; w < this.waves; w++) out.push(this.waveRoute[w], this.waveCrew[w], this.waveOrder[w]);
     const ids = [...this.gateHits.keys()].sort((a, b) => a - b);
     for (const id of ids) out.push(id, this.gateHits.get(id)!);
   }

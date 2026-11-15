@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ASHWRIGHT_SLOTS, BUTTRESS, type RepairKind } from "@keepfall/content";
+import { ASHWRIGHT_SLOTS, BUTTRESS, type BuildingKind, type RepairKind } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { parse, type GunView, type OrdersView, type ParseResult, type PlotView, type StandingId } from "@keepfall/orders";
 
@@ -21,15 +21,15 @@ function fixture(over: Partial<OrdersView> = {}): OrdersView {
     upgrade: null,
     mountDown: false,
   }));
-  const plots: PlotView[] = [{ kind: "barracks", state: "standing" }, ...Array.from({ length: 5 }, (): PlotView => ({ kind: null, state: "empty" }))];
+  const plots: PlotView[] = [{ kind: "barracks", state: "standing" }, ...Array.from({ length: 7 }, (): PlotView => ({ kind: null, state: "empty" }))];
   return {
     team: 1,
     gold: 300,
     plots,
     guns,
     foundry: false,
-    barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null],
-    repairs: { gate: true, walls: true, towers: true, keep: true },
+    barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null, null, null],
+    repairs: { gate: true, walls: true, towers: true, keep: true, works: true },
     order: 0,
     route: "centre",
     riding: -1,
@@ -68,7 +68,7 @@ function refuses(view: OrdersView, table: Array<[string, string | RegExp]>) {
   }
 }
 
-const build = (plot: number, building: "mill" | "barracks" | "foundry"): MatchInput => ({ kind: "build", plot, building });
+const build = (plot: number, building: BuildingKind): MatchInput => ({ kind: "build", plot, building });
 
 test("build: a building goes on the first free plot, or the plot named", () => {
   accepts(fixture(), [
@@ -139,6 +139,37 @@ test("build: gold is checked across the parts of a line", () => {
   // Two buildings that fit take two different plots.
   const ok = parse("mill, then mill", fixture({ gold: 400 }));
   assert.deepEqual(inputs(ok), [build(4, "mill"), build(5, "mill")]);
+});
+
+test("build: the spotter's tower, by its names, on the plots it may take", () => {
+  accepts(fixture(), [
+    ["build a spotter's tower behind the keep", [build(6, "spotter")]],
+    ["build a lookout on plot 8", [build(7, "spotter")]],
+    ["spotter on plot 5", [build(4, "spotter")]],
+    ["watchtower", [build(6, "spotter")]],
+    ["a spotter tower behind the keep on the left", [build(7, "spotter")]],
+    ["a spotter tower behind the keep on the right", [build(6, "spotter")]],
+    ["lookout back left", [build(5, "spotter")]],
+  ]);
+  const r = parse("spotter's tower", fixture());
+  assert.equal(r.ok && r.say, "Spotter's Tower on plot 7, behind the keep, right: 180 gold");
+  // The magazine takes the back plots too, the others do not.
+  accepts(fixture(), [["magazine behind the keep on the right", [build(6, "magazine")]]]);
+});
+
+test("build: a plot its kind may not take is refused with the plots it may take", () => {
+  refuses(fixture(), [
+    ["spotter's tower on plot 2", "The Spotter's Tower may only stand on plots 5 to 8"],
+    ["lookout front left", "The Spotter's Tower may only stand on plots 5 to 8"],
+    ["mill behind the keep", "The Powder Mill may only stand on plots 1 to 6"],
+    ["foundry on plot 8", "The Foundry may only stand on plots 1 to 6"],
+    ["barracks on plot 7", "The Barracks may only stand on plots 1 to 6"],
+    ["magazine on plot 1", "The Magazine may only stand on plots 3 to 8"],
+  ]);
+  // With no plot named the first free plot it may take is used; none free is said.
+  const taken = fixture();
+  taken.plots = taken.plots.map((p, i) => (i >= 4 ? { kind: "mill", state: "standing" } : p));
+  refuses(taken, [["spotter's tower", "No free plot"]]);
 });
 
 const buy = (emplacement: number, weapon: "longGun" | "mortar" | "chainShot" | "swivel"): MatchInput => ({ kind: "buy", emplacement, weapon });
@@ -337,26 +368,48 @@ test("barracks: the nth barracks, its mix and its road", () => {
 
 const rep = (repair: RepairKind, on: boolean): MatchInput => ({ kind: "repair", repair, on });
 
+test("repair: the works, by name", () => {
+  const off = viewWith((v) => {
+    v.repairs = { gate: true, walls: true, towers: true, keep: true, works: false };
+  });
+  accepts(fixture(), [
+    ["works repairs off", [rep("works", false)]],
+    ["masons off the works", [rep("works", false)]],
+    ["stop repairing the bell", [rep("works", false)]],
+    ["no crane repairs", [rep("works", false)]],
+    ["masons off the signal mast", [rep("works", false)]],
+    ["machines off", [rep("works", false)]],
+    ["organs off", [rep("works", false)]],
+  ]);
+  accepts(off, [
+    ["masons on the bell", [rep("works", true)]],
+    ["works repairs on", [rep("works", true)]],
+    ["masons on the crane", [rep("works", true)]],
+  ]);
+  // Already so: nothing to send.
+  assert.deepEqual(inputs(parse("masons on the bell", fixture())), []);
+});
+
 test("repair: masons on and off, by kind", () => {
   accepts(fixture(), [
     ["masons off the walls", [rep("walls", false)]],
     ["walls off", [rep("walls", false)]],
     ["stop repairing the towers", [rep("towers", false)]],
     ["masons off the gate, then masons off the keep", [rep("gate", false), rep("keep", false)]],
-    ["masons off", [rep("gate", false), rep("walls", false), rep("towers", false), rep("keep", false)]],
+    ["masons off", [rep("gate", false), rep("walls", false), rep("towers", false), rep("keep", false), rep("works", false)]],
   ]);
   const some = viewWith((v) => {
-    v.repairs = { gate: false, walls: true, towers: false, keep: false };
+    v.repairs = { gate: false, walls: true, towers: false, keep: false, works: true };
   });
   accepts(some, [
     ["masons on the gate", [rep("gate", true)]],
     ["repair the keep", [rep("keep", true)]],
     ["all repairs on", [rep("gate", true), rep("towers", true), rep("keep", true)]],
     // "X first": that kind on, every other kind off, only what changes is sent.
-    ["keep first", [rep("walls", false), rep("keep", true)]],
-    ["gate first", [rep("gate", true), rep("walls", false)]],
+    ["keep first", [rep("walls", false), rep("keep", true), rep("works", false)]],
+    ["gate first", [rep("gate", true), rep("walls", false), rep("works", false)]],
   ]);
-  accepts(fixture(), [["keep first", [rep("gate", false), rep("walls", false), rep("towers", false)]]]);
+  accepts(fixture(), [["keep first", [rep("gate", false), rep("walls", false), rep("towers", false), rep("works", false)]]]);
 });
 
 test("repair: nothing to change is Already so", () => {
@@ -418,9 +471,9 @@ test("standing orders: a switch that stays, told from the one-off repair order",
   assert.equal(say.ok && say.say, "Standing order: rebuild what falls");
   // "gate first" with no always, keep or mended is the one-off repair order, not a rule.
   const one = viewWith((v) => void 0, {});
-  one.repairs = { gate: false, walls: true, towers: true, keep: true };
-  assert.deepEqual(inputs(parse("gate first", one)), [rep("gate", true), rep("walls", false), rep("towers", false), rep("keep", false)]);
-  assert.deepEqual(stand(parse("gate first", one)).length, 4);
+  one.repairs = { gate: false, walls: true, towers: true, keep: true, works: true };
+  assert.deepEqual(inputs(parse("gate first", one)), [rep("gate", true), rep("walls", false), rep("towers", false), rep("keep", false), rep("works", false)]);
+  assert.deepEqual(stand(parse("gate first", one)).length, 5);
   refuses(fixture(), [
     ["always", /^Not understood/],
     ["rebuild what falls on the moon", /^Not understood/],
