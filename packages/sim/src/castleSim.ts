@@ -21,7 +21,7 @@
 // same collapse on every machine when used with the deterministic build.
 
 import type RAPIER_NS from "@dimforge/rapier3d-deterministic-compat";
-import type { CastleLayout, Stone } from "@keepfall/content";
+import { CASTLE_SHAPE, keepStructure, structureList, type CastleLayout, type Stone } from "@keepfall/content";
 import { aim } from "./ballistics";
 import { dsqrt, hashBytes, hex8 } from "@keepfall/core";
 
@@ -224,6 +224,11 @@ export class CastleSim {
    * carryOff() refuse them. Always 0 in a layout without structures.
    */
   readonly busy: Uint8Array;
+  /** Per castle: its keep's storey boards (id order), the keep's middle and each board's top (stone y + hy). For the win check. */
+  private keepBoards: number[][] = [[], []];
+  private keepCx: number[] = [0, 0];
+  private keepCz: number[] = [0, 0];
+  private boardTop: Float64Array;
   /**
    * 3.4: the statics pass reports the poses of the pieces it moves itself (a
    * toppling part, brittle stones in flight) here, after the pieces the world
@@ -243,6 +248,21 @@ export class CastleSim {
     this.shatterReported = new Uint8Array(n);
     this.hits = new Uint8Array(n);
     this.busy = new Uint8Array(n);
+    this.boardTop = new Float64Array(n);
+    if (layout.keepFloors) {
+      const sl = structureList(layout);
+      for (let c = 0; c < 2; c++) {
+        const k = sl[keepStructure(c)];
+        this.keepCx[c] = k.cx;
+        this.keepCz[c] = k.cz;
+        for (const id of k.stones) {
+          const st = layout.stones[id];
+          if (st.part !== "storey") continue;
+          this.keepBoards[c].push(id);
+          this.boardTop[id] = st.y + st.hy;
+        }
+      }
+    }
     this.toughIds = Int32Array.from(layout.stones.filter((s) => (s.tough ?? 1) > 1).map((s) => s.id));
     this.spanOf = new Uint8Array(n);
     this.maxSpan = opts.span;
@@ -619,11 +639,31 @@ export class CastleSim {
       }
     }
 
-    // Win check: a banner that falls well below its keep's walls.
+    // Win check: a banner that falls well below its keep's walls. With keep floors it is also down once no storey board is tipping
+    // and the banner is off its keep (outside the footprint, or no standing board at or below it): a felled keep ends the match.
     for (let c = 0; c < 2; c++) {
       if (this.toppled[c]) continue;
       const p = this.bodies[this.layout.bannerIds[c]].translation();
-      if (p.y < this.layout.bannerFallY) this.toppled[c] = true;
+      if (p.y < this.layout.bannerFallY) {
+        this.toppled[c] = true;
+        continue;
+      }
+      const boards = this.keepBoards[c];
+      if (!this.layout.keepFloors || boards.length === 0) continue;
+      let tipping = false;
+      for (let k = 0; k < boards.length; k++) if (this.busy[boards[k]] !== 0) { tipping = true; break; }
+      if (tipping) continue;
+      const half = CASTLE_SHAPE.keepHalf + 0.5;
+      if (Math.abs(p.x - this.keepCx[c]) > half || Math.abs(p.z - this.keepCz[c]) > half) {
+        this.toppled[c] = true;
+        continue;
+      }
+      let stands = false;
+      for (let k = 0; k < boards.length; k++) {
+        const id = boards[k];
+        if (this.dynamic[id] === 0 && this.boardTop[id] <= p.y + 0.25) { stands = true; break; }
+      }
+      if (!stands) this.toppled[c] = true;
     }
     void R;
   }
