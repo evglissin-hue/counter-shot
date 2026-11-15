@@ -15,6 +15,14 @@ import { mirrorZ, repairSections } from "./siege";
 
 export { BUTTRESS, BUTTRESS_FACES, type ButtressFace } from "./buttress";
 
+/**
+ * The most loose bodies a game world lets move at once (T9). `moving` is what Kat's M3 handles (about 550 in 6 ms,
+ * with room to spare): beyond it, masonry that comes loose turns to dust, settled rubble stays settled when struck,
+ * and a fall keeps fewer bodies. `minFallBodies` is the fewest bodies a keep or tower fall keeps however busy the
+ * world is (the rest of its pieces are brittle ghosts).
+ */
+export const BUDGET = { moving: 480, minFallBodies: 60 } as const;
+
 export const STRUCTURE = {
   /**
    * Rule 2: course c crushes when load(c) / carry(c) is above this. carry(c)

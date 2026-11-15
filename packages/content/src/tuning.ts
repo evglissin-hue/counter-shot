@@ -26,7 +26,7 @@ import { KEG, MUSKET, UNITS, UNMANNED, WAVE_MIXES, WAVES } from "./army";
 import { GARRISON, LADDER, REPAIR, STORM } from "./siege";
 import { WEAPONS } from "./weapons";
 import { REGISTER } from "./register";
-import { BUTTRESS, STRUCTURE } from "./structure";
+import { BUDGET, BUTTRESS, STRUCTURE } from "./structure";
 
 /** The content objects a path can start from. */
 export const TUNING_ROOTS: Record<string, unknown> = {
@@ -53,6 +53,7 @@ export const TUNING_ROOTS: Record<string, unknown> = {
   TUTOR,
   REGISTER,
   STRUCTURE,
+  BUDGET,
   BUTTRESS,
 };
 
