@@ -281,9 +281,13 @@ export class Army {
     for (let w = 0; w < this.waves; w++) if (this.waveTeam[w] === team) this.waveOrder[w] = order;
   }
 
-  /** The order a man marches by: his wave's (a man with no wave goes by his team's). */
+  /**
+   * The order a man marches by: his wave's. A crew (the garrison, the masons) is inside its walls and hears the team's
+   * standing order whatever the mast does, as does a man with no wave.
+   */
   orderOf(m: Minion): Order {
-    return m.wave >= 0 && m.wave < this.waves ? (this.waveOrder[m.wave] as Order) : this.order[m.team];
+    const w = m.wave;
+    return w >= 0 && w < this.waves && !this.waveCrew[w] ? (this.waveOrder[w] as Order) : this.order[m.team];
   }
 
   /**

@@ -695,12 +695,11 @@ export class Gunner {
       }
       if (!seen.length) continue;
       if (!this.m.spotter(this.team)) {
-        // 3.5: the mason's eye is earned: with no spotter's tower of its own it forecasts nothing. It cuts at what it can see:
-        // the lowest course, nearest the middle of the face.
-        const lat = (c: Cand) => Math.min(Math.abs(c.x - def.cx), Math.abs(c.z - def.cz));
-        let low = seen[0];
-        for (const q of seen) if (q.c.course < low.c.course || (q.c.course === low.c.course && (lat(q.c) < lat(low.c) || (lat(q.c) === lat(low.c) && q.c.id < low.c.id)))) low = q;
-        return { e, t: { key: Aim.Cut, x: low.c.x, y: low.c.y, z: low.c.z, vx: 0, vz: 0 } };
+        // 3.5: the mason's eye is earned: with no spotter's tower of its own it forecasts nothing and cuts at one point of
+        // the foot it can see, drawn at random (a guess, as a player without the eye makes). Taking the lowest, middlemost
+        // point every time cut better than the forecasts do and felled keeps within 2:15 in the quick run.
+        const q = seen[(this.cutRng.next() * seen.length) | 0];
+        return { e, t: { key: Aim.Cut, x: q.c.x, y: q.c.y, z: q.c.z, vx: 0, vz: 0 } };
       }
       // It forecasts a few of them: drawn from those it can see.
       const w = weaponOf(e), power = w.projectile.power ?? 1;

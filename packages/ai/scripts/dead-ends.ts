@@ -17,8 +17,8 @@
 // 40 m/s within 2 s of a Released event (stones thrown from inside masonry); and a keep or tower piece down for over 180 s with
 // its masons allowed and gold over 100 while rubble fills its place the whole time (a foot never mended).
 // 3.5 adds the machines hunts (each flagged once per organ, castle or team, with numbers): an organ down for over 120 s while its
-// castle's Works repairs are on, its masons stand (two or more) and the gold is over 100, and its wait is not Footing (one that
-// cannot be rebuilt); one waiting on its footing (the tower top or the keep's roof) for over 240 s while the repairs of that
+// castle's Works repairs are on, its masons stand (two or more), the gold is over 100, no enemy man is within the masons' unsafe
+// distance of it and it waits neither on its footing nor on the crane (one that cannot be rebuilt); one waiting on its footing (the tower top or the keep's roof) for over 240 s while the repairs of that
 // footing are on; before the match, that every crane piece is low work or the crane's own and rests on the ground or a lower crane
 // piece, and that the bell and the mast rest on masonry that masons rebuild (the tower top, the keep's top floor); orders lost for
 // good (a man mustered while his team's mast is down must carry the team's standing order: needs army.orderOf, else skipped with a
@@ -28,7 +28,7 @@
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21] [plots=full]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { allowedOn, BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, repairSections, ROUTE_NAMES, sectionOf, stoneBounds, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
+import { allowedOn, BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, REPAIR, repairSections, ROUTE_NAMES, sectionOf, stoneBounds, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
 import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, LOCAL_INF, MinionState, Order, OrganWait, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
@@ -346,7 +346,7 @@ const releasedAt = new Array<number>(10).fill(-1), fastFlagged = new Array<boole
 /** Per structure piece: since when it has been down (-1 standing), and since when rubble has filled its place all the while (-1: not). */
 const downSince = new Map<number, number>(), placeBlocked = new Map<number, number>(), placeFlagged = new Set<number>();
 const structs = statics ? statics.list : [];
-const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})`;
+const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})${m.world.organs && !m.organUp(c as 0 | 1, "crane") ? ", the crane down" : ""}`;
 
 // 3.5 machines hunts: state. Per organ in layout order: since when it has been down with the Works work possible (-1: not), since when
 // it has waited on its footing with that footing's repairs on, and whether each was flagged; the seconds it was down.
@@ -460,9 +460,17 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       const crew = m.world.works ? m.world.works.status(c) : null;
       const able = !!crew && crew.masons >= ORG.masons && m.gold[c] > ORG.gold;
       const where = `castle ${c}'s ${ORGANS[kind].name}`;
-      const state = `wait: ${WAIT_NAMES[wait] ?? wait}, ${organs.up[k]} of ${organs.ids[k].length} pieces stand; ${crew ? crew.masons : 0} masons (${crew ? crew.job : "-"}), gold ${m.gold[c]}, repairs ${JSON.stringify(m.repairs[c])}`;
-      // An organ down while the Works work is possible and its wait is not the footing: it should be going back up.
-      if (down && m.repairs[c].works && able && wait !== OrganWait.Footing) {
+      // Enemy men within the masons' unsafe distance of the organ's middle (as laid out): masons rightly keep away.
+      const ids = organs.ids[k];
+      let ox = 0, oz = 0;
+      for (const id of ids) (ox += L.stones[id].x, oz += L.stones[id].z);
+      ox /= ids.length;
+      oz /= ids.length;
+      const threat = A.enemyNear(c, ox, oz, REPAIR.unsafe);
+      const state = `wait: ${WAIT_NAMES[wait] ?? wait}, ${organs.up[k]} of ${ids.length} pieces stand; ${crew ? crew.masons : 0} masons (${crew ? crew.job : "-"}), gold ${m.gold[c]}, repairs ${JSON.stringify(m.repairs[c])}`;
+      // An organ down while the Works work is possible, no enemy near it, and it waits neither on its footing nor on the
+      // crane (which is judged by its own entry): it should be going back up.
+      if (down && m.repairs[c].works && able && !threat && wait !== OrganWait.Footing && wait !== OrganWait.Crane) {
         if (oDownSince[k] < 0) oDownSince[k] = t;
         if (!oDownFlagged[k] && t - oDownSince[k] > ORG.down * 60) {
           oDownFlagged[k] = true;
