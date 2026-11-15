@@ -4111,6 +4111,9 @@ function frame(wall: number) {
     groupMarks.place(mode !== null && view === "overview", (x, y, z) => renderer.project(x, y, z), cam, innerWidth, innerHeight, dt);
   }
   eyeHud.update(now, { held: mode !== null && !blocked && !estate.wheelOpen && !film.active && !player.playing && input.down(EYE_KEY), overview: view === "overview", me: ME, mouse: pointerAt, centre: { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, spotter: spotterWorks() });
+  // 3.5: the bells swing while they ring (the soundscape rings them; organWatch keeps the time).
+  renderer.setBellRinging(0, organWatch.bellRinging(0));
+  renderer.setBellRinging(1, organWatch.bellRinging(1));
   if (!paused) renderer.render(dt);
   estate.update(now);
   if (estate.wheelOpen !== wheelShown) {
