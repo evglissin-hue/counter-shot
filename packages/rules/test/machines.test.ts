@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { BELL, BUILDING_KINDS, BUILDINGS, buildLayout, ENEMY_PLAN, GAME_LAYOUT, MUSTER, ORGAN_KINDS, SPOTTER, type BuildingKind } from "@keepfall/content";
-import { PlotState, Spin, type Rapier } from "@keepfall/sim";
+import { PlotState, type Rapier } from "@keepfall/sim";
 import { Match, Team } from "@keepfall/rules";
 
 await RD.init();
@@ -43,7 +43,7 @@ function lays(m: Match, dist: number, ticks = 90): boolean {
   // Hold them where they stand: nothing moves them while the gun looks.
   for (let i = 0; i < ticks; i++) {
     m.step();
-    if (m.guns.some((u, id) => m.emplacements[id] && u.target >= 0 && m.owner[id] === Team.Player)) return true;
+    if (m.guns.some((u, id) => m.emplacements[id] && u.target >= 0 && (m as unknown as { owner: number[] }).owner[id] === Team.Player)) return true;
   }
   return false;
 }
@@ -171,7 +171,6 @@ test("estate: a build is refused on a plot its kind may not take; a spotter's to
   assert.equal(st.slot(1, 7).state, PlotState.Standing);
   assert.equal(m.spotter(Team.Player), true, "spotter(team) turns true");
   assert.equal(BUILDING_KINDS.includes("spotter"), true);
-  void Spin;
   m.free();
 });
 
