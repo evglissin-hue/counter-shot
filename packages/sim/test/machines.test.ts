@@ -118,19 +118,36 @@ test("the bell waits for its tower: Footing while the tower top under it is down
   sim.free();
 });
 
-test("the crane comes first even with a tower near falling (rule 12): without it nothing above 4 m is mended", () => {
-  const sim = world();
-  sim.works!.policy = purse(() => true);
-  sim.works!.spawnCrew(0);
-  // Every keep and tower of castle 0 holds 0.1: all are near falling and rule 12 would send the masons to one of them.
-  const towers = new Set(repairSections(layout).filter((s) => s.castle === 0 && s.kind === "towers").flatMap((s) => s.stones));
-  sim.works!.statics = { ratio: () => 1, structureOf: (id) => (towers.has(id) ? 0 : -1), status: () => ({ holds: 0.1 }) };
+test("rule 12 and the crane: a tower near falling that low work saves comes first; one whose cut is above 4 m waits for the crane", () => {
   const tower = repairSections(layout).find((s) => s.castle === 0 && s.kind === "towers")!;
+  const towers = new Set(repairSections(layout).filter((s) => s.castle === 0 && s.kind === "towers").flatMap((s) => s.stones));
   const low = tower.stones.find((id) => foot(id) < 2 && layout.stones[id].part === "tower")!;
-  dust(sim, [craneKey, low]);
-  const laid = run(sim, 60 * 60);
-  assert.ok(laid.includes(craneKey), `the crane went back (laid ${laid.join(",")})`);
-  assert.ok(!laid.includes(low) || laid.indexOf(craneKey) < laid.indexOf(low), "before the tower near falling");
-  assert.ok(sim.organs!.working(0, CRANE_I), "the crane works again");
-  sim.free();
+  const high = tower.stones.find((id) => foot(id) >= CRANE.low + 1 && foot(id) < CRANE.low + 3 && layout.stones[id].part === "tower")!;
+  const setup = (down: number[]) => {
+    const sim = world();
+    sim.works!.policy = purse(() => true);
+    sim.works!.spawnCrew(0);
+    // Every tower of castle 0 holds 0.1 (near falling), and a higher course carries more: the highest course down saves it.
+    sim.works!.statics = { ratio: (_i, c) => c, structureOf: (id) => (towers.has(id) ? 0 : -1), status: () => ({ holds: 0.1 }) };
+    dust(sim, [craneKey, ...down]);
+    return sim;
+  };
+  {
+    // Only a low piece of the tower is down: masons can save it without the crane, and do so first.
+    const sim = setup([low]);
+    const laid = run(sim, 60 * 60);
+    assert.ok(laid.includes(low) && laid.includes(craneKey), `laid ${laid.join(",")}`);
+    assert.ok(laid.indexOf(low) < laid.indexOf(craneKey), "the tower's low course went back before the crane");
+    sim.free();
+  }
+  {
+    // A high piece carries the most: low pieces do not save the tower, so the crane comes first, then the high piece.
+    const sim = setup([low, high]);
+    const laid = run(sim, 90 * 60);
+    assert.ok(laid.includes(craneKey) && laid.includes(high), `laid ${laid.join(",")}`);
+    assert.ok(laid.indexOf(craneKey) < laid.indexOf(high), "the crane went back before the tower's high course");
+    assert.ok(!laid.includes(low) || laid.indexOf(craneKey) < laid.indexOf(low), "and before the low piece that does not save it");
+    assert.ok(sim.organs!.working(0, CRANE_I), "the crane works again");
+    sim.free();
+  }
 });

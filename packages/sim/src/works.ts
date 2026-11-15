@@ -189,6 +189,29 @@ export class Works {
     return s.y - s.hy >= CRANE.low;
   }
 
+  /**
+   * 3.5: can masons do the work that saves this section's structure now? With the crane working, yes; with it down, only
+   * if the down piece (standing on something) in the course carrying the most for what is left is low work. A tower whose
+   * cut is above CRANE.low waits for the crane, not the crew laying low pieces that do not save it.
+   */
+  private savable(sec: RepairSection): boolean {
+    const o = this.organs, st = this.statics;
+    if (!o || !st || o.working(sec.castle, ORGAN_KINDS.indexOf("crane"))) return true;
+    const i = st.structureOf(sec.stones[0]);
+    if (i < 0) return true;
+    const L = this.castle.layout;
+    let best = -Infinity, high = false;
+    for (const id of sec.stones) {
+      if (!this.castle.dynamic[id] || this.castle.busy[id] || (this.mendable !== null && !this.mendable(id)) || !this.supported(id)) continue;
+      const q = st.ratio(i, L.stones[id].course);
+      if (q > best) {
+        best = q;
+        high = L.stones[id].y - L.stones[id].hy >= CRANE.low;
+      }
+    }
+    return best > -Infinity && !high;
+  }
+
   /** 3.5: the crane's section when it does not work and has a piece that can go back now, else -1. */
   private craneFirst(crew: Crew): number {
     const o = this.organs;
@@ -270,18 +293,16 @@ export class Works {
       const sec = this.sections[crew.job];
       if (!this.allowed(team, sec.kind) || this.down(sec) === 0) crew.job = -1;
     }
-    // 3.5: with the crane down, the crane first (its own pieces are low work), before even a keep near falling: without
-    // it no mending above CRANE.low goes on, so a keep or tower near falling waits for it too.
+    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at, while the course
+    // that saves it is work they can do (3.5: low work, with the crane down). 3.5: then, with the crane down, the crane
+    // (its own pieces are low work) before anything else: without it nothing above CRANE.low goes back.
     let cf = this.craneFirst(crew);
     if (cf === avoid) cf = -1;
-    if (cf >= 0) crew.job = cf;
-    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at (but the crane).
-    else if (this.statics) {
-      const cur = crew.job >= 0 ? this.sections[crew.job] : null;
-      if (!cur || !this.urgent(cur)) {
-        const u = this.pickUrgent(crew);
-        if (u >= 0) crew.job = u;
-      }
+    const cur = crew.job >= 0 ? this.sections[crew.job] : null;
+    if (!(cur && this.statics && this.urgent(cur) && this.savable(cur))) {
+      const u = this.statics ? this.pickUrgent(crew) : -1;
+      if (u >= 0) crew.job = u;
+      else if (cf >= 0) crew.job = cf;
     }
     if (crew.job < 0) crew.job = this.pickJob(crew);
     if (crew.job < 0) {
@@ -347,7 +368,7 @@ export class Works {
     }
     crew.next = found >= 0 ? found : blocked;
     // 3.5: the crane first, unless every piece of it that could go back is blocked where it goes: then other work meanwhile.
-    const craneBlocked = cf >= 0 && found < 0;
+    const craneBlocked = cf >= 0 && crew.job === cf && found < 0;
     if (crew.next < 0 || craneBlocked) {
       // Nothing here can go back yet (what it rests on is down in another section): another job first.
       const other = this.pickJob(crew, crew.job);
@@ -422,7 +443,7 @@ export class Works {
   private pickUrgent(crew: Crew, skip = -1): number {
     let best = -1, bestHolds = Infinity;
     for (const sec of this.sections) {
-      if (sec.castle !== crew.castle || sec.index === skip || !this.allowed(crew.castle, sec.kind) || !this.urgent(sec)) continue;
+      if (sec.castle !== crew.castle || sec.index === skip || !this.allowed(crew.castle, sec.kind) || !this.urgent(sec) || !this.savable(sec)) continue;
       let first = -1;
       for (const id of sec.stones) {
         if (this.castle.dynamic[id] && this.may(id) && this.supported(id)) {
