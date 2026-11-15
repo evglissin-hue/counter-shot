@@ -25,7 +25,7 @@ const cs = c as unknown as { moving: number; tipping: number; woken: number };
 let evSeen = 0;
 /** What each piece was at the last fall: 0 standing, 1 frozen, 2 loose asleep, 3 loose awake, 4 dust or ghost. */
 const was = new Uint8Array(n);
-let watchUntil = -1, fallAt = -1, peak = 0, peakText = "";
+let watchUntil = -1, fallAt = -1, peak = 0, peakText = "", most = 0, mostAt = 0;
 const name = (si: number) => `castle ${Math.floor(si / 5)} ${si % 5 === 0 ? "keep" : `tower ${si % 5}`}`;
 
 function snapshot() {
@@ -73,6 +73,13 @@ for (let i = 0; i < secs * 60 && !m.result; i++) {
       console.log(`${(i / 60).toFixed(1)} s: ${name(worldEvents[evSeen + 1])} released (${worldEvents[evSeen + 2]} pieces, ${worldEvents[evSeen + 3]} bodies)`);
     }
   }
+  if (i % 10 === 0) {
+    const a = c.awakeCount();
+    if (a > most) {
+      most = a;
+      mostAt = i;
+    }
+  }
   if (i <= watchUntil && (i - fallAt) % 30 === 0) {
     const x = count();
     if (x.total >= min || (i - fallAt) % 60 === 0) console.log(`   +${((i - fallAt) / 60).toFixed(1)} s ${x.text}`);
@@ -84,4 +91,5 @@ for (let i = 0; i < secs * 60 && !m.result; i++) {
 }
 console.log(m.result ? `END at ${(m.result.tick / 60).toFixed(0)} s by ${m.result.reason}, winner ${m.result.winner}` : `no result after ${secs} s`);
 console.log(`peak after a fall: ${peakText}`);
+console.log(`most moving in the match (every 10 ticks): ${most} at ${(mostAt / 60).toFixed(1)} s`);
 m.free();
