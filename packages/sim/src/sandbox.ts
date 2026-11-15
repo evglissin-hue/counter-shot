@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { BUILDING_KINDS, sectionOf, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { BUDGET, BUILDING_KINDS, sectionOf, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { Army } from "./army";
@@ -188,7 +188,7 @@ export class SandboxSim {
 
   constructor(R: Rapier, layout: CastleLayout, opts: SandboxOptions) {
     this.R = R;
-    this.castle = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: false, settle: true });
+    this.castle = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: false, settle: true, budget: BUDGET.moving });
     this.terrain = new Terrain(R, this.castle.world);
     this.minions = new Minions(R, this.castle.world, this.terrain);
     this.rng = new Rng(opts.seed);
