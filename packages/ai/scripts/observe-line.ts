@@ -12,8 +12,9 @@ export const LINE_VERSION = 1;
 export type Side = "squire" | "knight" | "warlord" | "idle";
 
 /** What a shot by hand was for (the gunner's Aim keys, grouped: every raid is "raid", every gun is "gun"). */
-export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun" | "range" | "open" | "cut";
-export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut"];
+export type AimKind = "keep" | "crowd" | "breach" | "raid" | "masons" | "gun" | "range" | "open" | "cut" | "bell" | "crane" | "mast";
+/** 3.5 adds the organs' aims (bell, crane, mast) at the end, as AIM_GROUPS does; a line from an older AI carries zeros for them. */
+export const AIM_KINDS: AimKind[] = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut", "bell", "crane", "mast"];
 
 /** How a match is set up. Everything needed to play it again. */
 export interface MatchSetup {
@@ -110,6 +111,16 @@ export interface Totals {
   falls?: [Fall[], Fall[]];
   keepFoot?: [number, number];
   keepTop?: [number, number];
+  /**
+   * 3.5, by castle, each a list in ORGAN_KINDS order (bell, crane, mast; older lines lack all of them): the seconds the organ
+   * was down in the match (an open spell counts to the last tick), how many times it went down, and whether it was down at 5:00
+   * (tick 18000; null for a match over before then).
+   */
+  organDownSecs?: [number[], number[]];
+  organDowns?: [number[], number[]];
+  organDownAt5?: [Array<boolean | null>, Array<boolean | null>];
+  /** 3.5, by castle: the tick its spotter's tower first worked (null: never). */
+  spotterAt?: [number | null, number | null];
 }
 
 /** A structure that fell: [time (s), "keep" or "tower", "topple" or "crush", the course it gave way at]. */
