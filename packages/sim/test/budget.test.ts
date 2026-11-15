@@ -175,3 +175,44 @@ test("rubble on a moving part beyond the room turns to dust rather than hanging 
   assert.equal(ids.filter((id) => c.shattered[id]).length, 5, "the rest is dust");
   c.free();
 });
+
+test("3.6: loose rubble asleep but not yet frozen keeps its place in the budget (a touch wakes a sleeping heap whole)", () => {
+  const c = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: true, settle: true, budget: 200 });
+  const ids = spares(24);
+  for (const id of ids) c.knockLoose(id, 0, 0, 0);
+  let seen = 0;
+  for (let t = 0; t < 60 * 20 && seen < 5; t++) {
+    c.step();
+    let dozing = 0, awake = 0;
+    for (const id of ids) {
+      if (c.frozen[id] || c.shattered[id]) continue;
+      if (c.bodies[id].isSleeping()) dozing++;
+      else awake++;
+    }
+    if (dozing > 0) {
+      seen++;
+      assert.ok(c.room() <= 200 - dozing - awake, `room ${c.room()} with ${dozing} asleep and ${awake} awake of the budget's 200`);
+    }
+  }
+  assert.ok(seen > 0, "some rubble fell asleep before it froze");
+  c.free();
+});
+
+test("3.6: past the budget, rubble lying on a storey board that gives way turns to dust; with room it wakes", () => {
+  const board = layout.stones.find((s) => s.part === "storey" && s.castle === 0)!;
+  const top = board.y + board.hy;
+  for (const budget of [3, 1000]) {
+    const c = new CastleSim(R, layout, { ...DEFAULT_SIM, ground: true, settle: true, budget });
+    const ids = spares(9);
+    const on = ids.slice(0, 6);
+    on.forEach((id, k) => freezeAt(c, id, board.x - 1 + (k % 3), top + 0.4, board.z - 0.5 + Math.floor(k / 3)));
+    for (const id of ids.slice(6)) c.knockLoose(id, 0, 0, 0);
+    if (budget === 3) assert.ok(c.room() <= 0, "the room is used up");
+    c.dust(board.id);
+    for (const id of on) {
+      assert.equal(c.frozen[id], 0, "it is no longer fixed in the air");
+      assert.equal(c.shattered[id], budget === 3 ? 1 : 0, budget === 3 ? "dust: no room" : "woken: there is room");
+    }
+    c.free();
+  }
+});
