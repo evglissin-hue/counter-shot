@@ -1,7 +1,7 @@
 // The opening search (phase 3, 3.1, spec rule 6): looks for dominant build
 // orders and says whether T6 holds.
 //
-//   node tools/observatory-openings.mjs [run=name] [seeds=1-4] [gens=3] [pop=6] [keep=3] [secs=N] [jobs=N] [seed=1]
+//   node tools/observatory-openings.mjs [run=name] [seeds=1-4] [gens=3] [pop=6] [keep=3] [secs=N] [jobs=N] [seed=1] [dry=1]
 //
 // Start from the three stock plans. Each generation: score every plan not yet
 // scored on the panel (the plan as one castle against the stock Knight plan as
@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 import { doneIds, parseArgs, root, runPool, runReport, seedList, stamp, writeRunInfo } from "./observatory.mjs";
-import { describePlan, LEVELS, makeChild, makeRng, panelSetups, planName, readLines, scorePlan, stockSteps } from "./observatory-plans.mjs";
+import { describePlan, LEVELS, makeChild, makeRng, panelSetups, planName, readLines, scorePlan, stockSteps, validatePlan } from "./observatory-plans.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 const seeds = seedList(args.seeds ?? "1-4");
@@ -71,6 +71,19 @@ function save() {
 }
 
 let population = LEVELS.map((l) => note(stockSteps(l), 0));
+if (args.dry === "1") {
+  // Plays nothing: draws the first generation's children and shows that every plan is valid (kinds only on the plots they may take).
+  const seen = new Set(plans.keys());
+  const kids = [];
+  for (let k = 0; k < Math.max(1, pop - keep) * 4; k++) {
+    const kid = makeChild(population[k % population.length].steps, rng, { seen });
+    if (!kid) continue;
+    seen.add(planName(kid));
+    kids.push(kid);
+  }
+  for (const p of [...population.map((q) => q.steps), ...kids]) console.log(`${planName(p).padEnd(14)} ${validatePlan(p) ?? "valid"}  ${describePlan(p)}`);
+  process.exit(0);
+}
 for (let gen = 1; gen <= gens; gen++) {
   const fresh = population.filter((p) => !p.evaluated);
   for (const p of population) for (const s of p.setups) allSetups.set(s.id, s);

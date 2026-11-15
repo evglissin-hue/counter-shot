@@ -14,7 +14,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TICKS_PER_SEC = 60;
-const KINDS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut"];
+// The kinds of target shots by hand are counted by: the AI's AIM_GROUPS (3.5 adds the organs' aims at the end). Any other key
+// a line carries is added by learnKinds(), so a group added later is counted without a change here.
+const KINDS = ["keep", "crowd", "breach", "raid", "masons", "gun", "range", "open", "cut", "bell", "crane", "mast"];
+const ORGANS = ["bell", "crane", "mast"];
+function learnKinds(all) {
+  for (const m of all) for (const side of m.totals?.byHand ?? []) for (const k of Object.keys(side ?? {})) if (!KINDS.includes(k)) KINDS.push(k);
+}
 const LEVEL_ORDER = ["idle", "squire", "knight", "warlord"];
 
 // ---------------------------------------------------------------- reading
@@ -282,8 +288,9 @@ function t7(all) {
   delete merged.cut;
   const [top, topN] = Object.entries(merged).sort((a, b) => b[1] - a[1])[0];
   const kept = tot.cut || tot.open ? `; keep ${pct(merged.keep / total)} (floors ${pct(tot.keep / total)}, cut ${pct(tot.cut / total)}), open the way ${pct(tot.open / total)}` : "";
+  const machines = KINDS.slice(9).map((k) => `${k} ${pct(tot[k] / total)}`).join(", ");
   return {
-    value: `${top} takes ${pct(topN / total)} of ${total} shots by hand (${n} winners)${kept}`,
+    value: `${top} takes ${pct(topN / total)} of ${total} shots by hand (${n} winners)${kept}${machines ? `; machines: ${machines}` : ""}`,
     pass: topN / total <= 0.5,
     data: { matches: n, shots: tot, topKind: top, topShare: topN / total, keepShare: merged.keep / total, cutShare: tot.cut / total, openShare: tot.open / total },
   };
@@ -328,6 +335,57 @@ function fallLines(f) {
     f.keepWins ? `Keep endings: ${f.felled} felled (the losing keep toppled or crushed) against ${f.floors} by floors (of ${f.keepWins}).` : "Keep endings: none with the split recorded.",
     `Hand shots that landed on an enemy keep: ${f.foot} at the foot (below its lowest floor) and ${f.top} above it; the winners' ${f.winFoot} foot and ${f.winTop} top, the losers' ${f.loseFoot} foot and ${f.loseTop} top.`,
   ];
+  return out;
+}
+
+/**
+ * 3.5: the machines. From the lines that carry totals.organDownSecs (older lines lack it): per organ, over all sides played, the
+ * share of matches in which it went down, the median and longest time down (over the spells' totals per side that went down),
+ * and the win rate of the side whose organ was down at 5:00 against the side whose was up (matches with a winner, one side
+ * down); and how many sides built a spotter's tower (it worked at some time) and how they fared.
+ */
+function machineStats(all) {
+  const ms = all.filter((m) => m.totals?.organDownSecs);
+  if (!ms.length) return null;
+  const rows = ORGANS.map((organ, o) => {
+    const secs = [], wentDown = ms.filter((m) => (m.totals.organDowns?.[0]?.[o] ?? 0) + (m.totals.organDowns?.[1]?.[o] ?? 0) > 0).length;
+    for (const m of ms) for (const c of [0, 1]) if ((m.totals.organDowns?.[c]?.[o] ?? 0) > 0) secs.push(m.totals.organDownSecs[c][o]);
+    let downWins = 0, downN = 0, bothDown = 0, noneDown = 0;
+    for (const m of ms) {
+      const a = m.totals.organDownAt5;
+      if (!a || a[0][o] === null || a[0][o] === undefined || !isDecided(m)) continue;
+      if (a[0][o] && a[1][o]) bothDown++;
+      else if (!a[0][o] && !a[1][o]) noneDown++;
+      else if (m.result.winner === 0 || m.result.winner === 1) {
+        downN++;
+        if (a[m.result.winner][o]) downWins++;
+      }
+    }
+    const sides = ms.length * 2;
+    return { organ, matches: ms.length, wentDown, wentShare: wentDown / ms.length, spells: secs.length, "median down": secs.length ? median(secs) : NaN, "longest down": secs.length ? Math.max(...secs) : NaN, downN, downWins, downRate: downN ? downWins / downN : NaN, bothDown, noneDown, sides };
+  });
+  let built = 0, builtWins = 0, builtN = 0, firstAt = [];
+  for (const m of ms) {
+    const at = m.totals.spotterAt;
+    if (!at) continue;
+    for (const c of [0, 1]) if (at[c] !== null && at[c] !== undefined) (built++, firstAt.push(at[c] / TICKS_PER_SEC));
+    const w = m.result?.winner;
+    if ((w === 0 || w === 1) && (at[0] !== null) !== (at[1] !== null)) {
+      builtN++;
+      if (at[w] !== null && at[w] !== undefined) builtWins++;
+    }
+  }
+  return { n: ms.length, rows, spotter: { sides: ms.length * 2, built, firstMedian: firstAt.length ? median(firstAt) : NaN, onlyOne: builtN, onlyOneWins: builtWins, onlyOneRate: builtN ? builtWins / builtN : NaN } };
+}
+
+function machineLines(f) {
+  if (!f) return ["No line carries the organs (a run from before 3.5)."];
+  const out = [`Matches with the organs recorded: ${f.n}.`];
+  for (const r of f.rows) {
+    out.push(`${r.organ}: went down in ${r.wentDown} of ${r.matches} matches (${pct(r.wentShare)}); down ${num(r["median down"], 0)} s at the median and ${num(r["longest down"], 0)} s at the longest (over ${r.spells} side-matches in which it fell). Down at 5:00 on one side only: that side won ${r.downWins} of ${r.downN} (${pct(r.downRate)}); both down ${r.bothDown}, both up ${r.noneDown}.`);
+  }
+  const sp = f.spotter;
+  out.push(`Spotter's tower: ${sp.built} of ${sp.sides} sides had one working (median first at ${Number.isFinite(sp.firstMedian) ? mmss(sp.firstMedian) : "n/a"}); in matches where only one side had one, that side won ${sp.onlyOneWins} of ${sp.onlyOne} (${pct(sp.onlyOneRate)}).`);
   return out;
 }
 
@@ -408,6 +466,7 @@ function analyse(dir) {
   const byId = new Map();
   for (const m of rawLines) if (m && m.setup && m.result && m.totals) byId.set(m.setup.id, m);
   const all = [...byId.values()];
+  learnKinds(all);
   const decided = all.filter(isDecided);
   const noResult = all.filter((m) => !isDecided(m));
   const mirror = decided.filter(isMirror);
@@ -462,7 +521,8 @@ function analyse(dir) {
 
   const powder = powderStats(all);
   const falls = fallStats(all);
-  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder, falls };
+  const machines = machineStats(all);
+  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder, falls, machines };
 }
 
 // ---------------------------------------------------------------- charts
@@ -846,6 +906,7 @@ ${failedList}
 <section><h2>Range and register</h2>${table(registerRows(a.all))}<div class="small">Per side, as a mean per match: marks made, salvos fired, shots by guns nobody mans (and how many of them at men on a mark) and bridges standing at the end (of 3; lines from before 3.2 count as 0 marks and 3 bridges).</div></section>
 <section><h2>Powder</h2><ul>${powderLines(a.powder).map((l) => `<li>${esc(l)}</li>`).join("")}</ul></section>
 <section><h2>Falls</h2><ul>${fallLines(a.falls).map((l) => `<li>${esc(l)}</li>`).join("")}</ul><div class="small">Every structure that toppled or crushed (from the Topple and Crush events), over both castles; endings split as keep (felled) and keep (floors); hand shots by where they landed on the enemy keep. Lines from before 3.4 carry none of it.</div></section>
+<section><h2>Machines</h2><ul>${machineLines(a.machines).map((l) => `<li>${esc(l)}</li>`).join("")}</ul><div class="small">Each organ (bell, crane, signal mast) per castle: how long it was down, and the win rate of the side whose organ was down at 5:00 against the side whose was up; and the Spotter's Tower. Lines from before 3.5 carry none of it.</div></section>
 <section><h2>Charts</h2>
 <figure><h3>Match length (T1)</h3>${length}<figcaption>Mirror matches with a result: ${mirrorDecided.length}. The shaded band is the median target.</figcaption></figure>
 <figure><h3>Endings by pairing (T2)</h3>${endings}<figcaption>All matches with a result, by who commanded castle 0 and castle 1.</figcaption></figure>
@@ -885,6 +946,7 @@ function buildSummary(a) {
     pairings: a.pairings,
     powder: a.powder,
     falls: a.falls,
+    machines: a.machines,
   };
 }
 
@@ -904,6 +966,9 @@ function buildMarkdown(a) {
   lines.push("");
   lines.push("Falls", "");
   for (const l of fallLines(a.falls)) lines.push(`- ${l}`);
+  lines.push("");
+  lines.push("Machines", "");
+  for (const l of machineLines(a.machines)) lines.push(`- ${l}`);
   lines.push("");
   return lines.join("\n");
 }

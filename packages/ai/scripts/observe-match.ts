@@ -3,7 +3,7 @@
 // observe-line.ts describes. Tuning is applied before the match is built and
 // undone when it is freed, so a process can play many setups.
 
-import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
+import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, ORGAN_KINDS, PLOTS, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, RULES_VERSION, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_RULES_VERSION } from "@keepfall/rules";
 import { AIM_GROUPS, AiPlayer } from "@keepfall/ai";
@@ -26,7 +26,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const m = new Match(R, buildLayout(1, GAME_LAYOUT), { seed, plan: false, rotate: false });
   const ais = pair((team) => (setup.sides[team] === "idle" ? null : new AiPlayer(m, team, setup.sides[team] as Difficulty, seed, { plan: (setup.steps?.[team] as AiStep[] | null | undefined) ?? undefined, level: (setup.levels?.[team] as Partial<AiLevel> | null | undefined) ?? undefined })));
   const outs = (c: number) => m.emplacements.filter((e, i) => (e.z < -75 ? 1 : 0) === c && !e.empty && !m.world.mounts.up(i)).length;
-  const plots = (c: number) => [0, 1, 2, 3, 4, 5].map((p) => {
+  const plots = (c: number) => PLOTS.map((q) => q.index).map((p) => {
     const s = m.world.structures!.slot(c, p);
     if (s.kind < 0 || s.state === 0) return ".";
     if (s.state === 3) return "x";
@@ -53,6 +53,14 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const marksMade: [number, number] = [0, 0], salvos: [number, number] = [0, 0], salvoGuns: [number, number] = [0, 0];
   const seenMarks = new WeakSet<object>();
   const salvoAt: [number, number] = [m.register.salvoAt[0], m.register.salvoAt[1]];
+  /** 3.5: per castle and organ (ORGAN_KINDS order), since when it has been down (tick, -1: up), the ticks down so far, the times it went down, and whether it was down at 5:00; and the tick each spotter's tower first worked. */
+  const nO = ORGAN_KINDS.length;
+  const zeros = () => ORGAN_KINDS.map(() => 0);
+  const downSince: [number[], number[]] = [ORGAN_KINDS.map(() => -1), ORGAN_KINDS.map(() => -1)];
+  const downTicks: [number[], number[]] = [zeros(), zeros()], downs: [number[], number[]] = [zeros(), zeros()];
+  const downAt5: [Array<boolean | null>, Array<boolean | null>] = [ORGAN_KINDS.map(() => null), ORGAN_KINDS.map(() => null)];
+  const spotterAt: [number | null, number | null] = [null, null];
+  const AT5 = 5 * 60 * 60;
   const sample = (tick: number) => {
     const army = m.armyCounts();
     samples.push({
@@ -123,6 +131,17 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
         falls[Math.floor(si / 5) as 0 | 1].push([i / 60, si % 5 === 0 ? "keep" : "tower", kind === EventKind.Topple ? "topple" : "crush", worldEvents[evSeen + 2]]);
         continue;
       }
+      if (kind === EventKind.OrganDown || kind === EventKind.OrganUp) {
+        const c = worldEvents[evSeen + 1], o = worldEvents[evSeen + 2];
+        if ((c !== 0 && c !== 1) || !(o >= 0 && o < nO)) continue;
+        if (kind === EventKind.OrganDown) {
+          if (downSince[c][o] < 0) (downSince[c][o] = i + 1, downs[c][o]++);
+        } else if (downSince[c][o] >= 0) {
+          downTicks[c][o] += i + 1 - downSince[c][o];
+          downSince[c][o] = -1;
+        }
+        continue;
+      }
       if (kind !== EventKind.MagazineBlew) continue;
       const c = worldEvents[evSeen + 1] as 0 | 1;
       if (blownAt[c] < 0) blownAt[c] = i;
@@ -137,18 +156,23 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
       if (l.y < footY) keepFoot[shooter]++;
       else keepTop[shooter]++;
     }
+    if (i === AT5 - 1) for (const c of [0, 1] as const) ORGAN_KINDS.forEach((k, o) => (downAt5[c][o] = !m.organUp(c, k)));
+    if (i % 10 === 9) for (const c of [0, 1] as const) if (spotterAt[c] === null && m.spotter(c)) spotterAt[c] = i + 1;
     if (i % 1800 === 1799) sample(i + 1);
   }
   const tick = m.result ? m.result.tick : i;
   // The end, unless the last 30 s sample was taken on this very tick.
   if (!samples.length || samples[samples.length - 1].t !== m.tick / 60) sample(m.tick);
   const wallMs = performance.now() - t0;
+  const endTick = m.tick;
+  for (const c of [0, 1] as const) for (let o = 0; o < nO; o++) if (downSince[c][o] >= 0) downTicks[c][o] += endTick - downSince[c][o];
 
   const byHand = pair((c): Record<AimKind, number> => {
     const rec = {} as Record<AimKind, number>;
     for (const k of AIM_KINDS) rec[k] = 0;
     const by = ais[c]?.gunner.byAim;
-    if (by) AIM_GROUPS.forEach((g, k) => (rec[g] = by[k]));
+    // Read the groups generically: whatever AIM_GROUPS holds is counted (3.5 adds bell, crane and mast).
+    if (by) AIM_GROUPS.forEach((g, k) => (rec[g as AimKind] = by[k] ?? 0));
     return rec;
   });
   const totals: Totals = {
@@ -177,6 +201,10 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     falls,
     keepFoot,
     keepTop,
+    organDownSecs: pair((c) => downTicks[c].map((t) => Math.round((t / 60) * 10) / 10)),
+    organDowns: downs,
+    organDownAt5: downAt5,
+    spotterAt,
   };
   const r = m.result;
   const line: MatchLine = {
