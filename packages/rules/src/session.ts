@@ -22,7 +22,7 @@ import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } from "./match";
 
-export const MATCH_TICKS = 6200;
+export const MATCH_TICKS = 4100;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
 export const MATCH_HASH = { state: "29bc6f70", world: "52725556" } as const;
@@ -41,36 +41,24 @@ export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [765, Team.Player, fire(0, -0.0196, 0.1198)],
   [1005, Team.Player, fire(0, 0, 0.1198)],
   [1245, Team.Player, fire(0, 0.0196, 0.1198)],
-  [1470, Team.Player, fire(1, 0, 0.9078)],
+  [1470, Team.Player, fire(1, 0, 0.9077)],
   [1485, Team.Player, fire(0, -0.0196, 0.1198)],
   [1725, Team.Player, fire(0, 0, 0.1198)],
   [1965, Team.Player, fire(0, 0.0196, 0.1198)],
   [2190, Team.Player, fire(1, 0, 0.9077)],
   [2205, Team.Player, fire(0, -0.0196, 0.1198)],
   [2445, Team.Player, fire(0, 0, 0.0707)],
-  [2685, Team.Player, fire(0, 0.0196, 0.0594)],
-  [2910, Team.Player, fire(1, 0.0094, 1.0042)],
-  [2925, Team.Player, fire(0, -0.0196, 0.0594)],
-  [3165, Team.Player, fire(0, 0, 0.0594)],
-  [3405, Team.Player, fire(0, 0.0196, 0.0594)],
-  [3630, Team.Player, fire(1, 0.0094, 1.0042)],
-  [3645, Team.Player, fire(0, -0.0196, 0.0594)],
-  [3885, Team.Player, fire(0, 0, 0.0594)],
-  [4125, Team.Player, fire(0, 0.0196, 0.0594)],
-  [4350, Team.Player, fire(1, 0.0094, 1.0042)],
-  [4365, Team.Player, fire(0, -0.0196, 0.0594)],
-  [4605, Team.Player, fire(0, 0, 0.0594)],
-  [4845, Team.Player, fire(0, 0.0196, 0.0594)],
-  [5070, Team.Player, fire(1, 0.0105, 1.0037)],
-  [5085, Team.Player, fire(0, -0.0196, 0.0594)],
-  [5325, Team.Player, fire(0, 0, 0.0594)],
-  [5565, Team.Player, fire(0, 0.0196, 0.0594)],
-  [5790, Team.Player, fire(1, 0.0105, 1.0037)],
-  [5805, Team.Player, fire(0, -0.0196, 0.0594)],
-  [6045, Team.Player, fire(0, 0, 0.0594)],
+  [2685, Team.Player, fire(0, 0.0196, 0.0707)],
+  [2910, Team.Player, fire(1, 0.0099, 0.9613)],
+  [2925, Team.Player, fire(0, -0.0196, 0.0707)],
+  [3165, Team.Player, fire(0, 0, 0.0707)],
+  [3405, Team.Player, fire(0, 0.0196, 0.0707)],
+  [3630, Team.Player, fire(1, 0.0099, 0.9613)],
+  [3645, Team.Player, fire(0, -0.0196, 0.0707)],
+  [3885, Team.Player, fire(0, 0, 0.0707)],
   // The keep has fallen by now: these are refused.
-  [6120, Team.Player, fire(1, 0.0105, 1.0037)],
-  [6150, Team.Player, fire(0, 0.02, 0.03)],
+  [4000, Team.Player, fire(1, 0.0099, 0.9613)],
+  [4030, Team.Player, fire(0, 0.02, 0.03)],
   // Not the enemy's emplacement: refused.
   [100, Team.Enemy, fire(0, 0, 0.03)],
 ];
