@@ -119,10 +119,10 @@ export function crewScatter(crew: number, level: number): number {
  * same places the page's crews rest at (look round L1), clear of the carriage.
  */
 export const CREW_POSTS: Record<WeaponKind, [[number, number], [number, number]]> = {
-  longGun: [[-1.25, -1.75], [1.55, -0.7]],
-  chainShot: [[-1.1, -1.7], [1.7, -0.3]],
-  mortar: [[-1.2, -1.1], [1.4, -0.8]],
-  swivel: [[-0.7, -0.55], [0.7, -0.55]],
+  longGun: [[-1.25, -1.75], [1.55, -1.7]],
+  chainShot: [[-1.1, -1.7], [1.7, -1.7]],
+  mortar: [[-1.2, -0.2], [1.4, -0.5]],
+  swivel: [[-0.7, -1.5], [0.7, -1.5]],
 };
 
 /** A gun's post for a seat, in the world (x, z): its frame turned by the emplacement's base yaw. The height is the gun's floor (sim: mountFloor). */

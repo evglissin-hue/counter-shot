@@ -32,6 +32,7 @@ import {
   ROUTE_NAMES,
   START_BUILDINGS,
   STORM,
+  StationKind,
   Unit,
   UNMANNED,
   UPGRADE_KINDS,
@@ -65,7 +66,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 13;
+export const MATCH_RULES_VERSION = 14;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -179,6 +180,8 @@ export interface TeamStats {
   /** After M5: enemy guns it knocked out, and its own guns knocked out. */
   gunsSilenced: number;
   gunsLost: number;
+  /** 3.6: people of its household it has lost (men at their posts, walking out or at work who were knocked down). */
+  householdLost: number;
 }
 
 /** An emplacement's barrel and, when nobody mans it, what it is laying on. */
@@ -389,9 +392,16 @@ export class Match {
           return bridgeAtRisk(e, x, z, UNMANNED[e.weapon] ?? UNMANNED.longGun!, dsqrt(dx * dx + dz * dz), false, errScale);
         },
         aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch),
-        spotter: (team) => this.spotter(team) },
+        spotter: (team) => this.spotter(team),
+        crew: (emp) => this.world.household?.crew(emp) ?? 2 },
       opts.seed,
     );
+    // 3.6: the household: its crews at the guns and the keepers at their posts, the masons' and boys' seats, the reserve; the team's ridden gun is served first.
+    const household = this.world.household;
+    if (household) {
+      household.policy = { riding: (team) => this.manned[team] };
+      household.start();
+    }
   }
 
   /** Gold each team earned (income included) and spent: the economy's books. */
@@ -430,12 +440,17 @@ export class Match {
   /** 3.5: does a team's organ work (true in a world without organs)? */
   organUp(team: number, organ: OrganKind): boolean {
     const o = this.world.organs;
-    return !o || o.working(team, ORGAN_KINDS.indexOf(organ));
+    if (o && !o.working(team, ORGAN_KINDS.indexOf(organ))) return false;
+    // 3.6: the bell and the mast work only while their keeper is at his post (the crane has none).
+    const h = this.world.household;
+    if (!h) return true;
+    return organ === "bell" ? h.keeper(team, StationKind.Bell) : organ === "mast" ? h.keeper(team, StationKind.Mast) : true;
   }
 
   /** 3.5: does a team have a working spotter's tower (its marks last SPOTTER.life and every gun shares them)? */
   spotter(team: number): boolean {
-    return this.estate.spotter(team);
+    // 3.6: with his spotter at his post.
+    return this.estate.spotter(team) && (this.world.household?.keeper(team, StationKind.Spotter) ?? true);
   }
 
   /**
@@ -702,11 +717,17 @@ export class Match {
    */
   private gunnery(tick: number) {
     const mounts = this.world.mounts;
+    const household = this.world.household;
     for (const e of this.emplacements) {
       const team = this.owner[e.id];
       const U = UNMANNED[e.weapon];
       // After M5: a knocked-out gun's crew is busy getting it back on its mount. M6: a team whose crews are not at its guns.
       if (!U || e.empty || !this.autoFire[team] || this.manned[team] === e.id || !mounts.up(e.id)) continue;
+      // 3.6: a gun with no crew at it lays on nothing and fires nothing (you can still ride it).
+      if (household && household.crew(e.id) === 0) {
+        this.guns[e.id].target = -1;
+        continue;
+      }
       // 3.3: a gun whose box cannot pay for a shot lays on nothing and fires nothing.
       if (this.world.carriers && !this.world.carriers.canPay(e.id)) {
         this.guns[e.id].target = -1;
@@ -797,6 +818,8 @@ export class Match {
     const r2 = r * r;
     for (const m of this.world.minions.list) {
       if (m.team !== team || m.state !== MinionState.Upright || m.wave < 0) continue;
+      // 3.6: the household up on a wall or a tower is not where shots at the ground land.
+      if (m.role === Role.Crew && m.y > 2) continue;
       const dx = m.x - x, dz = m.z - z;
       if (dx * dx + dz * dz < r2) return true;
     }
@@ -849,6 +872,7 @@ export class Match {
       stormsHeld: this.stormsHeld[team],
       gunsSilenced: this.economy.silenced[team],
       gunsLost: this.economy.silenced[1 - team],
+      householdLost: this.world.household?.lost[team] ?? 0,
     };
   }
 

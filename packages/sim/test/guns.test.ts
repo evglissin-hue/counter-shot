@@ -51,8 +51,8 @@ test("after M5: a gun falls with the masonry under it, cannot fire while it is o
   sim.free();
 });
 
-test("after M5: a chain shot sweeps the crew off a gun, a shell beside one blows it off its bed, and its crew has it back in time", () => {
-  // The player's chain shot (2) on the target castle's long gun (8), in still air.
+test("after M5 and 3.6: a chain shot's balls knock a gun out only by striking it, and a shell beside one blows it off its bed", () => {
+  // The player's chain shot (2) on the target castle's long gun (8), in still air: the chain sweeps its flank, its balls clear of the body.
   const sim = new SandboxSim(R, layout, { seed: 4, minions: 0 });
   sim.wind.x = sim.wind.z = 0;
   const g = sim.emplacements[8];
@@ -60,10 +60,8 @@ test("after M5: a chain shot sweeps the crew off a gun, a shell beside one blows
   assert.ok(s, "the chain shot can reach the gate wall");
   sim.queue(0, { kind: "fire", emplacement: 2, yaw: s!.yaw, pitch: s!.pitch, charge: 1, fuse: 0, spin: Spin.None });
   const outs = run(sim, 150, [EventKind.GunOut]);
-  assert.deepEqual(outs.map((e) => [e[1], e[2]]), [[8, OutCause.Chain]], "its crew swept off the wall");
-  // Back after the crew's time (nothing under it fell).
-  const backs = run(sim, REMOUNT.ticks, [EventKind.GunBack]);
-  assert.deepEqual(backs.map((e) => e[1]), [8], "back in action");
+  assert.deepEqual(outs, [], "the chain no longer takes a gun out by its crew (they are men now: sweep.ts)");
+  assert.equal(sim.mounts.up(8), true);
   // A shell bursting beside the target castle's mortar in its pit.
   const m = sim.emplacements[9];
   sim.explode(m.x + 1.5, m.y, m.z + 1);
