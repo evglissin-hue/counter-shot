@@ -40,7 +40,7 @@
 // Deterministic: structures and stones in a fixed order, + - * / and
 // comparisons, @keepfall/core's dsin, dcos and dsqrt. Its state is hashed.
 
-import { STRUCTURE, structureList, type CastleLayout, type StructureDef } from "@keepfall/content";
+import { BUDGET, STRUCTURE, structureList, type CastleLayout, type StructureDef } from "@keepfall/content";
 import { dcos, dsin, dsqrt } from "@keepfall/core";
 import { DENSITY, type CastleSim } from "./castleSim";
 import { EventKind } from "./frame";
@@ -723,7 +723,8 @@ export class Statics {
   /** Is this member a Rapier body when its part is let go (else a brittle ghost)? Evenly by id order, every storey board always. */
   private selectBodies(S: Struct, members: number[]): Uint8Array {
     const n = members.length;
-    const K = S.def.kind === "keep" ? STRUCTURE.bodies : STRUCTURE.towerBodies;
+    // T9: a busy world (castle.room() small) keeps fewer bodies, never fewer than BUDGET.minFallBodies (room is Infinity with no budget).
+    const K = Math.min(S.def.kind === "keep" ? STRUCTURE.bodies : STRUCTURE.towerBodies, Math.max(BUDGET.minFallBodies, this.castle.room()));
     const ghost = new Uint8Array(n);
     for (let j = 0; j < n; j++) {
       const body = S.storey[members[j]] === 1 || Math.floor(((j + 1) * K) / n) > Math.floor((j * K) / n);
@@ -744,6 +745,14 @@ export class Statics {
     return members;
   }
 
+  /**
+   * Wake the frozen rubble that rests on the part about to move, and what rests on that (T9: not every piece lying
+   * around the structure's foot, which came to some 330 stones woken for nothing). A frozen piece is a candidate
+   * when its centre is in the part's box (1 m wider in x and z) at or above the hinge height; it rests on the part
+   * when its centre lies over some member's layout bounds (0.3 m wider) between that member's top less 0.3 and
+   * 1.5 m above it. Two more passes take what rests on the pieces woken (within 0.6 m in x and z, 0.3 below to
+   * 1.5 m above their centre).
+   */
   private thawOver(S: Struct, members: number[], y0: number) {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const k of members) {
@@ -752,7 +761,41 @@ export class Statics {
       if (S.pz[k] < z0) z0 = S.pz[k];
       if (S.pz[k] > z1) z1 = S.pz[k];
     }
-    if (x0 <= x1) this.castle.thawBoxAbove(x0 - 1, z0 - 1, x1 + 1, z1 + 1, y0);
+    if (x0 > x1) return;
+    const cand: number[] = [];
+    this.castle.frozenAbove(x0 - 1, z0 - 1, x1 + 1, z1 + 1, y0, cand);
+    const nc = cand.length / 4;
+    if (!nc) return;
+    const bmin = this.bmin, bmax = this.bmax;
+    const woken = new Uint8Array(nc);
+    const wake: number[] = [];
+    for (let c = 0; c < nc; c++) {
+      const cx = cand[c * 4 + 1], cy = cand[c * 4 + 2], cz = cand[c * 4 + 3];
+      for (const k of members) {
+        const o = S.ids[k] * 3, top = bmax[o + 1];
+        if (cx >= bmin[o] - 0.3 && cx <= bmax[o] + 0.3 && cz >= bmin[o + 2] - 0.3 && cz <= bmax[o + 2] + 0.3 && cy >= top - 0.3 && cy <= top + 1.5) {
+          woken[c] = 1;
+          break;
+        }
+      }
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      const before = woken.slice();
+      for (let c = 0; c < nc; c++) {
+        if (woken[c]) continue;
+        const cx = cand[c * 4 + 1], cy = cand[c * 4 + 2], cz = cand[c * 4 + 3];
+        for (let w = 0; w < nc; w++) {
+          if (!before[w]) continue;
+          const wx = cand[w * 4 + 1], wy = cand[w * 4 + 2], wz = cand[w * 4 + 3];
+          if (Math.abs(cx - wx) <= 0.6 && Math.abs(cz - wz) <= 0.6 && cy >= wy - 0.3 && cy <= wy + 1.5) {
+            woken[c] = 1;
+            break;
+          }
+        }
+      }
+    }
+    for (let c = 0; c < nc; c++) if (woken[c]) wake.push(cand[c * 4]);
+    this.castle.wakeFrozen(wake);
   }
 
   // ---- a crush ----

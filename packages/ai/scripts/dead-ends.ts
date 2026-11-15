@@ -16,10 +16,13 @@
 // falling or mending past 0.6 (masons undoing each hit for ever: gold and masons are printed); a piece let go moving faster than
 // 40 m/s within 2 s of a Released event (stones thrown from inside masonry); and a keep or tower piece down for over 180 s with
 // its masons allowed and gold over 100 while rubble fills its place the whole time (a foot never mended).
+// The banner rule adds two keep hunts (each flagged once per keep): a keep that fell (Topple or Crush) with its course below the
+// lowest storey (KEEP_STOREYS[0] - 1) and no result 10 s later; and a keep whose own standing masonry (part "keep", not loose) is
+// under 25% of what was built for 60 s while the match goes on.
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, holdMarker, inCourtyard, MUSTER, ROUTE_NAMES, sectionOf, Unit, WEAPON_COST, type Difficulty } from "@keepfall/content";
+import { BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, GAME_LAYOUT, holdMarker, inCourtyard, KEEP_STOREYS, MUSTER, ROUTE_NAMES, sectionOf, Unit, WEAPON_COST, type Difficulty } from "@keepfall/content";
 import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, MinionState, Order, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
@@ -214,7 +217,7 @@ function armySecond(t: number) {
   }
 }
 // 3.4 keep hunts.
-const KEEP = { hang: 120, hangHolds: 0.3, mended: 0.6, fast: 40, fastTicks: 120, down: 180, gold: 100, sample: 10, maxPlaces: 80 };
+const KEEP = { felled: 600, rubbleShare: 0.25, rubbleFor: 3600, hang: 120, hangHolds: 0.3, mended: 0.6, fast: 40, fastTicks: 120, down: 180, gold: 100, sample: 10, maxPlaces: 80 };
 const statics = m.world.statics;
 const castle = m.world.castle;
 const layout = castle.layout;
@@ -227,6 +230,11 @@ const releasedAt = new Array<number>(10).fill(-1), fastFlagged = new Array<boole
 /** Per structure piece: since when it has been down (-1 standing), and since when rubble has filled its place all the while (-1: not). */
 const downSince = new Map<number, number>(), placeBlocked = new Map<number, number>(), placeFlagged = new Set<number>();
 const structs = statics ? statics.list : [];
+/** Banner-rule hunts: per castle, the tick its keep fell and from which course (-1: not fallen), whether that was flagged; the keep pieces built, and since when under the share. */
+const keepFell = [-1, -1], keepFellCourse = [-1, -1], keepFellFlagged = [false, false];
+const keepBuilt = [0, 0], keepLowSince = [-1, -1], keepLowFlagged = [false, false];
+const keepIds = [0, 1].map((c) => (structs.length ? structs[c * 5].stones.filter((id) => layout.stones[id].part === "keep") : []));
+for (let c = 0; c < 2; c++) keepBuilt[c] = keepIds[c].filter((id) => !dyn[id]).length;
 const masonsAt = (c: number) => `${m.world.works ? m.world.works.status(c).masons : 0} masons (${m.world.works ? m.world.works.status(c).job : "-"})`;
 
 for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
@@ -261,9 +269,32 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
   }
   if (statics) {
     for (; evSeen + EVENT_STRIDE <= events.length; evSeen += EVENT_STRIDE) {
+      if ((events[evSeen] === EventKind.Topple || events[evSeen] === EventKind.Crush) && events[evSeen + 1] % 5 === 0) {
+        const c = events[evSeen + 1] / 5;
+        keepFell[c] = m.tick;
+        keepFellCourse[c] = events[evSeen + 2];
+      }
       if (events[evSeen] === EventKind.Released) {
         releasedAt[events[evSeen + 1]] = m.tick;
         fastFlagged[events[evSeen + 1]] = false;
+      }
+    }
+    for (let c = 0; c < 2; c++) {
+      // A keep felled from below its lowest storey with the match still on 10 s later.
+      if (keepFell[c] >= 0 && !keepFellFlagged[c] && !m.result && keepFellCourse[c] < KEEP_STOREYS[0] - 1 && m.tick - keepFell[c] > KEEP.felled) {
+        keepFellFlagged[c] = true;
+        flag(m.tick, `castle ${c}'s keep fell from course ${keepFellCourse[c]} (below its lowest storey) ${((m.tick - keepFell[c]) / 60).toFixed(0)} s ago and the match goes on`);
+      }
+      // A keep with under 25% of its own masonry standing for 60 s with the match still on.
+      if (m.tick % 60 === 0 && !m.result && keepBuilt[c] > 0) {
+        let up = 0;
+        for (const id of keepIds[c]) if (!dyn[id]) up++;
+        if (up >= keepBuilt[c] * KEEP.rubbleShare) keepLowSince[c] = -1;
+        else if (keepLowSince[c] < 0) keepLowSince[c] = m.tick;
+        if (keepLowSince[c] >= 0 && !keepLowFlagged[c] && m.tick - keepLowSince[c] >= KEEP.rubbleFor) {
+          keepLowFlagged[c] = true;
+          flag(m.tick, `castle ${c}'s keep has stood under ${Math.round(KEEP.rubbleShare * 100)}% (${up} of ${keepBuilt[c]} pieces) for ${KEEP.rubbleFor / 60} s and the match goes on`);
+        }
       }
     }
     // A piece let go moving faster than 40 m/s within 2 s of its Released event: thrown from inside masonry.
