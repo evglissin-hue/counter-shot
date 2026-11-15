@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { AI_LEVELS, allowedOn, buildLayout, GAME_LAYOUT, MID_Z, ORGAN_KINDS, Unit, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
+import { AI_LEVELS, allowedOn, buildLayout, GAME_LAYOUT, MID_Z, ORGAN_KINDS, Unit, type AiLevel, type AiStep, type AiName } from "@keepfall/content";
 import { Match, Team, type MatchInput } from "@keepfall/rules";
 import type { Rapier } from "@keepfall/sim";
 import { AIM_GROUPS, AiPlayer, gateLeaves } from "@keepfall/ai";
@@ -21,7 +21,7 @@ const AIM_BELL = 6, AIM_CRANE = 7, AIM_MAST = 8; // Aim.* (a const enum: its val
 type Pick = { e: { id: number }; t: { key: number; x: number; y: number; z: number } } | null;
 const organPick = (ai: AiPlayer) => (ai.gunner as unknown as { organPick(): Pick }).organPick();
 
-function setup(level: Difficulty, seed: number, over: Partial<AiLevel> = {}) {
+function setup(level: AiName, seed: number, over: Partial<AiLevel> = {}) {
   const m = new Match(R, layout, { seed, plan: false, rotate: false, barracks: false });
   const ai = new AiPlayer(m, ME, level, seed, { level: { organAims: 1, ...over } });
   const sent: Array<{ tick: number; input: MatchInput }> = [];
