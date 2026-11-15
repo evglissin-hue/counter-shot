@@ -9,6 +9,8 @@ import {
   BUILDING_KINDS,
   BUILDING_REBUILD,
   BUILDINGS,
+  BUTTRESS,
+  BUTTRESS_FACES,
   ENEMY_PLAN,
   MIX_NAMES,
   PLOTS,
@@ -24,13 +26,14 @@ import {
   GUN_HITS,
   POWDER,
   type BuildingKind,
+  type ButtressFace,
   type Emplacement,
   type MixName,
   type RouteName,
   type UpgradeKind,
   type WeaponKind,
 } from "@keepfall/content";
-import { PlotState, type SandboxSim } from "@keepfall/sim";
+import { ButtressState, PlotState, type SandboxSim } from "@keepfall/sim";
 import type { Economy } from "./economy";
 
 /** How a barracks on a plot sends its waves. */
@@ -90,6 +93,21 @@ export class Estate {
       return this.structures.rebuild(team, plot, tick);
     }
     return false;
+  }
+
+  /** 3.4: the state of a team's buttress on a face (0 empty, 1 rising, 2 standing). */
+  buttressState(team: number, face: ButtressFace): 0 | 1 | 2 {
+    const b = this.world.buttresses;
+    return b ? b.state(team, BUTTRESS_FACES.indexOf(face)) : 0;
+  }
+
+  /** Buy a buttress for the team's keep on a face: only a bare face, and only if the team can pay. */
+  buttress(team: number, face: ButtressFace, tick: number): boolean {
+    const b = this.world.buttresses;
+    const f = BUTTRESS_FACES.indexOf(face);
+    if (!b || f < 0 || b.state(team, f) !== ButtressState.Empty) return false;
+    if (!this.economy.pay(team, BUTTRESS.gold)) return false;
+    return b.build(team, f, tick);
   }
 
   /** Buy a gun for one of the team's empty slots (after M5: only while the masonry it would stand on stands). */

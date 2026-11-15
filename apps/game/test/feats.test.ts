@@ -110,3 +110,14 @@ test("Powder keg: blowing up the enemy magazine earns it, and counts as a buildi
   f.observe(moment({ kind: "magazine", size: 60, team: 1 }));
   assert.ok(firsts.some((d) => d.name === "Powder keg"));
 });
+
+test("Feller: a keep or tower toppled by the player counts; one crushed or the enemy's doing does not", () => {
+  const store = memory();
+  const got: string[] = [];
+  const f = new Feats({ me: 1, store, today: () => "2026-11-13", onFirsts: (l) => got.push(...l.map((x) => x.def.id)) });
+  f.observe(moment({ kind: "towerFelled", size: 0 }));
+  f.observe(moment({ kind: "keepFelled", size: 1, team: 0 }));
+  assert.deepEqual(got, []);
+  f.observe(moment({ kind: "towerFelled", size: 1 }));
+  assert.deepEqual(got, ["feller"]);
+});

@@ -33,6 +33,7 @@ test("the view names plot kinds and states, and a standing barracks' mix and rou
     route: "centre",
     riding: -1,
     standing: ["rebuild"],
+    buttresses: [0, 1, 2, 0],
   });
   assert.equal(v.plots[1].kind, "mill");
   assert.equal(v.plots[1].state, "rising");
@@ -42,6 +43,7 @@ test("the view names plot kinds and states, and a standing barracks' mix and rou
   assert.equal(v.guns[1].mountDown, true);
   assert.equal(v.guns[0].id, ASHWRIGHT_EMPLACEMENTS[0].id);
   assert.deepEqual(v.standing, ["rebuild"]);
+  assert.deepEqual(v.buttresses, ["empty", "rising", "standing", "empty"], "the keep's faces reach the orders view");
 });
 
 function rig() {

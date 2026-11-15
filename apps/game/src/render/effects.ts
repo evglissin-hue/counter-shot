@@ -11,6 +11,7 @@ import {
   Fn,
   attribute,
   cameraPosition,
+  cameraProjectionMatrix,
   cameraViewMatrix,
   cameraWorldMatrix,
   clamp,
@@ -56,6 +57,8 @@ const CHIP_LIFE = 3.4;
 const DUST_LIFE = 3.0;
 const MAX_ARC = 512;
 const MAX_TRAIL = 768;
+/** The half height of the guns' widest sight (55 degrees), as a tangent: the aim help's dots keep the size on screen they have there. */
+const TAN_WIDE = Math.tan((55 / 2) * (Math.PI / 180));
 
 function rnd(i: N, salt: number): N {
   return hash(i.toUint().mul(9781).add(salt));
@@ -290,7 +293,11 @@ export class Effects {
     // A dot keeps about the same size on screen however far along the flight it is. The floor is small: the first
     // dots are a few metres off the muzzle, and a larger one (14 cm) swelled them into a string of beads up the sight.
     const base = trail ? 0.0032 : 0.008;
-    const size: N = clamp(dist.mul(base), trail ? 0.015 : 0.035, trail ? 0.8 : 1.6);
+    // Zoomed in, a dot shrinks with the view, so it keeps its size on screen: at a fixed angle the full zoom swelled
+    // it to some 24 px, wider than a man at the far castle, and an aiming mark must never hide a man or the target.
+    const tanHalf: N = float(1).div((cameraProjectionMatrix as N).element(1).y);
+    const zoomK: N = min(float(1), tanHalf.div(TAN_WIDE));
+    const size: N = clamp(dist.mul(base), trail ? 0.015 : 0.035, trail ? 0.8 : 1.6).mul(zoomK);
     const right: N = (cameraWorldMatrix as N).element(0).xyz;
     const up: N = (cameraWorldMatrix as N).element(1).xyz;
     const qp: N = positionGeometry.xy;

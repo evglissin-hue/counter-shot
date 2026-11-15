@@ -124,6 +124,8 @@ export const DIRECTOR = {
 } as const;
 
 const TOPPLE_KINDS: readonly MomentKind[] = [
+  "keepFelled",
+  "towerFelled",
   "towerDown",
   "breachOpened",
   "buildingWrecked",

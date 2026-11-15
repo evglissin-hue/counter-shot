@@ -12,6 +12,8 @@
 import {
   BRIDGES,
   BUILDING_KINDS,
+  BUTTRESS_FACES,
+  type ButtressFace,
   CASTLE_SHAPE,
   DEFEND,
   ENEMY_ROUTES,
@@ -59,7 +61,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 10;
+export const MATCH_RULES_VERSION = 12;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -67,7 +69,7 @@ export type MatchInput =
   | FireInput
   /** All of the team's waves, now and later (SPEC section 8). */
   | { kind: "order"; order: Order }
-  /** The route every barracks of the team sends its next waves down. */
+  /** The route every barracks of the team sends its next waves down; the team's waves out that have not crossed their bridge take it too. */
   | { kind: "route"; route: RouteName }
   /**
    * The emplacement the team is riding now (-1: none, in the overview); every
@@ -82,6 +84,8 @@ export type MatchInput =
   // M3: building, buying, upgrading and each barracks' waves.
   /** Build on one of the team's plots (0 to 5), or rebuild the ruin of the same kind there. */
   | { kind: "build"; plot: number; building: BuildingKind }
+  /** 3.4 rule 11: a buttress for the team's keep, on one of its faces (in the owner's words; refused unless that face is bare and the gold is there). */
+  | { kind: "buttress"; face: ButtressFace }
   /** A gun for one of the team's empty emplacements. */
   | { kind: "buy"; emplacement: number; weapon: WeaponKind }
   /** A Foundry upgrade for one of the team's guns (one each; needs a working Foundry). */
@@ -246,6 +250,8 @@ function wellFormed(input: MatchInput): boolean {
       return true;
     case "build":
       return int(input.plot, 0, plots) && one(BUILDING_KINDS, input.building);
+    case "buttress":
+      return one(BUTTRESS_FACES, input.face);
     case "buy":
       return int(input.emplacement, 0, slots) && one(WEAPON_KINDS, input.weapon);
     case "upgrade":
@@ -405,6 +411,11 @@ export class Match {
     return this.economy.incomeRate() * (this.suddenDeath ? MATCH.suddenIncome : 1);
   }
 
+  /** 3.4: the state of a team's buttress on a face: 0 empty, 1 rising, 2 standing. */
+  buttress(team: number, face: ButtressFace): 0 | 1 | 2 {
+    return this.estate.buttressState(team, face);
+  }
+
   /**
    * Charges of powder a second a team makes now: its keep's cellar and each
    * working Powder Mill (Economy.powderRate), doubled in sudden death. All
@@ -541,6 +552,8 @@ export class Match {
         if (!ROUTE_NAMES.includes(input.route)) return;
         this.route[team] = input.route;
         this.estate.setRoutes(team, input.route);
+        // The army pass: the waves already out that have not crossed take the new road too (holding ones walk to its marker).
+        this.army.setRoute(team, ROUTE_NAMES.indexOf(input.route));
         return;
       case "man": {
         const e = input.emplacement;
@@ -565,6 +578,9 @@ export class Match {
       // M3: building, buying, upgrading and each barracks' waves (each refused if it cannot be done or paid for).
       case "build":
         if (this.estate.build(team, input.plot, input.building, tick)) this.applied.push([tick, team, `build ${input.building} ${input.plot}`]);
+        return;
+      case "buttress":
+        if (this.estate.buttress(team, input.face, tick)) this.applied.push([tick, team, `buttress ${input.face}`]);
         return;
       case "buy":
         if (this.estate.buy(team, input.emplacement, input.weapon)) this.applied.push([tick, team, `buy ${input.weapon} ${input.emplacement - firstSlot(team)}`]);
@@ -756,10 +772,13 @@ export class Match {
   masonryDown(castle: 0 | 1): number {
     const c = this.world.castle;
     const st = this.world.structures;
+    const bt = this.world.buttresses;
     let n = 0;
     for (const s of c.layout.stones) {
       if (s.castle !== castle || !c.dynamic[s.id]) continue;
       if (s.plot !== undefined && (!st || st.slot(castle, s.plot).kind !== s.building)) continue;
+      // 3.4: a buttress counts only once it is up (one not bought, or still rising, is not masonry down).
+      if (s.part === "buttress" && (!bt || !bt.mendable(s.id))) continue;
       n++;
     }
     return n;

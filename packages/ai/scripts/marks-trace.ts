@@ -45,7 +45,7 @@ for (let i = 0; i < secs * 60 && !m.result; i++) {
 }
 for (const c of [0, 1]) {
   const r = rec[c];
-  console.log(`seed ${seed} castle ${c}: marks ${JSON.stringify(r.marks)}; own waves near enemy gate ${(r.near / 60).toFixed(0)} s, with a gate/wall mark ${(r.nearMarked / 60).toFixed(0)} s; salvos ${r.salvos.length} [${r.salvos.join("; ")}]; autoOnMark ${m.autoOnMark[c]}; hand by aim keep/crowd/breach/raid/masons/gun/range ${ais[c].gunner.byAim.join("/")}`);
+  console.log(`seed ${seed} castle ${c}: marks ${JSON.stringify(r.marks)}; own waves near enemy gate ${(r.near / 60).toFixed(0)} s, with a gate/wall mark ${(r.nearMarked / 60).toFixed(0)} s; salvos ${r.salvos.length} [${r.salvos.join("; ")}]; autoOnMark ${m.autoOnMark[c]}; hand by aim keep/crowd/breach/raid/masons/gun/range/open/cut ${ais[c].gunner.byAim.join("/")}`);
 }
 console.log(m.result ? `END ${(m.result.tick / 60).toFixed(0)} s winner ${m.result.winner} by ${m.result.reason}` : "no result");
 m.free();

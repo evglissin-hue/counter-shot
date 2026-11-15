@@ -1657,6 +1657,57 @@ export class Sound {
     }
   }
 
+  /**
+   * 3.4: a keep or a tower giving way, in the half second before it falls: a low groan of stone under load, and grit
+   * trickling (placed where the structure is, carrying far: the low end hardly fades).
+   */
+  structureGroan(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const p = this.place(x, y, z, 60);
+    const c = this.out(p, 0.3 + 0.3 * Math.min(1, p.dist / 150), 1.6);
+    this.sweptNoise(c.input, c.t0, this.brown, 260, 90, 0.9, 0.05, 0.9, 0.7);
+    this.tone(c.input, c.t0, 64, 52, 0.6, 0.12, 0.9, 0.55, 2);
+    this.tone(c.input, c.t0 + 0.1, 92, 70, 0.35, 0.1, 0.7, 0.25);
+    for (let i = 0; i < 6; i++) this.burstNoise(c.input, c.t0 + 0.1 + Math.random() * 0.8, this.white, "bandpass", 1500 + Math.random() * 2000, 2, 0.001, 0.015, 0.05);
+  }
+
+  /** 3.4: the part above the cut begins to lean: a deep creak of masonry shearing, long and slow. */
+  structureCreak(x: number, y: number, z: number) {
+    if (!this.ctx) return;
+    const p = this.place(x, y, z, 80);
+    const c = this.out(p, 0.35 + 0.3 * Math.min(1, p.dist / 160), 3.2);
+    this.sweptNoise(c.input, c.t0, this.brown, 420, 70, 1.0, 0.1, 2.4, 0.8);
+    this.tone(c.input, c.t0, 55, 38, 1.6, 0.2, 2.4, 0.7, 2);
+    this.tone(c.input, c.t0 + 0.2, 130, 96, 0.5, 0.15, 1.6, 0.18);
+    for (let i = 0; i < 8; i++) this.burstNoise(c.input, c.t0 + 0.2 + Math.random() * 1.6, this.white, "bandpass", 700 + Math.random() * 1800, 3, 0.001, 0.02, 0.07);
+  }
+
+  /**
+   * 3.4: a structure's stones let go: the rush of stone and a ground shock, a deep boom heard across the valley and a
+   * rumble that rolls on (a keep: size 1; a tower less). Not as loud as a magazine, but longer in the stone.
+   */
+  structureFall(x: number, y: number, z: number, size = 1) {
+    if (!this.ctx) return;
+    const l = this.ear;
+    const dx = x - l.x, dy = y - l.y, dz = z - l.z;
+    const dist = Math.hypot(dx, dy, dz);
+    const side = dist > 0.01 ? (dx * l.rx + dy * l.ry + dz * l.rz) / dist : 0;
+    const k = 0.5 + 0.5 * Math.max(0, Math.min(1, size));
+    const p: Placed = { delay: dist / SPEED_OF_SOUND, gain: 1 / (1 + dist / 500), pan: Math.max(-1, Math.min(1, side)) * 0.5, cutoff: 700 + 19000 * Math.exp(-dist / 300), dist };
+    const c = this.out(p, 0.5, 9);
+    // The rush: tumbling stone, a long falling noise with a hundred knocks in it.
+    this.sweptNoise(c.input, c.t0, this.white, 3000, 300, 0.8, 0.02, 2.2, 0.45 * k);
+    this.sweptNoise(c.input, c.t0, this.brown, 900, 120, 1.0, 0.03, 2.8, 0.8 * k);
+    // The ground shock: a low boom.
+    this.tone(c.input, c.t0 + 0.05, 58, 22, 1.6, 0.005, 2.6, 1.0 * k, 3);
+    this.tone(c.input, c.t0 + 0.1, 90, 40, 0.5, 0.004, 1.0, 0.7 * k);
+    this.burstNoise(c.input, c.t0 + 0.08, this.brown, "lowpass", 100, 0.7, 0.05, 3.5, 0.7 * k, 0.8);
+    for (let i = 0; i < 30; i++) {
+      const u = Math.random();
+      this.burstNoise(c.input, c.t0 + 0.1 + 2.6 * u * u, this.white, "bandpass", 300 + 2400 * Math.random(), 1.6, 0.001, 0.01 + 0.04 * Math.random(), (0.05 + 0.12 * Math.random()) * (1 - 0.5 * u) * k);
+    }
+  }
+
   /** One short stroke of a bell for an alarm (not placed). */
   private alarmStrike(f: number, level: number, at: number) {
     if (!this.ctx) return;

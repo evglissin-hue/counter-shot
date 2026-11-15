@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, COURTYARD, DECK_TOP, GAME_LAYOUT, holdMarker, MATCH_EMPLACEMENTS } from "@keepfall/content";
+import { buildLayout, COURTYARD, DECK_TOP, GAME_LAYOUT, holdMarker, MATCH_EMPLACEMENTS, STREAM } from "@keepfall/content";
 import { Action, MinionState, navCell, NavKind, Order, SandboxSim, type Minion, type Rapier } from "@keepfall/sim";
 
 await RD.init();
@@ -33,8 +33,12 @@ test("waves march down the centre road, cross on the deck and fight where they m
   assert.ok(fights > 100, `fought (${fights} minion-ticks fighting)`);
   const down = sim.minions.list.filter((m) => m.state !== MinionState.Upright).length;
   assert.ok(down >= 6, `${down} knocked down`);
-  // Nobody fell into the stream: the fight was on and around the bridge.
-  for (const m of sim.minions.list) if (m.state !== MinionState.Upright) assert.ok(m.parts[0].translation().y > -1.2, `minion ${m.id} lies at ${m.parts[0].translation().y.toFixed(2)}`);
+  // The fight was on and around the bridge: most of the fallen lie on the deck or the banks (a spread fight on a 3 m deck
+  // knocks one or two off it, the army pass), and nobody sinks through the stream's bed.
+  const fallen = sim.minions.list.filter((m) => m.state !== MinionState.Upright);
+  const wet = fallen.filter((m) => m.parts[0].translation().y < -1.2).length;
+  assert.ok(wet * 4 <= fallen.length, `${wet} of ${fallen.length} fallen lie in the stream`);
+  for (const m of fallen) assert.ok(m.parts[0].translation().y > STREAM.level - STREAM.depth - 0.3, `minion ${m.id} lies at ${m.parts[0].translation().y.toFixed(2)}`);
   sim.free();
 });
 
@@ -95,8 +99,9 @@ test("on Push a wave goes in through a breach in the wall and leaves the gate al
     for (const m of upright(s, 1)) if (m.action === Action.Batter) battered++;
   });
   assert.equal(battered, 0, "nobody battered the gate");
-  const leaves = layout.stones.filter((s) => s.castle === 0 && s.part === "gate").map((s) => s.id);
-  for (const id of leaves) assert.equal(sim.castle.dynamic[id], 0, "the gate still stands");
+  // 3.4: the two balls also cut the east foot of the front left tower, which topples towards the gate and may knock a
+  // leaf off; what matters here is that no man battered it.
+  assert.equal(sim.army!.gateHits.size, 0, "no blow fell on the gate");
   const inside = upright(sim, 1).filter((m) => m.z > -13);
   assert.ok(inside.length >= 5, `${inside.length} inside the enemy walls`);
   sim.free();

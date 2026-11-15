@@ -33,6 +33,7 @@ import {
   yokeGeos,
   type BarrelSpec,
 } from "./gunModel";
+import { markInstances, sharedCapacity } from "./instancing";
 import { crewSizeFor } from "./crewLogic";
 import { BOX_KEGS, RECOIL_BACK, kegCount, kick, newStage, stageFeed, stageFire, stageStep, type Kick, type StageState } from "./recoilLogic";
 
@@ -72,9 +73,7 @@ interface Gun {
   activeTarget: number;
   curYaw: number;
   curPitch: number;
-  /** M3: its iron and its bronze, and what its model shows ("" for an empty slot). */
-  iron: THREE.Material;
-  bronze: THREE.Material;
+  /** M3: what its model shows ("" for an empty slot). */
   armed: string;
   /**
    * After M5: knocked out. It tips over on its bed, or (its masonry gave
@@ -173,7 +172,13 @@ export class Guns {
   private rope: THREE.MeshStandardNodeMaterial;
   private kegMat: THREE.MeshStandardNodeMaterial;
   private glowMat: THREE.MeshBasicNodeMaterial;
-  private mats: THREE.Material[] = [];
+  /**
+   * One iron and one bronze for every gun (a material per gun compiled its own
+   * programs at load: about 60 of them). The cold rim of the gun you ride reads
+   * each mesh's own fade (`userData.gunActive`) as it is drawn.
+   */
+  private iron: THREE.MeshStandardNodeMaterial;
+  private bronze: THREE.MeshStandardNodeMaterial;
   /** Every gun's four kegs in one instanced mesh (a hidden keg is scaled to nothing), and every match's glow in another. */
   private kegMesh: THREE.InstancedMesh | null = null;
   private glowMesh: THREE.InstancedMesh | null = null;
@@ -186,6 +191,9 @@ export class Guns {
     this.rope = ropeMaterial();
     this.kegMat = kegMaterial();
     this.glowMat = glowMaterial();
+    const active = uniform(0).onObjectUpdate(({ object }) => (object?.userData.gunActive as { value: number } | undefined)?.value ?? 0);
+    this.iron = ironMaterial(noise, active);
+    this.bronze = bronzeMaterial(noise, active);
   }
 
   build(layout: CastleLayout, emplacements: Emplacement[]) {
@@ -194,8 +202,6 @@ export class Guns {
       g.rope?.dispose();
       g.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
-    for (const m of this.mats) m.dispose();
-    this.mats = [];
     for (const im of [this.kegMesh, this.glowMesh]) {
       if (!im) continue;
       this.root.remove(im);
@@ -205,10 +211,7 @@ export class Guns {
     this.guns = [];
     this.layout = layout;
     for (const em of emplacements) {
-      const active = uniform(0);
-      const iron = ironMaterial(this.noise, active);
-      const bronze = bronzeMaterial(this.noise, active);
-      this.mats.push(iron, bronze);
+      const active = { value: 0 };
       const root = new THREE.Group();
       root.name = `gun-${em.id}-${em.weapon}`;
       root.position.set(em.x, em.y, em.z);
@@ -231,8 +234,6 @@ export class Guns {
         activeTarget: 0,
         curYaw: em.baseYaw,
         curPitch: 0,
-        iron,
-        bronze,
         armed: "",
         out: false,
         fell: false,
@@ -264,7 +265,9 @@ export class Guns {
     this.kegMesh.frustumCulled = false;
     this.kegMesh.castShadow = true;
     this.kegMesh.receiveShadow = true;
-    this.glowMesh = new THREE.InstancedMesh(glowGeometry(), this.glowMat, n);
+    // Room past one uniform block, so it shares the crews' match glow program (see instancing.ts).
+    this.glowMesh = new THREE.InstancedMesh(glowGeometry(), this.glowMat, sharedCapacity(n));
+    this.glowMesh.count = n;
     this.glowMesh.name = "gun-match-glow";
     this.glowMesh.frustumCulled = false;
     this.glowMesh.renderOrder = 3;
@@ -280,10 +283,11 @@ export class Guns {
 
   private layout: CastleLayout | null = null;
 
-  private mesh(parent: THREE.Object3D, geos: Geo[], mat: THREE.Material, shadow = true): THREE.Mesh | null {
+  private mesh(parent: THREE.Object3D, geos: Geo[], mat: THREE.Material, shadow = true, gun?: Gun): THREE.Mesh | null {
     const g = merge(geos);
     if (!g) return null;
     const m = new THREE.Mesh(g, mat);
+    if (gun) m.userData.gunActive = gun.active;
     m.castShadow = shadow;
     m.receiveShadow = true;
     parent.add(m);
@@ -347,7 +351,7 @@ export class Guns {
     g.kegPos = props.kegs.map((v) => v.clone().applyAxisAngle(Y_AXIS, em.baseYaw).setY(-drop + v.y));
     if (props.match) g.matchPos = props.match.clone().applyAxisAngle(Y_AXIS, em.baseYaw).setY(-drop + props.match.y);
     this.mesh(g.root, rootWood, this.wood);
-    this.mesh(g.root, rootIron, g.iron);
+    this.mesh(g.root, rootIron, this.iron, true, g);
     g.root.updateWorldMatrix(true, false);
     if (g.matchPos) g.matchWorld.copy(g.matchPos).applyMatrix4(g.root.matrixWorld);
     this.applyKick(g, true);
@@ -359,12 +363,12 @@ export class Guns {
     if (kind === "longGun" || kind === "chainShot") {
       const chain = kind === "chainShot";
       const spec: BarrelSpec = { r0: chain ? 0.24 : 0.22, r1: chain ? 0.17 : 0.13, z0: chain ? -0.7 : -1.2, z1: len, flare: chain ? 1.45 : 1.25 };
-      this.mesh(pitch, barrelGeos(spec, "gun"), g.bronze);
+      this.mesh(pitch, barrelGeos(spec, "gun"), this.bronze, true, g);
       // Carriage: cheeks, transoms, axletrees and four trucks, below the trunnions.
       const ch = Math.min(drop, 0.85);
       const car = carriageGeos(ch, chain, spec.r0, spec.z0);
       this.mesh(slide, car.wood, this.wood);
-      this.mesh(slide, car.iron, g.iron);
+      this.mesh(slide, car.iron, this.iron, true, g);
       const q = new THREE.Mesh(quoinGeo(), this.wood);
       q.castShadow = true;
       q.receiveShadow = true;
@@ -389,17 +393,17 @@ export class Guns {
     } else if (kind === "mortar") {
       // Squat, wide bore; the bed sits under the trunnions.
       const spec: BarrelSpec = { r0: 0.42, r1: 0.4, z0: -0.35, z1: len, flare: 1.12 };
-      this.mesh(pitch, barrelGeos(spec, "mortar"), g.iron);
+      this.mesh(pitch, barrelGeos(spec, "mortar"), this.iron, true, g);
       const bed = mortarBedGeos(drop);
       this.mesh(slide, bed.wood, this.wood);
-      this.mesh(slide, bed.iron, g.iron);
+      this.mesh(slide, bed.iron, this.iron, true, g);
     } else {
       // Swivel gun: a short cast barrel in an iron yoke on a wooden post, tiller at the back.
       const spec: BarrelSpec = { r0: 0.075, r1: 0.055, z0: -0.45, z1: len, flare: 1.3 };
       const tiller = new THREE.BoxGeometry(0.035, 0.035, 0.6);
       tiller.translate(0, 0, -0.72);
-      this.mesh(pitch, [...barrelGeos(spec, "swivel"), tiller], g.iron);
-      this.mesh(yaw, yokeGeos(), g.iron);
+      this.mesh(pitch, [...barrelGeos(spec, "swivel"), tiller], this.iron, true, g);
+      this.mesh(yaw, yokeGeos(), this.iron, true, g);
       const post = new THREE.CylinderGeometry(0.1, 0.13, drop - 0.2, 8, 1);
       post.translate(0, -0.2 - (drop - 0.2) / 2, 0);
       rootWood.push(post);
@@ -695,7 +699,7 @@ export class Guns {
         const f = 0.9 + 0.12 * Math.sin(now * 7.3 + g.phase) + 0.08 * Math.sin(now * 19.1 + g.phase * 2.1) + 0.05 * Math.sin(now * 41 + g.phase * 3.7);
         gm.setMatrixAt(gi, _m.compose(g.matchWorld, camQuat ?? _id, _s.setScalar(f)));
       });
-      gm.instanceMatrix.needsUpdate = true;
+      markInstances(gm);
     }
   }
 
@@ -731,12 +735,11 @@ export class Guns {
       g.rope?.dispose();
       g.root.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
     }
-    for (const m of this.mats) m.dispose();
     for (const im of [this.kegMesh, this.glowMesh]) {
       im?.geometry.dispose();
       im?.dispose();
     }
-    for (const m of [this.wood, this.rope, this.kegMat, this.glowMat]) m.dispose();
+    for (const m of [this.wood, this.rope, this.kegMat, this.glowMat, this.iron, this.bronze]) m.dispose();
   }
 }
 

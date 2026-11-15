@@ -36,6 +36,7 @@ export const FEATS: FeatDef[] = [
   { id: "breach", name: "Hole in the wall", hint: "Open a breach in an enemy wall", unit: "stones", rule: of("breachOpened") },
   { id: "gate", name: "Gate crasher", hint: "Break down the enemy gate", unit: "", rule: of("gateDown") },
   { id: "roof", name: "Roof off", hint: "Cave in a floor of the enemy keep", unit: "", rule: of("floorCaved") },
+  { id: "feller", name: "Feller", hint: "Fell an enemy tower or keep by cutting its foot", unit: "", rule: of(["keepFelled", "towerFelled"]) },
   { id: "flag", name: "Flag down", hint: "Bring the enemy banner to the ground", unit: "", rule: of("bannerDown") },
   { id: "silencer", name: "Silencer", hint: "Knock out an enemy gun", unit: "", rule: of("gunSilenced") },
   { id: "powder", name: "Powder train", hint: "Set off three kegs in a chain", unit: "kegs", rule: of("kegChain", 3) },

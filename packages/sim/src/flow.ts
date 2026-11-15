@@ -11,6 +11,12 @@
 // marched on count as walkable (the minions who reach them batter them
 // down); in a field without, a standing gate is a wall.
 //
+// A field may have a second, fallback goal (the ground in front of the enemy
+// gate), seeded at APPROACH_BASE in the same Dijkstra order: wherever the
+// real goal can be reached it is far cheaper, so the fallback only leads
+// where the goal is cut off (rubble in the gateway), and a wave then marches
+// to the gate and stands there instead of wherever it was when the way shut.
+//
 // Fields are built with Dial's bucket queue (first in, first out within a
 // cost) and a fixed amount of work per tick, double buffered: minions read
 // the last finished field while the next one is built. A field is rebuilt
@@ -25,6 +31,13 @@ import { NAV_GRID, NAV_RUBBLE_STEP, NAV_STEP, NavKind, navStep, navWalkable, typ
 
 /** Cost where the goal cannot be reached. */
 export const FLOW_INF = 0x3fffffff;
+/**
+ * Cost of a field's fallback goal cells (FieldSpec.approach): a cell whose
+ * cost is under this reaches the real goal; at or over it, only the
+ * fallback. Well above the dearest real cost (about 4400, a flank field with
+ * the centre bridge down).
+ */
+export const APPROACH_BASE = 20000;
 /** Extra cost to walk through a standing gate (in a field with doors). */
 const DOOR = 150;
 const BUCKETS = 256; // more than the dearest step (7 * 6 + DOOR)
@@ -46,6 +59,8 @@ const UZ = [0, 0, -1, 1, -UNIT, -UNIT, UNIT, UNIT];
 export interface FieldSpec {
   /** Goal cells, cost 0: every cell whose centre lies in the rectangle. */
   goal: Rect;
+  /** Fallback goal cells, cost APPROACH_BASE (where the goal cannot be reached, the field leads here), or null for none. */
+  approach: Rect | null;
   /** Weight per cell (2 on the route, more off it), or null for 2 everywhere. */
   weight: Uint8Array | null;
   /** Castle (0 or 1) whose standing gate leaves are doors, or -1 for none. */
@@ -69,6 +84,19 @@ export class FlowFields {
   private layout: CastleLayout;
   /** Gate leaf (stone id) covering each cell, or -1. */
   private doorLeaf: Int32Array;
+  /** The gate leaves, in id order. */
+  private leaves: number[] = [];
+  /**
+   * Per stone id, 1 for a gate leaf that stands in its place (standing, or
+   * loose but come to rest upright where it hung): as of the build in progress (read at
+   * its start), and as of the last physics step (for minions asking now).
+   */
+  private leafBuild: Uint8Array;
+  private leafNow: Uint8Array;
+  private leafStep = -1;
+  /** Each field's fallback goal cells (in cell order), and whether the build in progress has yet to seed them. */
+  private approach: Int32Array[];
+  private approachDue = false;
   private i0: number;
   private i1: number;
   private j0: number;
@@ -119,8 +147,45 @@ export class FlowFields {
     this.doorLeaf = new Int32Array(cells).fill(-1);
     for (const s of this.layout.stones) {
       if (s.part !== "gate") continue;
+      this.leaves.push(s.id);
       for (const c of nav.pieceCells(s.id)) this.doorLeaf[c] = s.id;
     }
+    this.leafBuild = new Uint8Array(this.layout.stones.length);
+    this.leafNow = new Uint8Array(this.layout.stones.length);
+    this.approach = specs.map((s) => (s.approach ? this.cellsIn(s.approach) : new Int32Array(0)));
+  }
+
+  /** The region's cells whose centres lie in a rectangle, in cell order. */
+  private cellsIn(r: Rect): Int32Array {
+    const G = NAV_GRID;
+    const out: number[] = [];
+    for (let j = this.j0; j <= this.j1; j++) {
+      const z = G.z0 + (j + 0.5) * G.cell;
+      if (z < r.z0 || z > r.z1) continue;
+      for (let i = this.i0; i <= this.i1; i++) {
+        const x = G.x0 + (i + 0.5) * G.cell;
+        if (x >= r.x0 && x <= r.x1) out.push(j * G.nx + i);
+      }
+    }
+    return Int32Array.from(out);
+  }
+
+  /**
+   * Which gate leaves stand in their places as doors, into `up` (one read of each leaf's body): standing ones, and loose ones
+   * come to rest in their places (wedged in the frame). A leaf still moving from the blow that loosed it is no door: men walk
+   * into it and push it over, as they always did.
+   */
+  private readLeaves(up: Uint8Array) {
+    for (const id of this.leaves) up[id] = this.castle.standsInPlace(id) && this.castle.atRest(id) ? 1 : 0;
+  }
+
+  /** The leaves as of the last physics step (read once a step, for minions asking now). */
+  private leavesNow(): Uint8Array {
+    if (this.leafStep !== this.castle.steps) {
+      this.leafStep = this.castle.steps;
+      this.readLeaves(this.leafNow);
+    }
+    return this.leafNow;
   }
 
   /** Build every field now, however long it takes (at load). */
@@ -157,28 +222,32 @@ export class FlowFields {
     return -1;
   }
 
-  /** The gate leaf standing in a cell that field f treats as a door, or -1. */
-  private door(f: number, c: number): number {
+  /**
+   * The gate leaf in a cell that field f treats as a door, or -1: a leaf of
+   * the castle it marches on that stands in its place by `up` (standing, or
+   * knocked loose but come to rest upright where it hung: minions batter it on).
+   */
+  private door(f: number, c: number, up: Uint8Array): number {
     const id = this.doorLeaf[c];
     if (id < 0) return -1;
     const d = this.specs[f].doors;
-    if (d < 0 || this.layout.stones[id].castle !== d || this.castle.dynamic[id]) return -1;
+    if (d < 0 || this.layout.stones[id].castle !== d || !up[id]) return -1;
     return id;
   }
 
   /** Walkable for field f (doors count), and the floor it walks at. */
-  private walk(f: number, c: number): boolean {
-    return navWalkable(this.nav.kind[c]) || this.door(f, c) >= 0;
+  private walk(f: number, c: number, up: Uint8Array): boolean {
+    return navWalkable(this.nav.kind[c]) || this.door(f, c, up) >= 0;
   }
 
-  private floorOf(f: number, c: number): number {
-    return this.door(f, c) >= 0 ? this.nav.groundFloor(c) : this.nav.floor[c];
+  private floorOf(f: number, c: number, up: Uint8Array): number {
+    return this.door(f, c, up) >= 0 ? this.nav.groundFloor(c) : this.nav.floor[c];
   }
 
   /** Can field f step between neighbouring cells a and b? */
-  private trav(f: number, a: number, b: number): boolean {
-    if (!this.walk(f, a) || !this.walk(f, b)) return false;
-    const d = this.floorOf(f, a) - this.floorOf(f, b);
+  private trav(f: number, a: number, b: number, up: Uint8Array): boolean {
+    if (!this.walk(f, a, up) || !this.walk(f, b, up)) return false;
+    const d = this.floorOf(f, a, up) - this.floorOf(f, b, up);
     const lim = navStep(this.nav.kind[a], this.nav.kind[b]);
     return d <= lim && d >= -lim;
   }
@@ -189,11 +258,13 @@ export class FlowFields {
     this.curTopo = this.nav.topo;
     const w = this.work, nx = NAV_GRID.nx;
     const wf = this.wf, wr = this.wr, kind = this.nav.kind, floor = this.nav.floor, leaf = this.doorLeaf;
+    const up = this.leafBuild;
+    this.readLeaves(up);
     for (let j = this.j0; j <= this.j1; j++) {
       w.fill(FLOW_INF, j * nx + this.i0, j * nx + this.i1 + 1);
       for (let c = j * nx + this.i0, e = j * nx + this.i1; c <= e; c++) {
         wr[c] = kind[c] === NavKind.Rubble ? 1 : 0;
-        if (leaf[c] >= 0 && this.door(f, c) >= 0) wf[c] = this.nav.groundFloor(c);
+        if (leaf[c] >= 0 && this.door(f, c, up) >= 0) wf[c] = this.nav.groundFloor(c);
         else wf[c] = navWalkable(kind[c]) ? floor[c] : UNWALK;
       }
     }
@@ -217,7 +288,29 @@ export class FlowFields {
         this.push(0, c);
       }
     }
+    this.approachDue = this.approach[f].length > 0;
     return ((this.i1 - this.i0 + 1) * (this.j1 - this.j0 + 1)) >> 3;
+  }
+
+  /**
+   * Seed the build's fallback goal cells at APPROACH_BASE, where they cost
+   * more (the real goal is cut off from them). Called when the frontier
+   * reaches APPROACH_BASE or the queue runs dry before it: every cell still
+   * queued then costs from APPROACH_BASE to less than a bucket round past it,
+   * so the bucket queue stays in order. Returns the work it took.
+   */
+  private seedApproach(): number {
+    this.approachDue = false;
+    const w = this.work, wf = this.wf;
+    const cells = this.approach[this.cur];
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k];
+      if (wf[c] === UNWALK || w[c] <= APPROACH_BASE) continue;
+      w[c] = APPROACH_BASE;
+      this.push(APPROACH_BASE, c);
+    }
+    this.bucket = APPROACH_BASE & MASK;
+    return cells.length;
   }
 
   private push(d: number, c: number) {
@@ -249,13 +342,22 @@ export class FlowFields {
   /** Visit up to `budget` cells of the build in progress; finish it when the queue runs dry. Returns the visits made. */
   private run(budget: number): number {
     const f = this.cur;
-    const w = this.work, wf = this.wf, wr = this.wr, leaf = this.doorLeaf, nx = NAV_GRID.nx;
+    const w = this.work, wf = this.wf, wr = this.wr, leaf = this.doorLeaf, up = this.leafBuild;
     const weight = this.specs[f].weight;
     const off = this.off;
     let visits = 0;
-    while (this.queued > 0 && visits < budget) {
+    while (visits < budget) {
+      if (this.queued === 0) {
+        if (!this.approachDue) break;
+        visits += this.seedApproach();
+        continue;
+      }
       while (this.head[this.bucket] < 0) this.bucket = (this.bucket + 1) & MASK;
       const n = this.head[this.bucket];
+      if (this.approachDue && this.nDist[n] >= APPROACH_BASE) {
+        visits += this.seedApproach();
+        continue;
+      }
       this.head[this.bucket] = this.nNext[n];
       if (this.head[this.bucket] < 0) this.tail[this.bucket] = -1;
       this.queued--;
@@ -286,7 +388,7 @@ export class FlowFields {
           if (fa - fv > la || fv - fa > la || fb - fv > lb || fv - fb > lb) continue;
         }
         let cost = (k < 4 ? STRAIGHT : DIAGONAL) * (weight ? weight[v] : 2);
-        if (leaf[v] >= 0 && this.door(f, v) >= 0) cost += DOOR;
+        if (leaf[v] >= 0 && this.door(f, v, up) >= 0) cost += DOOR;
         const nd = d + cost;
         if (nd < w[v]) {
           w[v] = nd;
@@ -294,7 +396,7 @@ export class FlowFields {
         }
       }
     }
-    if (this.queued === 0) {
+    if (this.queued === 0 && !this.approachDue) {
       // Done: the new field replaces the old one, whose buffer is reused for the next build.
       const old = this.dist[f];
       this.dist[f] = w;
@@ -313,17 +415,32 @@ export class FlowFields {
     return c < 0 ? FLOW_INF : this.dist[f][c];
   }
 
+  /** Does field f's cost at (x, z) lead to its real goal (not only to the fallback ground before the gate, nor nowhere)? */
+  reachesGoal(f: number, x: number, z: number): boolean {
+    return this.at(f, x, z) < APPROACH_BASE;
+  }
+
   /**
    * Which way to walk from (x, z) on field f: a unit vector into `out`, or
    * false where there is none (at the goal, or cut off from it). Blends the
-   * downhill directions of the four cells around the point, so the way turns
-   * smoothly from cell to cell.
+   * downhill directions (each a unit vector) of the four cells around the
+   * point, so the way turns smoothly from cell to cell; but only of those
+   * the cell under the point can step to (itself, a straight neighbour, a
+   * diagonal one through both straight ones), so a cell he cannot climb to
+   * never pulls him into its step. Standing on a cell the field cannot walk
+   * (it just became water or a heap), he follows any walkable one around.
    */
   dir(f: number, x: number, z: number, out: [number, number]): boolean {
     const G = NAV_GRID;
+    const up = this.leavesNow();
     const fx = (x - G.x0) / G.cell - 0.5, fz = (z - G.z0) / G.cell - 0.5;
     const ci = Math.floor(fx), cj = Math.floor(fz);
     const tx = fx - ci, tz = fz - cj;
+    // The cell under the point is one of the four: the one each axis rounds to.
+    const oi = tx < 0.5 ? ci : ci + 1, oj = tz < 0.5 ? cj : cj + 1;
+    const own = oj * G.nx + oi;
+    const inside = oi >= this.i0 && oi <= this.i1 && oj >= this.j0 && oj <= this.j1;
+    const free = !inside || !this.walk(f, own, up);
     let sx = 0, sz = 0;
     for (let k = 0; k < 4; k++) {
       const i = ci + (k & 1), j = cj + (k >> 1);
@@ -331,8 +448,17 @@ export class FlowFields {
       const wgt = (k & 1 ? tx : 1 - tx) * (k >> 1 ? tz : 1 - tz);
       if (wgt <= 0) continue;
       const c = j * G.nx + i;
-      if (!this.walk(f, c)) continue;
-      this.cellDir(f, c, out);
+      if (!this.walk(f, c, up)) continue;
+      if (!free && c !== own) {
+        if (i === oi || j === oj) {
+          if (!this.trav(f, own, c, up)) continue;
+        } else {
+          // Diagonal: through both straight cells beside it.
+          const a = oj * G.nx + i, b = j * G.nx + oi;
+          if (!this.trav(f, own, a, up) || !this.trav(f, a, c, up) || !this.trav(f, own, b, up) || !this.trav(f, b, c, up)) continue;
+        }
+      }
+      this.cellDir(f, c, out, up);
       sx += out[0] * wgt;
       sz += out[1] * wgt;
     }
@@ -344,8 +470,8 @@ export class FlowFields {
     return true;
   }
 
-  /** The downhill direction of one cell (not normalised; zero at the goal or cut off). */
-  private cellDir(f: number, c: number, out: [number, number]) {
+  /** The downhill direction of one cell, as a unit vector (zero at the goal or cut off). */
+  private cellDir(f: number, c: number, out: [number, number], up: Uint8Array) {
     const D = this.dist[f];
     const dc = D[c];
     out[0] = 0;
@@ -354,34 +480,41 @@ export class FlowFields {
     const nx = NAV_GRID.nx;
     const i = c % nx, j = (c - i) / nx;
     let straight = 0;
+    let sx = 0, sz = 0;
     for (let k = 0; k < 8; k++) {
       const vi = i + DI[k], vj = j + DJ[k];
       if (vi < this.i0 || vi > this.i1 || vj < this.j0 || vj > this.j1) continue;
       const v = vj * nx + vi;
       if (k < 4) {
-        if (!this.trav(f, c, v)) continue;
+        if (!this.trav(f, c, v, up)) continue;
         straight |= 1 << k;
       } else {
         const a = DIAG_A[k], b = DIAG_B[k];
         if (!(straight & (1 << a)) || !(straight & (1 << b))) continue;
-        if (!this.trav(f, c + DI[a], v) || !this.trav(f, c + DJ[b] * nx, v)) continue;
+        if (!this.trav(f, c + DI[a], v, up) || !this.trav(f, c + DJ[b] * nx, v, up)) continue;
       }
       const drop = dc - D[v];
       if (drop <= 0) continue;
       const s = drop / (k < 4 ? STRAIGHT : DIAGONAL);
-      out[0] += UX[k] * s;
-      out[1] += UZ[k] * s;
+      sx += UX[k] * s;
+      sz += UZ[k] * s;
     }
+    const len2 = sx * sx + sz * sz;
+    if (len2 < 1e-10) return;
+    const inv = 1 / dsqrt(len2);
+    out[0] = sx * inv;
+    out[1] = sz * inv;
   }
 
   /**
    * The gate leaf (stone id) of a door that field f leads into just ahead of
-   * (x, z) along (dx, dz), if it still stands: where marching minions stop and
-   * batter. -1 if none.
+   * (x, z) along (dx, dz), if it still stands in its place: where marching
+   * minions stop and batter. -1 if none.
    */
   doorAhead(f: number, x: number, z: number, dx: number, dz: number, reach: number): number {
     const c = cellAt(x + dx * reach, z + dz * reach);
-    return c < 0 ? -1 : this.door(f, c);
+    if (c < 0 || this.doorLeaf[c] < 0) return -1;
+    return this.door(f, c, this.leavesNow());
   }
 }
 

@@ -41,6 +41,8 @@ export interface OrdersView {
   riding: number;
   /** Standing orders on now. */
   standing: StandingId[];
+  /** 3.4: the state of each face of the team's keep (BUTTRESS_FACES order: front, back, left, right); absent means all empty. */
+  buttresses?: Array<"empty" | "rising" | "standing">;
   /** 3.3: the team's powder store (charges, what it holds now, the plot of the working magazine or -1); absent or null in a match without powder. */
   powder?: { stock: number; cap: number; magazine: number } | null;
 }

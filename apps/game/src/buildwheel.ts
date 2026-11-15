@@ -10,6 +10,8 @@
 import {
   BUILDING_KINDS,
   BUILDING_REBUILD,
+  BUTTRESS,
+  BUTTRESS_FACES,
   BUILDINGS,
   MIX_NAMES,
   PLOTS,
@@ -64,7 +66,7 @@ interface Choice {
 }
 
 /** Menu pages besides the list (-1) and the plots (0 to 5): the gun you ride, a gun slot (+ slot), the guns to upgrade. */
-const RIDDEN = 6, SLOT = 10, UPGRADE_LIST = 20;
+const RIDDEN = 6, SLOT = 10, UPGRADE_LIST = 20, BUTTRESS_LIST = 30;
 /** Plots a new building takes first: the back ones, out of the enemy's easy reach, then the sides, then the front. */
 const PLOT_ORDER = [4, 5, 2, 3, 1, 0];
 
@@ -83,6 +85,8 @@ export interface WheelState {
   mountDown?: boolean[];
   /** 3.3: your store (charges, what it holds, the plot of the working magazine or -1), or null in a match without powder. */
   powder?: { stock: number; cap: number; magazine: number } | null;
+  /** 3.4: your keep's four faces (BUTTRESS_FACES order): 0 bare, 1 rising, 2 up. */
+  buttresses?: number[];
 }
 
 export class BuildWheel {
@@ -171,6 +175,7 @@ export class BuildWheel {
     }
     this.send(c.input);
     if (c.input.kind === "build") this.note(`Building on plot ${c.input.plot + 1}, ${plotName(this.state.team, c.input.plot)}`);
+    if (c.input.kind === "buttress") this.note(`Buttress rising on the ${c.input.face} of your keep`);
     // Building and buying close the wheel; settings stay open to adjust.
     if (c.input.kind === "build" || c.input.kind === "buy" || c.input.kind === "upgrade") this.close();
     else this.render();
@@ -202,7 +207,7 @@ export class BuildWheel {
   private render() {
     const s = this.state;
     const t = this.target;
-    this.choices = t < 0 ? this.listChoices() : t === RIDDEN ? this.gunChoices(s.gun) : t >= SLOT && t < SLOT + 8 ? this.gunChoices(s.guns[t - SLOT] ?? null) : t === UPGRADE_LIST ? this.upgradeList() : this.plotChoices(t);
+    this.choices = t < 0 ? this.listChoices() : t === RIDDEN ? this.gunChoices(s.gun) : t >= SLOT && t < SLOT + 8 ? this.gunChoices(s.guns[t - SLOT] ?? null) : t === UPGRADE_LIST ? this.upgradeList() : t === BUTTRESS_LIST ? this.buttressChoices() : this.plotChoices(t);
     const plotBox = (i: number) => {
       const p = PLOTS[i], v = this.plots[i];
       // The map is drawn as the player faces from the gate wall, the field ahead (up): their left on the left, the gate at the top.
@@ -221,6 +226,8 @@ export class BuildWheel {
           ? `<p class="small"><b>Slot ${(t === RIDDEN ? s.gunSlot : t - SLOT) + 1}: ${slotGun.empty ? "empty" : WEAPONS[slotGun.weapon].name}</b>${slotGun.place ? `, ${slotGun.place}` : ""}</p>`
           : t === UPGRADE_LIST
             ? `<p class="small"><b>Upgrades</b>: one per gun, from a working Foundry</p>`
+            : t === BUTTRESS_LIST
+              ? `<p class="small"><b>Buttress the keep</b>: stone piers that widen its footing</p>`
             : `<p class="small"><b>Plot ${t + 1}</b>, ${plotName(s.team, t)}</p>`;
     const list = this.choices
       .map((c, i) => `<button class="choice2${c.ok ? "" : " no"}${c.pressed ? " on" : ""}${c.sub !== undefined ? " more" : ""}" data-choice="${i}"><span class="k">${i < 8 ? i + 1 : ""}</span><b>${c.label}</b>${c.detail ? `<span class="d">${c.detail}</span>` : ""}${c.cost ? `<span class="c">${c.from ? "from " : ""}${c.cost}</span>` : ""}</button>`)
@@ -312,7 +319,19 @@ export class BuildWheel {
     if (s.guns.some((e) => !e.empty && !e.upgrade && upgradesFor(e.weapon).length)) {
       out.push({ label: "Upgrade a gun", detail: s.foundry ? "One per gun" : "Needs a working Foundry", cost: 0, ok: s.foundry, input: null, sub: UPGRADE_LIST });
     }
+    // 3.4: the keep's buttresses, a page of four faces (front, back, left, right).
+    if (s.buttresses) out.push({ label: "Buttress the keep", detail: "Four faces, a stone buttress on the one you choose", cost: BUTTRESS.gold, ok: s.buttresses.some((b) => b === 0) && s.gold >= BUTTRESS.gold, input: null, sub: BUTTRESS_LIST });
     return out;
+  }
+
+  /** 3.4: the four faces of the keep, each bought once: Rising, then Up. */
+  private buttressChoices(): Choice[] {
+    const s = this.state;
+    return BUTTRESS_FACES.map((face, i) => {
+      const st = s.buttresses?.[i] ?? 0;
+      const detail = st === 1 ? "Rising" : st === 2 ? "Up" : `Rises in ${Math.round(BUTTRESS.buildTicks / 60)} s; holds that face if its foot is cut`;
+      return { label: `${face[0].toUpperCase()}${face.slice(1)} face`, detail, cost: st === 0 ? BUTTRESS.gold : 0, ok: st === 0 && s.gold >= BUTTRESS.gold, pressed: st !== 0, input: st === 0 ? { kind: "buttress" as const, face } : null };
+    });
   }
 
   /** The guns that can still take an upgrade. */

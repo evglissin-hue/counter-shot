@@ -49,7 +49,7 @@ test("the same setup gives the same line; a variant differs; undo leaves the bas
     assert.equal(t.magazinesBlown![side], 0);
   }
   assert.ok(a.samples.every((x) => x.stock!.every((n) => n >= 0)) && a.samples.every((x) => x.plots.every((p) => p[5] === "K")), "the magazine stands on plot 5 (K)");
-  assert.ok(a.totals.build.length > 0 && a.totals.build.every((e) => /^(build|buy|upgrade) /.test(e[2])));
+  assert.ok(a.totals.build.length > 0 && a.totals.build.every((e) => /^(build|buy|upgrade|buttress) /.test(e[2])));
   assert.equal(a.rules.match > 0, true);
 });
 

@@ -1,7 +1,7 @@
 // The guided match (phase 2 M6) in headless Chromium at 1100x810: the start menu
 // lists "Guided match" first with its "Start here" tag; it starts the guided
-// mode with the coach on step 1 and the checklist guide hidden; each of the ten
-// steps advances when its condition is met (real key presses and clicks where
+// mode with the coach on step 1 and the checklist guide hidden; each of the eleven
+// steps (3.4: "Break in" is two, open their gate and cut their keep's foot) advances when its condition is met (real key presses and clicks where
 // practical; test hooks on window.__sandbox otherwise: patchMatch lays fields
 // over the match report, e.g. the tutor's stage, a storm or a result); each
 // step's highlights land on the elements it names and leave when it ends; the
@@ -70,7 +70,7 @@ async function guidedReady() {
 try {
   // ---- the start menu ----
   await load("#title-webgl-low");
-  await page.waitForSelector("#menu:not([hidden])", { timeout: 60000 });
+  await page.waitForSelector("#menu:not([hidden])", { timeout: 180000 });
   await expect("the menu lists Guided match first", () => document.querySelector("#choices > .choice")?.id === "guided-go" && /Guided match/.test(document.querySelector("#guided-go b").textContent));
   await expect("it carries the Start here tag and its blurb", () => !document.getElementById("guided-tag").hidden && /Start here/.test(document.getElementById("guided-tag").textContent) && /wakes up slowly/.test(document.querySelector("#guided-go span:not(.tag)").textContent));
   await press("#guided-go");
@@ -78,7 +78,7 @@ try {
   // A follow-up shows 3 s: on a slow machine the page may not be polled in that time, so the checks lengthen it.
   await page.evaluate(() => { window.__sandbox.coach.followMs = 12000; });
   await expect("it starts the guided mode, named in the HUD", () => window.__sandbox.mode === "guided" && document.getElementById("mode-name").textContent === "Guided match");
-  await expect("the coach shows step 1 and the checklist guide is hidden", () => !document.getElementById("coach").hidden && /Step 1 of 10/.test(document.getElementById("coach-step").textContent) && /Take the long gun/.test(document.getElementById("coach-title").textContent) && document.getElementById("guide").hidden);
+  await expect("the coach shows step 1 and the checklist guide is hidden", () => !document.getElementById("coach").hidden && /Step 1 of 11/.test(document.getElementById("coach-step").textContent) && /Take the long gun/.test(document.getElementById("coach-title").textContent) && document.getElementById("guide").hidden);
   await expect("the tutor's stage is reported (0 until it wakes)", () => typeof window.__sandbox.match.tutor === "number" && window.__sandbox.match.tutor >= 0);
   await page.waitForTimeout(1500);
   await shot("guided-step1");
@@ -108,13 +108,13 @@ try {
   // ---- the amendment: step 6 interrupts an earlier step once the tutor's first wave is out ----
   await patch({ tutor: 1, standing: [10, 12] });
   await page.evaluate(() => window.__sandbox.spawn(0, 8, 0, -45));
-  await expect("the first wave interrupts step 3: Step 6 of 10, Stop their wave", () => /Step 6 of 10/.test(document.getElementById("coach-step").textContent) && /Stop their wave/.test(document.getElementById("coach-title").textContent) && window.__sandbox.coach.state.step === 5, null, 60000);
+  await expect("the first wave interrupts step 3: Step 6 of 11, Stop their wave", () => /Step 6 of 11/.test(document.getElementById("coach-step").textContent) && /Stop their wave/.test(document.getElementById("coach-title").textContent) && window.__sandbox.coach.state.step === 5, null, 60000);
   await expect("it rings gun tabs 3 and 4 (no #threat strip is needed)", () => document.querySelector('#weapons [data-weapon="2"]').classList.contains("coach-hl") && document.querySelector('#weapons [data-weapon="3"]').classList.contains("coach-hl") && !document.querySelector('#weapons [data-weapon="1"]').classList.contains("coach-hl"));
   await expect("it marks their wave", () => !document.getElementById("coach-mark").hidden && document.getElementById("coach-mark-label").textContent === "Their wave", null, 60000);
   await shot("guided-step6");
   await patch({ standing: [4, 12] });
   await expect("no enemy man outside their courtyard: step 6 ticks, its follow-up shows", () => window.__sandbox.coach.state.phase === "after" && /fire on their own at men near your gate/.test(document.getElementById("coach-how").textContent));
-  await expect("then the interrupted step 3 comes back, Step 3 of 10", () => window.__sandbox.coach.state.step === 2 && window.__sandbox.coach.state.phase === "ask" && /Step 3 of 10/.test(document.getElementById("coach-step").textContent));
+  await expect("then the interrupted step 3 comes back, Step 3 of 11", () => window.__sandbox.coach.state.step === 2 && window.__sandbox.coach.state.phase === "ask" && /Step 3 of 11/.test(document.getElementById("coach-step").textContent));
   await expect("with its ring on gun tab 2 again", () => document.querySelector('#weapons [data-weapon="1"]').classList.contains("coach-hl") && !document.querySelector('#weapons [data-weapon="2"]').classList.contains("coach-hl"));
   await patch({ standing: undefined, order: 0 }); // waves not on Hold through steps 5 to 7: on the real clock men pile up and "Send your waves in" would interrupt (it has its own test below)
   await page.keyboard.press("Digit2");
@@ -143,7 +143,7 @@ try {
   await page.keyboard.press("Tab");
   await expect("Tab opens the overview and ticks step 5", () => window.__sandbox.view === "overview" && window.__sandbox.coach.state.step >= 5 || window.__sandbox.coach.state.phase === "after");
   await page.keyboard.press("Tab");
-  await expect("step 6 was done once and never comes back: step 5 leads to step 7, Mark the road", () => window.__sandbox.coach.state.step === 6 && /Step 7 of 10/.test(document.getElementById("coach-step").textContent) && /Mark the road/.test(document.getElementById("coach-title").textContent) && window.__sandbox.coach.state.phase === "ask");
+  await expect("step 6 was done once and never comes back: step 5 leads to step 7, Mark the road", () => window.__sandbox.coach.state.step === 6 && /Step 7 of 11/.test(document.getElementById("coach-step").textContent) && /Mark the road/.test(document.getElementById("coach-title").textContent) && window.__sandbox.coach.state.phase === "ask");
   // ---- step 7: mark the road (3.2) ----
   await expect("step 7 asks for a landing on their road and the T key", () => /their waves take/.test(document.getElementById("coach-how").textContent) && /<kbd>T<\/kbd>/.test(document.getElementById("coach-how").innerHTML));
   await expect("step 7 puts a world mark labelled Their road on the road their waves take", () => !document.getElementById("coach-mark").hidden && document.getElementById("coach-mark-label").textContent === "Their road", null, 60000);
@@ -173,12 +173,29 @@ try {
   await press('[data-order="0"]');
   await expect("Advance ticks step 8, its follow-up says the tutor woke", () => window.__sandbox.coach.state.phase === "after" && /their long gun is manned/.test(document.getElementById("coach-how").textContent));
   await expect(...stepIs(9));
-  // ---- step 9: break in ----
-  await expect("step 9 rings Push and marks their gate", () => document.querySelector('[data-order="2"]').classList.contains("coach-hl") && !document.querySelector('[data-order="0"]').classList.contains("coach-hl") && document.getElementById("coach-mark-label").textContent === "Their gate" && !document.getElementById("coach-mark").hidden);
-  await patch({ tutor: 3, storm: [100, 100] });
+  // ---- step 9: open their gate (3.4) ----
+  await expect("step 9 says how to open their gate, marks it and rings nothing", () => /Open their gate/.test(document.getElementById("coach-title").textContent) && /Knock their gate down: the long gun through the gateway, or your waves batter it\./.test(document.getElementById("coach-how").textContent) && document.getElementById("coach-mark-label").textContent === "Their gate" && !document.getElementById("coach-mark").hidden && document.querySelectorAll(".coach-hl").length === 0);
+  await patch({ tutor: 3 });
+  await page.waitForTimeout(800);
+  check("their gate still shut: step 9 stays", await page.evaluate(() => window.__sandbox.coach.state.step === 8));
+  // Watched from inside the page: the eye shows once by itself (3 s) on their keep when step 10 begins.
+  await page.evaluate(() => { window.__eyeSeen = []; setInterval(() => { const l = window.__sandbox.eye.labels; if (l.length) window.__eyeSeen.push(l.join("|")); }, 50); });
+  await patch({ gateOpen: [true, true] });
   await expect(...stepIs(10));
-  // ---- step 10: win ----
-  await expect("step 10 rings the storm meter while a storm runs", () => document.getElementById("storm").classList.contains("coach-hl"));
+  // ---- step 10: cut their keep's foot (3.4) ----
+  await expect("step 10 says to hit the foot of their keep and to hold C, and marks their keep", () => /Cut their keep's foot/.test(document.getElementById("coach-title").textContent) && /Through the open gate, hit the foot of their keep\. Hold C to see how near it is to falling\./.test(document.getElementById("coach-how").textContent) && /<kbd>C<\/kbd>/.test(document.getElementById("coach-how").innerHTML) && document.getElementById("coach-mark-label").textContent === "Their keep" && !document.getElementById("coach-mark").hidden);
+  await expect("the eye showed by itself on their keep: Holds 100%", () => window.__eyeSeen.includes("Holds 100%"), null, 20000);
+  await shot("guided-eye");
+  await expect("and it went again after 3 s", () => window.__sandbox.eye.labels.length === 0, null, 20000);
+  // Their keep holds under 60%: the step is done.
+  const list = await page.evaluate(() => window.__sandbox.eye.list.map((s) => ({ ...s })));
+  list[0] = { ...list[0], holds: 0.55, weakest: 3, heat: list[0].heat.map((_, i) => (i === 3 ? 0.45 : 0)) };
+  await patch({ structures: list });
+  await expect(...stepIs(11));
+  // ---- step 11: win ----
+  await expect("step 11 reads the new way to win", () => /Win/.test(document.getElementById("coach-title").textContent) && /Hold their courtyard 20 s, bring down their keep's last floor, or fell it\./.test(document.getElementById("coach-how").textContent));
+  await patch({ tutor: 3, storm: [100, 100] });
+  await expect("step 11 rings the storm meter while a storm runs", () => document.getElementById("storm").classList.contains("coach-hl"));
   await patch({ tutor: 3, storm: [0, 0] });
   await expect("and the enemy keep meter when none does", () => document.getElementById("keep-theirs").classList.contains("coach-hl") && !document.getElementById("storm").classList.contains("coach-hl"));
   const tick = await page.evaluate(() => window.__sandbox.match.tick);
@@ -198,12 +215,12 @@ try {
   await guidedReady();
   await expect(...stepIs(1));
   await press("#coach-skip");
-  await expect("Skip passes a step", () => window.__sandbox.coach.state.step === 1 && /Step 2 of 10/.test(document.getElementById("coach-step").textContent));
+  await expect("Skip passes a step", () => window.__sandbox.coach.state.step === 1 && /Step 2 of 11/.test(document.getElementById("coach-step").textContent));
   await press("#coach-hide");
   await expect("Hide hides the coach, its marks and its rings", () => document.getElementById("coach").hidden && document.getElementById("coach-mark").hidden && document.querySelectorAll(".coach-hl").length === 0);
   await page.keyboard.press("KeyH");
   await press("#guide-show");
-  await expect("Controls' Show the guide brings the coach back, on the same step", () => !document.getElementById("coach").hidden && /Step 2 of 10/.test(document.getElementById("coach-step").textContent) && document.getElementById("guide").hidden);
+  await expect("Controls' Show the guide brings the coach back, on the same step", () => !document.getElementById("coach").hidden && /Step 2 of 11/.test(document.getElementById("coach-step").textContent) && document.getElementById("guide").hidden);
   await page.keyboard.press("KeyP");
   await expect("P pauses the guided match like Versus AI", () => !document.getElementById("paused").hidden);
   await page.keyboard.press("KeyP");
@@ -214,21 +231,21 @@ try {
   await expect("step 6 reached in turn waits: the enemy castle is still asleep, no ring", () => /still asleep/.test(document.getElementById("coach-how").textContent) && document.querySelectorAll(".coach-hl").length === 0);
   // Step 8 interrupts too once your waiting men are many and the tutor is awake (at the cap your barracks cannot top up your garrison).
   await patch({ tutor: 1, order: 1, standing: [4, 80], garrison: [4, 4] });
-  await expect("a field full of your waiting men interrupts: Step 8 of 10, Send your waves in", () => window.__sandbox.coach.state.step === 7 && /Step 8 of 10/.test(document.getElementById("coach-step").textContent) && /Send your waves in/.test(document.getElementById("coach-title").textContent));
+  await expect("a field full of your waiting men interrupts: Step 8 of 11, Send your waves in", () => window.__sandbox.coach.state.step === 7 && /Step 8 of 11/.test(document.getElementById("coach-step").textContent) && /Send your waves in/.test(document.getElementById("coach-title").textContent));
   await expect("it rings the route and order buttons", () => document.querySelectorAll('#command [data-order].coach-hl').length === 3);
   await patch({ order: 0 });
-  await expect("Advance ticks it, then step 6 comes back, waiting for their first wave", () => window.__sandbox.coach.state.step === 5 && /Step 6 of 10/.test(document.getElementById("coach-step").textContent) && /not out yet/.test(document.getElementById("coach-how").textContent), null, 60000);
+  await expect("Advance ticks it, then step 6 comes back, waiting for their first wave", () => window.__sandbox.coach.state.step === 5 && /Step 6 of 11/.test(document.getElementById("coach-step").textContent) && /not out yet/.test(document.getElementById("coach-how").textContent), null, 60000);
   await patch({ tutor: 1, order: 1, standing: [12, 80], garrison: [4, 4] });
   await expect("their wave out: step 6 asks, and step 8 (done) does not interrupt it again", () => window.__sandbox.coach.state.step === 5 && /Stop their wave/.test(document.getElementById("coach-title").textContent) && /Enemy wave coming/.test(document.getElementById("coach-how").textContent));
   await patch({ standing: [4, 80] });
-  await expect("step 6 done: Mark the road (step 7) asks next", () => window.__sandbox.coach.state.step === 6 && /Step 7 of 10/.test(document.getElementById("coach-step").textContent) && /Mark the road/.test(document.getElementById("coach-title").textContent), null, 60000);
+  await expect("step 6 done: Mark the road (step 7) asks next", () => window.__sandbox.coach.state.step === 6 && /Step 7 of 11/.test(document.getElementById("coach-step").textContent) && /Mark the road/.test(document.getElementById("coach-title").textContent), null, 60000);
   await patch(null);
 
   // ---- a loss ----
   await page.evaluate(() => window.__sandbox.surrender());
   await expect("a loss: the enemy won this time, Try again", () => !document.getElementById("end").hidden && document.getElementById("end-title").textContent === "Defeat" && document.getElementById("end-line").textContent === "The enemy won this time." && document.getElementById("end-again").textContent === "Try again" && document.getElementById("end-guided").hidden && document.getElementById("coach").hidden, null, 60000);
   await press("#end-again");
-  await expect("Try again starts the guided match anew", () => window.__sandbox.mode === "guided" && document.getElementById("end").hidden && !document.getElementById("coach").hidden && /Step 1 of 10/.test(document.getElementById("coach-step").textContent));
+  await expect("Try again starts the guided match anew", () => window.__sandbox.mode === "guided" && document.getElementById("end").hidden && !document.getElementById("coach").hidden && /Step 1 of 11/.test(document.getElementById("coach-step").textContent));
   // 3.3: the tip, once, the first time one of your boxes cannot pay a shot. (On the real clock the boys refill a swivel as fast as it fires, so the empty box is laid over the report; hud-check empties a real one on the test clock.)
   await page.evaluate(() => {
     window.__tips = 0;

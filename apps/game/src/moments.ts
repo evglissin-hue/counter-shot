@@ -8,7 +8,7 @@
 // tested from synthetic streams. Consumers (the impact cam, the recorder, the
 // book of feats) call `onMoment`.
 
-import { Earn, repairSections, sectionOf, BUILDINGS, BUILDING_KINDS, plotCentre, type CastleLayout } from "@keepfall/content";
+import { Earn, repairSections, structureList, sectionOf, BUILDINGS, BUILDING_KINDS, plotCentre, type CastleLayout } from "@keepfall/content";
 import { Cause, EVENT_STRIDE, EventKind, MINION_STRIDE, PART_STRIDE, PLOT_STRIDE, type FrameData } from "@keepfall/sim";
 
 export type MomentKind =
@@ -21,6 +21,8 @@ export type MomentKind =
   | "gunSilenced"
   | "buildingWrecked"
   | "magazine"
+  | "keepFelled"
+  | "towerFelled"
   | "gateDown"
   | "breachOpened"
   | "towerDown"
@@ -73,6 +75,9 @@ export const SCORE: Record<MomentKind, { base: number; per: number }> = {
   buildingWrecked: { base: 70, per: 0 },
   /** 3.3: a magazine blown up, sized by the charges in it: the biggest blast in the game (120 charges: 730). */
   magazine: { base: 250, per: 4 },
+  /** 3.4: a keep or a tower felled by cutting its foot (a topple), or crushed: above a magazine blowing at its biggest (730). */
+  keepFelled: { base: 900, per: 0 },
+  towerFelled: { base: 760, per: 0 },
   gateDown: { base: 120, per: 0 },
   breachOpened: { base: 90, per: 2 },
   towerDown: { base: 200, per: 1 },
@@ -330,6 +335,10 @@ export class Moments {
         case EventKind.MagazineBlew:
           this.onMagazine(a | 0, b | 0, c, d);
           break;
+        case EventKind.Topple:
+        case EventKind.Crush:
+          this.onFelled(a | 0, kind === EventKind.Topple);
+          break;
       }
     }
     this.followThrown(f);
@@ -481,6 +490,15 @@ export class Moments {
     const at = plotCentre(castle, plot);
     this.blown.add(castle * 16 + plot);
     this.emit({ tick: this.tick, x: at.x, y: 1.5, z: at.z, kind: "magazine", team: 1 - castle, size: Math.round(stock), shot: shot >= 0 ? shot : undefined, text: `Magazine blown up: ${Math.round(stock)} charges` });
+  }
+
+  /** 3.4: a keep or a tower began to topple (size 1, a foot cut through) or to crush (size 0): the doing of its castle's enemy. */
+  private onFelled(structure: number, topple: boolean) {
+    const s = structureList(this.o.layout)[structure];
+    if (!s) return;
+    const keep = s.kind === "keep";
+    const y = keep ? 10 : 6;
+    this.emit({ tick: this.tick, x: s.cx, y, z: s.cz, kind: keep ? "keepFelled" : "towerFelled", team: 1 - s.castle, size: topple ? 1 : 0, text: keep ? "Keep felled" : "Tower felled" });
   }
 
   private plotState = new Map<number, number>();

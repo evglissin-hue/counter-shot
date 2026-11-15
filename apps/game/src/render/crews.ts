@@ -11,6 +11,7 @@ import { MINION_PARTS } from "@keepfall/sim";
 import { applyCloudShadow } from "./clouds";
 import { mergeGeometries } from "./geometry";
 import { glowGeometry, glowMaterial } from "./gunModel";
+import { markInstances, sharedCapacity } from "./instancing";
 import { newCrewInfo, type CrewInfo, type Guns } from "./guns";
 import { HIDE_NEAR, LINSTOCK, LINSTOCK_TOOL, NO_CARRY, POLE, SHELL, STAFF, CARTRIDGE, liftOf, newCrewGun, newFigures, poseCrew, type CrewGun, type Figure } from "./crewLogic";
 import { TEAM_COLORS } from "./minions";
@@ -133,7 +134,8 @@ export class Crews {
     iron.roughness = 0.5;
     this.mats.push(cloth, tool, iron);
     const mk = (name: string, geo: THREE.BufferGeometry, mat: THREE.Material, n: number, colors: boolean) => {
-      const m = new THREE.InstancedMesh(geo, mat, n);
+      // Room past one uniform block, so the parts on one material share its programs (see instancing.ts).
+      const m = new THREE.InstancedMesh(geo, mat, sharedCapacity(n));
       m.name = name;
       m.count = 0;
       m.frustumCulled = false;
@@ -244,22 +246,16 @@ export class Crews {
     }
     this.nMen = nm;
     this.men = nm;
-    for (const m of this.parts) {
+    for (const m of [...this.parts, this.cap, this.apron]) {
       m.count = nm;
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    }
-    for (const m of [this.cap, this.apron]) {
-      m.count = nm;
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      markInstances(m);
     }
     this.staff.count = this.nStaff;
     this.linstock.count = this.nLin;
     this.glow.count = this.nLin;
     this.bag.count = this.nBag;
     this.shot.count = this.nShot;
-    for (const m of [this.staff, this.linstock, this.glow, this.bag, this.shot]) m.instanceMatrix.needsUpdate = true;
+    for (const m of [this.staff, this.linstock, this.glow, this.bag, this.shot]) markInstances(m);
     if (typeof performance !== "undefined") this.cost += (performance.now() - t0 - this.cost) * 0.1;
   }
 

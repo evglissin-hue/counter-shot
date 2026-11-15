@@ -18,7 +18,9 @@
 import { DIST, KEG, MUSKET, Unit, type BurstDef } from "@keepfall/content";
 import { dsqrt, Rng } from "@keepfall/core";
 import { EventKind, KEG_STRIDE } from "./frame";
-import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import { Order } from "./army";
+import type { LocalFields } from "./local";
+import { Cause, MinionState, Role, isWorker, yawOf, type Minion, type Minions } from "./minions";
 import { NavKind, navCell, type NavGrid } from "./nav";
 import type { Terrain } from "./terrain";
 
@@ -76,6 +78,11 @@ export class Specialists {
   private rng: Rng;
   /** Sappers carrying a keg when last seen standing (ids), to notice the ones who fall with it. */
   private carriers: number[] = [];
+  /** Each team's order (the army's array; set where the two are wired together): a musketeer on Hold shoots across the stream, on any other order only at men he could walk to. */
+  orders: readonly number[] | null = null;
+  /** The castles' local fields: a sapper steers by them on his way to his spot where they cover him. */
+  local: LocalFields | null = null;
+  private dir: [number, number] = [0, 0];
 
   constructor(
     private minions: Minions,
@@ -111,13 +118,9 @@ export class Specialists {
       const d = (m.z - f.z) * f.out;
       if (!before || d > KEG.near) return false;
       if (m.aux <= 0) {
-        // Choose where to set it (aux: 1 once chosen): the foot of the wall nearest him, clear of the gate and the towers.
-        const lo = KEG.gateClear, hi = 15 - KEG.towerClear;
-        let side = m.x > 0 ? 1 : m.x < 0 ? -1 : (m.id & 1) === 0 ? 1 : -1;
-        let ax = m.x * side;
-        ax = ax < lo ? lo : ax > hi ? hi : ax;
-        m.tx = ax * side;
-        m.tz = f.z + f.out * 0.75;
+        // Choose where to set it (aux: 1 once chosen): the foot of the wall nearest him, clear of the gate, the ladders and the towers,
+        // and not on the spot of another sapper of his wave.
+        this.chooseSpot(m, f);
         m.aux = 1;
         // A breach there already: no need for the keg.
         const c = navCell(m.tx, f.z - f.out * 1.0);
@@ -134,8 +137,13 @@ export class Specialists {
         m.act = 0;
         return this.hold(m, out, faceOf(0, -f.out), ACTION_PLANT);
       }
-      out.mx = dx / dd;
-      out.mz = dz / dd;
+      if (this.local !== null && this.local.covers(castle, m.x, m.z) && this.local.steer(castle, m.tx, m.tz, m.x, m.z, this.dir)) {
+        out.mx = this.dir[0];
+        out.mz = this.dir[1];
+      } else {
+        out.mx = dx / dd;
+        out.mz = dz / dd;
+      }
       out.speed = m.speed;
       out.face = NaN;
       out.action = 0;
@@ -168,16 +176,61 @@ export class Specialists {
     return true;
   }
 
+  /** Pick m's keg spot (m.tx, m.tz) at the foot of the front wall f. */
+  private chooseSpot(m: Minion, f: { z: number; out: number }) {
+    const lo = KEG.gateClear + 0.7, hi = 15 - KEG.towerClear; // he sets it up to 0.7 m short of the spot (dd < 0.7 below)
+    const pref = m.x > 0 ? 1 : m.x < 0 ? -1 : (m.id & 1) === 0 ? 1 : -1;
+    // The spots already chosen by the other sappers of his wave (in the list's order).
+    const taken: number[] = [];
+    for (const n of this.minions.list) {
+      if (n === m || n.unit !== Unit.Sapper || n.team !== m.team || n.wave !== m.wave || n.aux !== 1) continue;
+      if (n.task !== SapperTask.Carry && n.task !== SapperTask.Plant && n.task !== SapperTask.Run) continue;
+      taken.push(n.tx);
+    }
+    const near = (side: number) => {
+      const ax = m.x * side;
+      return side * (ax < lo ? lo : ax > hi ? hi : ax);
+    };
+    let x = near(pref);
+    if (taken.length > 0) {
+      let prefTaken = false, otherTaken = false;
+      for (const t of taken) if (t * pref > 0) prefTaken = true; else otherTaken = true;
+      if (prefTaken && !otherTaken) x = near(-pref);
+      else if (prefTaken) {
+        // Both sides have a spot: as far along the wall from them as the clear stretch allows.
+        let bd = -1;
+        for (const sx of [pref * lo, pref * hi, -pref * lo, -pref * hi]) {
+          let d = 1e9;
+          for (const t of taken) d = Math.min(d, Math.abs(sx - t));
+          if (d > bd + 1e-6) {
+            bd = d;
+            x = sx;
+          }
+        }
+      }
+    }
+    m.tx = x;
+    m.tz = f.z + f.out * 0.75;
+  }
+
   private musketeer(m: Minion, tick: number, out: Steer): boolean {
     // m.target is his mark; m.cool his reload; m.aux the ticks he has aimed (a new minion's aux is -1).
     if (m.aux < 0) m.aux = 0;
+    const hold = this.orders !== null && this.orders[m.team] === Order.Hold;
     let t = m.target >= 0 ? this.minions.list[m.target] : null;
     if (t && (t.state !== MinionState.Upright || t.team === m.team)) t = null;
     if (t) {
       const dx = t.x - m.x, dz = t.z - m.z;
       if (dx * dx + dz * dz > MUSKET.range * MUSKET.range * 1.1) t = null;
     }
-    if (!t && (tick + m.id) % 10 === 0) t = this.mark(m);
+    if ((tick + m.id) % 10 === 0) {
+      // At a look: a mark he could not walk to is dropped, and a worker gives way to an armed man.
+      if (t === null || !this.fair(m, t, hold)) t = this.mark(m, hold);
+      else if (isWorker(t)) {
+        const n = this.mark(m, hold);
+        if (n !== null && !isWorker(n)) t = n;
+      }
+    }
     if (m.cool > 0) m.cool--;
     if (!t) {
       m.target = -1;
@@ -203,19 +256,59 @@ export class Specialists {
     return this.hold(m, out, yawOf(dx / d, dz / d), ACTION_AIM);
   }
 
-  /** The nearest enemy he can see within range, or null. */
-  private mark(m: Minion): Minion | null {
+  /**
+   * May he stand and shoot at t? On Hold any he can see. Otherwise one he
+   * could walk to; and one whose side holds at its marker (it will not come to
+   * him) only from MUSKET.holdStand, so he walks up to it with his pikes.
+   */
+  private fair(m: Minion, t: Minion, hold: boolean): boolean {
+    if (hold) return true;
+    if (this.orders !== null && this.orders[t.team] === Order.Hold) {
+      const dx = t.x - m.x, dz = t.z - m.z;
+      if (dx * dx + dz * dz > MUSKET.holdStand * MUSKET.holdStand) return false;
+    }
+    return this.reach(m, t);
+  }
+
+  /** Could he walk in a straight line to t over the nav grid? */
+  private reach(m: Minion, t: Minion): boolean {
+    const dx = t.x - m.x, dz = t.z - m.z;
+    const len = dsqrt(dx * dx + dz * dz);
+    const steps = Math.ceil(len / 0.5);
+    let prev = navCell(m.x, m.z);
+    for (let s = 1; s <= steps; s++) {
+      const c = navCell(m.x + (dx * s) / steps, m.z + (dz * s) / steps);
+      if (c === prev) continue;
+      if (c < 0 || !this.nav.passable(prev, c)) return false;
+      prev = c;
+    }
+    return true;
+  }
+
+  /**
+   * The nearest armed enemy he can see within range (and, unless he is on
+   * Hold, could walk to), else the nearest worker likewise, or null.
+   */
+  private mark(m: Minion, hold: boolean): Minion | null {
     let best: Minion | null = null, bd = MUSKET.range * MUSKET.range;
+    let work: Minion | null = null, wd = bd;
     for (const n of this.minions.list) {
       if (n.team === m.team || n.state !== MinionState.Upright || n.wave < 0 || n.role === Role.Carrier) continue;
       const dx = n.x - m.x, dz = n.z - m.z;
       const d2 = dx * dx + dz * dz;
-      if (d2 >= bd) continue;
+      const w = isWorker(n);
+      if (d2 >= (w ? wd : bd)) continue;
       if (!this.sees(m.x, m.y + MUSKET.eye, m.z, n.x, n.y + 1.2, n.z)) continue;
-      bd = d2;
-      best = n;
+      if (!this.fair(m, n, hold)) continue;
+      if (w) {
+        wd = d2;
+        work = n;
+      } else {
+        bd = d2;
+        best = n;
+      }
     }
-    return best;
+    return best ?? work;
   }
 
   /** Is the line from a to b clear of masonry and ground (half-metre samples over the nav grid)? */
@@ -297,7 +390,7 @@ export class Specialists {
         const g = this.kegs[k];
         if (tick < g.at) continue;
         this.kegs.splice(k--, 1);
-        this.explode(g.x, g.by, g.bz, KEG.burst, g.shot);
+        this.explode(g.x, g.by, g.bz, KEG.setBurst, g.shot);
         any = true;
       }
       if (!any) break;

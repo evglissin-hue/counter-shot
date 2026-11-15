@@ -1,8 +1,11 @@
 // The nav grid: where minions can walk. One cell per square metre of the
 // terrain grid (cell (i, j) spans vertices (i, j) to (i + 1, j + 1)), each with
 // a floor height and a kind:
-// - the ground's height, unless water stands deeper than wading depth there or
-//   the ground is too steep;
+// - the ground's height, unless water stands deeper than wading depth there
+//   (only in the stream's channel: a crater pit elsewhere is dry) or the
+//   ground is too steep;
+// - in the stream, only an intact deck plank makes a floor: wreckage, the
+//   fallen and the timbers of a lost deck leave the water as it was;
 // - pieces standing on the floor raise it (walls stack up course by course,
 //   rubble adds its height), so neighbours more than a step apart are not
 //   connected: an intact wall is an obstacle, a low heap of rubble is not;
@@ -17,7 +20,8 @@
 // deterministic: poses from the deterministic Rapier build, + - * / and
 // comparisons, and a fixed order everywhere.
 
-import { STREAM, stoneBounds, type BridgeSite, type CastleLayout } from "@keepfall/content";
+import { MID_Z, STREAM, stoneBounds, streamOffset, streamSlope, streamWidth, type BridgeSite, type CastleLayout } from "@keepfall/content";
+import { dsqrt } from "@keepfall/core";
 import type { CastleSim } from "./castleSim";
 import { TERRAIN_GRID } from "./frame";
 import type { Terrain } from "./terrain";
@@ -144,6 +148,37 @@ function buildStatic(layout: CastleLayout): StaticIndex {
   return idx;
 }
 
+let channelCache: Uint8Array | null = null;
+
+/**
+ * 1 for cells whose centres lie in the stream's channel: within its half
+ * width and a bank of its centreline (measured square to it, as the valley
+ * cuts it). Built once.
+ */
+function streamChannel(): Uint8Array {
+  if (channelCache) return channelCache;
+  const G = NAV_GRID;
+  const out = new Uint8Array(G.nx * G.nz);
+  for (let i = 0; i < G.nx; i++) {
+    const x = G.x0 + (i + 0.5) * G.cell;
+    const mid = MID_Z + streamOffset(x), slope = streamSlope(x);
+    const reach = (streamWidth(x) / 2 + STREAM.bank) * dsqrt(1 + slope * slope);
+    for (let j = 0; j < G.nz; j++) {
+      const z = G.z0 + (j + 0.5) * G.cell;
+      if (z - mid < reach && mid - z < reach) out[j * G.nx + i] = 1;
+    }
+  }
+  channelCache = out;
+  return out;
+}
+
+/** A settled piece (or fallen body) over one cell, and the floor it leaves there. */
+interface SettledEntry {
+  key: number;
+  bottom: number;
+  top: number;
+}
+
 /** Piece states as the nav grid last saw them. */
 const enum PieceState {
   Standing = 0,
@@ -171,9 +206,15 @@ export class NavGrid {
   private terrain: Terrain;
   private idx: StaticIndex;
   private state: Uint8Array;
-  /** Settled rubble: cell -> piece ids, and each piece's cells and heights. */
-  private settledAt = new Map<number, number[]>();
-  private settled = new Map<number, { cells: number[]; bottom: number; top: number }>();
+  /**
+   * Settled rubble and fallen bodies, indexed per cell: each entry is a piece
+   * (or body) lying over that cell, with the floor it leaves there (its box's
+   * bottom and top over the cell's centre). `settled` keeps each key's cells
+   * so it can be removed. Heights are per cell, from the piece's oriented box,
+   * so a leaning slab reads as tall only over the cells it truly covers.
+   */
+  private settledAt = new Map<number, SettledEntry[]>();
+  private settled = new Map<number, number[]>();
   private dirtyMark: Uint8Array;
   private dirty: number[] = [];
   private scratchB = new Float32Array(256);
@@ -183,6 +224,8 @@ export class NavGrid {
   private scratchS = new Uint8Array(256);
   private queue: Int32Array;
   private seen: Uint8Array;
+  /** 1 for cells in the stream's channel (its water and banks): the only place water stands. */
+  private channel: Uint8Array;
 
   constructor(castle: CastleSim, terrain: Terrain) {
     this.castle = castle;
@@ -193,6 +236,7 @@ export class NavGrid {
     this.dirtyMark = new Uint8Array(cells);
     this.queue = new Int32Array(cells);
     this.seen = new Uint8Array(cells);
+    this.channel = streamChannel();
     this.idx = buildStatic(castle.layout);
     const n = castle.layout.stones.length;
     this.state = new Uint8Array(n);
@@ -241,15 +285,84 @@ export class NavGrid {
     this.markRect(i0, i1, j0, j1);
   }
 
-  /** A piece settled: index it by the footprint of its current pose. */
+  /**
+   * A piece settled: index each cell its oriented box covers with the box's
+   * bottom and top over that cell's centre, so a leaning slab or a tilted
+   * block reads as tall and wide only where it truly lies. A cuboid is cut by
+   * a vertical line through the cell centre (an oriented-box slab test); a
+   * wedge falls back to its axis-aligned bounds, uniform over its footprint.
+   */
   private addSettled(id: number) {
+    const L = this.castle.layout;
+    const s = L.stones[id];
+    const body = this.castle.bodies[id];
+    const t = body.translation(), r = body.rotation();
+    const b = this.pieceWorldBounds(id);
+    const [i0, i1] = cellSpan(b[0], b[3], NAV_GRID.x0, this.nx);
+    const [j0, j1] = cellSpan(b[2], b[5], NAV_GRID.z0, this.nz);
+    const cells: number[] = [];
+    const g = NAV_GRID;
+    const box = s.shape !== "wedge";
+    // The inverse rotation as a 3x3 matrix (columns, built once from the conjugate quaternion):
+    // the box's local frame. Its middle column is the local direction of a vertical world line.
+    const qx = -r.x, qy = -r.y, qz = -r.z, qw = r.w;
+    const m00 = rotX(qx, qy, qz, qw, 1, 0, 0), m10 = rotY(qx, qy, qz, qw, 1, 0, 0), m20 = rotZ(qx, qy, qz, qw, 1, 0, 0);
+    const ldx = rotX(qx, qy, qz, qw, 0, 1, 0), ldy = rotY(qx, qy, qz, qw, 0, 1, 0), ldz = rotZ(qx, qy, qz, qw, 0, 1, 0);
+    const m02 = rotX(qx, qy, qz, qw, 0, 0, 1), m12 = rotY(qx, qy, qz, qw, 0, 0, 1), m22 = rotZ(qx, qy, qz, qw, 0, 0, 1);
+    const hx = s.hx, hy = s.hy, hz = s.hz;
+    const oy = -t.y;
+    // Slab bounds along each local axis for a non-zero local-direction component (constant per piece).
+    const invx = ldx > 1e-9 || ldx < -1e-9 ? 1 / ldx : 0;
+    const invy = ldy > 1e-9 || ldy < -1e-9 ? 1 / ldy : 0;
+    const invz = ldz > 1e-9 || ldz < -1e-9 ? 1 / ldz : 0;
+    for (let j = j0; j <= j1; j++) {
+      const cz = g.z0 + (j + 0.5) * g.cell;
+      for (let i = i0; i <= i1; i++) {
+        const cx = g.x0 + (i + 0.5) * g.cell;
+        let bottom: number, top: number;
+        if (box) {
+          // The vertical world line through the cell centre in the box's local frame.
+          const ox = cx - t.x, oz = cz - t.z;
+          const lpx = m00 * ox + ldx * oy + m02 * oz;
+          const lpy = m10 * ox + ldy * oy + m12 * oz;
+          const lpz = m20 * ox + ldz * oy + m22 * oz;
+          let smin = -Infinity, smax = Infinity, miss = false;
+          if (invx) { const sa = (-hx - lpx) * invx, sb = (hx - lpx) * invx; if (sa < sb) { if (sa > smin) smin = sa; if (sb < smax) smax = sb; } else { if (sb > smin) smin = sb; if (sa < smax) smax = sa; } }
+          else if (lpx < -hx || lpx > hx) miss = true;
+          if (!miss && invy) { const sa = (-hy - lpy) * invy, sb = (hy - lpy) * invy; if (sa < sb) { if (sa > smin) smin = sa; if (sb < smax) smax = sb; } else { if (sb > smin) smin = sb; if (sa < smax) smax = sa; } }
+          else if (!miss && !invy && (lpy < -hy || lpy > hy)) miss = true;
+          if (!miss && invz) { const sa = (-hz - lpz) * invz, sb = (hz - lpz) * invz; if (sa < sb) { if (sa > smin) smin = sa; if (sb < smax) smax = sb; } else { if (sb > smin) smin = sb; if (sa < smax) smax = sa; } }
+          else if (!miss && !invz && (lpz < -hz || lpz > hz)) miss = true;
+          if (miss || smin > smax) continue; // the cell's centre is not under the box
+          // World y along the vertical line equals the parameter sigma (direction is unit +y).
+          bottom = smin;
+          top = smax;
+        } else {
+          // A wedge: its axis-aligned bounds, uniform over the cells its footprint reaches.
+          const cxo = cx - b[0], czo = cz - b[2];
+          if (cxo < 0 || cx > b[3] || czo < 0 || cz > b[5]) continue;
+          bottom = b[1];
+          top = b[4];
+        }
+        const c = j * this.nx + i;
+        cells.push(c);
+        let list = this.settledAt.get(c);
+        if (!list) this.settledAt.set(c, (list = []));
+        list.push({ key: id, bottom, top });
+        this.mark(c);
+      }
+    }
+    this.settled.set(id, cells);
+  }
+
+  /** World-space axis-aligned bounds of a piece in its current pose. */
+  private pieceWorldBounds(id: number): [number, number, number, number, number, number] {
     const L = this.castle.layout;
     const s = L.stones[id];
     const body = this.castle.bodies[id];
     const t = body.translation(), r = body.rotation();
     let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
     const visit = (lx: number, ly: number, lz: number) => {
-      // Rotate by the body's quaternion (t = 2 q.xyz x v; v' = v + w t + q.xyz x t).
       const tx = 2 * (r.y * lz - r.z * ly), ty = 2 * (r.z * lx - r.x * lz), tz = 2 * (r.x * ly - r.y * lx);
       const px = t.x + lx + r.w * tx + (r.y * tz - r.z * ty);
       const py = t.y + ly + r.w * ty + (r.z * tx - r.x * tz);
@@ -267,10 +380,10 @@ export class NavGrid {
     } else {
       for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) visit(sx * s.hx, sy * s.hy, sz * s.hz);
     }
-    this.indexBox(id, x0, y0, z0, x1, y1, z1);
+    return [x0, y0, z0, x1, y1, z1];
   }
 
-  /** Index something lying across a box (settled rubble, a fallen body) by the cells it covers. */
+  /** Index something lying across an axis-aligned box (a fallen body) by the cells its footprint reaches. */
   private indexBox(key: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) {
     const [i0, i1] = cellSpan(x0, x1, NAV_GRID.x0, this.nx);
     const [j0, j1] = cellSpan(z0, z1, NAV_GRID.z0, this.nz);
@@ -281,11 +394,11 @@ export class NavGrid {
         cells.push(c);
         let list = this.settledAt.get(c);
         if (!list) this.settledAt.set(c, (list = []));
-        list.push(key);
+        list.push({ key, bottom: y0, top: y1 });
         this.mark(c);
       }
     }
-    this.settled.set(key, { cells, bottom: y0, top: y1 });
+    this.settled.set(key, cells);
   }
 
   /**
@@ -320,12 +433,12 @@ export class NavGrid {
   }
 
   private removeSettled(id: number) {
-    const f = this.settled.get(id);
-    if (!f) return;
-    for (const c of f.cells) {
+    const cells = this.settled.get(id);
+    if (!cells) return;
+    for (const c of cells) {
       const list = this.settledAt.get(c);
       if (list) {
-        const k = list.indexOf(id);
+        const k = list.findIndex((e) => e.key === id);
         if (k >= 0) list.splice(k, 1);
         if (!list.length) this.settledAt.delete(c);
       }
@@ -382,7 +495,7 @@ export class NavGrid {
     const a = H[j * nv + i], b = H[j * nv + i + 1], d = H[(j + 1) * nv + i], e = H[(j + 1) * nv + i + 1];
     let floor = (a + b + d + e) * 0.25;
     const hi = Math.max(a, b, d, e), lo = Math.min(a, b, d, e);
-    let water = floor < STREAM.level - WADE;
+    let water = this.channel[c] === 1 && floor < STREAM.level - WADE;
     let steep = hi - lo > STEEP;
     let raised = false, blocked = false, rubble = false;
     // Standing pieces (already in order of their bottoms) and settled rubble here, merged by bottom.
@@ -400,19 +513,18 @@ export class NavGrid {
     }
     const here = this.settledAt.get(c);
     if (here) {
-      for (const id of here) {
-        const f = this.settled.get(id)!;
+      for (const e of here) {
         if (m >= B.length) break;
         let k = m++;
-        while (k > 0 && B[k - 1] > f.bottom) {
+        while (k > 0 && B[k - 1] > e.bottom) {
           B[k] = B[k - 1];
           T[k] = T[k - 1];
           D[k] = D[k - 1];
           S[k] = S[k - 1];
           k--;
         }
-        B[k] = f.bottom;
-        T[k] = f.top;
+        B[k] = e.bottom;
+        T[k] = e.top;
         D[k] = 0;
         S[k] = 1;
       }
@@ -428,11 +540,11 @@ export class NavGrid {
         rubble = false;
         continue;
       }
+      // In the stream only a deck plank makes a floor: wreckage, the fallen and the timbers under a lost deck do not bridge the water.
+      if (water) continue;
       if (B[k] <= floor + NAV_STEP) {
         if (T[k] > floor) {
           floor = T[k];
-          // A piece lying under the stream's surface leaves the cell wet: wreckage does not bridge the water.
-          water = floor < STREAM.level - WADE;
           steep = false;
           raised = true;
           rubble = S[k] === 1;
@@ -514,4 +626,26 @@ export class NavGrid {
     for (let i = box.i0; i <= box.i1; i++) if (out[box.j1 * this.nx + i]) return true;
     return false;
   }
+}
+
+// Rotate a vector (vx, vy, vz) by a unit quaternion (x, y, z, w): one output
+// component each, so the oriented-box slab test needs no temporaries.
+// v' = v + 2 q.xyz x (q.xyz x v + w v).
+function rotX(x: number, y: number, z: number, w: number, vx: number, vy: number, vz: number): number {
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return vx + w * tx + (y * tz - z * ty);
+}
+function rotY(x: number, y: number, z: number, w: number, vx: number, vy: number, vz: number): number {
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return vy + w * ty + (z * tx - x * tz);
+}
+function rotZ(x: number, y: number, z: number, w: number, vx: number, vy: number, vz: number): number {
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return vz + w * tz + (x * ty - y * tx);
 }

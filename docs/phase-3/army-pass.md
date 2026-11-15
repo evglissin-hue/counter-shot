@@ -1,0 +1,107 @@
+# The army pass (between 3.3 and 3.4)
+
+## Why
+
+The owner played version 23 of the game link (November 13): "feels decent but minions are very dumb, and they don't follow orders as well". Then, more exactly: "they would not follow command about advancing. enemy mminions" and "enemy minions would just hold the bridge and not move forward". This pass makes the waves competent and obedient within today's design. Nerve, formations, melee without dice, riders and engines stay in milestone 3.10 (`10-armies.md`).
+
+## How it was measured
+
+Five diagnosis agents worked at once, one per area (orders and routes, movement, fighting, specialists, the page), each with scripted, deterministic scenarios that measure what a player would see. Their scripts stay in `tools/army-diag/<area>/` so every finding below can be reproduced; bundle one with `npx rolldown tools/army-diag/<area>/X.ts --format esm --platform node -o node_modules/.scratch/X.mjs` and run it with node (the page's are `.mjs` tools with a `PORT`).
+
+## Findings, worst first
+
+1. **The AI holds at its markers for most of the match** ("enemy minions would just hold the bridge"). The steward ordered Hold whenever the enemy's marchers within 120 m of its own muster outnumbered its own 1.6 to 1 plus 4. 120 m reaches past the player's own muster, so it counted the player's whole army, men holding behind the stream and men standing at home included, and nothing but its own numbers ended a Hold. Knight, seed 21: on Hold 224 of 336 s, 58% of its marching time at its own markers, 1 of 127 of its men reached the player's gate. Seed 5: Hold and Advance flipped 7 times, 0 of 176 reached the gate. Warlord: one Hold of 168 s. (`orders/versus.ts ai=knight player=gunhold aigun=0`)
+2. **A sealed courtyard froze whole armies under any order** ("would not follow command about advancing"). A gate leaf knocked loose by a gun but still upright in its place stopped counting as a door, and rubble read by its bounding box stacked the gateway's floor to 2 to 9 m. The route fields then reached nothing and every marcher stood where he was, Advance or Push: 35 to 58 men at once, on both sides, 10 to 20 s at a time and again and again (Knight v Knight seeds 21, 33, 45; 13% of all marching time in seed 21). Men who were not cut off obeyed Advance at once in every scripted case, the guided match's held waves included. (`movement/match.ts`, `orders/pocket.ts`)
+3. **The order line refused most ways of saying Advance.** 96 of 184 phrasings were not understood: "go", "march", "send them in", "attack the enemy", "attack enemy minions", "advanced" (a common transcript of "advance") and "Waves, advance." (the comma split the line). "take the left" manned a gun. (`page/parse-table.mjs`)
+4. **The route moved only the next waves.** In the guided match the waves wait on Hold on the left; picking Right and then Advance sent all 24 held men up the left. (`orders/routes.ts`, `page/orders-guided.mjs`)
+5. **Push abandoned the wave's road.** The breach fields had no road weights and took over as soon as a breach existed, so 32 of 32 men sent left crossed by the centre bridge and single waves split over two bridges, strung out over 150 m. The AI pushes from about 0:20 in most matches, so its road choices were wasted. (`orders/push.ts`, `movement/scenarios.ts sc=push-nocentre`)
+6. **Ladders almost never went up**: 1 of 31 in two AI matches. One loose top stone spoiled a spot; a crew with no spot carried its ladder for minutes, into the enemy courtyard even; claims of men killed on the way were never freed; Hold was ignored at the ladders; climbers dropped in one at a time and died one at a time (0.7 to 6 s each). (`specialists/ladders.ts`)
+7. **A sapper's set keg knocked down his own wave at the gate**: 5 to 6 of its men in 6 of 6 centre-road runs (kegs set 4.3 m from the gate's middle, a 7 m knock); the two kegs of a wave landed on one spot. (`specialists/sappers.ts`)
+8. **Whole waves piled onto one enemy**: in an 8 v 8 meeting 6.3 men targeted 1.2 distinct enemies while 6.3 stood within 9 m; half the engaged time was spent closing on a target out of reach. (`fighting/advance.ts sc=field`)
+9. **Musketeers stopped for good at enemies across the stream**, shooting at 15% a shot while their pikes went on alone, and stood idle in the doorway of a closed gate; most of their shots at a gate went at masons. (`fighting/advance.ts sc=hold mix=volley`, `specialists/muskets.ts`)
+10. **Stand-offs in a courtyard**: an attacker and a garrison man 8 m apart across rubble stood 112 s and more and froze the storm; the garrison ignored an attacker in the gate passage; attackers chased a fleeing mason round the keep for 15 s. (`fighting/advance.ts sc=gate`)
+11. **The AI flipped its order every 12 to 36 s** (11 changes in 5:16, Knight v Knight seed 21).
+12. **The map lied about water**: a dropped deck's wreck read as an open bridge 8 to 20 s later (no bridge gang, the AI routed waves onto it); a mortar crater far from the stream read as deep water; a man could be pushed into a step he could not take and stand for good.
+13. **The page**: the order and road buttons flickered back to the old state after each click (the old order lit for 150 to 300 ms online); Ctrl+1 to 3 did nothing while the order line had focus; the road row ignored the barracks' own roads.
+
+Left for 3.10: waves marching as a blob and holding as one long thin rank; a held mass jamming a 3 m bridge deck when it advances; waves on different roads never meeting (sight 9 m, roads 45 m apart); a clash decided 2.5 to 5 s after the first blow; a carried keg's chain knocking down a crowd (by design until waves keep their spacing).
+
+Bearing on the lanes (the owner finds roads per wave manual and hectic; a change for later): the AI's road choices were wasted under Push (finding 5); a road change that leaves the men already out on their old road reads as disobedience (finding 4); the barracks' own roads and the team road could disagree on the card.
+
+Also seen, not changed: masons close a fresh two-shot breach in about 15 s, so Push often finds none (balance, for the observatory). After the pass: the AI keeps buying ladder crews while a way in stands open, and in Knight against Knight (seed 21) none of its 28 ladders reached the wall with no way in, so they go unused (what the AI buys, for its next pass); musketeers at a shut gate still shoot the masons mending it (the garrison is out of sight behind it); a spread fight on a bridge deck knocks a man or two into the stream more often than before.
+
+## Fixes
+
+Eight builds in parallel, one per area, then the master's own round on the merged whole. By finding:
+
+1. **The AI holds only against a real threat, and not for long.** The threat is the enemy's marching men on the AI's own side of the stream or within `DEFEND` + 10 m of its gate, never men holding behind the stream or standing at home. A Hold lasts 45 s at most and none comes back for 60 s; with 88 men or more standing (8 short of the cap) it never holds: it has men to send. It pushes once a way in has stayed open 4 s and leaves Push once it has stayed shut 10 s; an order stands 20 s (a Push may come after 10 s), and no more than 6 changes in 5 minutes. All the numbers are in `ORDERS` (`packages/content/src/ai.ts`); the tutor and the Squire keep their old rules. Knight against a player holding behind the stream: Hold 224 s and 164 s of 360 before (seeds 21 and 5), 0 s after; men at the player's gate 1 and 0 before, 3 and 9 after. Knight against Knight, seed 21: 11 order changes in 5:16 before, 1 and 3 in a whole match after, Hold 0 s.
+2. **No more frozen armies.** Each route field has a second goal, the ground in front of the enemy gate (`APPROACH`), seeded far dearer than the real one: where the courtyard cannot be reached the waves march to the gate and stand there, ready, instead of wherever they were when the way shut. A gate leaf knocked loose that has come to rest upright in its frame is a door again: the men batter it, and a blow that would knock it loose shoves it instead (`CastleSim.shove`). `dir` blends only the cells a man can step to; a man refused on both axes sidesteps to the cheapest cell he can take; a man on a cut-off cell walks back to the nearest cell within 4 m that reaches. Knight against Knight: marching man-seconds on a cell that reaches nothing 13.7% to 0.0% (seed 21) and 6.5% to 0.1% (seed 45); whole teams standing 10 s or more (19, 12, 15 and 12 s) to none.
+3. **The order line understands how people say it.** Not understood: 96 of 184 phrasings before (116 of the 212 in today's table), 0 of 212 after: "go", "march", "attack the enemy", "advanced", "Waves, advance.", "hold on", "storm the breach", "take the left" (the road; "take the left tower gun" still mans the gun), a road with an order (the road first). Voice tries the recogniser's five readings. Ctrl+1 to 3 work with the line open.
+4. **A road change moves the waves already out.** Every wave that has not crossed its bridge takes the new road; waves holding at a marker walk along their own bank to the new marker (`MARCH.holdAlong`, `holdRejoin`). The guided match's held waves: 0 of 32 moved before, 32 of 32 at the new marker within 40 s after. The note reads "Waves take the left flank", the coach "Pick a road under the map: your waves take it", the road row lights the roads your barracks send by.
+5. **Push keeps the road** until 35 m from the enemy wall (`MARCH.pushNear`), then makes for the breach, the wave together. Men crossing by another road's bridge: 32 of 32 before, 0 after; a wave strung out over 146 m to within 8 m.
+6. **Ladders go up.** A spot is judged by the wall still standing there (6 m or more, `LADDER.minWall`), not by one loose stone; a crew near the wall with no spot for 20 s drops its ladder and fights; a ladder is never carried into the courtyard, and is dropped for a way in only near the wall (from the muster every crew dropped it whenever any breach stood, though masons shut most before the wave got there); men gather four on the wall walk and go down together; claims of the dead are freed; Hold is obeyed at the ladders; queues spread. Scripted: 6 of 8 ladders planted in the hunt's four runs; the longest carry with no spot 20 s (2 minutes and more before); men over the wall live about 9 s inside (2 s before).
+7. **Kegs clear of the wave.** A set keg goes 9.5 m or more from the gate's middle, the wave's two on opposite sides, and knocks men over at 4.5 m (7 before); men within 6 m of a lit keg walk away from it. Own men knocked down by the wave's own keg: 5 to 6 in 6 of 6 runs before, 0 after.
+8. **Spread targets.** A man counts how many of his side already aim at each enemy and prefers a free one; he looks again when his target is out of reach. 8 against 8: distinct targets per side 1.2 and 1.7 before, 4.5 and 5.3 after.
+9. **Musketeers march with their pikes.** A mark they could not walk to is dropped (unless they hold), and a side holding at its marker is shot at only from 12 m (`MUSKET.holdStand`); they wait 8 m short of a gate that still stands, out of the pikes' way. Shots at masons at a shut gate are kept: the garrison stands out of sight behind it, and the masons are mending it.
+10. **No stand-offs in a courtyard.** Men in a courtyard close by its own local field when a straight line is blocked; the garrison takes on attackers in the gate passage; workers are chased only within 3 m. The gate scenario storms at about 57 s (a stand-off of 112 s and more before).
+11. The AI's order churn: with 1.
+12. The map: water is only in the stream's channel, a dropped deck's wreck never bridges it (the bridge stays down until a gang rebuilds it), rubble heights come from each piece's own box. Crater cells read as water: 155 to 0; the drop-deck man stuck 52 s to 0.
+13. The page: what you ordered stays lit until a report carries it (1.5 s at most), so no flicker; the road row reads the barracks' own roads.
+
+Found and fixed in the master's round, after the merge: a loose gate leaf counted as a door while still falling from the blow that loosed it, so the men stood battering instead of pushing it over, and the extra shoves drove it along its frame and cracked the wall over the gate (2 to 92 wall pieces loose in 5 of 8 seeds; none now: a loose leaf is a door, and takes a shove, only once at rest). A spread fight on the 3 m deck knocks one or two men into the stream more often (10 in 6 seeds, 4 before); the army test now asks that most of the fallen lie on the bridge.
+
+## Hunts added
+
+- `packages/ai/scripts/army-hunt.ts` (scenarios in `packages/ai/scripts/army/`, thresholds in one table at its top, about 11 minutes of one core, `only=` for part): advance, hold, push, route, sealed, stuck, keg, musket, targets, ladder. On the code before the pass 8 of 10 flag (advance and hold pass: men not cut off always obeyed, and the AI's Hold is caught by the dead-end hunt); after, none.
+- The dead-end hunt (`packages/ai/scripts/dead-ends.ts`) watches the army in its AI match: a team cut off, a soldier stuck 20 s with nothing to fight, an AI on Hold too long or flipping its orders, ladders carried to the wall with no way in and never planted. Knight against Knight, seed 21, before: cut off (34 men for 20 s), 13 order changes with two within 15 s, Hold 48% of the match. After: no army flag.
+- `tools/orders-check.mjs` (`PORT`): every way to order the waves and pick a road (card, keys, order line, build menu) sends the right input and the card shows it without flicker.
+
+## The observatory's quick run, before and after
+
+`npm run observe:quick`, 24 matches each (12 Knight against Knight, 12 Warlord against Knight). First on 3.3's tree, the code before the pass (`army-before`) and after it (`army-after`):
+
+| | Before | After |
+|---|---|---|
+| Length, all 24 (median, shortest, longest) | 5.6 min (3.7, 12.3) | 5.7 min (2.6, 12.5) |
+| Length, Knight against Knight (T1) | 6.7 min; 58% between 6 and 16 | 7.6 min; 67% between 6 and 16 |
+| Length, Warlord against Knight | 4.9 min | 4.0 min |
+| Won by storm, all 24 | 7 | 9 |
+| Won by storm, Knight against Knight (T2) | 2 of 12 (keep 83%) | 2 of 12 (keep 83%) |
+| Won by storm, Warlord against Knight | 5 of 12 | 7 of 12 |
+| Matches with a storm under way at some sample (every 30 s) | 12 | 13 |
+| T4 Warlord beats Knight | 83% | 92% |
+| T8 the side behind at half time wins | 42% (fail) | 33% (pass) |
+| T3 castle 0 wins (Knight against Knight) | 5 of 12 | 7 of 12 (too few to call) |
+| Men fallen a minute (median) | 51.8 | 52.7 |
+
+Storms come a little more often and the Warlord, whose waves now get where they are sent, wins more and sooner; Knight against Knight runs a minute longer, its endings unchanged. The match by match outcomes moved a lot (same seeds, different armies). T9 is left out of the table: the before run shared the machine with seven executors (worst step 4.7 s, 631 steps over 33 ms a match) and the after run did not (1.8 s, 102), so its numbers say more about the machine than the army. The magazine numbers (46% blown before, 33% after) move with the matches, not with anything the pass changed.
+
+Then on 3.4's tree, which landed first: 3.4 alone (`k34-base`, run here at 95f93cc, so both are on this machine with the same bodies) against 3.4 with the pass merged (`army-after-34`):
+
+| | 3.4 alone | 3.4 with the pass |
+|---|---|---|
+| Length, all 24 (median, shortest, longest) | 6.1 min (0.7, 14.2) | 6.0 min (2.9, 11.0) |
+| T1 Knight against Knight | 6.2 min; 58% between 6 and 16 | 6.4 min; 50% between 6 and 16 |
+| T2 endings, Knight against Knight | felled 42%, floors 33%, storm 25% | felled 25%, floors 42%, storm 33% |
+| Won by storm, all 24 | 4 | 4 |
+| Matches with a storm under way at some sample | 8 | 12 |
+| T4 Warlord beats Knight | 83% | 92% |
+| T5 unspent gold over 400 (median) | 47.0 s (pass) | 65.0 s (fail, the line is 60) |
+| T7 the keep's share of hand shots | 47% (pass) | 44% (pass) |
+| T8 the side behind wins | 25% (pass) | 25% (pass) |
+| Keeps toppled; keep endings felled against floors | 16; 16 against 4 | 10; 10 against 10 |
+| Magazines blown | 54% | 58% |
+
+On 3.4 the pass leaves the length where it was but takes away its extremes (no match under 2.9 min: 3.4 alone had five keeps felled within 2 minutes), storms are tried in half the matches rather than a third, and the Warlord's waves win it more. Fewer keeps are felled and more fall by their floors; T5 crosses its line by 5 s, a number that has moved between 44.5 s and 109.5 s across quick runs of nearly the same code, so for the next balance pass rather than this one.
+
+## The player's chair
+
+`tools/army-diag/page/army-chair.mjs` (`PORT`) plays Versus AI against the Knight, stepped by hand, with stills in `tools/.shots/army-diag/`. Your waves, sent down the centre on Hold, stand at the centre marker (1:12). Right picked on the card while they hold: the note reads "Waves take the right flank", the card lights Right at once and keeps it, and the men walk back along their own bank, up the right road and stand at the right marker 60 s later. "Waves, advance." on the order line: the card lights Advance, the note reads "Waves advance on the gate", and 12 s later they are on the right bridge. The Knight's waves came on, the opposite of "enemy minions would just hold the bridge and not move forward": from 2:45, looked at every 20 s, 12 to 38 of its men stood on your side of the stream (none at one look, between waves), and it stormed your castle at 5:21. The road row's tooltip reads "Pick the road your waves take (L)", and names the roads when your barracks send by different ones.
+
+## Versions and hashes
+
+3.4 landed first, so the pass was merged onto it and bumped past it: sim `RULES_VERSION` 15, `MATCH_RULES_VERSION` 12 (a route input now moves the waves out), `NET_VERSION` 8. Every match hash re-pinned once, on purpose, on the merged tree (the waves march, fight and obey differently), from 3.4's: `MATCH_HASH` 8f4ff756 / 7497363c to 29bc6f70 / 52725556 (its script written again, below); `WAVE_MATCH_HASH` 52bf4d6d / 8fecc764 to b02228d7 / ec86aec6; `ESTATE_MATCH_HASH` b6083528 / e79bc924 to 3267f17b / cebf40a6; `AI_MATCH_HASH` 8053c6aa / a8651371 to 2d50c56c / 128ff60f; `GUIDED_MATCH_HASH` cda3bbdb / 82c23b40 to 04fe0546 / 3bab6da8. Unchanged: `SESSION_HASH` 29af82af / 3ca45276 (3.4's) and the lab's 35a7603f / 054e5eb0 (no army in those worlds).
+
+What the merge with 3.4 resolved, keeping both: the AI's order numbers (`ORDERS`) beside 3.4's `cut`, `cutTries`, `footShell` and `buttresses` on every level; `threat` and `standing` beside 3.4's keep reading in the AI's view; the dead-end hunt's army hunts beside its keep hunts in one loop; the order line reads a buttress before the waves' words; both new order-line tests. Two of 3.4's tests broke on the merged tree, both on a knife edge: in the keep match a garrison man steps onto a fallen stone a hair differently at tick 1304 (rubble heights from each piece's own box), the rubble settles differently, and the shot that knocked 3.4's banner off the heap to 3.48 m (the line is 3.5 m) left it lying on the heap at 7.08 m, so the match never ended; its script was written again by its own writer (`packages/rules/scripts/keep-script.ts`), which plays on until the banner is down: 3.4's first 27 shots, then the long gun works on, won by the keep at tick 6091 with 35 shots (`MATCH_TICKS` 6200). The Knight's cut test fired its two cut shots and landed one on the foot as on 3.4, but a hit higher up was the weakest course while the foot ran hot; it now also takes the foot's own heat. Worth a look by 3.4's owner: a keep that has fallen with its banner lying on its own heap above 3.5 m does not end the match. The fixes and hunts above were measured before the merge; on the merged tree every army hunt passes again and the dead-end hunt (Knight against Knight, seed 21) raises no army flag.
+
+Checks on the merged tree: `npm run check` 520 of 520; `npm run check:browser` (Chromium equals Node on every pin); `node tools/hud-check.mjs`, `node tools/online-check.mjs`, `node tools/guided-check.mjs` and `node tools/orders-check.mjs` all passed (each with its own `PORT`; the HUD check fails 5 key steps when the machine is loaded with a quick run beside it, and passes alone).

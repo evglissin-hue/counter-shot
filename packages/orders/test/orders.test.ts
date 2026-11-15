@@ -6,7 +6,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ASHWRIGHT_SLOTS, type RepairKind } from "@keepfall/content";
+import { ASHWRIGHT_SLOTS, BUTTRESS, type RepairKind } from "@keepfall/content";
 import type { MatchInput } from "@keepfall/rules";
 import { parse, type GunView, type OrdersView, type ParseResult, type PlotView, type StandingId } from "@keepfall/orders";
 
@@ -287,9 +287,8 @@ test("route: the player's left and right, in match terms", () => {
     ["right road", r("left")],
   ]);
   const say = parse("waves left", zero);
-  assert.equal(say.ok && say.say, "Next waves: left flank");
+  assert.equal(say.ok && say.say, "Waves take the left flank");
   refuses(fixture(), [
-    ["left", /^Not understood/],
     ["waves left right", /^Not understood/],
   ]);
 });
@@ -478,7 +477,7 @@ test("several orders in one line, in order", () => {
   const r = parse("mill, then waves left", fixture());
   assert.ok(r.ok);
   assert.deepEqual(inputs(r), [build(4, "mill"), { kind: "route", route: "left" }]);
-  assert.equal(r.say, "Powder Mill on plot 5, back right: 160 gold; next waves: left flank");
+  assert.equal(r.say, "Powder Mill on plot 5, back right: 160 gold; waves take the left flank");
   const r2 = parse("mill and advance; hold. waves right", fixture());
   assert.deepEqual(inputs(r2), [build(4, "mill"), { kind: "order", order: 0 as never }, { kind: "order", order: 1 as never }, { kind: "route", route: "right" }]);
   // Each part sees what the ones before it did: a plot just taken, a gun just bought.
@@ -539,4 +538,130 @@ test("the player's chair: words a newcomer tries", () => {
   const up = parse("upgrade the mortar", v);
   assert.equal(up.ok, false);
   assert.equal(!up.ok && up.reason, "Which upgrade? Heavy shell or Quick loader");
+});
+
+// The army pass: the ways people say an order or a road. "o0" advance, "o1" hold, "o2" push, "rL", "rC", "rR" the road in the player's own words; "+" gives the road first, then the order.
+const WAVE_PHRASES: Array<[string, string]> = [
+  ["go", "o0"], ["march", "o0"], ["go forward", "o0"], ["move", "o0"], ["move out", "o0"], ["move forward", "o0"], ["send them in", "o0"],
+  ["send the waves in", "o0"], ["send in the waves", "o0"], ["go in", "o0"], ["attack the gate", "o0"], ["attack the enemy", "o0"],
+  ["attack enemy minions", "o0"], ["attack the enemy minions", "o0"], ["advance on the gate", "o0"], ["march on the gate", "o0"], ["fight", "o0"],
+  ["engage", "o0"], ["onward", "o0"], ["onwards", "o0"], ["keep going", "o0"], ["advancing", "o0"], ["attacking", "o0"], ["charging", "o0"], ["advanced", "o0"],
+  ["Advanced.", "o0"], ["Waves, advance.", "o0"], ["attack", "o0"], ["charge", "o0"], ["forward", "o0"], ["go go go", "o0"], ["push on", "o0"], ["press on", "o0"],
+  ["go on", "o0"], ["go ahead", "o0"], ["resume", "o0"], ["continue", "o0"], ["stop holding", "o0"], ["release", "o0"], ["men, advance", "o0"], ["lads, attack!", "o0"],
+  ["stop", "o1"], ["fall back", "o1"], ["defend", "o1"], ["hold the line", "o1"], ["hold position", "o1"], ["hold", "o1"], ["retreat", "o1"], ["holding", "o1"], ["Waves hold.", "o1"],
+  ["breach", "o2"], ["into the breach", "o2"], ["through the breach", "o2"], ["storm the gate", "o2"], ["storm", "o2"], ["push the breach", "o2"], ["pushing", "o2"],
+  ["left", "rL"], ["right", "rR"], ["centre", "rC"], ["center", "rC"], ["middle", "rC"], ["straight", "rC"], ["go straight", "rC"], ["take the left", "rL"],
+  ["take the left road", "rL"], ["take the right flank", "rR"], ["left side", "rL"], ["go left", "rL"], ["waves, left", "rL"],
+  ["advance left", "rL+o0"], ["attack left", "rL+o0"], ["advance on the left", "rL+o0"], ["advance right", "rR+o0"], ["hold right", "rR+o1"],
+  ["left then advance", "rL+o0"], ["right and hold", "rR+o1"],
+];
+
+/** What a table row asks for, in match terms for a team (team 0 faces the other way: its left is the match's right). */
+function waveWant(spec: string, team: 0 | 1): MatchInput[] {
+  const flip = { L: "right", R: "left", C: "centre" } as const;
+  const same = { L: "left", R: "right", C: "centre" } as const;
+  return spec.split("+").map((p): MatchInput => (p[0] === "o" ? { kind: "order", order: Number(p[1]) as never } : { kind: "route", route: (team === 0 ? flip : same)[p[1] as "L" | "R" | "C"] }));
+}
+
+test("waves: every way people say an order or a road, for both seats", () => {
+  for (const team of [1, 0] as const) {
+    const v = fixture({ team });
+    for (const [line, spec] of WAVE_PHRASES) {
+      const r = parse(line, v);
+      assert.ok(r.ok, `team ${team} "${line}" refused: ${r.ok ? "" : r.reason}`);
+      assert.deepEqual(inputs(r), waveWant(spec, team), `team ${team} "${line}"`);
+    }
+  }
+});
+
+test("waves: commas and a full stop never refuse a sentence that is understood without them", () => {
+  const v = fixture();
+  for (const [line] of WAVE_PHRASES) {
+    const bare = line.replace(/[,.!]/g, "");
+    assert.ok(parse(bare, v).ok, `"${bare}" refused`);
+    const words = bare.split(/\s+/);
+    for (const text of [`${bare}.`, words.join(", "), `${words.join(", ")}.`, `, ${bare}`]) {
+      const r = parse(text, v);
+      assert.ok(r.ok, `"${text}" refused: ${r.ok ? "" : r.reason}`);
+    }
+  }
+});
+
+test("waves: 'take the left' is a road; a gun named with it is manned", () => {
+  const v = fixture();
+  assert.deepEqual(inputs(parse("take the left", v)), [{ kind: "route", route: "left" }]);
+  const g = parse("take the left tower gun", v);
+  assert.ok(g.ok && g.steps[0].kind === "input" && g.steps[0].input.kind === "man", "man the gun");
+  const s = parse("man the swivel", v);
+  assert.ok(s.ok && s.steps[0].kind === "input" && s.steps[0].input.kind === "man");
+  assert.deepEqual(inputs(parse("overview", v)), [{ kind: "man", emplacement: -1 }]);
+});
+
+test("waves: what must stay refused, and the old phrases give what they gave", () => {
+  const v = fixture();
+  refuses(v, [
+    ["Waves", /^Not understood/],
+    ["left right", /^Not understood/],
+    ["take", /^Which gun/],
+    ["surrender", /^Not by words/],
+    ["go left right", /^Not understood/],
+  ]);
+  // The masons' "gate off" and "gate first" are not the waves'.
+  assert.deepEqual(inputs(parse("masons off the gate", v)), [{ kind: "repair", repair: "gate", on: false }]);
+  const f = parse("gate first", v);
+  assert.ok(f.ok && f.steps.every((s) => s.kind === "input" && s.input.kind === "repair"));
+  // A barracks' own mix and road are still its own, not the team's.
+  const b = viewWith((x) => {
+    x.plots[1] = { kind: "barracks", state: "standing" };
+    x.barracks[1] = { mix: "pikemen", route: "centre" };
+  });
+  accepts(b, [["second barracks: volley, right", [{ kind: "barracks", plot: 1, mix: "volley", route: "right" }]]]);
+  const say = parse("advance left", v);
+  assert.equal(say.ok && say.say, "Waves take the left flank; waves: advance");
+});
+
+test("buttresses: words for each face, the steward's line, and the refusals the match would make", () => {
+  const v = viewWith(() => {});
+  const one = (t: string, w = v) => {
+    const r = parse(t, w);
+    assert.ok(r.ok, `${t}: ${r.ok ? "" : r.reason}`);
+    assert.equal(r.steps.length, 1);
+    const s = r.steps[0];
+    assert.ok(s.kind === "input");
+    return s;
+  };
+  for (const [line, face] of [
+    ["buttress the front", "front"],
+    ["buttress the keep", "front"],
+    ["Buttress the left", "left"],
+    ["buttress the back face", "back"],
+    ["build a buttress on the right", "right"],
+    ["buttresses on the left side of the keep", "left"],
+  ] as const) {
+    const s = one(line);
+    assert.deepEqual(s.input, { kind: "buttress", face }, line);
+    assert.equal(s.cost, BUTTRESS.gold);
+  }
+  assert.equal(one("buttress the front").say, `Buttress the front of the keep: ${BUTTRESS.gold} gold`);
+  // The player's own left, whichever castle it is (faces are in the owner's words).
+  assert.deepEqual(one("buttress the left", fixture({ team: 0 })).input, { kind: "buttress", face: "left" });
+  // Refused as the match would: a face that has one (rising or standing), not enough gold.
+  const rising = fixture({ buttresses: ["rising", "empty", "empty", "empty"] });
+  const r1 = parse("buttress the front", rising);
+  assert.ok(!r1.ok && r1.reason === "The front has a buttress", !r1.ok ? r1.reason : "");
+  const r2 = parse("buttress the back", fixture({ buttresses: ["empty", "standing", "empty", "empty"] }));
+  assert.ok(!r2.ok && r2.reason === "The back has a buttress");
+  assert.ok(parse("buttress the left", rising).ok, "another face is free");
+  const r3 = parse("buttress the left", fixture({ gold: BUTTRESS.gold - 1 }));
+  assert.ok(!r3.ok && r3.reason === `Not enough gold: ${BUTTRESS.gold} needed`);
+  // Within a line, the first buttress takes the face and the gold.
+  const twice = parse("buttress the front and buttress the front", v);
+  assert.ok(!twice.ok && /has a buttress/.test(twice.reason));
+  const both = parse("buttress the front and buttress the back", fixture({ gold: BUTTRESS.gold * 2 - 1 }));
+  assert.ok(!both.ok && /not enough gold/i.test(both.reason));
+  const fine = parse("buttress the front and buttress the back", fixture({ gold: BUTTRESS.gold * 2 }));
+  assert.ok(fine.ok && fine.steps.length === 2);
+  // Nonsense is not understood; two faces at once are refused.
+  assert.ok(!parse("buttress the dragon", v).ok);
+  assert.ok(!parse("buttress the front back", v).ok);
 });

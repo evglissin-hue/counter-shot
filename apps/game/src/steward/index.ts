@@ -108,7 +108,7 @@ export function createSteward(deps: StewardDeps): Steward {
         if (!open) return;
         inputEl.value = text;
       },
-      done: (text) => {
+      done: (text, alts = []) => {
         listenEl.hidden = true;
         if (!open) return;
         if (!text) {
@@ -116,7 +116,9 @@ export function createSteward(deps: StewardDeps): Steward {
           close();
           return;
         }
-        inputEl.value = text;
+        // The top reading first; if the steward cannot follow it, the first other reading he can.
+        const v = deps.view();
+        inputEl.value = (v && [text, ...alts].find((t) => parse(t, v).ok)) || text;
         submit();
       },
       failed: () => {

@@ -3,11 +3,11 @@
 // observe-line.ts describes. Tuning is applied before the match is built and
 // undone when it is freed, so a process can play many setups.
 
-import { applyTuning, BUILDING_KINDS, buildLayout, castleOfEmp, GAME_LAYOUT, MATCH, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
+import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, RULES_VERSION, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_RULES_VERSION } from "@keepfall/rules";
 import { AIM_GROUPS, AiPlayer } from "@keepfall/ai";
-import { AIM_KINDS, LINE_VERSION, type AimKind, type BuildEntry, type MatchLine, type MatchSetup, type Sample, type Totals } from "./observe-line";
+import { AIM_KINDS, LINE_VERSION, type AimKind, type Fall, type BuildEntry, type MatchLine, type MatchSetup, type Sample, type Totals } from "./observe-line";
 
 const pair = <T>(f: (c: 0 | 1) => T): [T, T] => [f(0), f(1)];
 
@@ -42,6 +42,10 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const worldEvents = (m.world as unknown as { events: number[] }).events;
   let evSeen = 0;
   const richSecs: [number, number] = [0, 0];
+  /** 3.4: the falls of each castle's structures (Topple and Crush events), and the hand shots each side landed on the other's keep, at its foot and above. */
+  const falls: [Fall[], Fall[]] = [[], []];
+  const keepFoot: [number, number] = [0, 0], keepTop: [number, number] = [0, 0];
+  const footY = (KEEP_STOREYS[0] - 1) * CASTLE_SHAPE.course;
   let moving = 0, movingMax = 0, windowMoving = 0, worst = 0, windowWorst = 0;
   /** Steps slower than 16 ms and 33 ms (one slow step on a busy machine says little; many say more). */
   const slow: [number, number] = [0, 0];
@@ -113,10 +117,25 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
       spent[castleOfEmp(e)] += shotCost(e);
     }
     for (; evSeen + EVENT_STRIDE <= worldEvents.length; evSeen += EVENT_STRIDE) {
-      if (worldEvents[evSeen] !== EventKind.MagazineBlew) continue;
+      const kind = worldEvents[evSeen];
+      if (kind === EventKind.Topple || kind === EventKind.Crush) {
+        const si = worldEvents[evSeen + 1];
+        falls[Math.floor(si / 5) as 0 | 1].push([i / 60, si % 5 === 0 ? "keep" : "tower", kind === EventKind.Topple ? "topple" : "crush", worldEvents[evSeen + 2]]);
+        continue;
+      }
+      if (kind !== EventKind.MagazineBlew) continue;
       const c = worldEvents[evSeen + 1] as 0 | 1;
       if (blownAt[c] < 0) blownAt[c] = i;
       blown[c]++;
+    }
+    // 3.4: a hand shot that came down on the other castle's keep (within a metre and a half of its walls: its buttresses too).
+    for (const l of m.world.landings) {
+      if (l.auto || l.emplacement < 0) continue;
+      const shooter = castleOfEmp(m.emplacements[l.emplacement]);
+      const kz = mirrorZ(1 - shooter, CASTLE_SHAPE.keepZ), reach = CASTLE_SHAPE.keepHalf + 1.5;
+      if (Math.abs(l.x) > reach || Math.abs(l.z - kz) > reach) continue;
+      if (l.y < footY) keepFoot[shooter]++;
+      else keepTop[shooter]++;
     }
     if (i % 1800 === 1799) sample(i + 1);
   }
@@ -155,13 +174,16 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     magazineBlown: blownAt,
     magazinesBlown: blown,
     dryRideSecs: dry,
+    falls,
+    keepFoot,
+    keepTop,
   };
   const r = m.result;
   const line: MatchLine = {
     v: LINE_VERSION,
     setup,
     rules: { sim: RULES_VERSION, match: MATCH_RULES_VERSION },
-    result: { winner: r ? r.winner : null, reason: r ? r.reason : null, tick, hash: m.hash() },
+    result: { winner: r ? r.winner : null, reason: r ? r.reason : null, tick, hash: m.hash(), felled: !!r && r.reason === "keep" && (r.winner === 0 || r.winner === 1) && falls[1 - r.winner].some((f) => f[1] === "keep") },
     samples,
     totals,
     wall: { ms: wallMs, speed: wallMs > 0 ? m.tick / 60 / (wallMs / 1000) : 0 },

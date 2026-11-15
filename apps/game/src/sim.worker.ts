@@ -9,13 +9,14 @@ import { ASHWRIGHT_EMPLACEMENTS, boxSize, buildLayout, CASTLE_SHAPE, Earn, UNMAN
 import { AiPlayer } from "@keepfall/ai";
 import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type MatchOptions, type RegisterHost } from "@keepfall/rules";
 import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
+import { BUTTRESS_FACES, STRUCTURE } from "@keepfall/content";
 import { Lockstep, netHash } from "./lockstep";
 import { MatchLog, makeSetup, writeLog, type LoggedMode, type ReplayFile, type ReplaySetup } from "./matchLog";
 import { NET_VERSION } from "./net";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { placeName } from "./marks";
-import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
+import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type StructureInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
 
 /** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
 let gen = 0;
@@ -113,6 +114,8 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
     if (st.course < FOOT_COURSES) sectionTotal[at + 1]++;
   });
   sectionsAt = -1;
+  structureAt = -1;
+  structBounds = null;
   ai = null;
   net = null;
   stopped = false;
@@ -231,9 +234,39 @@ function matchInfo(): MatchInfo | null {
     ...registerInfo(match.register, match.world, match.tick, (e) => teamOf(e) === me),
     ...estateInfo(match),
     ...powderInfo(match),
+    structures: structureReport(match.world, match.tick),
+    buttresses: [0, 1].map((t) => BUTTRESS_FACES.map((f) => match!.buttress(t, f))) as [number[], number[]],
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/** 3.4: the structures' bounds (stone layout), once per world. */
+let structBounds: Array<{ baseY: number; topY: number }> | null = null;
+let structureAt = -1;
+
+/** 3.4: every keep and tower as the page reads it (the mason's eye, the world's tells), every STRUCTURE.reportEvery ticks; null in between and without statics. */
+function structureReport(world: SandboxSim, tick: number): StructureInfo[] | null {
+  const st = world.statics;
+  if (!st) return null;
+  if (structureAt >= 0 && tick >= structureAt && tick - structureAt < STRUCTURE.reportEvery) return null;
+  structureAt = tick;
+  if (!structBounds) {
+    structBounds = st.list.map((d) => {
+      let lo = Infinity, hi = -Infinity;
+      for (const id of d.stones) {
+        const s = world.castle.layout.stones[id];
+        if (s.part !== "keep" && s.part !== "tower") continue;
+        lo = Math.min(lo, s.y - s.hy);
+        hi = Math.max(hi, s.y + s.hy);
+      }
+      return { baseY: lo === Infinity ? 0 : lo, topY: hi === -Infinity ? 12 : hi };
+    });
+  }
+  return st.list.map((d, i) => {
+    const r = st.status(i), b = structBounds![i];
+    return { index: i, castle: d.castle, kind: d.kind, name: d.name, cx: d.cx, cz: d.cz, half: d.half, baseY: b.baseY, topY: b.topY, state: r.state, holds: r.holds, weakest: r.weakest, crushNear: r.crushNear, toppleNear: r.toppleNear, margin: r.margin, dirX: r.dirX, dirZ: r.dirZ, comX: r.comX, comY: r.comY, comZ: r.comZ, footY: r.footY, hull: r.hull.slice(), drawIn: r.drawIn, heat: r.heat.slice() };
+  });
 }
 
 /**
@@ -482,6 +515,7 @@ function tick(advanceMs = -1) {
       standing: counts.standing,
       awake: sim.castle.awakeCount(),
       match: info,
+      structures: !match ? structureReport(sim, sim.tick) : null,
       reg: !match && practiceReg ? registerInfo(practiceReg, sim, sim.tick, (e) => e.id < ASHWRIGHT_EMPLACEMENTS.length) : null,
       bridges,
       sections,
@@ -590,6 +624,12 @@ async function handle(msg: ToWorker) {
         break;
       case "spawn":
         match?.army.spawnWave(msg.team, 1, msg.count, { x: msg.x, z: msg.z }, { ladder: msg.ladder === true });
+        break;
+      case "dust":
+        if (sim) {
+          for (const id of msg.ids) sim.castle.dust(id);
+          sim.castle.supportNow();
+        }
         break;
       case "manual":
         manual = true;

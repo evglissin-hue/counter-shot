@@ -14,7 +14,7 @@
 // has too), so the master can take "before" stills from main with the same tool.
 // Writes tools/.shots/l1-<tag>-<view>.png.
 // Usage: PORT=5633 node tools/l1-shots.mjs [--quality=low|medium|high|ultra] [--tag=name] [views...]
-//   views: rest fire reload runout glass trail shell hit closeup crew crewfar blast inset (default: all)
+//   views: rest fire reload runout fetch fetchwide arc arcend glass trail shell hit closeup crew crewfar blast inset (default: all)
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -211,6 +211,50 @@ async function tour() {
     await step(66);
     if (want("runout")) await shot("runout");
     await run();
+  }
+
+  // Polish after L1: the loader at the powder box (reload stage about 0.27, 32 frames after the shot), at the default zoom and at the widest.
+  for (const [view, fov] of [["fetch", 44], ["fetchwide", 55]]) {
+    if (!want(view)) continue;
+    await laid();
+    await page.evaluate((f) => window.__sandbox.setFov(0, f), fov);
+    await readyToFire();
+    await fireStep("long", 3);
+    await step(29);
+    await shot(view);
+    await run();
+    await page.evaluate(() => window.__sandbox.setFov(0, 44));
+  }
+
+  // Polish after L1: the full aim help at the full zoom, its arc passing over the far tower's crew (dots against men),
+  // and laid on the crew itself (where the arc fades out).
+  for (const view of ["arc", "arcend"]) {
+    if (!want(view)) continue;
+    await run();
+    await page.evaluate(() => {
+      const s = document.getElementById("aimhelp");
+      s.value = "full";
+      s.dispatchEvent(new Event("change"));
+    });
+    await page.evaluate((over) => {
+      const S = window.__sandbox, g = S.guns[0];
+      S.look(null);
+      S.select(0);
+      S.setFov(0, 12);
+      // The far chain shot's crew stands on its tower at about (15, 13.8, -15); "arc" aims 60 m past them, a little high.
+      const cx = 15, cz = -15, dx = cx - g.x, dz = cz - g.z, d = Math.hypot(dx, dz);
+      if (over) S.aimAtPoint(0, cx + (dx / d) * 60, 13.6, cz + (dz / d) * 60);
+      else S.aimAtPoint(0, cx, 14.3, cz);
+    }, view === "arc");
+    await frames(45);
+    await shot(view);
+    await page.evaluate(() => {
+      const s = document.getElementById("aimhelp");
+      s.value = "partial";
+      s.dispatchEvent(new Event("change"));
+      window.__sandbox.setFov(0, 44);
+    });
+    await frames(20);
   }
 
   if (want("glass")) {

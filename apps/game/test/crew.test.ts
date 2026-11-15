@@ -272,3 +272,24 @@ test("a man's head near the camera is hidden: the limit is 0.8 m", () => {
   assert.equal(HIDE_NEAR, 0.8);
   void RECOIL_BACK;
 });
+
+test("while the cartridge is fetched, the loader and the helper stand out of the ridden gun's sight at the default zoom (polish after L1)", () => {
+  // The sight's camera sits 3.2 m behind the pivot; at 44 degrees (the default zoom) on a 16:9 screen it sees 35.7 degrees either side.
+  const half = Math.atan(Math.tan((44 / 2) * (Math.PI / 180)) * (16 / 9));
+  for (const kind of ["longGun", "chainShot"] as const) {
+    for (const [man, from, to] of [[LOADER, 0.22, 0.28], [HELPER, 0.3, 0.37]] as const) {
+      for (let s = from; s <= to + 1e-9; s += 0.005) {
+        const f = pose(kind, s, { ridden: true }).f[man];
+        // His near shoulder (0.25 m in from his centre) must be outside the view.
+        const az = Math.atan2(Math.abs(f.px) - 0.25, f.pz + 3.2);
+        assert.ok(az >= half, `${kind} ${s.toFixed(3)}: man ${man} shows at the side of the sight (${((az * 180) / Math.PI).toFixed(1)} degrees)`);
+      }
+    }
+    // And the two never walk through each other on their way to the muzzle (the handover there is the gun's own).
+    for (let s = 0.2; s <= 0.42; s += 0.002) {
+      const f = pose(kind, s, { ridden: true }).f;
+      const d = Math.hypot(f[LOADER].px - f[HELPER].px, f[LOADER].pz - f[HELPER].pz);
+      assert.ok(d > 0.4, `${kind} ${s.toFixed(3)}: the loader and the helper ${d.toFixed(2)} m apart`);
+    }
+  }
+});

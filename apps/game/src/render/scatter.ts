@@ -47,6 +47,7 @@ import { rasterCard } from "./treeRaster";
 import { TREE_KINDS, TREE_FADE, drawsAsCard, drawsAsModel, soupNormals, treeEdgeDistance, type Soup, type TreeKind } from "./treeShapes";
 import type { WindField } from "./windField";
 import { bridgeDistance, castleDistance, inFiringLane, routeEdge, streamEdge } from "./valleyNodes";
+import { sharedCapacity } from "./instancing";
 
 interface Spot {
   x: number;
@@ -512,7 +513,9 @@ export class Scatter {
     for (const near of [true, false]) {
       const list = spots.filter((s) => s.near === near);
       if (!list.length) continue;
-      const mesh = new THREE.InstancedMesh(near ? geo : farGeo, mat, list.length);
+      // Room past one uniform block, so the meshes on one material share its programs (see instancing.ts).
+      const mesh = new THREE.InstancedMesh(near ? geo : farGeo, mat, sharedCapacity(list.length));
+      mesh.count = list.length;
       mesh.name = `${name}-${near ? "near" : "far"}`;
       list.forEach((s, i) => {
         _c.setRGB(1, 1, 1);
