@@ -21,7 +21,10 @@ import {
   plotCentre,
   REGISTER,
   REMOUNT,
+  ORGAN_KINDS,
+  ORGANS,
   REPAIR_KINDS,
+  SPOTTER,
   repairSections,
   ROUTE_NAMES,
   UPGRADE_KINDS,
@@ -33,6 +36,7 @@ import {
   type RouteName,
   type Stone,
 } from "@keepfall/content";
+import { organWatch } from "./organWatch";
 import { Estate } from "./estate-page";
 import { Guide } from "./guide";
 import { Coach } from "./coach";
@@ -125,7 +129,7 @@ const layout = buildLayout(1, GAME_LAYOUT);
 /** 3.4: the keeps and towers of both castles (castle c's keep is c * 5), where they stand and what the owner calls them. */
 const STRUCTS = structureList(layout);
 /** 3.4: the mason's eye on the page: the structures as last reported, what to show, the labels. */
-const eyeHud = new EyeHud(renderer, document.getElementById("eye-labels") as HTMLElement);
+const eyeHud = new EyeHud(renderer, document.getElementById("eye-labels") as HTMLElement, (t, ms) => showNote(t, ms));
 /** The pointer on the page (CSS pixels), for the eye in the overview. */
 let pointerAt: { x: number; y: number } | null = null;
 window.addEventListener("pointermove", (e) => (pointerAt = { x: e.clientX, y: e.clientY }));
@@ -1508,8 +1512,20 @@ function cutPath(path: Float32Array, hit: PathHit): Float32Array {
   return out;
 }
 
+/**
+ * 3.5: does your spotter's tower work (the long gun's aim help, the mortar's wind ring, the mason's eye on their
+ * castle)? The Practice range has no match: it counts as standing there, and so does the guided match, whose coach tells
+ * you to hold C on their keep (the lesson must not send you to a tower you have no way to build yet).
+ */
+function spotterWorks(): boolean {
+  return !isMatch() || mode === "guided" || !matchInfo || matchInfo.spotter?.[ME] !== false;
+}
+
 let predicted: { x: number; y: number; z: number } | null = null;
+/** 3.5: where the mortar's wind ring is drawn now (null: not drawn), for the checks. */
+let windRingAt: { x: number; y: number; z: number } | null = null;
 function updateAimHelp() {
+  windRingAt = null;
   const e = EMP[current], w = weaponOf(e), a = aims[current];
   const showing = view === "sight" && !follow && !ride && !e.empty;
   aimHit = null;
@@ -1539,7 +1555,9 @@ function updateAimHelp() {
       marker = hit ? { x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz } : predicted;
     } else {
       // Ranked style: only the first part of the flight (still stopped by walls).
-      const part = predictPath(m, v, sv, wind.x, wind.z, coef, w.arcSeconds, 2);
+      // 3.5: the long gun's partial arc lasts a full second with your spotter's tower working, half a second without; other guns keep their own.
+      const secs = e.weapon === "longGun" ? (spotterWorks() ? SPOTTER.arcSeconds : SPOTTER.arcSecondsAlone) : w.arcSeconds;
+      const part = predictPath(m, v, sv, wind.x, wind.z, coef, secs, 2);
       const ph = renderer.castPath(part);
       renderer.setAimArc(ph ? cutPath(part, ph) : part);
       predicted = null;
@@ -1590,7 +1608,17 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
   flightSeconds = hit ? pathTime(path, hit) : burstAt < 12 ? burstAt : 0;
   predicted = p;
   if (easy) aimHit = hit;
-  renderer.setMortarAim(bearing, live ? p : null, easy && w.burst ? w.burst.radius : RING_SOFT, !easy);
+  // 3.5: with your spotter's tower working, a second, fainter ring shows where the shell would come down in the wind now.
+  let windAt: { x: number; y: number; z: number } | null = null;
+  if (live && !easy && spotterWorks()) {
+    let wp = toGround(predictPath(muzzle(e, a.yaw, lay.pitch), [d[0] * speed, d[1] * speed, d[2] * speed], null, wind.x, wind.z, coef, Math.min(12, burstAt), 2), coef.gravity);
+    const wh = renderer.castPath(wp);
+    if (wh) wp = cutPath(wp, wh);
+    const wn = wp.length;
+    windAt = wh ? { x: wh.x, y: wh.y, z: wh.z } : { x: wp[wn - 3], y: wp[wn - 2], z: wp[wn - 1] };
+  }
+  windRingAt = windAt;
+  renderer.setMortarAim(bearing, live ? p : null, easy && w.burst ? w.burst.radius : RING_SOFT, !easy, windAt);
   renderer.setAimArc(live && easy ? path : null);
 }
 
@@ -1654,7 +1682,9 @@ function describeHit(h: PathHit | null): string {
     what = `the ${ownSide(bridge.site.name)} bridge`;
   } else if (h.stone >= 0) {
     const s = layout.stones[h.stone];
-    const part = s && s.part === "storey" && s.course === KEEP_TOP_COURSE ? "keep roof" : s ? PART_NAMES[s.part] : "";
+    // 3.5: a hit on an organ names it ("bell", "crane", "signal mast"), not "works".
+    const organ = s && s.part === "organ" && s.organ !== undefined ? ORGAN_KINDS[s.organ] : undefined;
+    const part = organ ? ORGANS[organ].name.replace(/^the /, "") : s && s.part === "storey" && s.course === KEEP_TOP_COURSE ? "keep roof" : s ? PART_NAMES[s.part] : "";
     what = s ? `${s.castle === FOE ? "the target" : "your own"} ${part}` : "rubble";
   }
   return `${what}, ${Math.round(dist)} m`;
@@ -2182,7 +2212,9 @@ function startMode(m: Mode, net?: OnlineStart, replay?: ReplayFile) {
   prevGate = null;
   matchLog = [];
   malletAct.clear();
-  lastEnemyMasonNote = lastGoldNote = -1e9;
+  lastEnemyMasonNote = lastGoldNote = lastOrganNote = -1e9;
+  organWaitSaid = [0, 0, 0];
+  organWatch.reset();
   $("storm").hidden = true;
   $("sudden").hidden = true;
   $("clock").classList.remove("sudden");
@@ -2503,7 +2535,7 @@ repairChips.forEach((b) =>
   }),
 );
 
-/** Switch your masons on or off for one kind of section (Alt+1 to 4). */
+/** Switch your masons on or off for one kind of section (Alt+1 to 5). */
 function toggleRepair(kind: RepairKind, on?: boolean) {
   if (!playing() || !matchInfo || matchInfo.result) return;
   const now = on ?? !matchInfo.repairs[kind];
@@ -2609,6 +2641,17 @@ function updateRepairs() {
   });
   const el = $("masons");
   const t = masonText(info.masons[ME]);
+  // 3.5: idle masons say why an organ of yours that is down is not being put back.
+  if (info.masons[ME].up && !info.masons[ME].job && info.organs) {
+    for (let k = 0; k < info.organs[ME].length; k++) {
+      const w = info.organs[ME][k].up ? null : organWaitText(k, info.organs[ME][k].wait);
+      if (w) {
+        t.short = w.short;
+        t.long = w.long;
+        break;
+      }
+    }
+  }
   if (el.textContent !== t.short) el.textContent = t.short;
   el.title = t.long;
   el.classList.toggle("wait", info.masons[ME].hold === 1 || info.masons[ME].hold === 3);
@@ -2677,7 +2720,10 @@ function onMatch(info: MatchInfo) {
       }
     }
     prevGate = { hits: [info.gateHits[0], info.gateHits[1]], open: [info.gateOpen[0], info.gateOpen[1]] };
-    if (prev) momentsOf(prev, info);
+    if (prev) {
+      momentsOf(prev, info);
+      organNotes(prev, info);
+    }
     advise(info);
   }
   nudgeBuild(info);
@@ -2765,6 +2811,48 @@ function momentsOf(prev: MatchInfo, info: MatchInfo) {
     const t = at * 3600;
     if (prev.tick < t && info.tick >= t) showNote(text, 5000);
   }
+}
+/** 3.5: notes for the organs (the bell, the crane, the signal mast): yours down or back, theirs down as a toast, why one of yours waits. */
+const ORGAN_DOWN = ["Your bell is down: your guns fire late", "Your crane is down: masons build only the lowest 4 m", "Your signal mast is down: orders reach only new waves"];
+const ORGAN_UP = ["Your bell rings again", "Your crane is back", "Your signal mast is back up"];
+const ORGAN_THEIRS = ["Their bell is down", "Their crane is down", "Their signal mast is down"];
+/** Why one of yours waits (sim OrganWait 1 to 3): said once as it starts, and on the masons' line while it lasts. */
+function organWaitText(organ: number, wait: number): { short: string; long: string } | null {
+  if (wait === 1) return organ === 0 ? { short: "bell waits", long: "The bell waits for its tower" } : { short: "mast waits", long: "The signal mast waits for the keep's roof" };
+  if (wait === 2) return { short: "crane down", long: "The crane is down: high work waits" };
+  if (wait === 3) return { short: "works off", long: "Works repairs are off (Alt+5)" };
+  return null;
+}
+let organWaitSaid = [0, 0, 0];
+let lastOrganNote = -1e9;
+function organNotes(prev: MatchInfo, info: MatchInfo) {
+  if (!info.organs || !prev.organs) return;
+  info.organs[ME].forEach((o, k) => {
+    const was = prev.organs[ME][k];
+    if (was.up && !o.up) {
+      showNote(ORGAN_DOWN[k], 4500);
+      logMoment(ORGAN_DOWN[k], true);
+      lastOrganNote = info.tick;
+      organWaitSaid[k] = 0;
+    } else if (!was.up && o.up) {
+      showNote(ORGAN_UP[k], 3500);
+      logMoment(ORGAN_UP[k]);
+      lastOrganNote = info.tick;
+    }
+    const w = !o.up ? organWaitText(k, o.wait) : null;
+    if (!w) organWaitSaid[k] = 0;
+    else if (organWaitSaid[k] !== o.wait && info.tick - lastOrganNote >= 180) {
+      organWaitSaid[k] = o.wait;
+      lastOrganNote = info.tick;
+      showNote(w.long, 3500);
+    }
+  });
+  info.organs[FOE].forEach((o, k) => {
+    if (prev.organs[FOE][k].up && !o.up) {
+      showMachineToast(ORGAN_THEIRS[k]);
+      logMoment(ORGAN_THEIRS[k]);
+    }
+  });
 }
 let lastEnemyMasonNote = -1e9;
 let lastGoldNote = -1e9;
@@ -3042,6 +3130,7 @@ let featTimer: ReturnType<typeof setTimeout> | undefined;
 let featToastMs = 5200;
 function showFeatToast(list: Array<{ def: FeatDef; value: number }>) {
   const el = $("feat-toast");
+  $("feat-toast-tag").textContent = "Feat";
   const { def, value } = list[0];
   const size = def.unit && value > 1 ? ` (${value} ${def.unit})` : "";
   $("feat-toast-name").textContent = def.name + size;
@@ -3049,6 +3138,20 @@ function showFeatToast(list: Array<{ def: FeatDef; value: number }>) {
   el.hidden = false;
   el.classList.remove("show");
   void el.offsetWidth; // restart the slide
+  el.classList.add("show");
+  clearTimeout(featTimer);
+  featTimer = setTimeout(() => (el.hidden = true), featToastMs);
+}
+
+/** 3.5: one short line in the feat toast's place for something you did to their castle ("Their bell is down"). */
+function showMachineToast(text: string) {
+  const el = $("feat-toast");
+  $("feat-toast-tag").textContent = "Machines";
+  $("feat-toast-name").textContent = text;
+  $("feat-toast-hint").textContent = "";
+  el.hidden = false;
+  el.classList.remove("show");
+  void el.offsetWidth;
   el.classList.add("show");
   clearTimeout(featTimer);
   featTimer = setTimeout(() => (el.hidden = true), featToastMs);
@@ -4006,7 +4109,7 @@ function frame(wall: number) {
     const cam = renderer.listener();
     groupMarks.place(mode !== null && view === "overview", (x, y, z) => renderer.project(x, y, z), cam, innerWidth, innerHeight, dt);
   }
-  eyeHud.update(now, { held: mode !== null && !blocked && !estate.wheelOpen && !film.active && !player.playing && input.down(EYE_KEY), overview: view === "overview", me: ME, mouse: pointerAt, centre: { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 } });
+  eyeHud.update(now, { held: mode !== null && !blocked && !estate.wheelOpen && !film.active && !player.playing && input.down(EYE_KEY), overview: view === "overview", me: ME, mouse: pointerAt, centre: { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 }, spotter: spotterWorks() });
   if (!paused) renderer.render(dt);
   estate.update(now);
   if (estate.wheelOpen !== wheelShown) {
@@ -4142,6 +4245,14 @@ else {
   },
   get mapBig() {
     return mapBig;
+  },
+  /** 3.5 test hook: where the mortar's wind ring is drawn (null: not drawn, as without a spotter's tower), and the still-air landing it is drawn beside. */
+  get windRing() {
+    return windRingAt ? { ring: windRingAt, still: predicted } : null;
+  },
+  /** 3.5 test hook: how many times each castle's bell has begun to ring, and since when it rings now (-1: not). */
+  bells() {
+    return { rings: [...organWatch.rings], since: [organWatch.bellRinging(0), organWatch.bellRinging(1)] };
   },
   /** M6 test hook: lay fields over every match report the page gets (null: none). */
   patchMatch(p: Partial<MatchInfo> | null) {

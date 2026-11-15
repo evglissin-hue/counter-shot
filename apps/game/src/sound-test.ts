@@ -193,6 +193,29 @@ const CASES: Case[] = [
   { name: "saw at a rising building", seconds: 2, run: (s) => s.saw(-7, 2, -20) },
   { name: "building wrecked", seconds: 3, run: (s) => s.crash(-7, 2, -25) },
   { name: "rope and pulley lift", seconds: 2, run: (s) => s.creak(2, 9, -25, 1.15) },
+  { name: "machines: the bell rings four strokes", seconds: 8, run: (s) => s.bellRing(1, 15, 14, -135) },
+  {
+    name: "machines: the bell is cut short and clangs",
+    seconds: 3,
+    run: (s) => {
+      s.bellRing(1, 15, 14, -135);
+      let n = 0;
+      return () => {
+        if (n++ === 10) s.bellFall(1, 15, 14, -135);
+        return true;
+      };
+    },
+  },
+  {
+    name: "machines: the crane's wheel creaks",
+    seconds: 4,
+    run: (s) => {
+      return (t: number) => {
+        s.craneCreak(1, 10.6, 3, -140, t < 3);
+        return true;
+      };
+    },
+  },
   { name: "dry click (no powder)", seconds: 1, run: (s) => s.dryClick() },
   { name: "powder: a keg hoisted", seconds: 2.5, run: (s) => s.hoist(2, 9, -25) },
   { name: "powder: a keg set down", seconds: 1.5, run: (s) => s.kegSet(2, 9, -25) },

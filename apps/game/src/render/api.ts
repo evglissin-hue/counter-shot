@@ -137,7 +137,7 @@ export interface GameRendererApi {
    * ring where the shell would come down (soft, or sharp with a burst's reach
    * as its radius). Nulls hide them.
    */
-  setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean): void;
+  setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean, wind?: { x: number; y: number; z: number } | null): void;
   /** The ground's height under a point as drawn (craters included). */
   groundAt(x: number, z: number): number;
   /** After M5: a gun knocked out (it tips over, or with `fell` falls with its masonry) or back on its mount. */

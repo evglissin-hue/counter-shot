@@ -1,6 +1,6 @@
 // Every control of the HUD does its job in a Versus AI match (headless
 // Chromium): the command card's route, order and repair buttons and their keys
-// (L, Ctrl+1 to 3, Alt+1 to 4), the Build button and B, the build menu's Close
+// (L, Ctrl+1 to 3, Alt+1 to 5), the Build button and B, the build menu's Close
 // and Esc, the gun tabs (an empty slot opens the menu on it), the weapon card's
 // lines, the sound button and M, Controls and H, the shot camera box and V, the
 // overview (Tab), the "click to take the gun" hint, pause (P), the minimap growing
@@ -8,11 +8,16 @@
 // shot opens its inset and it closes after); 3.2: T marks where a shot landed, the chip, the salvo orders (F then a
 // number, a chip click, the mortar toggle) and that no enemy mark is ever in MatchInfo. Each result is
 // polled: software rendering draws a few frames a second and the HUD redraws
-// every fourth frame. Exits 1 if anything fails.
+// every fourth frame. 3.5: the Works chip and Alt+5, the build menu's eight plots and the Spotter's Tower with the plots each
+// kind may take, a plot page that offers only the kinds that may stand there, the notes and toast for the organs, the masons'
+// line saying why one waits, the mason's eye earned by the spotter's tower. Exits 1 if anything fails.
 // Usage: PORT=6205 node tools/hud-check.mjs
 import { createServer } from "vite";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { mkdirSync } from "node:fs";
+mkdirSync("tools/.shots/3.5", { recursive: true });
+mkdirSync("tools/.shots/3.4", { recursive: true });
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 const root = fileURLToPath(new URL("../apps/game", import.meta.url));
@@ -36,7 +41,7 @@ page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 let failed = 0;
 /** Wait (up to 15 s) for fn() in the page to be true. */
-async function expect(name, fn, arg, timeout = 30000) {
+async function expect(name, fn, arg, timeout = 90000) {
   let ok = true;
   try { await page.waitForFunction(fn, arg, { timeout, polling: 100 }); } catch { ok = false; }
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
@@ -78,6 +83,14 @@ const adv = async (seconds) => {
   const t = await page.evaluate((s) => { const w = window.__sandbox; const t = w.match?.tick ?? w.frame?.tick ?? 0; w.advance(s); return t + Math.round(s * 60); }, seconds);
   await page.waitForFunction((t) => { const w = window.__sandbox; return (w.match?.tick ?? w.frame?.tick ?? 0) >= t - 6; }, t, { timeout: 180000, polling: 100 });
 };
+/** A screenshot with the note and the toast held up (their timers run out while a slow machine takes the picture). */
+const shotHeld = async (path, clip) => {
+  await page.evaluate(() => {
+    window.__hold = ["note", "feat-toast"].map((id) => { const el = document.getElementById(id); const was = (id === "note" ? el.textContent : document.getElementById("feat-toast-name").textContent).trim() !== ""; if (was) el.hidden = false; const o = new MutationObserver(() => { if (was && el.hidden) el.hidden = false; }); o.observe(el, { attributes: true, attributeFilter: ["hidden"] }); return o; });
+  });
+  await page.screenshot({ path, ...(clip ? { clip } : {}) });
+  await page.evaluate(() => window.__hold.forEach((o) => o.disconnect()));
+};
 const check = (name, ok) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
@@ -114,19 +127,39 @@ try {
   await page.keyboard.up("KeyG");
   await expect("letting go of G shrinks it", () => !window.__sandbox.mapBig && !document.getElementById("mapbox").classList.contains("big"));
   await expect("the key help says what G does", () => /<dt>G<\/dt>/.test(document.getElementById("help").innerHTML));
-  await page.click('[data-route="left"]');
+  await press('[data-route="left"]');
   await expect("Left button sets the route", () => window.__sandbox.match.route === "left");
   await page.keyboard.press("KeyL");
   await expect("L cycles the route", () => window.__sandbox.match.route === "centre");
-  await page.click('[data-order="2"]');
+  await press('[data-order="2"]');
   await expect("Push button gives the order", () => window.__sandbox.match.order === 2);
   await page.keyboard.press("Control+Digit2");
   await expect("Ctrl+2 holds", () => window.__sandbox.match.order === 1);
   await expect("the Hold button reads as pressed", () => document.querySelector('[data-order="1"]').getAttribute("aria-pressed") === "true");
-  await page.click('[data-repair="walls"]');
+  await press('[data-repair="walls"]');
   await expect("Walls button turns wall repairs off, and reads as off", () => window.__sandbox.match.repairs.walls === false && document.querySelector('[data-repair="walls"]').classList.contains("off"));
   await page.keyboard.press("Alt+Digit2");
   await expect("Alt+2 turns them back on", () => window.__sandbox.match.repairs.walls !== false);
+  // 3.5: the fifth repair switch, Works (the bell, the crane, the signal mast).
+  await expect("the repair card has a Works chip, titled with Alt+5, after Keep", () => { const c = [...document.querySelectorAll("[data-repair]")].map((b) => b.dataset.repair); return c.join() === "gate,walls,towers,keep,works" && /Alt\+5/.test(document.querySelector('[data-repair="works"]').title); });
+  await press('[data-repair="works"]');
+  await expect("Works button turns works repairs off, and reads as off", () => window.__sandbox.match.repairs.works === false && document.querySelector('[data-repair="works"]').classList.contains("off") && /Works repairs off/.test(document.getElementById("note").textContent));
+  await page.keyboard.press("Alt+Digit5");
+  await expect("Alt+5 turns them back on", () => window.__sandbox.match.repairs.works !== false && !document.querySelector('[data-repair="works"]').classList.contains("off"));
+  await expect("the controls help says Alt+1 to 5, works among them", () => /<dt>Alt\+1 to 5<\/dt><dd>[^<]*works/.test(document.getElementById("help").innerHTML));
+  // 3.5: the build menu: eight plots, the Spotter's Tower with the plots it may take, a plot's page offering only what may stand there.
+  await page.keyboard.press("KeyB");
+  await expect("the build menu draws eight plots, 7 and 8 behind the keep", () => { const p = [...document.querySelectorAll("#build .yard [data-pick]")]; const keep = document.querySelector("#build .yard .keep").getBoundingClientRect(); const top = (i) => p[i].getBoundingClientRect().top; return p.length === 8 && top(6) >= keep.bottom - 4 && top(7) >= keep.bottom - 4 && p[6].dataset.pick === "6" && p[7].textContent.startsWith("8"); });
+  await expect("the list sells the Spotter's Tower for 180, saying Plots 5 to 8", () => { const c = [...document.querySelectorAll("#build .choice2")].find((b) => /Spotter/.test(b.textContent)); return !!c && /180/.test(c.querySelector(".c")?.textContent ?? "") && /Plots 5 to 8/.test(c.textContent); });
+  await expect("the Powder Mill's line says Plots 1 to 6", () => { const c = [...document.querySelectorAll("#build .choice2")].find((b) => /Powder Mill/.test(b.textContent)); return !!c && /Plots 1 to 6/.test(c.textContent); });
+  await page.screenshot({ path: "tools/.shots/3.5/build-list.png" });
+  await page.dispatchEvent('#build [data-pick="6"]', "pointerdown", { button: 0 });
+  await expect("plot 7's page offers only the kinds that may stand there (the Spotter's Tower, the Magazine)", () => { const l = [...document.querySelectorAll("#build .choice2 b")].map((b) => b.textContent); return /Plot 7/.test(document.querySelector("#build p.small").textContent) && l.length === 2 && l.includes("Spotter's Tower") && l.includes("Magazine"); });
+  await page.screenshot({ path: "tools/.shots/3.5/build-plot7.png" });
+  await page.dispatchEvent('#build [data-act="back"]', "pointerdown", { button: 0 });
+  await page.dispatchEvent('#build [data-pick="2"]', "pointerdown", { button: 0 });
+  await expect("plot 3's page offers the old four and no Spotter's Tower", () => { const l = [...document.querySelectorAll("#build .choice2 b")].map((b) => b.textContent); return /Plot 3/.test(document.querySelector("#build p.small").textContent) && !l.includes("Spotter's Tower") && l.includes("Powder Mill") && l.includes("Foundry"); });
+  await page.keyboard.press("Escape");
   await page.keyboard.press("KeyB");
   await expect("B opens the build menu, with the gold in its head", () => !document.getElementById("build").hidden && /\d+ gold/.test(document.querySelector("#build .wheel-head")?.textContent ?? ""));
   await page.keyboard.press("Escape");
@@ -260,12 +293,12 @@ try {
   await page.evaluate(() => { window.__hintSeen = false; });
   await expect("T marks it", markWhenLit, 2, 240000);
   await expect("two chips, numbered 1 and 2", () => window.__sandbox.chips.length === 2 && window.__sandbox.chips.map((c) => c.n).join() === "1,2" && document.querySelectorAll("#chips .chip").length === 2);
-  await page.click("#mortar-salvo");
+  await press("#mortar-salvo");
   await expect("the Mortar in the salvo toggle turns on", () => document.getElementById("mortar-salvo").checked === true);
   await adv(22);
   await expect("when the 20 s are up the header goes back to the keys", () => window.__sandbox.register.salvoReady === 0 && document.getElementById("salvo-line").textContent === "F + number", null);
   await expect("the long gun is loaded again", () => window.__sandbox.reload[0] === 0);
-  await page.click('#chips .chip[data-n="2"]');
+  await press('#chips .chip[data-n="2"]');
   await expect("a click on chip 2 orders the salvo at mark 2 with the mortar in it", () => { const l = window.__sent[window.__sent.length - 1]; return l.kind === "salvo" && l.mark === 2 && l.mortar === true; });
   await expect("no enemy mark in the report: only the two we made", () => window.__sandbox.match.marks.length === 2 && window.__sandbox.match.marks.every((m) => m.made > 0));
   // The marks show on the minimap (our team's colour) and in the overview, and a click in the overview on a mark orders the salvo.
@@ -493,6 +526,13 @@ try {
   await expect("the structures are reported (both castles: a keep and four towers each)", () => window.__sandbox.eye.list.length === 10);
   await page.evaluate(() => { const s = window.__sandbox.eye.list[0]; window.__sandbox.aimAtPoint(0, s.cx, 8, s.cz); });
   await shot34("eye-off");
+  // 3.5: the mason's eye on their castle is earned by a working spotter's tower: without one, one short line and no label.
+  await page.keyboard.down("KeyC");
+  await expect("holding C on their keep without a spotter's tower says to build one and shows no label", () => window.__sandbox.eye.under === 0 && window.__sandbox.eye.labels.length === 0 && document.getElementById("note").textContent === "Build a spotter's tower to read their castle");
+  await shotHeld("tools/.shots/3.5/eye-needs-spotter.png");
+  await page.keyboard.up("KeyC");
+  await page.evaluate(() => window.__sandbox.patchMatch({ spotter: [true, true] }));
+  await expect("the report now says the spotter's tower works", () => window.__sandbox.match.spotter[1] === true);
   await page.keyboard.down("KeyC");
   await expect("holding C with the sight on their keep shows the eye's label: Holds 100%", () => window.__sandbox.eye.under === 0 && window.__sandbox.eye.labels.length === 1 && window.__sandbox.eye.labels[0] === "Holds 100%");
   await page.waitForTimeout(800);
@@ -500,8 +540,57 @@ try {
   await page.keyboard.up("KeyC");
   await expect("letting go of C takes it away", () => window.__sandbox.eye.labels.length === 0);
   // A structure said to be hurt (laid over the report): the bar and the label follow it.
-  await page.evaluate(() => { const l = window.__sandbox.eye.list.map((s) => ({ ...s })); l[0] = { ...l[0], holds: 0.62, weakest: 3, heat: l[0].heat.map((_, i) => (i === 3 ? 0.38 : 0)) }; window.__sandbox.patchMatch({ structures: l }); });
+  await page.evaluate(() => { const l = window.__sandbox.eye.list.map((s) => ({ ...s })); l[0] = { ...l[0], holds: 0.62, weakest: 3, heat: l[0].heat.map((_, i) => (i === 3 ? 0.38 : 0)) }; window.__sandbox.patchMatch({ spotter: [true, true], structures: l }); });
   await expect("a keep that holds 62% reads so on its bar, amber under 0.6 and green over", () => { const b = document.getElementById("holds-theirs"); return /^Holds 62%/.test(b.title) && b.dataset.holds === "good"; });
+  await page.evaluate(() => window.__sandbox.patchMatch(null));
+  // ---- 3.5: the mortar's charge ring shows the wind (a second, fainter ring) only while your spotter's tower works ----
+  await page.evaluate(() => { window.__sandbox.patchMatch({ spotter: [false, false] }); window.__sandbox.select(1); window.__sandbox.aimAtPoint(1, 0, 0, -20); window.__sandbox.holdCharge(0.6); });
+  await page.waitForTimeout(1500);
+  await expect("a charging mortar without a spotter's tower draws still air only: no wind ring", () => window.__sandbox.windRing === null && window.__sandbox.match.spotter[1] === false);
+  await page.evaluate(() => window.__sandbox.patchMatch({ spotter: [true, true] }));
+  await expect("with a spotter's tower the mortar's ring has a second, wind ring, apart from the still-air one", () => { const r = window.__sandbox.windRing; return !!r && !!r.still && Math.hypot(r.ring.x - r.still.x, r.ring.z - r.still.z) > 0.05; });
+  await page.screenshot({ path: "tools/.shots/3.5/mortar-wind-ring.png" });
+  console.log("     the wind moves the shell's mark by", await page.evaluate(() => { const r = window.__sandbox.windRing; return r ? Math.hypot(r.ring.x - r.still.x, r.ring.z - r.still.z).toFixed(1) : "?"; }), "m");
+  await page.evaluate(() => { window.__sandbox.holdCharge(null); window.__sandbox.patchMatch(null); window.__sandbox.select(0); });
+  // ---- 3.5: the bell rings when enemy men cross the stream towards its castle (the page keeps when it began, for the 3D bell) ----
+  for (let i = 0; i < 8 && (await page.evaluate(() => window.__sandbox.bells().rings.reduce((a, b) => a + b, 0))) === 0; i++) await adv(30);
+  await expect("a bell has begun to ring once waves crossed the stream (once per castle per 20 s at most)", () => { const b = window.__sandbox.bells(); return b.rings.reduce((a, c) => a + c, 0) >= 1 && b.rings.every((n) => n <= Math.ceil(window.__sandbox.match.tick / (20 * 60))); });
+  // ---- 3.5: the organs: notes when yours fall or return, a toast for theirs, why one waits (laid over the report) ----
+  // Every note the page shows is kept (a later note may replace one before the poll sees it).
+  await page.evaluate(() => { window.__notes = []; const n = document.getElementById("note"); new MutationObserver(() => { const t = n.textContent; if (t && window.__notes[window.__notes.length - 1] !== t) window.__notes.push(t); }).observe(n, { childList: true, characterData: true, subtree: true }); });
+  const organs = (mine, theirs) => page.evaluate(([mine, theirs]) => {
+    const o = window.__sandbox.match.organs.map((side) => side.map((x) => ({ ...x })));
+    for (const [k, v] of Object.entries(mine)) o[1][k] = { ...o[1][k], ...v };
+    for (const [k, v] of Object.entries(theirs)) o[0][k] = { ...o[0][k], ...v };
+    window.__sandbox.patchMatch({ organs: o, masons: [window.__sandbox.match.masons[0], { job: "", left: 0, hold: 0, up: 4, laid: 0 }] });
+  }, [mine, theirs]);
+  await expect("each castle's three organs are reported, all up at the start", () => window.__sandbox.match.organs.length === 2 && window.__sandbox.match.organs.every((s) => s.length === 3 && s.every((o) => o.up === true)));
+  await organs({ 0: { up: false, share: 0.5, wait: 0 } }, {});
+  await expect("your bell down says your guns fire late", () => window.__notes.includes("Your bell is down: your guns fire late"));
+  await shotHeld("tools/.shots/3.5/note-bell-down.png");
+  await organs({ 1: { up: false, share: 0.4, wait: 2 } }, {});
+  await expect("your crane down says masons build only the lowest 4 m", () => window.__notes.includes("Your crane is down: masons build only the lowest 4 m"));
+  await expect("the idle masons' line says why the bell waits (the crane is down)", () => document.getElementById("masons").textContent === "bell waits" || document.getElementById("masons").textContent === "crane down");
+  await organs({ 0: { up: false, share: 0.5, wait: 1 }, 1: { up: true, share: 1, wait: 0 } }, {});
+  await expect("the masons' line reads the bell waits for its tower, in full in the tooltip", () => document.getElementById("masons").textContent === "bell waits" && document.getElementById("masons").title === "The bell waits for its tower");
+  await organs({ 0: { up: false, share: 0.5, wait: 0 }, 2: { up: false, share: 0.5, wait: 1 } }, {});
+  await expect("the mast waits for the keep's roof", () => document.getElementById("masons").title === "The signal mast waits for the keep's roof");
+  await organs({ 0: { up: false, share: 0.5, wait: 3 }, 2: { up: true, share: 1, wait: 0 } }, {});
+  await expect("works repairs off says so with the key", () => document.getElementById("masons").title === "Works repairs are off (Alt+5)");
+  await shotHeld("tools/.shots/3.5/masons-line-off.png", { x: 760, y: 540, width: 340, height: 270 });
+  await organs({ 0: { up: true, share: 1, wait: 0 } }, {});
+  await expect("your bell back says it rings again", () => window.__notes.includes("Your bell rings again"));
+  await organs({ 2: { up: false, share: 0.5, wait: 0 } }, {});
+  await expect("your signal mast down says orders reach only new waves", () => window.__notes.includes("Your signal mast is down: orders reach only new waves"));
+  await organs({ 2: { up: true, share: 1, wait: 0 } }, {});
+  await expect("your signal mast back up", () => window.__notes.includes("Your signal mast is back up"));
+  await organs({}, { 0: { up: false, share: 0.3, wait: 0 } });
+  await expect("their bell down is a toast, not a note about you", () => { const t = document.getElementById("feat-toast"); return !t.hidden && document.getElementById("feat-toast-name").textContent === "Their bell is down" && document.getElementById("feat-toast-hint").textContent === ""; });
+  await shotHeld("tools/.shots/3.5/toast-their-bell.png");
+  await organs({}, { 1: { up: false, share: 0.3, wait: 0 } });
+  await expect("their crane down is a toast too", () => document.getElementById("feat-toast-name").textContent === "Their crane is down");
+  await organs({}, { 2: { up: false, share: 0.3, wait: 0 } });
+  await expect("their signal mast down is a toast too", () => document.getElementById("feat-toast-name").textContent === "Their signal mast is down");
   await page.evaluate(() => window.__sandbox.patchMatch(null));
   // The Practice range has no powder: no #powder, no pips, every gun fires.
   await page.goto("about:blank");

@@ -78,6 +78,8 @@ export const BUILDING_WORDS: Array<{ kind: BuildingKind; phrases: string[] }> = 
   { kind: "barracks", phrases: ["barracks"] },
   { kind: "foundry", phrases: ["foundry"] },
   { kind: "magazine", phrases: ["magazine"] },
+  // 3.5: the spotter's tower (the apostrophe is dropped before words are read).
+  { kind: "spotter", phrases: ["spotters tower", "spotter tower", "spotter", "watch tower", "watchtower", "lookout"] },
 ];
 /** 3.4 buttresses: "buttress the front", "build a buttress on the left", "buttress the keep" (its front). Faces are the owner's words already. */
 export const BUTTRESS_FACE_WORDS = new Set(["front", "back", "left", "right"]);
@@ -85,7 +87,7 @@ export const BUTTRESS_FACE_WORDS = new Set(["front", "back", "left", "right"]);
 export const BUTTRESS_FILLER = new Set([...BUILD_VERBS, ...BUY_VERBS, "buttress", "keep", "face", "side", "wall"]);
 
 /** Plot place words. A plot is also named by "plot N" (1-based). */
-export const PLOT_WORDS = new Set(["front", "back", "left", "right", "keep", "by"]);
+export const PLOT_WORDS = new Set(["front", "back", "left", "right", "keep", "by", "behind"]);
 export const REBUILD_WORDS = new Set(["rebuild", "rebuilt", "restore"]);
 
 /** Weapon phrases, longest first. "gun" alone is a gun of no named kind. */
@@ -134,10 +136,11 @@ export const ALL_WORDS = new Set(["all", "every", "each", "both"]);
 export const BARRACKS_FILLER = new Set(["barracks", "flank", "road", "route", "send", "sends", "set", "waves", "wave", "plot", "side", "go"]);
 
 /** Masons. "first" (token "o1") with a kind: that kind on, every other off. */
-export const REPAIR_KIND_WORDS: Record<string, RepairKind> = { gate: "gate", wall: "walls", tower: "towers", keep: "keep" };
+// 3.5: "works" (and the organs by name: bell, crane, mast; "machines") is the fifth kind.
+export const REPAIR_KIND_WORDS: Record<string, RepairKind> = { gate: "gate", wall: "walls", tower: "towers", keep: "keep", works: "works", work: "works", bell: "works", crane: "works", mast: "works", organs: "works", organ: "works", machines: "works", machine: "works" };
 export const REPAIR_CUES = new Set(["mason", "repair", "mend"]);
 export const OFF_WORDS = new Set(["off", "stop", "no", "without", "never"]);
-export const REPAIR_FILLER = new Set(["all", "every", "everything", "mason", "repair", "mend", "work", "off", "stop", "no", "without", "never", "o1", "plot"]);
+export const REPAIR_FILLER = new Set(["signal", "all", "every", "everything", "mason", "repair", "mend", "work", "off", "stop", "no", "without", "never", "o1", "plot"]);
 
 /**
  * Standing orders (V3). A part is a standing order when it holds one of the

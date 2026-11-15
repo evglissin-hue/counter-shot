@@ -2,7 +2,7 @@
 // structure under the sight, your own castle in the overview, the one the guided match points at), and the one label
 // above each ("Holds 62%"). The drawing is render/masonEye.ts; the choosing is eye.ts.
 
-import { eyeTargets, holdsClass, holdsLabel, structureUnder } from "./eye";
+import { EYE_NEEDS_SPOTTER, eyeTargets, holdsClass, holdsLabel, structureUnder } from "./eye";
 import type { StructureInfo } from "./protocol";
 
 export interface EyeHost {
@@ -22,6 +22,8 @@ export interface EyeAskNow {
   /** The pointer, for the overview (CSS pixels), and the middle of the screen, for the sight. */
   mouse: { x: number; y: number } | null;
   centre: { x: number; y: number };
+  /** 3.5: does your spotter's tower work (or is this the Practice range)? */
+  spotter: boolean;
 }
 
 export class EyeHud {
@@ -33,7 +35,14 @@ export class EyeHud {
   /** The structure under the sight or the pointer at the last update (-1: none). */
   under = -1;
 
-  constructor(private r: EyeHost, private host: HTMLElement) {}
+  private saidAt = -1e9;
+
+  constructor(
+    private r: EyeHost,
+    private host: HTMLElement,
+    /** One short line to the player (the page's note). */
+    private say: (text: string, ms: number) => void = () => {},
+  ) {}
 
   /** A new world: forget the structures and hide everything. */
   reset() {
@@ -72,7 +81,12 @@ export class EyeHud {
       if (ray) under = structureUnder(this.list, ray.ox, ray.oy, ray.oz, ray.dx, ray.dy, ray.dz);
     }
     this.under = under;
-    const targets = eyeTargets(this.list, { held: ask.held, overview: ask.overview, me: ask.me, under, forced: this.forced });
+    // 3.5: the enemy's castle without a working spotter's tower: one short line, not again for a few seconds.
+    if (ask.held && under >= 0 && !ask.spotter && this.list[under].castle !== ask.me && nowMs - this.saidAt > 4000) {
+      this.saidAt = nowMs;
+      this.say(EYE_NEEDS_SPOTTER, 2600);
+    }
+    const targets = eyeTargets(this.list, { held: ask.held, overview: ask.overview, me: ask.me, under, forced: this.forced, spotter: ask.spotter });
     this.r.setEye(targets);
     this.shown = targets.join(",");
     this.labels.forEach((l, k) => (l.hidden = k >= targets.length));
