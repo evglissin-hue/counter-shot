@@ -117,3 +117,20 @@ test("the bell waits for its tower: Footing while the tower top under it is down
   assert.ok(sim.organs!.working(0, BELL_I), "once the tower top was rebuilt the bell went back up and works");
   sim.free();
 });
+
+test("the crane comes first even with a tower near falling (rule 12): without it nothing above 4 m is mended", () => {
+  const sim = world();
+  sim.works!.policy = purse(() => true);
+  sim.works!.spawnCrew(0);
+  // Every keep and tower of castle 0 holds 0.1: all are near falling and rule 12 would send the masons to one of them.
+  const towers = new Set(repairSections(layout).filter((s) => s.castle === 0 && s.kind === "towers").flatMap((s) => s.stones));
+  sim.works!.statics = { ratio: () => 1, structureOf: (id) => (towers.has(id) ? 0 : -1), status: () => ({ holds: 0.1 }) };
+  const tower = repairSections(layout).find((s) => s.castle === 0 && s.kind === "towers")!;
+  const low = tower.stones.find((id) => foot(id) < 2 && layout.stones[id].part === "tower")!;
+  dust(sim, [craneKey, low]);
+  const laid = run(sim, 60 * 60);
+  assert.ok(laid.includes(craneKey), `the crane went back (laid ${laid.join(",")})`);
+  assert.ok(!laid.includes(low) || laid.indexOf(craneKey) < laid.indexOf(low), "before the tower near falling");
+  assert.ok(sim.organs!.working(0, CRANE_I), "the crane works again");
+  sim.free();
+});

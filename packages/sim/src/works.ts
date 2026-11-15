@@ -260,18 +260,23 @@ export class Works {
     this.setWaits(crew);
   }
 
-  /** Choose the crew's section (keep it while it has work) and the stone that goes back next. */
-  private planJob(crew: Crew) {
+  /**
+   * Choose the crew's section (keep it while it has work) and the stone that goes back next. `avoid`: a section given up
+   * on this plan (the crane, when every piece of it that could go back is blocked where it goes).
+   */
+  private planJob(crew: Crew, avoid = -1) {
     const team = crew.castle;
     if (crew.job >= 0) {
       const sec = this.sections[crew.job];
       if (!this.allowed(team, sec.kind) || this.down(sec) === 0) crew.job = -1;
     }
-    // 3.5: with the crane down, the crane first (its own pieces are low work), before even a keep near falling.
-    const cf = this.craneFirst(crew);
+    // 3.5: with the crane down, the crane first (its own pieces are low work), before even a keep near falling: without
+    // it no mending above CRANE.low goes on, so a keep or tower near falling waits for it too.
+    let cf = this.craneFirst(crew);
+    if (cf === avoid) cf = -1;
     if (cf >= 0) crew.job = cf;
-    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at.
-    if (this.statics) {
+    // Rule 12: a keep or tower near falling is mended before anything else, whatever the crew is at (but the crane).
+    else if (this.statics) {
       const cur = crew.job >= 0 ? this.sections[crew.job] : null;
       if (!cur || !this.urgent(cur)) {
         const u = this.pickUrgent(crew);
@@ -341,16 +346,20 @@ export class Works {
       break;
     }
     crew.next = found >= 0 ? found : blocked;
-    if (crew.next < 0) {
+    // 3.5: the crane first, unless every piece of it that could go back is blocked where it goes: then other work meanwhile.
+    const craneBlocked = cf >= 0 && found < 0;
+    if (crew.next < 0 || craneBlocked) {
       // Nothing here can go back yet (what it rests on is down in another section): another job first.
       const other = this.pickJob(crew, crew.job);
       if (other >= 0 && other !== crew.job) {
         crew.job = other;
-        this.planJob(crew);
+        this.planJob(crew, craneBlocked ? cf : -1);
         return;
       }
-      crew.hold = WorksHold.Idle;
-      return;
+      if (crew.next < 0) {
+        crew.hold = WorksHold.Idle;
+        return;
+      }
     }
     // The crew keeps its place while the next stone is within reach of it, so they do not re-form for every stone.
     const w = workSpot(this.castle.layout, sec, crew.next);
