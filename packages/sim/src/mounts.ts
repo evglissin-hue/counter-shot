@@ -36,6 +36,8 @@ export const enum OutWait {
   Masonry = 1,
   /** Its side has no gold to pay for it. */
   Gold = 2,
+  /** 3.6: none of its crew is at it to put it back (a replacement is on his way, or the reserve is dry). */
+  Hands = 3,
 }
 
 /** Who pays for putting a gun back (the match: its side's gold). */

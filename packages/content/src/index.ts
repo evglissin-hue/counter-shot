@@ -12,3 +12,4 @@ export * from "./register";
 export * from "./powder";
 export * from "./structure";
 export * from "./organs";
+export * from "./household";

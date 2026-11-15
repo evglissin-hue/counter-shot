@@ -127,6 +127,17 @@ export const enum EventKind {
   OrganDown = 31,
   /** [kind, castle, organ, 0, 0]: an organ works again (masons put enough of it back, its key piece among them) (3.5). */
   OrganUp = 32,
+  /**
+   * 3.6: one of the household is down at his station: a team, b the station
+   * (Household.stations index), c the seat, d his person id (Household.person).
+   * Every knockdown of a man at a post or walking out to one, and every mason
+   * and powder boy (their own Down events say how).
+   */
+  HouseholdDown = 33,
+  /** 3.6: a replacement from the reserve has taken a place (at his post, or a mason or powder boy at work): a team, b station, c seat, d person id. */
+  HouseholdUp = 34,
+  /** 3.6: a team's reserve has run dry (a: team), or gained one (b: 1) back from none. */
+  Reserve = 35,
 }
 export const EVENT_STRIDE = 5;
 

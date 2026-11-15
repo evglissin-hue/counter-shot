@@ -9,7 +9,7 @@
 // sim and the rules read WEAPONS, UPGRADES (through armedWeapon, whose cache
 // is cleared), WEAPON_COST, GUN_HITS, REMOUNT, MATCH, GOLD, WAVES, UNITS,
 // WAVE_MIXES, KEG, MUSKET, UNMANNED, BUILDINGS, REPAIR, GARRISON, STORM,
-// LADDER and the AI's AI_LEVELS and AI_PLANS live (the steward copies its plan
+// LADDER, HOUSEHOLD and the AI's AI_LEVELS and AI_PLANS live (the steward copies its plan
 // when the AiPlayer is built, so tune before that). Values derived at module
 // load from other content do NOT follow a tuned value: castle layouts,
 // MATCH_EMPLACEMENTS (built from the weapons' positions), the muster and
@@ -27,6 +27,7 @@ import { GARRISON, LADDER, REPAIR, STORM } from "./siege";
 import { WEAPONS } from "./weapons";
 import { REGISTER } from "./register";
 import { BUDGET, BUTTRESS, STRUCTURE } from "./structure";
+import { HOUSEHOLD } from "./household";
 
 /** The content objects a path can start from. */
 export const TUNING_ROOTS: Record<string, unknown> = {
@@ -55,6 +56,7 @@ export const TUNING_ROOTS: Record<string, unknown> = {
   STRUCTURE,
   BUDGET,
   BUTTRESS,
+  HOUSEHOLD,
 };
 
 type Bag = Record<string, unknown>;

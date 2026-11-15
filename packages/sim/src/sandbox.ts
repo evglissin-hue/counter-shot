@@ -37,6 +37,7 @@ import { Statics } from "./statics";
 import { Buttresses } from "./buttresses";
 import { Organs } from "./organs";
 import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
+import { Household } from "./household";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
 import { Gangs } from "./gangs";
@@ -145,6 +146,8 @@ export class SandboxSim {
   /** 3.5: each castle's organs (the bell, the crane, the signal mast) and whether each works (the game's layout; null without organs). */
   readonly organs: Organs | null;
   readonly specialists: Specialists | null;
+  /** 3.6: each castle's household: named crews at every station, the reserve, crews' skill (matches only; null: every gun fires as a trained crew of two). */
+  readonly household: Household | null;
   /** After M5: the masonry each gun stands on, and which guns are knocked out. */
   readonly mounts: Mounts;
   /** Where each ball slot was before the last step (a shot's path through a gun, a chain's sweep). */
@@ -246,6 +249,9 @@ export class SandboxSim {
     // 3.5: the organs stand from the start (the game's layout).
     this.organs = layout.organs.length ? new Organs(this.castle, emit) : null;
     if (this.works) this.works.organs = this.organs;
+    // 3.6: the household (matches): its stations, the reserve and the crews at the guns (the executor wires it to the
+    // minions, works, carriers, mounts, structures and organs it needs).
+    this.household = this.army ? new Household(this.emplacements, opts.seed, emit) : null;
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }

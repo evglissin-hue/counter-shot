@@ -40,6 +40,8 @@ import {
   weaponOf,
   WEAPONS,
   ORGAN_KINDS,
+  FIRST_KINDS,
+  type FirstKind,
   type OrganKind,
   type BuildingKind,
   type CastleLayout,
@@ -105,7 +107,9 @@ export type MatchInput =
   /** 3.2: fire for effect at the team's mark n (1 to 6): every gun that bears, the mortar only with `mortar` (Register). */
   | { kind: "salvo"; mark: number; mortar?: boolean }
   /** 3.3: buy POWDER.buy.charges of powder for POWDER.buy.gold at the team's working magazine, at once (refused without one, without room for all of it, or without the gold). */
-  | { kind: "powder" };
+  | { kind: "powder" }
+  /** 3.6 rule 4: who the team's reserve replaces first: guns (the start), walls (masons) or powder (powder boys). */
+  | { kind: "household"; first: FirstKind };
 
 export interface MatchResult {
   /** The winning team, or -1 for a draw (both fell on the same tick). */
@@ -266,6 +270,8 @@ function wellFormed(input: MatchInput): boolean {
       return int(input.mark, 1, REGISTER.max) && (input.mortar === undefined || typeof input.mortar === "boolean");
     case "powder":
       return true;
+    case "household":
+      return one(FIRST_KINDS, input.first);
     default:
       return false;
   }
@@ -630,6 +636,9 @@ export class Match {
         return;
       case "powder":
         if (this.estate.buyPowder(team)) this.applied.push([tick, team, "powder"]);
+        return;
+      case "household":
+        this.world.household?.setFirst(team, input.first);
         return;
     }
   }

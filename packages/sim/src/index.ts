@@ -14,6 +14,7 @@ export * from "./local";
 export * from "./ladders";
 export * from "./works";
 export * from "./carriers";
+export * from "./household";
 export * from "./gangs";
 export * from "./gunnery";
 export * from "./structures";

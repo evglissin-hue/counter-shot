@@ -238,6 +238,9 @@ function matchInfo(): MatchInfo | null {
     buttresses: [0, 1].map((t) => BUTTRESS_FACES.map((f) => match!.buttress(t, f))) as [number[], number[]],
     organs: [0, 1].map((t) => ORGAN_KINDS.map((_, k) => organInfo(match!, t, k))) as [OrganInfo[], OrganInfo[]],
     spotter: [match.spotter(0), match.spotter(1)],
+    // 3.6: filled in by the page's executor (Household.report and roster).
+    crews: null,
+    household: null,
   };
   if (info.masonry) endSent = true;
   return info;
@@ -247,8 +250,8 @@ function matchInfo(): MatchInfo | null {
 function organInfo(match: Match, team: number, organ: number): OrganInfo {
   const o = match.world.organs;
   const i = o ? o.index(team, organ) : -1;
-  if (!o || i < 0) return { up: true, share: 1, wait: 0 };
-  return { up: o.works[i], share: o.up[i] / o.ids[i].length, wait: o.wait[i] };
+  if (!o || i < 0) return { up: true, share: 1, wait: 0, keeper: true };
+  return { up: o.works[i], share: o.up[i] / o.ids[i].length, wait: o.wait[i], keeper: true };
 }
 
 /** 3.4: the structures' bounds (stone layout), once per world. */

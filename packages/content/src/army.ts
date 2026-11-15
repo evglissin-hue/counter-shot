@@ -12,7 +12,7 @@ import { BRIDGES, type RouteName } from "./map";
 import { POWDER } from "./powder";
 import type { BurstDef, WeaponKind } from "./weapons";
 
-export type UnitKind = "pikeman" | "mason" | "ladder" | "sapper" | "musketeer" | "powderBoy";
+export type UnitKind = "pikeman" | "mason" | "ladder" | "sapper" | "musketeer" | "powderBoy" | "crew";
 
 /** Unit kinds as the sim numbers them (Minion.unit). */
 export const enum Unit {
@@ -27,6 +27,8 @@ export const enum Unit {
   Musketeer = 4,
   /** Carries kegs of powder from the store to the guns (3.3): never fights. */
   PowderBoy = 5,
+  /** 3.6: one of the household at a station (a gun's crew, the bell ringer, the signaller, the spotter), or walking out to one: never fights. */
+  Crew = 6,
 }
 
 export interface UnitDef {
@@ -151,10 +153,26 @@ export const UNITS: Record<UnitKind, UnitDef> = {
     hit: 0,
     knock: 0,
   },
+  // 3.6: the household at its stations, and replacements walking out to them from the keep's door: never fights.
+  crew: {
+    kind: "crew",
+    name: "Crew",
+    speed: 1.7,
+    speedJitter: 0,
+    charge: 1,
+    sight: 0,
+    reach: 0,
+    blowMin: 0,
+    blowMax: 0,
+    readyMin: 0,
+    readyMax: 0,
+    hit: 0,
+    knock: 0,
+  },
 };
 
 /** UNITS by the sim's unit number. */
-export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer, UNITS.powderBoy];
+export const UNIT_DEFS: UnitDef[] = [UNITS.pikeman, UNITS.mason, UNITS.ladder, UNITS.sapper, UNITS.musketeer, UNITS.powderBoy, UNITS.crew];
 
 /** How minions choose whom to fight (army.ts). */
 export const TARGETING = {
@@ -167,7 +185,7 @@ export const TARGETING = {
 } as const;
 
 /** Unit numbers by kind. */
-export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer, powderBoy: Unit.PowderBoy };
+export const UNIT_NUMBER: Record<UnitKind, Unit> = { pikeman: Unit.Pikeman, mason: Unit.Mason, ladder: Unit.Ladder, sapper: Unit.Sapper, musketeer: Unit.Musketeer, powderBoy: Unit.PowderBoy, crew: Unit.Crew };
 
 /**
  * A sapper's powder keg (M3): he sets it at the foot of the enemy front wall,
