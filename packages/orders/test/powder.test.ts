@@ -25,7 +25,7 @@ function fixture(over: Partial<OrdersView> = {}): OrdersView {
     guns,
     foundry: false,
     barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null],
-    repairs: { gate: true, walls: true, towers: true, keep: true },
+    repairs: { gate: true, walls: true, towers: true, keep: true, works: true },
     order: 0,
     route: "centre",
     riding: -1,

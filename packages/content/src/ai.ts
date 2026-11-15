@@ -263,7 +263,8 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
  * it can be paid for above the reserve; one that can no longer be done (the
  * plot is taken, the slot armed) is passed over. `after` holds a step back
  * until that many seconds of the match have passed. Slots are the castle's
- * own (0 to 7), plots its own (0 to 5).
+ * own (0 to 7), plots its own (0 to 7; 3.5: each kind only on the plots it
+ * may take, BUILDINGS[kind].plots).
  */
 export type AiStep =
   | { kind: "build"; plot: number; building: BuildingKind; mix?: MixName; route?: RouteName; after?: number; stage?: number }
@@ -289,6 +290,8 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "buy", slot: 4, weapon: "chainShot", after: 200 },
     { kind: "build", plot: 3, building: "foundry", after: 240 },
     { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
+    // 3.5: a spotter's tower behind the keep (marks that last and that every gun shares).
+    { kind: "build", plot: 7, building: "spotter", after: 280 },
     { kind: "buy", slot: 7, weapon: "mortar", after: 330 },
     { kind: "buy", slot: 5, weapon: "swivel" },
     { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
@@ -301,6 +304,8 @@ export const AI_PLANS: Record<AiName, AiStep[]> = {
     { kind: "build", plot: 2, building: "barracks", mix: "breach", route: "left", after: 70 },
     { kind: "build", plot: 3, building: "foundry", after: 120 },
     { kind: "upgrade", slot: 1, upgrade: "quickLoader" },
+    // 3.5: a spotter's tower behind the keep.
+    { kind: "build", plot: 7, building: "spotter", after: 150 },
     { kind: "buy", slot: 7, weapon: "mortar", after: 180 },
     { kind: "upgrade", slot: 0, upgrade: "heavyShot" },
     { kind: "buy", slot: 4, weapon: "chainShot" },
@@ -351,5 +356,5 @@ export const TUTOR = {
    * minutes of waves at its gate and no storm began). Walls and towers mended
    * show the masons at work and close the breaches a long gun opens.
    */
-  repairs: [[], [], ["walls"], ["walls", "towers"]] as RepairKind[][],
+  repairs: [[], [], ["walls", "works"], ["walls", "towers", "works"]] as RepairKind[][],
 };

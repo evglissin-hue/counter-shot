@@ -16,6 +16,7 @@ import {
   PLOTS,
   POWDER,
   REGISTER,
+  REPAIR_KINDS,
   ROUTE_NAMES,
   TUTOR,
   UPGRADES,
@@ -46,7 +47,7 @@ export class Steward {
   private order: Order = Order.Advance;
   /** Tick its standing order was last changed (an order holds a while before it changes again). */
   private orderAt = -1e9;
-  private repairs: Record<RepairKind, boolean> = { gate: true, walls: true, towers: true, keep: true };
+  private repairs: Record<RepairKind, boolean> = { gate: true, walls: true, towers: true, keep: true, works: true };
   /** Each barracks plot's route and mix as it last set them (to send only changes), and which route its waves take next in turn. */
   private routes: Array<RouteName | null> = PLOTS.map(() => null);
   private mixes: Array<MixName | null> = PLOTS.map(() => null);
@@ -433,13 +434,15 @@ export class Steward {
     this.send(tick, { kind: "order", order });
   }
 
-  /** Repairs: the keep and the gate always; walls and towers while there is gold for them. */
+  /** Repairs: the keep, the gate and (3.5) the works always; walls and towers while there is gold for them. */
   private switches(tick: number) {
     const g = this.gold, r = this.repairs;
     // With a margin either way, so the switches do not flick back and forth as gold comes and goes.
     const tutor = this.stage ? TUTOR.repairs[this.stage()] : null;
-    const want: Record<RepairKind, boolean> = tutor ? { gate: tutor.includes("gate"), walls: tutor.includes("walls"), towers: tutor.includes("towers"), keep: false } : { gate: true, keep: true, walls: r.walls ? g >= 15 : g >= 40, towers: r.towers ? g >= 50 : g >= 120 };
-    for (const k of ["gate", "walls", "towers", "keep"] as RepairKind[]) {
+    const want: Record<RepairKind, boolean> = tutor
+      ? { gate: tutor.includes("gate"), walls: tutor.includes("walls"), towers: tutor.includes("towers"), keep: false, works: tutor.includes("works") }
+      : { gate: true, keep: true, works: true, walls: r.walls ? g >= 15 : g >= 40, towers: r.towers ? g >= 50 : g >= 120 };
+    for (const k of REPAIR_KINDS) {
       if (want[k] === this.repairs[k]) continue;
       this.repairs[k] = want[k];
       this.send(tick, { kind: "repair", repair: k, on: want[k] });

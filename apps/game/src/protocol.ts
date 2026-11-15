@@ -227,6 +227,20 @@ export interface MatchInfo extends RegisterInfo {
   structures: StructureInfo[] | null;
   /** 3.4: each team's keep buttresses on its four faces (BUTTRESS_FACES order): 0 empty, 1 rising, 2 standing. */
   buttresses: [number[], number[]];
+  /** 3.5: each team's organs (content ORGAN_KINDS order: the bell, the crane, the signal mast). */
+  organs: [OrganInfo[], OrganInfo[]];
+  /** 3.5: does each team have a working spotter's tower (its marks last longer and every gun shares them; the aim help and the mason's eye read it)? */
+  spotter: [boolean, boolean];
+}
+
+/** 3.5: one organ of a castle as the page sees it. */
+export interface OrganInfo {
+  /** It works (enough of it stands, its key piece among them). */
+  up: boolean;
+  /** Share of its pieces standing, 0 to 1. */
+  share: number;
+  /** Why it is not being put back while it is down (sim OrganWait: 0 none or masons at it, 1 what it stands on is down, 2 the crane is down, 3 Works repairs off, 4 masons busy or short of gold). */
+  wait: number;
 }
 
 export interface MasonInfo {

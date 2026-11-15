@@ -29,7 +29,7 @@ function fixture(over: Partial<OrdersView> = {}): OrdersView {
     guns,
     foundry: false,
     barracks: [{ mix: "pikemen", route: "centre" }, null, null, null, null, null],
-    repairs: { gate: true, walls: true, towers: true, keep: true },
+    repairs: { gate: true, walls: true, towers: true, keep: true, works: true },
     order: 0,
     route: "centre",
     riding: -1,
@@ -346,7 +346,7 @@ test("repair: masons on and off, by kind", () => {
     ["masons off", [rep("gate", false), rep("walls", false), rep("towers", false), rep("keep", false)]],
   ]);
   const some = viewWith((v) => {
-    v.repairs = { gate: false, walls: true, towers: false, keep: false };
+    v.repairs = { gate: false, walls: true, towers: false, keep: false, works: true };
   });
   accepts(some, [
     ["masons on the gate", [rep("gate", true)]],
@@ -418,7 +418,7 @@ test("standing orders: a switch that stays, told from the one-off repair order",
   assert.equal(say.ok && say.say, "Standing order: rebuild what falls");
   // "gate first" with no always, keep or mended is the one-off repair order, not a rule.
   const one = viewWith((v) => void 0, {});
-  one.repairs = { gate: false, walls: true, towers: true, keep: true };
+  one.repairs = { gate: false, walls: true, towers: true, keep: true, works: true };
   assert.deepEqual(inputs(parse("gate first", one)), [rep("gate", true), rep("walls", false), rep("towers", false), rep("keep", false)]);
   assert.deepEqual(stand(parse("gate first", one)).length, 4);
   refuses(fixture(), [

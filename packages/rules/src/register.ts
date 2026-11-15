@@ -41,6 +41,8 @@ export interface Mark {
   /** Tick it was made (the oldest is replaced first), and tick it fades (refreshed by a shot landing inside). */
   made: number;
   fades: number;
+  /** 3.5: the ticks it was given when it was made or last refreshed (the page shows how much of it is left). */
+  life: number;
 }
 
 /** A team's last shot by hand that came down, per emplacement: where and when (for marking within the window). */
@@ -133,7 +135,7 @@ export class Register {
       at = 0;
       for (let i = 1; i < places.length; i++) if (places[i]!.made < places[at]!.made) at = i;
     }
-    places[at] = { n: at + 1, x: l.x, y: l.y, z: l.z, emplacement, made: tick, fades: tick + REGISTER.life };
+    places[at] = { n: at + 1, x: l.x, y: l.y, z: l.z, emplacement, made: tick, fades: tick + REGISTER.life, life: REGISTER.life };
     this.landings[emplacement] = null;
     return true;
   }

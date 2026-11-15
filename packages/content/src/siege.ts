@@ -10,6 +10,7 @@
 import { dsqrt } from "@keepfall/core";
 import { CASTLE_SHAPE, type CastleLayout, type Stone } from "./castle";
 import { DIST } from "./field";
+import { ORGAN_KINDS, ORGANS } from "./organs";
 
 /** World z of a point at z in a castle's own frame, and back (the mirror is its own inverse). */
 export function mirrorZ(castle: number, z: number): number {
@@ -24,10 +25,15 @@ export function ownerLeft(castle: number): 1 | -1 {
 // ---------------------------------------------------------------------------
 // Repairs
 
-/** What a castle's repair switches cover (SPEC section 4: walls, towers, gate, keep). */
-export type RepairKind = "gate" | "walls" | "towers" | "keep";
-/** In the order masons take them when several need work. */
-export const REPAIR_KINDS: RepairKind[] = ["gate", "walls", "towers", "keep"];
+/** What a castle's repair switches cover (SPEC section 4: walls, towers, gate, keep; 3.5: works, the castle's organs). */
+export type RepairKind = "gate" | "walls" | "towers" | "keep" | "works";
+/**
+ * The repair switches in their fixed order (the inputs, the hash, the page's
+ * keys: Alt+1 to 5). 3.5 adds Works last, so the older switches keep their keys.
+ */
+export const REPAIR_KINDS: RepairKind[] = ["gate", "walls", "towers", "keep", "works"];
+/** 3.5: the order masons take kinds of section in when several need work: Works after the gate, before the walls (rule 12's keep or tower near falling comes before all). */
+export const REPAIR_ORDER: RepairKind[] = ["gate", "works", "walls", "towers", "keep"];
 
 export const REPAIR = {
   /** Masons per castle. */
@@ -50,7 +56,7 @@ export const REPAIR = {
   /** Masons spread along the work this far apart (m). */
   spread: 1.1,
   /** Gold for each piece put back, by part. */
-  cost: { wall: 1, tower: 1, merlon: 1, keep: 2, storey: 10, gate: 25, buttress: 2 } as Partial<Record<Stone["part"], number>>,
+  cost: { wall: 1, tower: 1, merlon: 1, keep: 2, storey: 10, gate: 25, buttress: 2, organ: 3 } as Partial<Record<Stone["part"], number>>,
 } as const;
 
 export interface RepairSection {
@@ -78,7 +84,9 @@ const cache = new WeakMap<CastleLayout, RepairSection[]>();
  * The sections of both castles that masons rebuild, in a fixed order per
  * castle: the gate, the front wall either side of it, the side walls, the back
  * wall, the four towers and the keep (with its floors and, 3.4, its
- * buttresses: the sim's masons leave a buttress alone until it is bought).
+ * buttresses: the sim's masons leave a buttress alone until it is bought);
+ * then (3.5) one section of kind "works" for each of its organs, in
+ * ORGAN_KINDS order, named as ORGANS names them ("the bell").
  * Houses, the banner and the bridges are not rebuilt.
  */
 export function repairSections(layout: CastleLayout): RepairSection[] {
@@ -103,6 +111,9 @@ export function repairSections(layout: CastleLayout): RepairSection[] {
       add("towers", "the back right tower"),
     ];
     const keep = add("keep", "the keep");
+    // 3.5: the organs (only with the layout option: a castle with no organ pieces gets no works sections).
+    const hasOrgans = layout.organs.some((o) => o.castle === castle);
+    const organ = hasOrgans ? ORGAN_KINDS.map((k) => add("works", ORGANS[k].name)) : [];
     // Tower centres in local x, z, in the order above.
     const tc: Array<[number, number]> = [
       [left * T, -T],
@@ -125,7 +136,8 @@ export function repairSections(layout: CastleLayout): RepairSection[] {
       if (s.castle !== castle) continue;
       const x = s.x, z = mirrorZ(castle, s.z);
       let sec = -1;
-      if (s.part === "gate") sec = gate;
+      if (s.part === "organ" && s.organ !== undefined && organ.length) sec = organ[s.organ];
+      else if (s.part === "gate") sec = gate;
       else if (s.part === "keep" || s.part === "storey" || s.part === "buttress" || (s.part === "merlon" && s.course === S.keepCourses)) sec = keep;
       else if (s.part === "tower" || (s.part === "merlon" && s.course === S.towerCourses)) sec = nearestTower(x, z);
       else if (s.part === "wall" || s.part === "merlon") {
@@ -179,6 +191,23 @@ export function workSpot(layout: CastleLayout, section: RepairSection, id: numbe
       wx = 0;
       wz = -INNER + 1.6;
       break;
+    case "works": {
+      // 3.5: the bell from its tower's courtyard side (as the tower), the crane from its west side (the masons' yard),
+      // the signal mast from beside the keep (as its floors).
+      const kind = s.organ !== undefined ? ORGAN_KINDS[s.organ] : "crane";
+      if (kind === "bell") {
+        const tx = x > 0 ? T : -T, tz = z > 0 ? T : -T;
+        wx = tx - (tx > 0 ? 3.54 : -3.54);
+        wz = tz - (tz > 0 ? 3.54 : -3.54);
+      } else if (kind === "crane") {
+        wx = 9.6;
+        wz = -5.2;
+      } else {
+        wx = S.keepHalf + KEEP_WORK;
+        wz = S.keepZ;
+      }
+      break;
+    }
     case "towers": {
       // On the courtyard side of the tower, five metres from its centre.
       const tx = x > 0 ? T : -T, tz = z > 0 ? T : -T;

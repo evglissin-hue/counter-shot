@@ -123,6 +123,10 @@ export const enum EventKind {
   Released = 29,
   /** [kind, castle, face (content BUTTRESS_FACES index), 0, 0]: a buttress against a keep's face is finished (3.4). */
   Buttressed = 30,
+  /** [kind, castle, organ (content ORGAN_KINDS index), 0, 0]: an organ stopped working: too few of its pieces stand, or its key piece fell (3.5). */
+  OrganDown = 31,
+  /** [kind, castle, organ, 0, 0]: an organ works again (masons put enough of it back, its key piece among them) (3.5). */
+  OrganUp = 32,
 }
 export const EVENT_STRIDE = 5;
 

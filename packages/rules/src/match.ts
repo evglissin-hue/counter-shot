@@ -39,6 +39,8 @@ import {
   WEAPON_KINDS,
   weaponOf,
   WEAPONS,
+  ORGAN_KINDS,
+  type OrganKind,
   type BuildingKind,
   type CastleLayout,
   type Emplacement,
@@ -61,7 +63,7 @@ export const enum Team {
 }
 
 /** Bump whenever the same match inputs would play out differently because of the match rules (the sim has its own RULES_VERSION). */
-export const MATCH_RULES_VERSION = 12;
+export const MATCH_RULES_VERSION = 13;
 
 /** A shot from one of a team's emplacements. */
 export type FireInput = Extract<SandboxInput, { kind: "fire" }>;
@@ -82,7 +84,7 @@ export type MatchInput =
   /** The team gives up: the other team wins. */
   | { kind: "surrender" }
   // M3: building, buying, upgrading and each barracks' waves.
-  /** Build on one of the team's plots (0 to 5), or rebuild the ruin of the same kind there. */
+  /** Build on one of the team's plots (0 to 7; 3.5: only a kind that may stand there), or rebuild the ruin of the same kind there. */
   | { kind: "build"; plot: number; building: BuildingKind }
   /** 3.4 rule 11: a buttress for the team's keep, on one of its faces (in the owner's words; refused unless that face is bare and the gold is there). */
   | { kind: "buttress"; face: ButtressFace }
@@ -414,6 +416,17 @@ export class Match {
   /** 3.4: the state of a team's buttress on a face: 0 empty, 1 rising, 2 standing. */
   buttress(team: number, face: ButtressFace): 0 | 1 | 2 {
     return this.estate.buttressState(team, face);
+  }
+
+  /** 3.5: does a team's organ work (true in a world without organs)? */
+  organUp(team: number, organ: OrganKind): boolean {
+    const o = this.world.organs;
+    return !o || o.working(team, ORGAN_KINDS.indexOf(organ));
+  }
+
+  /** 3.5: does a team have a working spotter's tower (its marks last SPOTTER.life and every gun shares them)? */
+  spotter(team: number): boolean {
+    return this.estate.spotter(team);
   }
 
   /**
@@ -839,5 +852,5 @@ export class Match {
 }
 
 function allOn(): Record<RepairKind, boolean> {
-  return { gate: true, walls: true, towers: true, keep: true };
+  return { gate: true, walls: true, towers: true, keep: true, works: true };
 }

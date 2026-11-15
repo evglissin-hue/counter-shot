@@ -751,7 +751,7 @@ function repair(t: Tokens, w: OrdersView, nope: () => Res): Res {
     for (const k of picked) target.set(k, !off);
   }
   const steps: Step[] = [];
-  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep" };
+  const names: Record<RepairKind, string> = { gate: "the gate", walls: "the walls", towers: "the towers", keep: "the keep", works: "the works" };
   for (const k of REPAIR_KINDS) {
     const on = target.get(k);
     if (on === undefined || w.repairs[k] === on) continue;

@@ -1637,6 +1637,7 @@ const PART_NAMES: Record<Stone["part"], string> = {
   banner: "banner",
   bridge: "bridge",
   buttress: "buttress",
+  organ: "works",
 };
 
 /** "the target keep, 151 m" for the HUD. */
@@ -2509,7 +2510,7 @@ function toggleRepair(kind: RepairKind, on?: boolean) {
   send({ t: "input", input: { kind: "repair", repair: kind, on: now } });
   matchInfo.repairs = { ...matchInfo.repairs, [kind]: now };
   updateRepairs();
-  const names: Record<RepairKind, string> = { gate: "Gate", walls: "Wall", towers: "Tower", keep: "Keep" };
+  const names: Record<RepairKind, string> = { gate: "Gate", walls: "Wall", towers: "Tower", keep: "Keep", works: "Works" };
   showNote(`${names[kind]} repairs ${now ? "on" : "off"}`, 2400);
 }
 

@@ -30,8 +30,8 @@ type World = InstanceType<Rapier["World"]>;
 type Body = ReturnType<World["createRigidBody"]>;
 type EventQueue = InstanceType<Rapier["EventQueue"]>;
 
-export const DENSITY: Record<Stone["material"], number> = { stone: 2300, wood: 600, plaster: 1400, roof: 1100, banner: 400 };
-const FRICTION: Record<Stone["material"], number> = { stone: 0.75, wood: 0.6, plaster: 0.65, roof: 0.55, banner: 0.5 };
+export const DENSITY: Record<Stone["material"], number> = { stone: 2300, wood: 600, plaster: 1400, roof: 1100, banner: 400, iron: 7800 };
+const FRICTION: Record<Stone["material"], number> = { stone: 0.75, wood: 0.6, plaster: 0.65, roof: 0.55, banner: 0.5, iron: 0.4 };
 
 export interface SimOptions {
   /** How many sideways bonds masonry can bridge before it falls. */
