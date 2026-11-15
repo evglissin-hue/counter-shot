@@ -112,6 +112,14 @@ export interface AiLevel {
   footShell: boolean;
   /** 3.4: it buys a buttress on the face being cut once its own keep holds under 0.5. */
   buttresses: boolean;
+  /**
+   * 3.5: from a Knight up, it may go after the enemy's organs by hand (the bell when two of its waves are past the stream,
+   * the crane while a way in is open, the roof and mast when the enemy's men outnumber its own by half again). organAims is
+   * the share of its looks in which it does; after bringing an organ down it leaves organs alone for organRest ticks.
+   */
+  organs: boolean;
+  organAims: number;
+  organRest: number;
 }
 
 /** The numbers every level's orders share. */
@@ -160,6 +168,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 0,
     footShell: false,
     buttresses: false,
+    organs: false,
+    organAims: 0,
+    organRest: 0,
   },
   knight: {
     name: "Knight",
@@ -191,6 +202,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 6,
     footShell: false,
     buttresses: true,
+    organs: true,
+    organAims: 0.5,
+    organRest: 45 * 60,
   },
   warlord: {
     name: "Warlord",
@@ -222,6 +236,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 20,
     footShell: true,
     buttresses: true,
+    organs: true,
+    organAims: 0.7,
+    organRest: 30 * 60,
   },
   // M6: the guided first match's castle. Placeholder numbers (a slower,
   // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
@@ -255,6 +272,9 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     cutTries: 0,
     footShell: false,
     buttresses: false,
+    organs: false,
+    organAims: 0,
+    organRest: 0,
   },
 };
 
