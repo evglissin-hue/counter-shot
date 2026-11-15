@@ -18,11 +18,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const contentFile = join(root, "node_modules", ".scratch", "content.mjs");
 await build({ input: join(root, "packages", "content", "src", "index.ts"), platform: "node", logLevel: "warn", output: { file: contentFile, format: "esm" } });
 export const content = await import(pathToFileURL(contentFile).href + `?t=${Date.now()}`);
-const { AI_PLANS, ASHWRIGHT_SLOTS, BUILDING_KINDS, MIX_NAMES, ROUTE_NAMES, PLOTS, START_BUILDINGS, UPGRADES, UPGRADE_KINDS, WEAPON_KINDS } = content;
+const { AI_PLANS, ASHWRIGHT_SLOTS, BUILDING_KINDS, BUILDINGS, MIX_NAMES, ROUTE_NAMES, PLOTS, START_BUILDINGS, UPGRADES, UPGRADE_KINDS, WEAPON_KINDS } = content;
 
 /** The slots a plan may buy for (the empty ones), and the plots it may build on (not the starting barracks'). */
 export const BUY_SLOTS = ASHWRIGHT_SLOTS.map((s, i) => (s.empty ? i : -1)).filter((i) => i >= 0);
 export const FREE_PLOTS = PLOTS.map((p) => p.index).filter((i) => !START_BUILDINGS.some((b) => b.plot === i));
+/** 3.5: the free plots a kind of building may stand on (BUILDINGS[kind].plots, minus the starting buildings'). */
+export const plotsFor = (kind) => FREE_PLOTS.filter((p) => BUILDINGS[kind]?.plots.includes(p));
 export const MAX_AFTER = 900;
 export const LEVELS = ["squire", "knight", "warlord"];
 
@@ -68,6 +70,7 @@ export function validatePlan(steps) {
       if (used.has(s.plot)) return `${at}: plot ${s.plot} is built on twice`;
       used.add(s.plot);
       if (!BUILDING_KINDS.includes(s.building)) return `${at}: unknown building "${s.building}"`;
+      if (!BUILDINGS[s.building].plots.includes(s.plot)) return `${at}: a ${s.building} may not stand on plot ${s.plot} (only ${BUILDINGS[s.building].plots.join(", ")})`;
       if (s.mix !== undefined && (s.building !== "barracks" || !MIX_NAMES.includes(s.mix))) return `${at}: mix "${s.mix}" is only for a barracks, one of ${MIX_NAMES.join(", ")}`;
       if (s.route !== undefined && (s.building !== "barracks" || !ROUTE_NAMES.includes(s.route))) return `${at}: route "${s.route}" is only for a barracks, one of ${ROUTE_NAMES.join(", ")}`;
     } else if (s.kind === "buy") {
@@ -133,15 +136,22 @@ const MUTATIONS = {
     const idx = steps.map((s, i) => (s.kind === "build" ? i : -1)).filter((i) => i >= 0);
     if (!idx.length) return null;
     const s = steps[rng.pick(idx)];
-    const free = FREE_PLOTS.filter((p) => !steps.some((q) => q.kind === "build" && q.plot === p));
-    if (rng() < 0.5 || !free.length) {
-      const kinds = BUILDING_KINDS.filter((k) => k !== s.building);
-      s.building = rng.pick(kinds);
-      if (s.building !== "barracks") {
-        delete s.mix;
-        delete s.route;
+    const taken = (p) => steps.some((q) => q !== s && q.kind === "build" && q.plot === p);
+    if (rng() < 0.5) {
+      // A new kind that may stand on this plot, else a plot it may take.
+      const kinds = BUILDING_KINDS.filter((k) => k !== s.building && BUILDINGS[k].plots.includes(s.plot));
+      if (kinds.length) {
+        s.building = rng.pick(kinds);
+        if (s.building !== "barracks") {
+          delete s.mix;
+          delete s.route;
+        }
+        return steps;
       }
-    } else s.plot = rng.pick(free);
+    }
+    const free = plotsFor(s.building).filter((p) => !taken(p) && p !== s.plot);
+    if (!free.length) return null;
+    s.plot = rng.pick(free);
     return steps;
   },
   after(steps, rng) {
@@ -297,7 +307,10 @@ function selfCheck() {
   show("upgrade on slot 6 before a gun is bought there", [...base, { kind: "upgrade", slot: 6, upgrade: "rifled" }, { kind: "buy", slot: 6, weapon: "longGun" }], false, "no gun yet");
   show("unknown building", [{ kind: "build", plot: 1, building: "tavern" }], false, "unknown building");
   show("plot 0", [{ kind: "build", plot: 0, building: "mill" }], false, "plot 0");
-  show("plot 6", [{ kind: "build", plot: 6, building: "mill" }], false, "plot 6");
+  show("a mill on plot 6", [{ kind: "build", plot: 6, building: "mill" }], false, "may not stand");
+  show("a magazine on plot 1", [{ kind: "build", plot: 1, building: "magazine" }], false, "may not stand");
+  show("a spotter's tower on plot 7", [{ kind: "build", plot: 7, building: "spotter" }], true);
+  show("a spotter's tower on plot 2", [{ kind: "build", plot: 2, building: "spotter" }], false, "may not stand");
   show("after 901", [{ kind: "build", plot: 1, building: "mill", after: 901 }], false, "after");
   show("mix on a mill", [{ kind: "build", plot: 1, building: "mill", mix: "breach" }], false, "mix");
   show("bad route on a barracks", [{ kind: "build", plot: 2, building: "barracks", route: "up" }], false, "route");
