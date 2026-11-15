@@ -15,6 +15,8 @@ import type { N } from "./tslUtils";
 const DASH = 2.2;
 const EVERY = 5;
 const MAX_DASHES = 48;
+/** The wind mark's radius (m). */
+const WIND_RING = 1.3;
 
 function flatMaterial(hex: number, opacity: number, order: number): THREE.MeshBasicNodeMaterial {
   const m = new THREE.MeshBasicNodeMaterial();
@@ -166,10 +168,11 @@ export class MortarAim {
       this.geos.push(g);
       return g;
     };
-    const w1 = new THREE.Mesh(wGeo(0.93, 1.0), wDark), w2 = new THREE.Mesh(wGeo(0.95, 0.985), wLight);
+    const w1 = new THREE.Mesh(wGeo(0.9, 1.0), wDark), w2 = new THREE.Mesh(wGeo(0.93, 0.98), wLight), w3 = new THREE.Mesh(wGeo(0, 0.12), wLight);
     w1.renderOrder = 21;
     w2.renderOrder = 22;
-    this.windRing.add(w1, w2);
+    w3.renderOrder = 22;
+    this.windRing.add(w1, w2, w3);
     this.windRing.visible = false;
     this.root.add(this.windRing);
     const lineGeo = new THREE.BufferGeometry();
@@ -184,20 +187,22 @@ export class MortarAim {
   }
 
   /**
-   * The wind ring at `p` (null hides it), `radius` wide, with a short line to it from `from`, the still-air ring.
-   * Only when the wind moves the shell by more than the ring's own width is the line drawn.
+   * The wind mark at `p` (null hides it): a small ring with a dot, the point the shell would reach in the wind now (the
+   * soft patch is "about here"; this is where the wind puts it), with a short line to it from `from`, the still-air ring.
+   * The line is drawn only when the wind moves the shell by more than a ring's width or two.
    */
-  setWind(p: { x: number; y: number; z: number } | null, from: { x: number; y: number; z: number } | null, radius: number) {
+  setWind(p: { x: number; y: number; z: number } | null, from: { x: number; y: number; z: number } | null) {
     this.windRing.visible = !!p;
     this.windLine.visible = false;
     if (!p || !from) {
       this.windRing.visible = false;
       return;
     }
+    const radius = WIND_RING;
     this.windRing.position.set(p.x, p.y + 0.12, p.z);
     this.windRing.scale.setScalar(radius);
     const dx = p.x - from.x, dz = p.z - from.z, len = Math.hypot(dx, dz);
-    if (len < radius * 2) return;
+    if (len < radius * 2.5) return;
     // A strip between the two rings' edges, flat on the ground.
     const ux = dx / len, uz = dz / len, rx = -uz * 0.09, rz = ux * 0.09;
     const ax = from.x + ux * radius, az = from.z + uz * radius, bx = p.x - ux * radius, bz = p.z - uz * radius;

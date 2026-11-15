@@ -43,6 +43,8 @@ const KIND_NAMES = BUILDING_KINDS.map((k) => BUILDINGS[k].name);
  * a long word ("Maga-zine") instead of cutting it off. The list beside the map gives the full names.
  */
 const TILE_NAMES = KIND_NAMES.map((n) => n.replace("Powder Mill", "Mill").replace("Magazine", "Maga\u00adzine").replace("Foundry", "Found\u00adry").replace("Barracks", "Bar\u00adracks").replace("Spotter's Tower", "Spot\u00adter"));
+/** The names on a thin plot's tile (3.5: the two behind the keep), a few letters each, by kind. */
+const THIN_NAMES = ["Bar.", "Mill", "Fdry", "Mag.", "Spot"];
 const ROUTE_LABEL: Record<RouteName, string> = { left: "Left flank", centre: "Centre road", right: "Right flank" };
 
 interface PlotInfo {
@@ -224,7 +226,10 @@ export class BuildWheel {
       const z = p.z;
       const what = v.kind < 0 ? "Empty" : `${TILE_NAMES[v.kind]}${v.state === RISING ? ` ${Math.round(v.share * 100)}%` : v.state === RUINED ? " (ruined)" : ""}`;
       const cls = `plot${p.d < 3 ? " thin" : ""}${this.target === i ? " sel" : ""}${v.state === RUINED ? " ruin" : ""}${v.kind < 0 ? " empty" : ""}`;
-      return `<button class="${cls}" data-pick="${i}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b><span>${what}</span></button>`;
+      // A thin plot (behind the keep) is too narrow for a word beside its number: an empty one shows only the number, a built one a short name.
+      const thin = p.d < 3;
+      const short = v.kind < 0 ? "" : `${THIN_NAMES[v.kind] ?? ""}${v.state === RISING ? ` ${Math.round(v.share * 100)}%` : v.state === RUINED ? " (ruin)" : ""}`;
+      return `<button class="${cls}" data-pick="${i}" title="Plot ${i + 1}: ${what}" style="left:${50 + x * 2.9 - p.w * 1.45}%;top:${50 + z * 2.9 - p.d * 1.45}%;width:${p.w * 2.9}%;height:${p.d * 2.9}%"><b>${i + 1}</b>${thin && !short ? "" : `<span>${thin ? short : what}</span>`}</button>`;
     };
     const gold = `<b class="goldtxt">${s.gold} gold</b>`;
     const slotGun = t >= SLOT && t < SLOT + 8 ? s.guns[t - SLOT] : t === RIDDEN ? s.gun : null;

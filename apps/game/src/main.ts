@@ -1522,7 +1522,10 @@ function spotterWorks(): boolean {
 }
 
 let predicted: { x: number; y: number; z: number } | null = null;
+/** 3.5: where the mortar's wind ring is drawn now (null: not drawn), for the checks. */
+let windRingAt: { x: number; y: number; z: number } | null = null;
 function updateAimHelp() {
+  windRingAt = null;
   const e = EMP[current], w = weaponOf(e), a = aims[current];
   const showing = view === "sight" && !follow && !ride && !e.empty;
   aimHit = null;
@@ -1614,6 +1617,7 @@ function mortarHelp(e: Emplacement, w: ReturnType<typeof weaponOf>, a: AimState)
     const wn = wp.length;
     windAt = wh ? { x: wh.x, y: wh.y, z: wh.z } : { x: wp[wn - 3], y: wp[wn - 2], z: wp[wn - 1] };
   }
+  windRingAt = windAt;
   renderer.setMortarAim(bearing, live ? p : null, easy && w.burst ? w.burst.radius : RING_SOFT, !easy, windAt);
   renderer.setAimArc(live && easy ? path : null);
 }
@@ -4241,6 +4245,10 @@ else {
   },
   get mapBig() {
     return mapBig;
+  },
+  /** 3.5 test hook: where the mortar's wind ring is drawn (null: not drawn, as without a spotter's tower), and the still-air landing it is drawn beside. */
+  get windRing() {
+    return windRingAt ? { ring: windRingAt, still: predicted } : null;
   },
   /** 3.5 test hook: how many times each castle's bell has begun to ring, and since when it rings now (-1: not). */
   bells() {
