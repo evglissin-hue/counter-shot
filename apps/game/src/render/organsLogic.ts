@@ -119,5 +119,5 @@ export function streamerAt(u: number, t: number, length: number, stream: number,
 
 /** How straight the wind holds cloth out, from its speed (m/s). A calm day leaves it slack. */
 export function streamOf(windSpeed: number): number {
-  return Math.min(1, Math.max(0.18, windSpeed / 7));
+  return Math.min(1, 0.4 + windSpeed * 0.1);
 }

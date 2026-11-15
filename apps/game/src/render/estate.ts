@@ -440,8 +440,8 @@ export class EstateView {
       if (v.kind === FOUNDRY) {
         if (v.glow) v.glow.color.setRGB(1.6 + 0.35 * Math.sin(now * 7.1) + 0.2 * Math.sin(now * 13.7), 0.62 + 0.08 * Math.sin(now * 9.3), 0.22);
         if (now >= v.nextPuff) {
-          v.nextPuff = now + 0.45;
-          puff("smoke", v.chimney.x, v.chimney.y, v.chimney.z, 0.32);
+          v.nextPuff = now + 0.3;
+          puff("smoke", v.chimney.x, v.chimney.y, v.chimney.z, 1.0);
         }
       }
       if (v.kind === BARRACKS && now >= v.nextPuff) v.nextPuff = now + 1;

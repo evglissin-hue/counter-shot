@@ -161,7 +161,7 @@ export class OrganView {
   constructor(private layout: CastleLayout, private stones: StoneSet) {
     this.root.name = "organs";
     this.ids = organIds(layout);
-    const iron = this.mat(0x2a2927, 0.36, 0.6);
+    const iron = this.mat(0x3a3836, 0.4, 0.55);
     const wood = this.mat(0x4f453a, 0.9);
     const rope = this.mat(0x9a8a6a, 0.95);
     const bell = this.geo(bellGeometry());
@@ -262,8 +262,8 @@ export class OrganView {
     paper.side = THREE.DoubleSide;
     this.mats.push(paper);
     const anchor = new THREE.Group();
-    const pennant = new Streamer(2.7, 0.62, 0.12, 16, cloth);
-    const flag = new Streamer(0.85, 0.55, 0.5, 6, paper);
+    const pennant = new Streamer(3.2, 0.85, 0.16, 18, cloth);
+    const flag = new Streamer(1.1, 0.8, 0.7, 7, paper);
     anchor.add(pennant.mesh, flag.mesh);
     this.root.add(anchor);
     return { anchor, pennant, flag, home: this.home(ids.yard) };
