@@ -32,7 +32,7 @@ export interface Pressed {
   orderNext: boolean;
   /** Next route for your barracks' waves (L). */
   route: boolean;
-  /** Switch a kind of repair on or off: Alt+1 gate, Alt+2 walls, Alt+3 towers, Alt+4 keep (-1: none). */
+  /** Switch a kind of repair on or off: Alt+1 gate, Alt+2 walls, Alt+3 towers, Alt+4 keep, Alt+5 works (-1: none). */
   repair: number;
   /** M3: the build wheel (B), and Backspace and Esc on their own (the wheel goes back or closes). */
   build: boolean;
@@ -78,8 +78,8 @@ export class Input {
       if (isTyping(e)) return;
       // Tab and Space are game keys: never let them move focus or press a focused button.
       if (e.code === "Tab" || e.code === "Space") e.preventDefault();
-      // Alt+1 to 4 switch your masons' repairs (and must not type a character or switch the weapon).
-      if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-4]$/.test(e.code)) {
+      // Alt+1 to 5 switch your masons' repairs (and must not type a character or switch the weapon).
+      if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-5]$/.test(e.code)) {
         e.preventDefault();
         if (!e.repeat) this.edges.add(`Repair${e.code.slice(5)}`);
         return;
@@ -192,7 +192,7 @@ export class Input {
       order: e.has("Order1") ? 0 : e.has("Order2") ? 1 : e.has("Order3") ? 2 : -1,
       orderNext: edge(14),
       route: e.has("KeyL") || edge(15),
-      repair: e.has("Repair1") ? 0 : e.has("Repair2") ? 1 : e.has("Repair3") ? 2 : e.has("Repair4") ? 3 : -1,
+      repair: e.has("Repair1") ? 0 : e.has("Repair2") ? 1 : e.has("Repair3") ? 2 : e.has("Repair4") ? 3 : e.has("Repair5") ? 4 : -1,
       build: e.has("KeyB"),
       pause: e.has("KeyP"),
       back: e.has("Backspace"),

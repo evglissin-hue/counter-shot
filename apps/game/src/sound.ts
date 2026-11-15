@@ -44,6 +44,10 @@ export interface SoundState {
   slow: number;
 }
 
+/** 3.5: a bell's ring is this many strokes, this many seconds apart. */
+export const BELL_STROKES = 4;
+export const BELL_GAP = 1.7;
+
 export class Sound {
   volume = 0.8;
   muted = false;
@@ -527,10 +531,121 @@ export class Sound {
     const p: Placed = x === undefined ? { delay: 0, gain: 1, pan: 0, cutoff: 14000, dist: 10 } : this.place(x, y!, z!, 60);
     p.delay += at;
     const c = this.out(p, 0.7, 7);
+    this.bellStroke(c.input, c.t0, f, level);
+  }
+
+  /** The partials of one struck bell into a node (the hum longest). */
+  private bellStroke(to: AudioNode, t0: number, f: number, level: number) {
     for (const [r, l, d] of [[0.5, 0.5, 4.2], [1, 0.55, 3.2], [1.19, 0.32, 2.2], [1.5, 0.22, 1.8], [2, 0.3, 1.5], [2.52, 0.12, 1.0], [2.66, 0.1, 0.8]] as const) {
-      this.tone(c.input, c.t0, f * r, f * r * 0.999, d, 0.002, d, l * level);
+      this.tone(to, t0, f * r, f * r * 0.999, d, 0.002, d, l * level);
     }
-    this.burstNoise(c.input, c.t0, this.white, "bandpass", f * 4, 2, 0.001, 0.04, 0.25 * level);
+    this.burstNoise(to, t0, this.white, "bandpass", f * 4, 2, 0.001, 0.04, 0.25 * level);
+  }
+
+  /** Each castle's bell as it rings now: the gate its strokes pass through, so a fallen bell can be cut off at once (3.5). */
+  private bellVoices: Array<GainNode | null> = [null, null];
+
+  /**
+   * 3.5: a castle's bell rings from its tower as the enemy crosses the stream: `strokes` strokes, `BELL_GAP` s apart,
+   * placed at (x, y, z). A ring already sounding is cut first.
+   */
+  bellRing(castle: number, x: number, y: number, z: number, strokes = BELL_STROKES) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    this.bellVoices[castle]?.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+    const c = this.out(this.place(x, y, z, 70), 0.7, strokes * BELL_GAP + 7);
+    const gate = ctx.createGain();
+    gate.connect(c.input);
+    for (let i = 0; i < strokes; i++) this.bellStroke(gate, c.t0 + i * BELL_GAP, 392, 0.5 - 0.06 * i);
+    this.later(gate, c.t0 + strokes * BELL_GAP + 7);
+    this.bellVoices[castle] = gate;
+  }
+
+  /** 3.5: a castle's bell falls: whatever rings is cut at once, and an iron clang goes up where it was. */
+  bellFall(castle: number, x: number, y: number, z: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const gate = this.bellVoices[castle];
+    if (gate) {
+      gate.gain.cancelScheduledValues(ctx.currentTime);
+      gate.gain.setTargetAtTime(0, ctx.currentTime, 0.015);
+      this.bellVoices[castle] = null;
+    }
+    const c = this.out(this.place(x, y, z, 60), 0.5, 3);
+    // Iron on stone: a flat, inharmonic clash, no hum.
+    for (const [f, a, d] of [[310, 0.5, 0.5], [447, 0.4, 0.35], [803, 0.3, 0.25], [1291, 0.18, 0.18]] as const) this.tone(c.input, c.t0, f, f * 0.96, 0.2, 0.001, d, a);
+    this.burstNoise(c.input, c.t0, this.white, "bandpass", 1900, 1.2, 0.001, 0.09, 0.5);
+  }
+
+  private craneVoices: Array<{ gain: GainNode; pan: StereoPannerNode; stop: () => void } | null> = [null, null];
+
+  /**
+   * 3.5: the crane's treadwheel creaks while masons lay high work: a slow wooden creak (a low saw through a narrow band,
+   * swelling and fading with each turn of the wheel). Call it every frame with where the wheel is and whether to creak;
+   * it fades out when `on` is false.
+   */
+  craneCreak(castle: number, x: number, y: number, z: number, on: boolean) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    let v = this.craneVoices[castle];
+    if (!on) {
+      if (v) {
+        v.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.25);
+        v.stop();
+        this.craneVoices[castle] = null;
+      }
+      return;
+    }
+    const p = this.place(x, y, z, 18);
+    if (!v) {
+      const t0 = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = 58;
+      const turn = ctx.createOscillator();
+      turn.frequency.value = 0.8;
+      const sway = ctx.createGain();
+      sway.gain.value = 9;
+      turn.connect(sway);
+      sway.connect(osc.frequency);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 340;
+      bp.Q.value = 5;
+      const swell = ctx.createGain();
+      swell.gain.value = 0.55;
+      const swellDepth = ctx.createGain();
+      swellDepth.gain.value = 0.45;
+      turn.connect(swellDepth);
+      swellDepth.connect(swell.gain);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, t0);
+      const pan = ctx.createStereoPanner();
+      osc.connect(bp);
+      bp.connect(swell);
+      swell.connect(gain);
+      gain.connect(pan);
+      pan.connect(this.dry);
+      const send = ctx.createGain();
+      send.gain.value = 0.15;
+      pan.connect(send);
+      send.connect(this.reverbIn);
+      osc.start(t0);
+      turn.start(t0);
+      v = {
+        gain,
+        pan,
+        stop: () => {
+          const end = ctx.currentTime + 1.5;
+          osc.stop(end);
+          turn.stop(end);
+          this.later(gain, end);
+        },
+      };
+      this.craneVoices[castle] = v;
+    }
+    v.pan.pan.setTargetAtTime(p.pan, ctx.currentTime, 0.1);
+    v.gain.gain.setTargetAtTime(0.3 * p.gain, ctx.currentTime, 0.3);
   }
 
   /** A war drum: a deep skin struck hard. */

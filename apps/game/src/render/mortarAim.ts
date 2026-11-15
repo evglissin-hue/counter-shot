@@ -48,6 +48,10 @@ export class MortarAim {
    * battlements. It keeps about the same size on screen.
    */
   private pin = new THREE.Group();
+  /** 3.5: with the spotter's tower, a fainter ring where the shell would come down in the wind, and a short line to it from the still-air ring. */
+  private windRing = new THREE.Group();
+  private windLine!: THREE.Mesh;
+  private windLinePos = new Float32Array(12);
   private mats: THREE.Material[] = [];
   private geos: THREE.BufferGeometry[] = [];
 
@@ -152,6 +156,55 @@ export class MortarAim {
     }
     this.pin.visible = false;
     this.root.add(this.pin);
+
+    // The wind ring: the sharp ring's shape, fainter, and a thin line from the still-air ring.
+    const wDark = flatMaterial(0x07090b, 0.3, 21), wLight = flatMaterial(0xeef4ff, 0.5, 22), wLine = flatMaterial(0xeef4ff, 0.4, 22);
+    this.mats.push(wDark, wLight, wLine);
+    const wGeo = (r0: number, r1: number) => {
+      const g = new THREE.RingGeometry(r0, r1, 72, 1);
+      g.rotateX(-Math.PI / 2);
+      this.geos.push(g);
+      return g;
+    };
+    const w1 = new THREE.Mesh(wGeo(0.93, 1.0), wDark), w2 = new THREE.Mesh(wGeo(0.95, 0.985), wLight);
+    w1.renderOrder = 21;
+    w2.renderOrder = 22;
+    this.windRing.add(w1, w2);
+    this.windRing.visible = false;
+    this.root.add(this.windRing);
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setIndex([0, 1, 2, 2, 1, 3]);
+    lineGeo.setAttribute("position", new THREE.BufferAttribute(this.windLinePos, 3));
+    this.geos.push(lineGeo);
+    this.windLine = new THREE.Mesh(lineGeo, wLine);
+    this.windLine.renderOrder = 22;
+    this.windLine.frustumCulled = false;
+    this.windLine.visible = false;
+    this.root.add(this.windLine);
+  }
+
+  /**
+   * The wind ring at `p` (null hides it), `radius` wide, with a short line to it from `from`, the still-air ring.
+   * Only when the wind moves the shell by more than the ring's own width is the line drawn.
+   */
+  setWind(p: { x: number; y: number; z: number } | null, from: { x: number; y: number; z: number } | null, radius: number) {
+    this.windRing.visible = !!p;
+    this.windLine.visible = false;
+    if (!p || !from) {
+      this.windRing.visible = false;
+      return;
+    }
+    this.windRing.position.set(p.x, p.y + 0.12, p.z);
+    this.windRing.scale.setScalar(radius);
+    const dx = p.x - from.x, dz = p.z - from.z, len = Math.hypot(dx, dz);
+    if (len < radius * 2) return;
+    // A strip between the two rings' edges, flat on the ground.
+    const ux = dx / len, uz = dz / len, rx = -uz * 0.09, rz = ux * 0.09;
+    const ax = from.x + ux * radius, az = from.z + uz * radius, bx = p.x - ux * radius, bz = p.z - uz * radius;
+    const ay = from.y + 0.14, by = p.y + 0.14;
+    this.windLinePos.set([ax - rx, ay, az - rz, ax + rx, ay, az + rz, bx - rx, by, bz - rz, bx + rx, by, bz + rz]);
+    (this.windLine.geometry.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+    this.windLine.visible = true;
   }
 
   /** Each frame: the pin faces the camera and keeps about the same size on screen. */

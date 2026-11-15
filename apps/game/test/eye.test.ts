@@ -26,17 +26,26 @@ test("the ray picks the keep's box and the tower's cylinder, the nearest within 
 test("a fallen structure is not picked and shows no eye", () => {
   const l = list.map((s) => (s.index === 5 ? { ...s, state: 3 } : s));
   assert.equal(structureUnder(l, 0, 8, 0, 0, 0, -1), -1);
-  assert.deepEqual(eyeTargets(l, { held: true, overview: false, me: 0, under: 5, forced: -1 }), []);
+  assert.deepEqual(eyeTargets(l, { held: true, overview: false, me: 0, under: 5, forced: -1, spotter: true }), []);
 });
 
 test("targets: nothing without the key, the structure under the sight riding, your own castle and the enemy's under the mouse in the overview", () => {
-  assert.deepEqual(eyeTargets(list, { held: false, overview: true, me: 0, under: 5, forced: -1 }), []);
-  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 5, forced: -1 }), [5]);
-  assert.deepEqual(eyeTargets(list, { held: true, overview: true, me: 0, under: 6, forced: -1 }), [0, 1, 2, 3, 4, 6]);
-  assert.deepEqual(eyeTargets(list, { held: true, overview: true, me: 0, under: 2, forced: -1 }), [0, 1, 2, 3, 4]);
+  assert.deepEqual(eyeTargets(list, { held: false, overview: true, me: 0, under: 5, forced: -1, spotter: true }), []);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 5, forced: -1, spotter: true }), [5]);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: true, me: 0, under: 6, forced: -1, spotter: true }), [0, 1, 2, 3, 4, 6]);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: true, me: 0, under: 2, forced: -1, spotter: true }), [0, 1, 2, 3, 4]);
   // The guided match's one look needs no key.
-  assert.deepEqual(eyeTargets(list, { held: false, overview: false, me: 0, under: -1, forced: 5 }), [5]);
-  assert.deepEqual(eyeTargets([], { held: true, overview: false, me: 0, under: 0, forced: 0 }), []);
+  assert.deepEqual(eyeTargets(list, { held: false, overview: false, me: 0, under: -1, forced: 5, spotter: false }), [5]);
+  assert.deepEqual(eyeTargets([], { held: true, overview: false, me: 0, under: 0, forced: 0, spotter: true }), []);
+});
+
+test("the enemy's castle shows only while your spotter's tower works; your own always", () => {
+  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 5, forced: -1, spotter: false }), [5]);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 6, forced: -1, spotter: false }), []);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: false, me: 0, under: 6, forced: -1, spotter: true }), [6]);
+  assert.deepEqual(eyeTargets(list, { held: true, overview: true, me: 0, under: 6, forced: -1, spotter: false }), [0, 1, 2, 3, 4]);
+  // The coach's one look at their keep comes through without a tower.
+  assert.deepEqual(eyeTargets(list, { held: false, overview: false, me: 0, under: -1, forced: 6, spotter: false }), [6]);
 });
 
 test("the label says the share held, or Falling", () => {

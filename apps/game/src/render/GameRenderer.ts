@@ -1061,9 +1061,10 @@ export class GameRenderer implements GameRendererApi {
     }
   }
 
-  setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean): void {
+  setMortarAim(bearing: { x: number; z: number; dx: number; dz: number; near: number; far: number } | null, ring: { x: number; y: number; z: number } | null, radius: number, soft: boolean, wind: { x: number; y: number; z: number } | null = null): void {
     this.mortarAim.setBearing(bearing, this.groundHeight);
     this.mortarAim.setRing(ring, radius, soft);
+    this.mortarAim.setWind(ring ? wind : null, ring, radius);
   }
 
   groundAt(x: number, z: number): number {
