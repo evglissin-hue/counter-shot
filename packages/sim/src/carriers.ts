@@ -923,7 +923,7 @@ export class Carriers {
   private fell(b: Boy, m: Minion, tick: number): boolean {
     const keg = b.keg > 0;
     b.minion = -1;
-    if (this.household) {
+    if (this.household?.started) {
       b.due = -1;
       this.household.lostWorker(b.castle, StationKind.Boy, b.slot, tick);
     } else b.due = tick + POWDER.respawn;

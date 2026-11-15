@@ -33,11 +33,11 @@ function play(m: Match, ai: AiPlayer, ticks: number, each?: (tick: number) => vo
 }
 
 test("with the enemy gate off, a Knight gunner cuts the keep's foot and the keep's holds falls", () => {
-  const m = match(5);
+  const m = match(7);
   knockGate(m, FOE);
   // A Knight that always cuts when it looks at the keep with a long gun (the share is its level's `cut`), aiming true so
   // its cut shots thread the narrow gateway rather than scattering off the wall (this watches the way it cuts, not its scatter).
-  const ai = new AiPlayer(m, ME, "knight", 5, { level: { cut: 1, firstErr: 0, noise: 0, learn: 1 } });
+  const ai = new AiPlayer(m, ME, "knight", 7, { level: { cut: 1, firstErr: 0, noise: 0, learn: 1 } });
   const kz = mirrorZ(FOE, CASTLE_SHAPE.keepZ), reach = CASTLE_SHAPE.keepHalf + 1.5;
   let footLandings = 0, minWeak = 99, footHeat = 0;
   play(m, ai, 3 * 60 * 60, () => {

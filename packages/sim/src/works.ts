@@ -163,7 +163,7 @@ export class Works {
         const id = crew.masons[k];
         if (id >= 0 && this.minions.list[id].state !== MinionState.Upright) {
           crew.masons[k] = -1;
-          if (this.household) this.household.lostWorker(crew.castle, StationKind.Mason, k, tick);
+          if (this.household?.started) this.household.lostWorker(crew.castle, StationKind.Mason, k, tick);
           else crew.due[k] = tick + REPAIR.respawn;
         }
         if (crew.masons[k] < 0 && crew.due[k] >= 0 && tick >= crew.due[k]) {
