@@ -98,6 +98,8 @@ export class GameRenderer implements GameRendererApi {
   private minions: Minions;
   private guns: Guns;
   private crews: Crews;
+  /** 3.6: men at each emplacement's posts (the household's report); null in the Practice range (two at every gun). */
+  private crewCounts: Int8Array | null = null;
   private crewInfo: CrewInfo = newCrewInfo();
   /** Where each team's waves stop on Hold. */
   private markers = new Markers();
@@ -940,6 +942,11 @@ export class GameRenderer implements GameRendererApi {
     swivel: { light: 0.7, decay: 18, bank: 0.35, ring: 2, ringScale: 0.35, back: 0.5, up: 0.7 },
   };
 
+  /** 3.6: the household's report of the crews (CREW_STRIDE numbers per emplacement, men first); null: two men at every gun. */
+  setCrews(counts: Int8Array | null) {
+    this.crewCounts = counts;
+  }
+
   private spawnMuzzle(em: number) {
     // Look round L1: the gun rolls back; if it is the one you ride, the camera jolts with it (replays pose every gun as not ridden).
     const fired = this.guns.fire(em);
@@ -1472,7 +1479,7 @@ export class GameRenderer implements GameRendererApi {
     this.haze.update(this.now, dt, (x, z, out) => this.windField.sampleAt(x, z, out));
     this.guns.update(dt, this.now, cam.quaternion);
     // L1: the men at the guns, drawn from the guns' own state (nothing of their own to keep).
-    this.crews.update(this.guns, this.now, cam);
+    this.crews.update(this.guns, this.now, cam, this.crewCounts);
     // Flash light decays fast.
     this.flashLevel *= Math.exp(-dt * this.flashDecay);
     if (this.flashLevel < 0.01) this.flashLevel = 0;

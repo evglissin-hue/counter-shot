@@ -142,6 +142,8 @@ export interface GameRendererApi {
   groundAt(x: number, z: number): number;
   /** After M5: a gun knocked out (it tips over, or with `fell` falls with its masonry) or back on its mount. */
   setGunOut(emplacement: number, out: boolean, fell?: boolean): void;
+  /** 3.6: how many men stand at each emplacement's posts (the household's report, CREW_STRIDE numbers each, men first); null: two at every gun (the Practice range). */
+  setCrews(counts: Int8Array | null): void;
   /**
    * The impact cam: draw the same world from `pose` into `rect` of the canvas after the main view (null pose: closed).
    * `swapped` draws the main view from the inset's pose and the inset from the gun's.
