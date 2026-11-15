@@ -412,7 +412,7 @@ export class Soundscape {
       this.keepsSet = true;
       this.sound.setKeeps(this.keep(me), this.keep(foe));
     }
-    if (info.organs) for (const c of [0, 1]) this.organUp[c] = info.organs[c].map((o) => o.up);
+    if (info.organs) for (const c of [0, 1]) this.organUp[c] = info.organs[c].map((o) => o.up && (o as { keeper?: boolean }).keeper !== false);
     const prev = this.prevMatch;
     this.prevMatch = { waves: [info.waves[0], info.waves[1]], standing: [info.standing[0], info.standing[1]], gateHits: [info.gateHits[0], info.gateHits[1]], ladders: [info.ladders[0], info.ladders[1]] };
     if (!prev || info.result) return;

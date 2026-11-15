@@ -22,6 +22,8 @@ export interface Pressed {
   fuseUp: boolean;
   fuseDown: boolean;
   help: boolean;
+  /** 3.6: the household panel (J). */
+  household: boolean;
   mute: boolean;
   /** Show or hide where minions can walk. */
   nav: boolean;
@@ -186,6 +188,7 @@ export class Input {
       fuseUp: e.has("BracketRight") || edge(12),
       fuseDown: e.has("BracketLeft") || edge(13),
       help: e.has("KeyH") || edge(9),
+      household: e.has("KeyJ"),
       mute: e.has("KeyM"),
       nav: e.has("KeyN"),
       skip: e.has("Escape") || e.has("Enter") || e.has("Backspace") || edge(1),
