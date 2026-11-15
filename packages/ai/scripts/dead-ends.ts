@@ -232,14 +232,20 @@ const everPlanted = new Set<number>(), carrySince = new Map<number, number>(), c
 /** Ladders whose crew stood near the enemy wall, carrying, with no way in open (the ones a ladder was for). */
 const chance = new Set<number>();
 const ORDERS = ["Advance", "Hold", "Push"];
+/** The order a man marches by: his wave's (a wave mustered under Hold keeps holding until the mast reaches it), else the team's. */
+function manOrder(x: Minion): number {
+  const f = (A as unknown as { orderOf?: (x: Minion) => number }).orderOf;
+  return typeof f === "function" ? f.call(A, x) : A.order[x.team];
+}
 /** The field a man marches on now, or -1 when he holds by order (as the army chooses it). */
 function marchField(x: Minion): number {
   const route = routeField(x.team, x.route);
-  if (A.order[x.team] === Order.Push) {
+  const order = manOrder(x);
+  if (order === Order.Push) {
     const b = breachField(x.team);
     return A.flow.at(b, x.x, x.z) < FLOW_INF ? b : route;
   }
-  if (A.order[x.team] === Order.Hold) {
+  if (order === Order.Hold) {
     const hz = holdMarker(x.team as 0 | 1, ROUTE_NAMES[x.route]).z;
     const past = x.team === 1 ? x.z - hz : hz - x.z;
     if (past > 1.5) return routeField(1 - x.team, x.route);
@@ -308,7 +314,7 @@ function armySecond(t: number) {
     }
     if (t - a.since >= ARMY.stuckFor * 60 && !stillFlagged.has(x.id)) {
       stillFlagged.add(x.id);
-      if (stillFlagged.size <= ARMY.stuckCap) flag(t, `team ${c}'s ${["pike", "mason", "ladder", "sapper", "musket", "boy"][x.unit]} ${x.id} stood ${ARMY.stuckFor} s with nothing to fight at (${x.x.toFixed(1)}, ${x.z.toFixed(1)}), under ${ARMY.stuckMetres} m of progress (order ${ORDERS[A.order[c]]}, wave ${x.wave}, route ${ROUTE_NAMES[x.route]})`);
+      if (stillFlagged.size <= ARMY.stuckCap) flag(t, `team ${c}'s ${["pike", "mason", "ladder", "sapper", "musket", "boy"][x.unit]} ${x.id} stood ${ARMY.stuckFor} s with nothing to fight at (${x.x.toFixed(1)}, ${x.z.toFixed(1)}), under ${ARMY.stuckMetres} m of progress (team order ${ORDERS[A.order[c]]}, his wave's ${ORDERS[manOrder(x)]}, wave ${x.wave}, route ${ROUTE_NAMES[x.route]})`);
       else stuckMore++;
     }
   }
