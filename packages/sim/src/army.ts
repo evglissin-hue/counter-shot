@@ -849,9 +849,13 @@ export class Army {
       if (this.canStep(c, nx, nz)) {
         m.x = nx;
         m.z = nz;
-      } else if (this.canStep(c, nx, z0)) m.x = nx;
-      else if (this.canStep(c, x0, nz)) m.z = nz;
-      else if (field >= 0) this.sidestep(m, c, field, speed / 60);
+      } else {
+        if (this.canStep(c, nx, z0)) m.x = nx;
+        else if (this.canStep(c, x0, nz)) m.z = nz;
+        // A slide along an axis he hardly moves on (a way straight at a refused cell, no sideways part) is no way on: he steps instead.
+        const sdx = m.x - x0, sdz = m.z - z0, want = speed / 60;
+        if (field >= 0 && want > 0 && sdx * sdx + sdz * sdz < want * want * 0.0625) this.sidestep(m, c, field, want);
+      }
     }
     const dx = m.x - x0, dz = m.z - z0;
     m.vx = dx * 60;
