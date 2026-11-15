@@ -15,7 +15,7 @@ import {
   BUTTRESS_FACES,
   type ButtressFace,
   CASTLE_SHAPE,
-  DEFEND,
+  BELL,
   ENEMY_ROUTES,
   GARRISON,
   KEEP_STOREYS,
@@ -380,7 +380,8 @@ export class Match {
           const dx = x - e.x, dz = z - e.z;
           return bridgeAtRisk(e, x, z, UNMANNED[e.weapon] ?? UNMANNED.longGun!, dsqrt(dx * dx + dz * dz), false, errScale);
         },
-        aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch) },
+        aimed: (emp, yaw, pitch) => this.aimed(emp, yaw, pitch),
+        spotter: (team) => this.spotter(team) },
       opts.seed,
     );
   }
@@ -716,6 +717,9 @@ export class Match {
   private lay(e: Emplacement, g: Gun, team: Team, U: UnmannedDef) {
     const gate = MUSTER[team];
     let best = -1, bestD = Infinity, bestMarked = false;
+    // 3.5: with the bell down a gun nobody mans sees the enemy late (BELL.late m from its gate) and marks do nothing for it.
+    const belled = this.organUp(team, "bell");
+    const reach = belled ? BELL.defend : BELL.late;
     for (const m of this.world.minions.list) {
       if (m.state !== MinionState.Upright || m.wave < 0 || m.team === team) continue;
       const dx = m.x - e.x, dz = m.z - e.z;
@@ -724,9 +728,9 @@ export class Match {
       if (yawTowards(e, m.x, m.z) === null) continue;
       const gx = m.x - gate.x, gz = m.z - gate.z;
       // 3.2: a man on one of the team's marks may be engaged anywhere in range, and counts as nearer the gate.
-      const onMark = this.register.onMark(team, m.x, m.z);
+      const onMark = belled && this.register.onMark(team, m.x, m.z, e.id);
       const threat = onMark ? (gx * gx + gz * gz) * (REGISTER.nearScale * REGISTER.nearScale) : gx * gx + gz * gz;
-      if ((!onMark && threat > DEFEND * DEFEND) || threat >= bestD) continue;
+      if ((!onMark && threat > reach * reach) || threat >= bestD) continue;
       if (m.id === g.skip) continue;
       const keg = m.unit === Unit.Sapper && (m.task === SapperTask.Carry || m.task === SapperTask.Plant);
       if (bridgeAtRisk(e, m.x, m.z, U, dsqrt(r2), keg, onMark ? REGISTER.errScale : 1)) continue;

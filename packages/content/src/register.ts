@@ -10,8 +10,7 @@ export const REGISTER = {
   radius: 6,
   /** Marks a team holds at once; one more replaces the oldest. */
   max: 6,
-  /** Ticks a mark lasts (180 s); a shot by hand of the team landing inside it refreshes it. */
-  life: 180 * 60,
+  // A mark's life is SPOTTER.life with a spotter's tower, SPOTTER.lifeAlone without (3.5; content buildings.ts).
   /** A gun nobody mans laying on a man inside one of its team's marks: its error times this (errBase and errPerM). */
   errScale: 0.25,
   /** ... and its reload, as a share of the weapon's own (instead of UNMANNED's reload). */
