@@ -100,8 +100,10 @@ const markShot = async (page, x, z) => {
   await page.waitForFunction(() => { const s = window.__sandbox; if (s.register.marks.length === 1) return true; if (s.register.canMark.some((id) => id === 0 || id === 8)) s.markHere(); return false; }, null, { timeout: 120000, polling: 50 });
   } catch (e) { console.log('mark wait failed', JSON.stringify(await page.evaluate(() => ({ can: window.__sandbox.register.canMark, nm: window.__sandbox.register.marks.length, view: window.__sandbox.view, reload: window.__sandbox.reload.slice(0, 10), team: window.__sandbox.match.team, tick: window.__sandbox.match.tick, shots: window.__sandbox.match.shots }))).slice(0, 700)); throw e; }
 };
-await markShot(host, 0, -62);
-await markShot(guest, 0, -88);
+// 3.5: with no spotter's tower a mark serves only the gun that made it, so the long gun alone fires for effect: its marks
+// lie between the bridges, where its shots put none of them at risk (by the centre bridge it would hold its fire).
+await markShot(host, 18, -56);
+await markShot(guest, -18, -94);
 const marks = (page) => page.evaluate(() => window.__sandbox.register.marks.map((m) => ({ n: m.n, x: Math.round(m.x), z: Math.round(m.z), place: m.place, bear: m.bear })));
 const [hm, gm] = [await marks(host), await marks(guest)];
 console.log("marks", JSON.stringify(hm), JSON.stringify(gm));
