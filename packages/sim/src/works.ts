@@ -11,12 +11,13 @@
 // Deterministic: crews and masons in a fixed order, Rapier's deterministic
 // queries sorted, + - * / and comparisons.
 
-import { CRANE, masonRefuge, masonYard, ORGAN_KINDS, REPAIR, REPAIR_ORDER, repairCost, repairSections, sectionOf, STRUCTURE, Unit, workSpot, type RepairKind, type RepairSection } from "@keepfall/content";
+import { CRANE, keepDoor, masonRefuge, masonYard, ORGAN_KINDS, REPAIR, REPAIR_ORDER, repairCost, repairSections, sectionOf, StationKind, STRUCTURE, Unit, workSpot, type RepairKind, type RepairSection } from "@keepfall/content";
 import { DPI, dsqrt } from "@keepfall/core";
 import { Action, type Army, type Emit } from "./army";
 import type { CastleSim } from "./castleSim";
 import { EventKind, WORKS_STRIDE } from "./frame";
 import { MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import type { Household } from "./household";
 import { OrganWait, type Organs } from "./organs";
 import type { Terrain } from "./terrain";
 
@@ -92,6 +93,12 @@ export class Works {
   } | null = null;
   /** 3.5: the world's organs (set by the sandbox once both exist; null without organs). Masons obey the crane and say why an organ waits. */
   organs: Organs | null = null;
+  /**
+   * 3.6: the household, once the match has one. With it set a mason who falls is reported to it (lostWorker) and never
+   * replaced here (REPAIR.respawn is for worlds without a household): the household sends the next of its reserve,
+   * through refill().
+   */
+  household: Household | null = null;
   private sections: RepairSection[];
   private sectionOf: Int16Array;
   /** Per castle, per organ (ORGAN_KINDS order): its Works section (index into sections), or -1. */
@@ -127,9 +134,17 @@ export class Works {
     }
   }
 
-  private spawnMason(crew: Crew, slot: number) {
+  /** 3.6: the household's next hand takes a fallen mason's place: a new mason out of the keep's door (he walks to his work by his own rules). Returns his minion (-1: this castle has no crew or no such place). */
+  refill(castle: 0 | 1, slot: number): number {
+    const crew = this.crews[castle];
+    if (!crew || crew.wave < 0 || slot < 0 || slot >= crew.masons.length || crew.masons[slot] >= 0) return -1;
+    const d = keepDoor(castle);
+    return this.spawnMason(crew, slot, d.x + ((slot % 2) - 0.5) * 1.2, d.z).id;
+  }
+
+  private spawnMason(crew: Crew, slot: number, atX?: number, atZ?: number): Minion {
     const y = masonYard(crew.castle);
-    const x = y.x + ((slot % 2) - 0.5) * 1.2, z = y.z + (Math.floor(slot / 2) - 0.5) * 1.2;
+    const x = atX ?? y.x + ((slot % 2) - 0.5) * 1.2, z = atZ ?? y.z + (Math.floor(slot / 2) - 0.5) * 1.2;
     const m = this.army.spawnAt(crew.castle, crew.wave, Unit.Mason, x, z, 0);
     m.role = Role.Mason;
     m.home = crew.castle;
@@ -137,6 +152,7 @@ export class Works {
     m.task = MasonTask.Home;
     m.cool = 0;
     crew.masons[slot] = m.id;
+    return m;
   }
 
   /** Every crew plans and every mason moves and works (after the army's step, before physics). */
@@ -147,7 +163,8 @@ export class Works {
         const id = crew.masons[k];
         if (id >= 0 && this.minions.list[id].state !== MinionState.Upright) {
           crew.masons[k] = -1;
-          crew.due[k] = tick + REPAIR.respawn;
+          if (this.household?.started) this.household.lostWorker(crew.castle, StationKind.Mason, k, tick);
+          else crew.due[k] = tick + REPAIR.respawn;
         }
         if (crew.masons[k] < 0 && crew.due[k] >= 0 && tick >= crew.due[k]) {
           crew.due[k] = -1;

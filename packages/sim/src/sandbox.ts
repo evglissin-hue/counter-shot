@@ -36,7 +36,7 @@ import { Structures } from "./structures";
 import { Statics } from "./statics";
 import { Buttresses } from "./buttresses";
 import { Organs } from "./organs";
-import { chainMid, SWEEP, sweptMen, type ChainMove } from "./sweep";
+import { SWEEP, sweptMen, type ChainMove } from "./sweep";
 import { Household } from "./household";
 import { Terrain } from "./terrain";
 import { Wind } from "./wind";
@@ -44,7 +44,7 @@ import { Gangs } from "./gangs";
 import { Works } from "./works";
 
 /** Bump whenever the same inputs would play out differently. */
-export const RULES_VERSION = 17;
+export const RULES_VERSION = 18;
 
 /** M3: what is known about a shot, for bounties and trick shots: whose gun, fired by hand or not, did it glance off stone first, did it strike a keep. */
 export interface ShotInfo {
@@ -178,7 +178,7 @@ export class SandboxSim {
     stones: new Float32Array(MAX_STONES * STONE_STRIDE),
     projectiles: new Float32Array(64 * PROJECTILE_STRIDE),
     chains: new Float32Array(16 * CHAIN_STRIDE),
-    minions: new Float32Array(320 * MINION_STRIDE),
+    minions: new Float32Array(384 * MINION_STRIDE),
     parts: new Float32Array(256 * 11 * PART_STRIDE),
     settled: new Float32Array(64 * 11 * PART_STRIDE),
     ladders: new Float32Array(32 * LADDER_STRIDE),
@@ -251,7 +251,25 @@ export class SandboxSim {
     if (this.works) this.works.organs = this.organs;
     // 3.6: the household (matches): its stations, the reserve and the crews at the guns (the executor wires it to the
     // minions, works, carriers, mounts, structures and organs it needs).
-    this.household = this.army ? new Household(this.emplacements, opts.seed, emit) : null;
+    this.household = this.army
+      ? new Household(this.emplacements, opts.seed, emit, {
+          minions: this.minions,
+          army: this.army,
+          castle: this.castle,
+          terrain: this.terrain,
+          mounts: this.mounts,
+          works: this.works,
+          carriers: this.carriers,
+          structures: this.structures,
+          organs: this.organs,
+        })
+      : null;
+    if (this.household) {
+      const h = this.household;
+      this.mounts.crewAt = (emp) => h.crew(emp);
+      if (this.works) this.works.household = h;
+      if (this.carriers) this.carriers.household = h;
+    }
     this.castle.world.step(); // build the broad phase now: a loading cost, not a frame cost
     this.castle.warmUp(); // and compile the support check, so the first hit does not stall
   }
@@ -289,6 +307,7 @@ export class SandboxSim {
     this.works?.step(tick);
     this.gangs?.step();
     this.carriers?.step(tick);
+    this.household?.step(tick);
     this.structures?.step(tick);
     this.buttresses?.step(tick);
     this.terrain.rebuild();
@@ -299,6 +318,7 @@ export class SandboxSim {
     this.carriers?.afterStep(tick);
     this.statics?.step(tick);
     this.organs?.step(tick);
+    this.household?.afterStep(tick);
     if (tick % 60 === 0) this.pruneShots(tick);
     if (tick % NAV_EVERY === NAV_EVERY - 1) this.nav.update();
     for (let i = 0; i < this.reload.length; i++) if (this.reload[i] > 0) this.reload[i]--;
@@ -326,13 +346,19 @@ export class SandboxSim {
     const aim = clampAim({ yaw: input.yaw, pitch: input.pitch }, e, w);
     const charge = input.charge < 0 ? 0 : input.charge > 1 ? 1 : input.charge;
     // The shot leaves a little off the aim, and the charge is never quite the same twice.
+    // 3.6: a crew's skill is part of it (a trained crew of two is 1.0: the Practice range has no household and fires as one).
+    const hh = this.household;
+    const sk = hh ? hh.scatterScale(e.id) : 1;
+    const rs = hh ? hh.reloadScale(e.id) : 1;
     const sc = w.scatter;
-    const r = sc.angle * dsqrt(this.scatterRng.next());
+    const r = sc.angle * sk * dsqrt(this.scatterRng.next());
     const turn = this.scatterRng.range(0, 6.283185307179586);
-    const kick = 1 + sc.speed * (this.scatterRng.next() * 2 - 1);
+    const kick = 1 + sc.speed * sk * (this.scatterRng.next() * 2 - 1);
     const a = { yaw: aim.yaw + r * cosT(turn), pitch: aim.pitch + r * sinT(turn) };
     const speed = (w.minSpeed + (w.speed - w.minSpeed) * charge) * kick;
-    this.reload[e.id] = input.reload !== undefined && input.reload > 0 ? Math.round(w.reload * input.reload) : w.reload;
+    const own = input.reload !== undefined && input.reload > 0 ? input.reload : 1;
+    this.reload[e.id] = own !== 1 || rs !== 1 ? Math.round(w.reload * own * rs) : w.reload;
+    hh?.fired(e.id);
     const id = this.nextShot++;
     this.firingAuto = input.auto === true;
     this.shotInfo.set(id, { emplacement: e.id, auto: this.firingAuto, glanced: false, ended: -1 });
@@ -612,11 +638,10 @@ export class SandboxSim {
 
   /**
    * After M5, after the world's step: a ball that passed through a gun this
-   * step knocks it out (a round shot must strike the gun itself; a chain
-   * shot's balls take its crew), and a chain shot's chain, swept from where
-   * it was to where it is, knocks down every man standing in its way, knocks
-   * planted ladders off the walls and sweeps gun crews away. Each man it
-   * takes slows it.
+   * step knocks it out (a shot must strike the gun itself, a chain shot's
+   * balls too), and a chain shot's chain, swept from where it was to where it
+   * is, knocks down every man standing in its way (3.6: a gun's crew are
+   * men) and knocks planted ladders off the walls. Each man it takes slows it.
    */
   private sweepShots() {
     const castle = this.castle, prev = this.prevPos, tick = this.tick;
@@ -630,7 +655,7 @@ export class SandboxSim {
         const v = ball.body.linvel();
         if (v.x * v.x + v.y * v.y + v.z * v.z < min2) continue;
         const t = ball.body.translation();
-        this.mounts.sweep(prev[slot * 3], prev[slot * 3 + 1], prev[slot * 3 + 2], t.x, t.y, t.z, ball.radius, chain, shot.id, shot.emplacement, tick);
+        this.mounts.sweep(prev[slot * 3], prev[slot * 3 + 1], prev[slot * 3 + 2], t.x, t.y, t.z, ball.radius, shot.id, shot.emplacement, tick);
       }
       if (!chain || shot.slots.length < 2) continue;
       const A = castle.balls[shot.slots[0]], B = castle.balls[shot.slots[1]];
@@ -663,12 +688,8 @@ export class SandboxSim {
         A.body.setLinvel({ x: va.x * keep, y: va.y * keep, z: va.z * keep }, true);
         B.body.setLinvel({ x: vb.x * keep, y: vb.y * keep, z: vb.z * keep }, true);
       }
-      // Ladders it passes come off the wall; the crews of guns it passes are swept away.
+      // Ladders it passes come off the wall (3.6: the crews of guns it passes are men, taken above like any).
       this.ladders?.sweptBy(mv, half, vx, vy, vz, tick);
-      for (let k = 0; k <= SWEEP.steps; k++) {
-        const c = chainMid(mv, k);
-        this.mounts.whirl(c[0], c[1], c[2], half, shot.id, shot.emplacement, tick);
-      }
     }
   }
 
@@ -799,6 +820,7 @@ export class SandboxSim {
     this.statics?.hashInto(extra);
     this.organs?.hashInto(extra);
     this.mounts.hashInto(extra);
+    this.household?.hashInto(extra);
     for (const s of this.shots) {
       extra.push(s.id, s.kind, s.fuseAt, s.landed ? 1 : 0);
       for (const slot of s.slots) {

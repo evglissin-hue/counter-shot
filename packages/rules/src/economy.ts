@@ -11,8 +11,8 @@
 // exactly representable steps), records read in the order the world wrote
 // them, shot tallies closed in id order.
 
-import { Earn, GOLD, isKeepPiece, MATCH, POWDER, type CastleLayout } from "@keepfall/content";
-import { Cause, type SandboxSim } from "@keepfall/sim";
+import { Earn, GOLD, HOUSEHOLD, isKeepPiece, MATCH, POWDER, type CastleLayout } from "@keepfall/content";
+import { Cause, isWorker, type SandboxSim } from "@keepfall/sim";
 
 export interface Earning {
   team: number;
@@ -117,7 +117,8 @@ export class Economy {
       const cause = downs[k + 1], shot = downs[k + 2], stone = downs[k + 3];
       const team = 1 - m.team;
       const y = m.y + 1.6;
-      this.earn(team, G.bounty, Earn.Bounty, m.x, y, m.z);
+      // 3.6: a man of the household (a mason, a powder boy, a gun's crew, a keeper) pays twice a soldier.
+      this.earn(team, isWorker(m) ? HOUSEHOLD.bounty : G.bounty, Earn.Bounty, m.x, y, m.z);
       if ((cause === Cause.Ball || cause === Cause.Burst) && shot >= 0) {
         const info = w.shotInfo.get(shot);
         if (!info || info.auto || this.teamOfEmp(info.emplacement) !== team) continue;

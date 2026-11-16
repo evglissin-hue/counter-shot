@@ -2,12 +2,14 @@
 // keep worth shooting at). Each emplacement stands on the masonry under it,
 // worked out once from the layout: the top two courses of its wall walk near
 // it, or the top of its tower's ring. A gun is knocked out when that masonry
-// gives way (it falls with it), when a ball strikes the gun itself, when a
-// chain shot sweeps the crew around it off the wall, or when a shell bursts
-// beside it. A knocked-out gun cannot fire, manned or not. Its crew puts it
-// back once REMOUNT.ticks have passed and the masonry under it stands again
-// (masons rebuild it like any other damage), paid for through a policy the
-// match sets (free without one: the Practice range).
+// gives way (it falls with it), when a ball strikes the gun itself, or when a
+// shell bursts beside it (3.6: a chain shot's balls knock a gun out only by
+// striking its body, like any ball; its chain takes the crew as men and the
+// gun stays up). A knocked-out gun cannot fire, manned or not. Its crew puts
+// it back once REMOUNT.ticks have passed, the masonry under it stands again
+// (masons rebuild it like any other damage) and one of the crew is at its
+// post (3.6: OutWait.Hands otherwise), paid for through a policy the match
+// sets (free without one: the Practice range).
 //
 // Deterministic: emplacements in id order, plain arithmetic, the castle's own
 // record of which pieces stand.
@@ -22,7 +24,7 @@ export const enum OutCause {
   Mount = 1,
   /** A ball struck it. */
   Shot = 2,
-  /** A chain shot swept its crew off the wall. */
+  /** Unused since 3.6: a chain shot sweeps a gun's crew down as men and no longer knocks the gun out by them. */
   Chain = 3,
   /** A shell burst beside it. */
   Burst = 4,
@@ -63,30 +65,33 @@ function castleAt(z: number): 0 | 1 {
 }
 
 /**
- * The masonry an emplacement stands on: on a wall walk, the pieces of its top
- * two courses within GUN_HITS.mountReach of the gun; in a tower (its floor is
- * the top of the ring round it), every piece of the ring's top two courses. A
- * gun on the ground (a mortar pit) stands on nothing that can fall.
+ * The masonry something stands on at (px, pz) with its feet no higher than
+ * `py` (+ 0.05), in a castle: on a wall walk, the pieces of its top two
+ * courses within GUN_HITS.mountReach; in a tower (its floor is the top of the
+ * ring round it), every piece of the ring's top two courses. `any` lets every
+ * material count (a keep's floor boards), not only stone. Battlements and a
+ * plot's buildings never count. `floor` is the height of the floor (under
+ * 0.5: the ground, and no pieces).
  */
-export function mountPieces(layout: CastleLayout, e: Emplacement): number[] {
-  const castle = castleAt(e.z);
+export function supportOf(layout: CastleLayout, castle: number, px: number, pz: number, py: number, any = false): { ids: number[]; floor: number } {
   const ringR = layout.wedge.rOut + 0.6;
   let under = 0, ring = 0;
   const near: number[] = [];
   for (const s of layout.stones) {
     // Battlements are a parapet, not what a gun stands on; a plot's buildings are not either.
-    if (s.castle !== castle || s.material !== "stone" || s.part === "merlon" || s.plot !== undefined) continue;
-    const dx = s.x - e.x, dz = s.z - e.z;
+    if (s.castle !== castle || (!any && s.material !== "stone") || s.part === "merlon" || s.plot !== undefined) continue;
+    const dx = s.x - px, dz = s.z - pz;
     if (dx * dx + dz * dz > 36) continue;
     const b = stoneBounds(s, layout.wedge);
-    if (b[4] > e.y + 0.05) continue;
+    if (b[4] > py + 0.05) continue;
     near.push(s.id);
-    if (e.x >= b[0] - 0.6 && e.x <= b[3] + 0.6 && e.z >= b[2] - 0.6 && e.z <= b[5] + 0.6 && b[4] > under) under = b[4];
+    if (px >= b[0] - 0.6 && px <= b[3] + 0.6 && pz >= b[2] - 0.6 && pz <= b[5] + 0.6 && b[4] > under) under = b[4];
     if (s.shape === "wedge" && dx * dx + dz * dz < ringR * ringR && b[4] > ring) ring = b[4];
   }
-  const tower = ring - under > 1.5;
+  // (3.6: a wall gun beside a tower sees the tower's ring a course or three above its own wall walk: only a ring well above it, or with nothing under the post at all, is a tower's deck.)
+  const tower = ring - under > 3;
   const floor = tower ? ring : under;
-  if (floor < 0.5) return [];
+  if (floor < 0.5) return { ids: [], floor: 0 };
   const out: number[] = [];
   const R = GUN_HITS.mountReach;
   for (const id of near) {
@@ -94,18 +99,37 @@ export function mountPieces(layout: CastleLayout, e: Emplacement): number[] {
     const b = stoneBounds(s, layout.wedge);
     if (b[4] < floor - GUN_HITS.mountDepth || b[4] > floor + 0.05) continue;
     if (tower) {
-      const dx = s.x - e.x, dz = s.z - e.z;
+      const dx = s.x - px, dz = s.z - pz;
       if (s.shape !== "wedge" || dx * dx + dz * dz >= ringR * ringR) continue;
     } else {
-      // The nearest point of the piece's footprint to the gun.
-      const cx = e.x < b[0] ? b[0] : e.x > b[3] ? b[3] : e.x;
-      const cz = e.z < b[2] ? b[2] : e.z > b[5] ? b[5] : e.z;
-      const dx = cx - e.x, dz = cz - e.z;
+      // The nearest point of the piece's footprint to the post.
+      const cx = px < b[0] ? b[0] : px > b[3] ? b[3] : px;
+      const cz = pz < b[2] ? b[2] : pz > b[5] ? b[5] : pz;
+      const dx = cx - px, dz = cz - pz;
       if (dx * dx + dz * dz > R * R) continue;
     }
     out.push(id);
   }
-  return out.sort((a, b) => a - b);
+  return { ids: out.sort((a, b) => a - b), floor };
+}
+
+/**
+ * The masonry an emplacement stands on: on a wall walk, the pieces of its top
+ * two courses within GUN_HITS.mountReach of the gun; in a tower (its floor is
+ * the top of the ring round it), every piece of the ring's top two courses. A
+ * gun on the ground (a mortar pit) stands on nothing that can fall.
+ */
+export function mountPieces(layout: CastleLayout, e: Emplacement): number[] {
+  return supportOf(layout, castleAt(e.z), e.x, e.z, e.y).ids;
+}
+
+/**
+ * 3.6: the floor a gun's crew stand on (metres): the wall walk's top, the top
+ * of the tower's ring (its deck), or for a pit 0: the ground (the sim reads
+ * the terrain's height there).
+ */
+export function mountFloor(layout: CastleLayout, e: Emplacement): number {
+  return supportOf(layout, castleAt(e.z), e.x, e.z, e.y).floor;
 }
 
 /** Squared distance from point p to the segment a-b. */
@@ -127,6 +151,8 @@ export class Mounts {
   /** Put back this step: [emplacement, gold paid] each. */
   readonly backs: number[] = [];
   policy: MountPolicy | null = null;
+  /** 3.6: men of a gun's crew at their posts (the household; null: always enough, the Practice range). A knocked-out gun is put back only with one. */
+  crewAt: ((emp: number) => number) | null = null;
 
   constructor(
     private castle: CastleSim,
@@ -185,37 +211,19 @@ export class Mounts {
   }
 
   /**
-   * A shot moved from a to b this step: does it pass through a gun? `crew`
-   * (a chain shot) sweeps the crew around a gun; otherwise the shot must
-   * strike the gun itself (its body's radius plus the ball's). A gun is never
-   * struck by its own shot.
+   * A shot moved from a to b this step: does it pass through a gun? The shot
+   * must strike the gun itself (its body's radius plus the ball's): a chain
+   * shot's balls too, like any ball (3.6: its chain takes the crew as men,
+   * sweep.ts). A gun is never struck by its own shot.
    */
-  sweep(ax: number, ay: number, az: number, bx: number, by: number, bz: number, ballR: number, crew: boolean, shot: number, own: number, tick: number) {
+  sweep(ax: number, ay: number, az: number, bx: number, by: number, bz: number, ballR: number, shot: number, own: number, tick: number) {
     for (let i = 0; i < this.emplacements.length; i++) {
       const e = this.emplacements[i];
       if (e.empty || this.guns[i].out || i === own) continue;
       const kind: WeaponKind = e.weapon;
-      const r = crew ? GUN_HITS.crew[kind] : GUN_HITS.body[kind] + ballR;
+      const r = GUN_HITS.body[kind] + ballR;
       const [cx, cy, cz] = this.centre(i);
-      if (segPoint2(ax, ay, az, bx, by, bz, cx, cy, cz) <= r * r) this.knockOut(i, crew ? OutCause.Chain : OutCause.Shot, shot, tick);
-    }
-  }
-
-  /**
-   * A chain shot's whirl (radius `half`) passes a point this step: the crew of
-   * any gun whose trunnions lie within GUN_HITS.crew of the whirl's edge (and
-   * as high or low) is swept off the wall.
-   */
-  whirl(x: number, y: number, z: number, half: number, shot: number, own: number, tick: number) {
-    for (let i = 0; i < this.emplacements.length; i++) {
-      const e = this.emplacements[i];
-      if (e.empty || this.guns[i].out || i === own) continue;
-      const crew = GUN_HITS.crew[e.weapon];
-      const [cx, cy, cz] = this.centre(i);
-      const dy = cy - y;
-      if (dy > crew || dy < -crew) continue;
-      const dx = cx - x, dz = cz - z, r = half + crew;
-      if (dx * dx + dz * dz <= r * r) this.knockOut(i, OutCause.Chain, shot, tick);
+      if (segPoint2(ax, ay, az, bx, by, bz, cx, cy, cz) <= r * r) this.knockOut(i, OutCause.Shot, shot, tick);
     }
   }
 
@@ -248,6 +256,10 @@ export class Mounts {
         g.wait = OutWait.Masonry;
         continue;
       }
+      if (this.crewAt && this.crewAt(i) <= 0) {
+        g.wait = OutWait.Hands;
+        continue;
+      }
       const cost = remountCost(e.weapon);
       const team = castleAt(e.z);
       if (this.policy && !this.policy.pay(team, cost)) {
@@ -266,7 +278,7 @@ export class Mounts {
   /**
    * For the page: per emplacement, 0 when up (or empty with its masonry
    * standing), else 1 + OutWait (1 its crew is at work, 2 its masonry is
-   * down, 3 no gold), then the ticks left before its crew could have it back.
+   * down, 3 no gold, 4 none of its crew is at it), then the ticks left before its crew could have it back.
    * An empty slot whose masonry is down reads 2.
    */
   report(tick: number, out: Int16Array) {

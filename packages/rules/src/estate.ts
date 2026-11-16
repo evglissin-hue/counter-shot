@@ -122,6 +122,8 @@ export class Estate {
     e.barrel = BARREL[weapon];
     // 3.3: a gun bought later arrives with its box full.
     this.world.carriers?.armed(e);
+    // 3.6: and with its crew of two, green and new, at their posts.
+    this.world.household?.armed(emp);
     return true;
   }
 

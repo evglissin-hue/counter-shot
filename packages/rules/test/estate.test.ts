@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { armedWeapon, BUILDINGS, buildLayout, Earn, GAME_LAYOUT, GOLD, KEG, MARCH, MATCH, MUSTER, PLOTS, POWDER, ROUTE_NAMES, Unit, WEAPONS, WAVES } from "@keepfall/content";
-import { Action, Cause, EVENT_STRIDE, EventKind, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Role, Spin, type Rapier } from "@keepfall/sim";
+import { Action, Cause, EVENT_STRIDE, EventKind, isWorker, MinionState, navCell, NavKind, PlotState, PROJECTILE_STRIDE, Role, Spin, type Rapier } from "@keepfall/sim";
 import { ESTATE_MATCH_HASH, Match, runEstateMatch, Team } from "@keepfall/rules";
 
 await RD.init();
@@ -105,7 +105,7 @@ test("trick shots pay a gunner (ricochet, collapse, multi-kill, keep hit), never
   const w = m.world;
   m.army.spawnWave(Team.Enemy, 1, 8, { x: 0, z: -70 });
   run(m, 2);
-  const enemy = w.minions.list.filter((x) => x.team === Team.Enemy);
+  const enemy = w.minions.list.filter((x) => x.team === Team.Enemy && !isWorker(x));
   // Shot 9001 from the player's long gun, by hand, that glanced off stone; 9002 the same but fired by the gun on its own.
   w.shotInfo.set(9001, { emplacement: 0, auto: false, glanced: true, ended: -1 });
   w.shotInfo.set(9002, { emplacement: 0, auto: true, glanced: true, ended: -1 });

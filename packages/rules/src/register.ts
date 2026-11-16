@@ -80,6 +80,8 @@ export interface RegisterHost {
   aimed?(emplacement: number, yaw: number, pitch: number): void;
   /** 3.5: does the team have a working spotter's tower? (Absent: it does, as in the Practice range.) */
   spotter?(team: number): boolean;
+  /** 3.6: men of an emplacement's crew at their posts (absent: two, as in the Practice range). A salvo leaves out a gun with none, unless the team rides it. */
+  crew?(emplacement: number): number;
 }
 
 /** Ground distance between two points. */
@@ -143,6 +145,11 @@ export class Register {
     return true;
   }
 
+  /** 3.6: has this gun no crew at it, and is it not the one the team rides? */
+  private noCrew(emp: number, team: number): boolean {
+    return (this.host.crew?.(emp) ?? 2) === 0 && this.host.manned(team) !== emp;
+  }
+
   /** 3.5: does the team's spotter's tower stand and work (absent in the Practice range: it does)? */
   private spotting(team: number): boolean {
     return this.host.spotter ? this.host.spotter(team) : true;
@@ -189,6 +196,8 @@ export class Register {
       if (!shared && e.id !== m.emplacement) continue;
       if (e.weapon === "mortar" && !mortar) continue;
       if ((loaded && this.host.world.reload[e.id] !== 0) || !this.host.world.mounts.up(e.id)) continue;
+      // 3.6: a gun with no crew takes no part, unless the team rides it (it fires by its own hands).
+      if (this.noCrew(e.id, team)) continue;
       // 3.3: a gun whose box cannot pay for a shot leaves the salvo out (the Practice range has no boxes to empty).
       if (loaded && this.host.world.carriers && !this.host.world.carriers.canPay(e.id)) continue;
       if (!this.solve(team, e, m, m.x, m.z)) continue;
@@ -250,6 +259,7 @@ export class Register {
     const e = this.host.emplacements[q.emplacement];
     const m = this.mark(q.team, q.mark);
     if (!e || !m || m.made !== q.made || e.empty || world.reload[e.id] !== 0 || !world.mounts.up(e.id)) return;
+    if (this.noCrew(e.id, q.team)) return;
     if (world.carriers && !world.carriers.canPay(e.id)) return;
     if (this.unsafe(q.team, e, m)) return;
     const U = UNMANNED[e.weapon] ?? UNMANNED.longGun!;
