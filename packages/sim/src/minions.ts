@@ -284,6 +284,22 @@ export class Minions {
     m.capsule.setNextKinematicRotation({ x: q[0], y: q[1], z: q[2], w: q[3] });
   }
 
+  /**
+   * 3.6: put an upright minion's capsule where it now stands at once, with no motion (a man hoisted to his post on a wall,
+   * or climbing down from it). A kinematic move over metres in one step sweeps the capsule at hundreds of m/s and flings
+   * any loose stone in its way into the masonry (towers and keeps came down early in the first household matches).
+   */
+  teleport(m: Minion) {
+    if (!m.capsule) return;
+    const t = { x: m.x, y: m.y + CAP_HALF + CAP_R, z: m.z };
+    const q = quatY(m.yaw);
+    const r = { x: q[0], y: q[1], z: q[2], w: q[3] };
+    m.capsule.setTranslation(t, false);
+    m.capsule.setRotation(r, false);
+    m.capsule.setNextKinematicTranslation(t);
+    m.capsule.setNextKinematicRotation(r);
+  }
+
   /** Turn an upright minion into a ragdoll and push it. */
   knock(k: Knock, tick: number) {
     const m = this.list[k.minion];

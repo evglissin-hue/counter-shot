@@ -463,7 +463,7 @@ export class Household {
     m.y = y;
     m.yaw = yaw;
     m.action = action;
-    d.minions.place(m);
+    d.minions.teleport(m);
     return m;
   }
 
@@ -494,7 +494,7 @@ export class Household {
     m.yaw = p.yaw;
     m.vx = m.vz = 0;
     m.action = st.kind === StationKind.Gun ? CrewAction.AtGun : CrewAction.AtPost;
-    this.deps!.minions.place(m);
+    this.deps!.minions.teleport(m);
     seat.state = SeatState.AtPost;
     seat.cool = 0;
     this.emit(EventKind.HouseholdUp, st.team, si, k, seat.person);
@@ -818,7 +818,7 @@ export class Household {
     m.y = d.terrain.heightAt(foot.x, foot.z);
     m.vx = m.vz = 0;
     m.action = Action.Stand;
-    d.minions.place(m);
+    d.minions.teleport(m);
     seat.state = SeatState.Waiting;
     seat.gx = foot.x;
     seat.gz = foot.z;
