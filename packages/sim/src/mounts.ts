@@ -73,7 +73,7 @@ function castleAt(z: number): 0 | 1 {
  * plot's buildings never count. `floor` is the height of the floor (under
  * 0.5: the ground, and no pieces).
  */
-export function supportOf(layout: CastleLayout, castle: number, px: number, pz: number, py: number, any = false): { ids: number[]; floor: number } {
+export function supportOf(layout: CastleLayout, castle: number, px: number, pz: number, py: number, any = false, reach: number = GUN_HITS.mountReach): { ids: number[]; floor: number } {
   const ringR = layout.wedge.rOut + 0.6;
   let under = 0, ring = 0;
   const near: number[] = [];
@@ -93,7 +93,7 @@ export function supportOf(layout: CastleLayout, castle: number, px: number, pz: 
   const floor = tower ? ring : under;
   if (floor < 0.5) return { ids: [], floor: 0 };
   const out: number[] = [];
-  const R = GUN_HITS.mountReach;
+  const R = reach;
   for (const id of near) {
     const s = layout.stones[id];
     const b = stoneBounds(s, layout.wedge);

@@ -235,6 +235,8 @@ interface SeatRun extends Seat {
 interface StationRun extends Station {
   floor: number;
   pieces: number[];
+  /** 3.6 (tuning): a gun's men each stand on their own footing: the masonry under each post (a tower's deck: its ring's top). */
+  footing: number[][];
   seats: SeatRun[];
 }
 
@@ -320,6 +322,7 @@ export class Household {
         if (castleOfEmp(e) !== c) continue;
         const st = this.addStation(c, StationKind.Gun, e.id, HOUSEHOLD.gunCrew);
         st.floor = mountFloor(L, e);
+        this.foot(st);
         this.gunSt[e.id] = this.run.indexOf(st);
         if (e.empty) continue;
         for (let k = 0; k < HOUSEHOLD.gunCrew; k++) this.mount(st, k, this.newPerson(c, HOUSEHOLD.startShots));
@@ -353,7 +356,7 @@ export class Household {
   }
 
   private addStation(team: 0 | 1, kind: StationKind, index: number, seats: number): StationRun {
-    const st: StationRun = { team, kind, index, seats: [], floor: 0, pieces: [] };
+    const st: StationRun = { team, kind, index, seats: [], floor: 0, pieces: [], footing: [] };
     for (let k = 0; k < seats; k++) st.seats.push({ state: SeatState.Empty, person: -1, minion: -1, lostAt: -1, due: -1, cool: 0, gx: NaN, gz: NaN, tx: 0, tz: 0, seek: 0, stuck: 0, best: Infinity });
     const i = this.run.length;
     this.run.push(st);
@@ -394,12 +397,18 @@ export class Household {
     return { x: p.x, y: p.y + LIFT, z: p.z, yaw: st.team === 0 ? 3.141592653589793 : 0 };
   }
 
-  /** The share of the masonry under a post that stands (a spotter's tower: 1 while it works, else 0). */
-  private share(st: StationRun): number {
+  /** The share of the masonry under a post (a gun's: seat k's own footing) that stands (a spotter's tower: 1 while it works, else 0). */
+  private share(st: StationRun, k = 0): number {
     const d = this.deps!;
     switch (st.kind) {
-      case StationKind.Gun:
-        return d.mounts.standing(st.index);
+      case StationKind.Gun: {
+        const f = st.footing[k];
+        if (!f || !f.length) return 1;
+        const dyn = d.castle.dynamic;
+        let n = 0;
+        for (const id of f) if (!dyn[id]) n++;
+        return n / f.length;
+      }
       case StationKind.Spotter:
         return d.structures && this.spotterPlot(st.team) >= 0 ? 1 : 0;
       default: {
@@ -413,13 +422,13 @@ export class Household {
   }
 
   /** May a replacement be hoisted up to this post (its masonry stands again)? */
-  private postUp(st: StationRun): boolean {
-    return this.share(st) >= GUN_HITS.mountBack;
+  private postUp(st: StationRun, k = 0): boolean {
+    return this.share(st, k) >= GUN_HITS.mountBack;
   }
 
   /** Does the post still hold a man (under GUN_HITS.mountOut of its masonry down, a man on it falls)? */
-  private postHolds(st: StationRun): boolean {
-    return this.share(st) >= GUN_HITS.mountOut;
+  private postHolds(st: StationRun, k = 0): boolean {
+    return this.share(st, k) >= GUN_HITS.mountOut;
   }
 
   /** The plot of a team's working spotter's tower (-1: none). */
@@ -543,10 +552,22 @@ export class Household {
     const si = this.gunSt[emp];
     if (si < 0) return;
     const st = this.run[si];
+    this.foot(st);
     for (let k = 0; k < st.seats.length; k++) {
       if (st.seats[k].state !== SeatState.Empty) continue;
       this.mount(st, k, this.newPerson(st.team, 0));
     }
+  }
+
+  /** A gun station's footing: the masonry under each of its posts (none in a pit: the ground never gives way). */
+  private foot(st: StationRun) {
+    const e = this.emplacements[st.index];
+    const L = this.deps!.castle.layout;
+    st.footing = st.seats.map((_, k) => {
+      if (st.floor <= 0 || e.empty) return [];
+      const p = crewPostXZ(e, k);
+      return supportOf(L, st.team, p.x, p.z, st.floor, false, HOUSEHOLD.footReach).ids;
+    });
   }
 
   /** Is a team's keeper of the bell, the mast or the spotter's tower at his post? (True where there is none: no organs, no plots.) */
@@ -764,7 +785,7 @@ export class Household {
     m.vx = m.vz = 0;
     seat.best = Infinity;
     seat.stuck = 0;
-    if (this.postUp(st)) this.beginHoist(st, k);
+    if (this.postUp(st, k)) this.beginHoist(st, k);
     else {
       seat.state = SeatState.Waiting;
       m.action = Action.Stand;
@@ -776,6 +797,34 @@ export class Household {
     seat.state = SeatState.Hoisting;
     seat.cool = HOUSEHOLD.hoist;
     this.deps!.minions.list[seat.minion].action = CrewAction.Hoist;
+  }
+
+  /** Is a post's footing falling as part of a toppling or crushing keep or tower (the statics pass has it)? A spotter's tower wrecked: yes. */
+  private falling(st: StationRun, k: number): boolean {
+    if (st.kind === StationKind.Spotter) return true;
+    const busy = this.deps!.castle.busy;
+    const ids = st.kind === StationKind.Gun ? (st.footing[k] ?? []) : st.pieces;
+    for (const id of ids) if (busy[id]) return true;
+    return false;
+  }
+
+  /** A man whose footing was shot away climbs down to his post's foot and waits there to be hoisted back up (he keeps his place and his shots). */
+  private climbDown(st: StationRun, k: number, m: Minion) {
+    const d = this.deps!;
+    const seat = st.seats[k];
+    const foot = this.footOf(st, k);
+    m.x = foot.x;
+    m.z = foot.z;
+    m.y = d.terrain.heightAt(foot.x, foot.z);
+    m.vx = m.vz = 0;
+    m.action = Action.Stand;
+    d.minions.place(m);
+    seat.state = SeatState.Waiting;
+    seat.gx = foot.x;
+    seat.gz = foot.z;
+    seat.cool = 0;
+    seat.best = Infinity;
+    seat.stuck = 0;
   }
 
   /** A replacement at the foot: waits while his post is down, is hoisted when it stands. */
@@ -794,10 +843,10 @@ export class Household {
       return;
     }
     if (seat.state === SeatState.Waiting) {
-      if (this.postUp(st)) this.beginHoist(st, k);
+      if (this.postUp(st, k)) this.beginHoist(st, k);
       return;
     }
-    if (!this.postHolds(st)) {
+    if (!this.postHolds(st, k)) {
       seat.state = SeatState.Waiting;
       seat.cool = 0;
       m.action = Action.Stand;
@@ -813,16 +862,16 @@ export class Household {
     for (let si = 0; si < this.run.length; si++) {
       const st = this.run[si];
       if (st.kind === StationKind.Mason || st.kind === StationKind.Boy) continue;
-      // A man on masonry that gives way goes with it.
-      let posted = false;
-      for (const seat of st.seats) if (seat.state === SeatState.AtPost) posted = true;
-      if (posted && !this.postHolds(st)) {
-        for (const seat of st.seats) {
-          if (seat.state !== SeatState.AtPost) continue;
-          const m = d.minions.list[seat.minion];
-          if (m.state !== MinionState.Upright) continue;
-          d.minions.knock({ minion: m.id, vx: 0, vy: 0, vz: 0, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: Cause.Fall }, tick);
-        }
+      // A man on masonry that gives way goes with it when it falls as part of a keep or tower toppling or crushing (or his
+      // spotter's tower is wrecked); 3.6 tuning (the owner's choice, taking cover): a gun's men each by their own footing,
+      // and a man whose footing is shot away under him climbs down and waits at the post's foot to go back up.
+      for (let k = 0; k < st.seats.length; k++) {
+        const seat = st.seats[k];
+        if (seat.state !== SeatState.AtPost || this.postHolds(st, k)) continue;
+        const m = d.minions.list[seat.minion];
+        if (m.state !== MinionState.Upright) continue;
+        if (this.falling(st, k)) d.minions.knock({ minion: m.id, vx: 0, vy: 0, vz: 0, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: Cause.Fall }, tick);
+        else this.climbDown(st, k, m);
       }
       for (let k = 0; k < st.seats.length; k++) {
         const seat = st.seats[k];
