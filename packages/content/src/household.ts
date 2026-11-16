@@ -117,6 +117,11 @@ export function crewScatter(crew: number, level: number): number {
  * left looking down the barrel, z along it, metres): [layer, loader], on the
  * floor the gun stands on (the wall walk, the tower top's deck, the pit). The
  * same places the page's crews rest at (look round L1), clear of the carriage.
+ * (Moved in the sim's build of 3.6 so that no post overlaps a stone, a wall
+ * walk's merlons and the keep's buttresses included: on a wall walk both men
+ * stand on the strip behind the parapet, 1.5 to 1.75 m behind the pivot; the
+ * mortar's crew stand clear of the keep's front buttresses. Tested in
+ * packages/rules/test/household.test.ts.)
  */
 export const CREW_POSTS: Record<WeaponKind, [[number, number], [number, number]]> = {
   longGun: [[-1.25, -1.75], [1.55, -1.7]],
