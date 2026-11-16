@@ -63,51 +63,55 @@ try {
   await snap("crew-two-men-real");
   const got = { one: false, hoist: false, panel: false };
   const t0 = Date.now();
-  for (let s = 0; s < maxSecs && !(got.one && got.hoist && got.panel); s += 2) {
-    await adv(2);
-    const st = await page.evaluate(() => {
-      const m = window.__sandbox.match, h = m.household, b = window.__sandbox.emplacementBase;
-      if (!h) return null;
+  const foeBase = base === 0 ? 8 : 0;
+  let shots = 0;
+  await page.evaluate(() => window.__sandbox.select(2));
+  for (let s = 0; s < maxSecs && !(got.one && got.hoist && got.panel); s += 0.5) {
+    await adv(0.5);
+    const st = await page.evaluate(([foeBase]) => {
+      const S = window.__sandbox, m = S.match, h = m.household;
+      if (!h || m.result) return { done: true };
       const guns = h.stations.filter((x) => x.kind === 0 && x.seats.some((t) => t.state !== 0)).map((x) => ({ index: x.index, men: x.seats.filter((t) => t.state === 5).length, states: x.seats.map((t) => t.state) }));
-      return { tick: m.tick, result: m.result, guns, lost: h.lost, reserve: h.reserve };
-    });
-    if (!st || st.result) break;
+      // Any household man being hoisted now, either side: Unit.Crew 6, CrewAction.Hoist 14.
+      let hoist = null;
+      const f = S.frame;
+      if (f) for (let i = 0; i < f.minions.length; i += 10) if (f.minions[i + 9] === 6 && f.minions[i + 7] === 14) { hoist = { x: f.minions[i + 1], y: f.minions[i + 2], z: f.minions[i + 3] }; break; }
+      // The enemy's guns with exactly one man left at their posts.
+      const foe = [];
+      for (let k = 0; k < 8; k++) if (m.crews && m.crews[(foeBase + k) * 3] === 1) foe.push(foeBase + k);
+      return { tick: m.tick, guns, hoist, foe, ready: S.reload[2] === 0 };
+    }, [foeBase]);
+    if (st.done) break;
     const hurt = st.guns.find((g) => g.men === 1);
-    const walking = st.guns.find((g) => g.states.some((x) => x === 2 || x === 3 || x === 4));
-    if (hurt && !got.one) {
+    const target = hurt ? { id: hurt.index, whose: "own" } : st.foe.length ? { id: st.foe[0], whose: "enemy" } : null;
+    if (target && !got.one) {
       got.one = true;
-      await lookAt(hurt.index, false);
+      await lookAt(target.id, false);
       await adv(0.2);
       await snap("crew-one-man-down-real");
-      console.log("one man down at", hurt.index, "tick", st.tick);
+      console.log("one man down at", target.id, target.whose, "tick", st.tick);
     }
-    if (walking && !got.panel) {
+    if (st.hoist && !got.hoist) {
+      got.hoist = true;
+      await page.evaluate((h) => { const S = window.__sandbox; S.look({ x: h.x + 3, y: h.y + 1.2, z: h.z + 4, tx: h.x, ty: h.y + 1, tz: h.z, fov: 55 }); }, st.hoist);
+      await adv(0.1);
+      await snap("hoist-real");
+      console.log("hoist seen at", JSON.stringify(st.hoist), "tick", st.tick);
+    }
+    if (!got.panel && st.guns.some((g) => g.states.some((x) => x === 2 || x === 3 || x === 4))) {
       got.panel = true;
       await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyJ" })));
       await frames(4);
-      await snap("panel-real");
+      await snap("panel-real-way");
       await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyJ" })));
       await frames(2);
       console.log("panel with a seat on its way, tick", st.tick);
     }
-    if (walking && walking.states.some((x) => x === 4) && !got.hoist) {
-      got.hoist = true;
-      await lookAt(walking.index, true);
-      await snap("hoist-real");
-      console.log("hoist at", walking.index, "tick", st.tick);
-    }
-    // Step finer while a man walks, so a hoist is caught while it lasts (3 s).
-    if (walking && !got.hoist) {
-      for (let k = 0; k < 40 && !got.hoist; k++) {
-        await adv(0.5);
-        const hoisting = await page.evaluate(([id]) => { const h = window.__sandbox.match.household; const g = h.stations.find((x) => x.kind === 0 && x.index === id); return g ? g.seats.some((t) => t.state === 4) : false; }, [walking.index]);
-        if (hoisting) {
-          got.hoist = true;
-          await lookAt(walking.index, true);
-          await snap("hoist-real");
-          console.log("hoist at", walking.index);
-        }
-      }
+    // Shell the enemy's guns with the chain shot while it is ready: its crews fall, and its replacements are hoisted.
+    if (!got.one && st.ready && s % 6 < 0.5 && shots < 40) {
+      const k = foeBase + (shots % 4);
+      shots++;
+      await page.evaluate(([k]) => { const S = window.__sandbox, g = S.guns[k], c = S.camera; S.select(2); S.aimAtPoint(2, g.x, c.y - 1.1 + 3.2 * c.fy, g.z); S.fire(1); }, [k]);
     }
   }
   console.log("found", JSON.stringify(got), "in", Math.round((Date.now() - t0) / 1000), "s");
