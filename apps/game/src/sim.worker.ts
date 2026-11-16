@@ -179,6 +179,7 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   bridgesSent = -1;
   endSent = false;
   rosterAt = -1e9;
+  stationsSent = false;
   post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
 
@@ -242,6 +243,7 @@ function matchInfo(): MatchInfo | null {
     // 3.6: every crew each frame (men at its posts, skill, replacements on the way), and this page's roster now and then.
     crews: crewReport(match),
     household: householdRoster(match, ended),
+    stationKinds: stationKinds(match),
   };
   if (info.masonry) endSent = true;
   return info;
@@ -254,6 +256,15 @@ function crewReport(match: Match): Int8Array | null {
   const out = new Int8Array(match.world.emplacements.length * CREW_STRIDE);
   h.report(out);
   return out;
+}
+
+/** 3.6: every station's kind (+ 8 for castle 1), once per match. */
+let stationsSent = false;
+function stationKinds(match: Match): Int8Array | null {
+  const h = match.world.household;
+  if (!h || stationsSent || !h.stations.length) return null;
+  stationsSent = true;
+  return Int8Array.from(h.stations, (s) => s.kind + (s.team === 1 ? 8 : 0));
 }
 
 /** 3.6: ticks of the last roster sent (the page keeps it between). */

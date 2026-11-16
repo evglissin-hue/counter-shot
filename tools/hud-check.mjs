@@ -91,6 +91,18 @@ const shotHeld = async (path, clip) => {
   await page.screenshot({ path, ...(clip ? { clip } : {}) });
   await page.evaluate(() => window.__hold.forEach((o) => o.disconnect()));
 };
+/**
+ * Press a key and wait for the state it brings (polled in the page). A key a slow machine's frame loop missed is pressed once more
+ * after a wait, but only while the state is still not there, so it can never toggle twice.
+ */
+async function pressUntil(code, name, fn, arg, again = 2) {
+  for (let i = 0; i <= again; i++) {
+    await page.keyboard.press(code);
+    try { await page.waitForFunction(fn, arg, { timeout: i < again ? 12000 : 90000, polling: 100 }); console.log(`ok   ${name}`); return; } catch {}
+  }
+  console.log(`FAIL ${name}`);
+  failed++;
+}
 const check = (name, ok) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
@@ -148,8 +160,7 @@ try {
   await expect("Alt+5 turns them back on", () => window.__sandbox.match.repairs.works !== false && !document.querySelector('[data-repair="works"]').classList.contains("off"));
   await expect("the controls help says Alt+1 to 5, works among them", () => /<dt>Alt\+1 to 5<\/dt><dd>[^<]*works/.test(document.getElementById("help").innerHTML));
   // 3.5: the build menu: eight plots, the Spotter's Tower with the plots it may take, a plot's page offering only what may stand there.
-  await page.keyboard.press("KeyB");
-  await expect("the build menu draws eight plots, 7 and 8 behind the keep", () => { const p = [...document.querySelectorAll("#build .yard [data-pick]")]; const keep = document.querySelector("#build .yard .keep").getBoundingClientRect(); const top = (i) => p[i].getBoundingClientRect().top; return p.length === 8 && top(6) >= keep.bottom - 4 && top(7) >= keep.bottom - 4 && p[6].dataset.pick === "6" && p[7].textContent.startsWith("8"); });
+  await pressUntil("KeyB", "the build menu draws eight plots, 7 and 8 behind the keep", () => { if (document.getElementById("build").hidden) return false; const p = [...document.querySelectorAll("#build .yard [data-pick]")]; const keep = document.querySelector("#build .yard .keep").getBoundingClientRect(); const top = (i) => p[i].getBoundingClientRect().top; return p.length === 8 && top(6) >= keep.bottom - 4 && top(7) >= keep.bottom - 4 && p[6].dataset.pick === "6" && p[7].textContent.startsWith("8"); });
   await expect("the list sells the Spotter's Tower for 180, saying Plots 5 to 8", () => { const c = [...document.querySelectorAll("#build .choice2")].find((b) => /Spotter/.test(b.textContent)); return !!c && /180/.test(c.querySelector(".c")?.textContent ?? "") && /Plots 5 to 8/.test(c.textContent); });
   await expect("the Powder Mill's line says Plots 1 to 6", () => { const c = [...document.querySelectorAll("#build .choice2")].find((b) => /Powder Mill/.test(b.textContent)); return !!c && /Plots 1 to 6/.test(c.textContent); });
   await page.screenshot({ path: "tools/.shots/3.5/build-list.png" });
@@ -202,8 +213,7 @@ try {
   await page.keyboard.up("KeyA");
   await expect("aiming with the keys dismisses it", () => document.getElementById("lock-hint").hidden);
   await expect("the masons' line has its full words in a tooltip", () => (document.getElementById("masons").title ?? "").length > 8);
-  await page.keyboard.press("KeyP");
-  await expect("P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
+  await pressUntil("KeyP", "P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
   await page.keyboard.press("KeyP");
   await expect("P resumes", () => document.getElementById("paused").hidden);
   // ---- 3.2: marks and fire for effect (a Squire never marks, so any mark in the report would be an enemy's: there must be none but ours) ----

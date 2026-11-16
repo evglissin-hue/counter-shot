@@ -8,7 +8,7 @@
 // on the platform's strip each side of the carriage (level 1), the rest stand on the floor (level 0). The gun's props
 // (powder box, garland, shell crate) stand in the gun's rest frame, so a gun that has turned moves the places men fetch from.
 
-import type { WeaponKind } from "@keepfall/content";
+import { CREW_POSTS, type WeaponKind } from "@keepfall/content";
 import { smooth01 } from "./recoilLogic";
 
 // --- the table: splits and places ---------------------------------------------------------------------------
@@ -53,6 +53,9 @@ export interface Places {
   pushZ: number;
 }
 
+/** Where a gun's two men stand at their posts: the household's (content CREW_POSTS), the places a shot finds them. */
+const post = (k: WeaponKind, seat: 0 | 1): Place => [CREW_POSTS[k][seat][0], CREW_POSTS[k][seat][1], 0];
+
 export const PLACES: Record<WeaponKind, Places> = {
   longGun: {
     box: [1.95, -1.75],
@@ -62,8 +65,8 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [-1.35, -1.4],
     frontR: [-0.85, 0.6, 1],
     frontL: [0.85, 0.6, 1],
-    rest: [[-1.25, -1.75, 0], [1.55, -0.7, 0]],
-    gunnerReady: [-1.2, -1.5, 0],
+    rest: [post("longGun", 0), post("longGun", 1)],
+    gunnerReady: post("longGun", 0),
     pushZ: 0.35,
   },
   chainShot: {
@@ -74,8 +77,8 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [-1.5, -1.35],
     frontR: [-0.85, 0.6, 1],
     frontL: [0.85, 0.6, 1],
-    rest: [[-1.1, -1.7, 0], [1.7, -0.3, 0]],
-    gunnerReady: [-1.15, -1.5, 0],
+    rest: [post("chainShot", 0), post("chainShot", 1)],
+    gunnerReady: post("chainShot", 0),
     pushZ: 0.35,
   },
   mortar: {
@@ -85,8 +88,8 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [-1.9, 0.15],
     frontR: [-1.05, 0.9, 0],
     frontL: [1.05, 0.9, 0],
-    rest: [[-1.2, -1.1, 0], [1.4, -0.8, 0]],
-    gunnerReady: [-1.2, -0.5, 0],
+    rest: [post("mortar", 0), post("mortar", 1)],
+    gunnerReady: post("mortar", 0),
     pushZ: 0,
   },
   swivel: {
@@ -96,8 +99,8 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [0, 0],
     frontR: [-0.7, 0.1, 0],
     frontL: [0.7, 0.1, 0],
-    rest: [[-0.7, -0.55, 0], [0, 0, 0]],
-    gunnerReady: [-0.7, -0.55, 0],
+    rest: [post("swivel", 0), post("swivel", 1)],
+    gunnerReady: post("swivel", 0),
     pushZ: 0,
   },
 };
@@ -456,7 +459,7 @@ function longTwo(g: CrewGun, out: Figure[]) {
         key(0.72, fr, aimR, 0.1),
         key(0.78, pushR, 0.1, 0.35),
         key(0.9, pushR, 0.1, 0.35),
-        key(0.96, gr, 0.3),
+        key(0.99, gr, 0.3),
         key(1, gr, 0.3),
       ],
       s,
@@ -494,11 +497,11 @@ function longTwo(g: CrewGun, out: Figure[]) {
         key(0.14, boxAt, faceBox),
         key(0.27, fl, aimL, 0.1),
         key(0.36, fl, aimL, 0.1),
-        key(0.45, rest[1], 2.5),
+        key(0.53, rest[1], 2.5),
         key(0.72, rest[1], 2.5),
         key(0.78, pushL, -0.1, 0.35),
         key(0.9, pushL, -0.1, 0.35),
-        key(0.96, rest[1], 2.5),
+        key(0.99, rest[1], 2.5),
         key(1, rest[1], 2.5),
       ],
       s,
@@ -752,7 +755,7 @@ function swivelCrew(g: CrewGun, out: Figure[], men: number) {
   // The loader stands on the other side and hands the charge across while the layer works at the breech.
   const l = out[LOADER];
   reset(l, LOADER);
-  const post = at(0.7, -0.55);
+  const post = P.rest[1];
   track([key(0, post, -faceX), key(1, post, -faceX)], s, l, 0);
   if (inWin(s, 0.16, 0.5)) {
     const k = strokes((s - 0.16) / 0.34, 2);

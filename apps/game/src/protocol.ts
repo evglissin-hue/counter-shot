@@ -243,6 +243,11 @@ export interface MatchInfo extends RegisterInfo {
    * crews are seen (crews), not listed.
    */
   household: HouseholdRoster | null;
+  /**
+   * 3.6: the kind of every station of both castles (Household.stations order; StationKind + 8 for castle 1), sent once on the
+   * first report of a match (they are fixed after its start); null on every other. For naming what a shot of yours knocked down.
+   */
+  stationKinds: Int8Array | null;
 }
 
 /** 3.6: ticks between MatchInfo.household rosters. */
