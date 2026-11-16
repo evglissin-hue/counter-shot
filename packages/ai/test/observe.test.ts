@@ -63,3 +63,20 @@ test("an idle side counts no shots by hand", () => {
   const l = observeMatch(R, { ...base, id: "idle", sides: ["idle", "knight"], secs: 10 });
   assert.equal(AIM_KINDS.reduce((n, k) => n + l.totals.byHand[0][k], 0), 0);
 });
+
+test("3.6: the line carries each castle's household: losses by station, reserve and crew seconds, crews' levels, setting changes", () => {
+  const l = observeMatch(R, { ...base, id: "household", secs: 60 });
+  const hh = l.totals.household;
+  assert.ok(hh, "the household totals are there");
+  for (const side of [0, 1] as const) {
+    const h = hh[side];
+    const by = h.lostBy;
+    assert.equal(by.guns + by.masons + by.boys + by.keepers, h.lost, "the losses by station add up to the total");
+    assert.ok(h.reserveZeroSecs >= 0 && h.reserveZeroSecs <= 60 && h.uncrewedSecs >= 0 && h.uncrewedSecs <= 60);
+    // Four guns armed at the start (more may be bought): every one is crewed at some level or has no crew.
+    assert.ok(h.levels.reduce((a, b) => a + b, 0) + h.uncrewedEnd >= 4);
+    assert.ok(h.firstChanges >= 0 && ["guns", "walls", "powder"].includes(h.firstEnd));
+  }
+  // The same setup again gives the same household.
+  assert.deepEqual(observeMatch(R, { ...base, id: "household", secs: 60 }).totals.household, hh);
+});
