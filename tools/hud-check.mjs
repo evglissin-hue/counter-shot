@@ -40,11 +40,13 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 let failed = 0;
+const t00 = Date.now();
+const stamp = () => { const s = Math.round((Date.now() - t00) / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
 /** Wait (up to 15 s) for fn() in the page to be true. */
 async function expect(name, fn, arg, timeout = 90000) {
   let ok = true;
   try { await page.waitForFunction(fn, arg, { timeout, polling: 100 }); } catch { ok = false; }
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
+  console.log(`${stamp()} ${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
 }
 /**
@@ -98,13 +100,13 @@ const shotHeld = async (path, clip) => {
 async function pressUntil(code, name, fn, arg, again = 2) {
   for (let i = 0; i <= again; i++) {
     await page.keyboard.press(code);
-    try { await page.waitForFunction(fn, arg, { timeout: i < again ? 12000 : 90000, polling: 100 }); console.log(`ok   ${name}`); return; } catch {}
+    try { await page.waitForFunction(fn, arg, { timeout: i < again ? 12000 : 90000, polling: 100 }); console.log(`${stamp()} ok   ${name}`); return; } catch {}
   }
-  console.log(`FAIL ${name}`);
+  console.log(`${stamp()} FAIL ${name}`);
   failed++;
 }
 const check = (name, ok) => {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
+  console.log(`${stamp()} ${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
 };
 const press = (sel) => page.evaluate((s) => document.querySelector(s).click(), sel);
