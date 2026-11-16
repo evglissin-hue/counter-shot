@@ -87,11 +87,11 @@ export const HOUSEHOLD = {
    * aimed at the keep): the household drops flat when a shell or a keg bursts, so a burst knocks one of them down only
    * within this share of the reach it knocks men down in. Balls, the chain, falling masonry and the floor going still do.
    */
-  cover: 0.5,
+  cover: 0.25,
   /** A gun's man stands on the masonry within this far of his post (m; a tower's deck: its ring's top): when under GUN_HITS.mountOut of it stands, he falls. */
   footReach: 0.9,
   /** ... and they keep clear of loose stone: only a stone falling at least this fast (m/s) knocks one of them down (anyone else: about 2.4). */
-  stone: 5,
+  stone: 10,
   /** Gold for knocking down one of the household (a soldier pays GOLD.bounty). */
   bounty: 8,
   /** Who is replaced first when a match starts. */

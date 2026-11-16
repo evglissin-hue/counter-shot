@@ -799,6 +799,34 @@ export class Household {
     this.deps!.minions.list[seat.minion].action = CrewAction.Hoist;
   }
 
+  /** Is a post's footing falling as part of a toppling or crushing keep or tower (the statics pass has it)? A spotter's tower wrecked: yes. */
+  private falling(st: StationRun, k: number): boolean {
+    if (st.kind === StationKind.Spotter) return true;
+    const busy = this.deps!.castle.busy;
+    const ids = st.kind === StationKind.Gun ? (st.footing[k] ?? []) : st.pieces;
+    for (const id of ids) if (busy[id]) return true;
+    return false;
+  }
+
+  /** A man whose footing was shot away climbs down to his post's foot and waits there to be hoisted back up (he keeps his place and his shots). */
+  private climbDown(st: StationRun, k: number, m: Minion) {
+    const d = this.deps!;
+    const seat = st.seats[k];
+    const foot = this.footOf(st, k);
+    m.x = foot.x;
+    m.z = foot.z;
+    m.y = d.terrain.heightAt(foot.x, foot.z);
+    m.vx = m.vz = 0;
+    m.action = Action.Stand;
+    d.minions.place(m);
+    seat.state = SeatState.Waiting;
+    seat.gx = foot.x;
+    seat.gz = foot.z;
+    seat.cool = 0;
+    seat.best = Infinity;
+    seat.stuck = 0;
+  }
+
   /** A replacement at the foot: waits while his post is down, is hoisted when it stands. */
   private wait(st: StationRun, k: number) {
     const seat = st.seats[k];
@@ -834,13 +862,16 @@ export class Household {
     for (let si = 0; si < this.run.length; si++) {
       const st = this.run[si];
       if (st.kind === StationKind.Mason || st.kind === StationKind.Boy) continue;
-      // A man on masonry that gives way goes with it (3.6 tuning: a gun's men each by their own footing).
+      // A man on masonry that gives way goes with it when it falls as part of a keep or tower toppling or crushing (or his
+      // spotter's tower is wrecked); 3.6 tuning (the owner's choice, taking cover): a gun's men each by their own footing,
+      // and a man whose footing is shot away under him climbs down and waits at the post's foot to go back up.
       for (let k = 0; k < st.seats.length; k++) {
         const seat = st.seats[k];
         if (seat.state !== SeatState.AtPost || this.postHolds(st, k)) continue;
         const m = d.minions.list[seat.minion];
         if (m.state !== MinionState.Upright) continue;
-        d.minions.knock({ minion: m.id, vx: 0, vy: 0, vz: 0, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: Cause.Fall }, tick);
+        if (this.falling(st, k)) d.minions.knock({ minion: m.id, vx: 0, vy: 0, vz: 0, px: m.x, py: m.y + 1, pz: m.z, extra: 0, cause: Cause.Fall }, tick);
+        else this.climbDown(st, k, m);
       }
       for (let k = 0; k < st.seats.length; k++) {
         const seat = st.seats[k];
