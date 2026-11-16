@@ -121,8 +121,9 @@ async function load(hash) {
 try {
   // A Squire (it warms up and fights slowly): this section runs on the real clock and takes minutes on a slow machine, and
   // since 3.3 a Knight can take an idle castle in four (its guns nobody mans run out of powder), ending the match midway.
-  await load("versus=squire-webgl-low");
-  await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60, null, { timeout: 180000, polling: 200 });
+  // On the test clock (#fixed): game time follows the frames drawn, so a slow machine cannot let the match run on, or end, between two steps.
+  await load("versus=squire-webgl-low-fixed");
+  await adv(3);
   await expect("command card and scoreboard shown in a match", () => !document.getElementById("command").hidden && !document.getElementById("matchbar").hidden);
   // L0: the minimap is drawn, and grows to twice its size over the scene when pointed at, or while G is held.
   const mapW = () => page.evaluate(() => document.querySelector(".mapzoom").getBoundingClientRect().width);
@@ -231,7 +232,7 @@ try {
     await page.waitForFunction(() => window.__sandbox.reload[0] === 0, null, { timeout: 60000, polling: 100 });
     await page.evaluate(() => window.__sandbox.fire());
   };
-  await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T: mark where your shot landed\. Guns nobody mans shoot true on marked ground\. F then its number: every gun that bears fires there\./.test(document.getElementById("help").innerHTML));
+  await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T: mark where your shot landed\. Guns nobody rides shoot true on marked ground, while their crew stands\. F then its number: every gun that bears fires there\./.test(document.getElementById("help").innerHTML));
   await page.keyboard.press("KeyT");
   await expect("T with nothing to mark says so and sends nothing", () => /Nothing to mark/.test(document.getElementById("note").textContent) && window.__sent.length === 0);
   await layShot(-22, -62); // off the centre road: a salvo skips a gun with own men near the mark, and our waves walk that road
