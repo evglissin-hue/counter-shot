@@ -82,6 +82,16 @@ export const HOUSEHOLD = {
   },
   /** Shots the crews of the four guns a castle starts with have behind them (trained). A bought gun's crew and every replacement start at 0 (green). */
   startShots: 10,
+  /**
+   * The owner's choice (November 16, on the first measurements: the reserve ran dry in a minute or two, mostly to shells
+   * aimed at the keep): the household drops flat when a shell or a keg bursts, so a burst knocks one of them down only
+   * within this share of the reach it knocks men down in. Balls, the chain, falling masonry and the floor going still do.
+   */
+  cover: 0.5,
+  /** A gun's man stands on the masonry within this far of his post (m; a tower's deck: its ring's top): when under GUN_HITS.mountOut of it stands, he falls. */
+  footReach: 0.9,
+  /** ... and they keep clear of loose stone: only a stone falling at least this fast (m/s) knocks one of them down (anyone else: about 2.4). */
+  stone: 5,
   /** Gold for knocking down one of the household (a soldier pays GOLD.bounty). */
   bounty: 8,
   /** Who is replaced first when a match starts. */

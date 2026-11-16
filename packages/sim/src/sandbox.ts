@@ -4,7 +4,7 @@
 // world enters as an input tagged with its tick, so a session is just its
 // inputs and replays the same on every machine.
 
-import { BUDGET, BUILDING_KINDS, sectionOf, GUN_HITS, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
+import { BUDGET, BUILDING_KINDS, sectionOf, GUN_HITS, HOUSEHOLD, isKeepPiece, MATCH_EMPLACEMENTS, PRACTICE_BUILDINGS, WEAPONS, weaponOf, type BuildingKind, type BurstDef, type CastleLayout, type Emplacement, type WeaponDef } from "@keepfall/content";
 import { dsqrt, hashBytes, hashString, hex8, Rng } from "@keepfall/core";
 import { aimDir, clampAim, muzzle } from "./aim";
 import { Army } from "./army";
@@ -28,7 +28,7 @@ import {
 } from "./frame";
 import { Carriers } from "./carriers";
 import { Ladders } from "./ladders";
-import { Cause, Minions, MinionState } from "./minions";
+import { Cause, isWorker, Minions, MinionState } from "./minions";
 import { Mounts } from "./mounts";
 import { NavGrid } from "./nav";
 import { Specialists } from "./specialists";
@@ -549,6 +549,12 @@ export class SandboxSim {
       const v = castle.bodies[stoneId].linvel();
       const s2 = v.x * v.x + v.y * v.y + v.z * v.z;
       if (s2 < 6) continue;
+      // 3.6 (the owner's choice, taking cover): the household keeps clear of loose stone: only a stone falling at
+      // HOUSEHOLD.stone m/s or faster knocks one of them down (rubble settling and rolling on them does not).
+      if (this.household?.started && s2 < HOUSEHOLD.stone * HOUSEHOLD.stone) {
+        const mm = this.minions.list[mid];
+        if (mm && mm.wave >= 0 && isWorker(mm)) continue;
+      }
       const p = castle.bodies[stoneId].translation();
       this.minions.knock({ minion: mid, vx: v.x * 0.4, vy: v.y * 0.2, vz: v.z * 0.4, px: p.x, py: p.y, pz: p.z, extra: 0.5, cause: Cause.Masonry, stone: stoneId }, this.tick);
       this.event(EventKind.Blood, p.x, p.y, p.z, 0.5);
@@ -706,7 +712,14 @@ export class SandboxSim {
     this.specialists?.burstNear(x, y, z, E.radius * 1.3, shot, this.tick);
     // 3.3: a powder boy's keg within its radius is lit (it goes off if the burst throws him down).
     this.carriers?.burstNear(x, y, z, E.radius);
+    // 3.6 (the owner's choice): the household drops flat when a shell bursts, so a burst knocks one of them down only
+    // within HOUSEHOLD.cover of its reach (shells aimed at the keep emptied the reserve in the first minute or two).
+    const cover = this.household?.started ? E.knock * HOUSEHOLD.cover : Infinity;
     for (const n of this.minions.near(x, y, z, E.knock)) {
+      if (n.d > cover) {
+        const mm = this.minions.list[n.id];
+        if (mm && mm.wave >= 0 && isWorker(mm)) continue;
+      }
       const d = n.d + 0.3;
       const f = E.knockSpeed * (1 - n.d / E.knock);
       const ex = (n.cx - x) / d, ey = (n.cy - y) / d, ez = (n.cz - z) / d;
