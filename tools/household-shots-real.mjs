@@ -86,7 +86,17 @@ try {
     const target = hurt ? { id: hurt.index, whose: "own" } : st.foe.length ? { id: st.foe[0], whose: "enemy" } : null;
     if (target && !got.one) {
       got.one = true;
-      await lookAt(target.id, false);
+      // Look at the man left at the gun (Unit.Crew 6, CrewAction.AtGun 12, nearest to it), from a few metres off on the near side.
+      const man = await page.evaluate(([id]) => {
+        const S = window.__sandbox, g = S.guns[id], f = S.frame;
+        let best = null, bd = 1e9;
+        if (f) for (let i = 0; i < f.minions.length; i += 10) if (f.minions[i + 9] === 6 && f.minions[i + 7] === 12) { const d = Math.hypot(f.minions[i + 1] - g.x, f.minions[i + 3] - g.z); if (d < bd) { bd = d; best = { x: f.minions[i + 1], y: f.minions[i + 2], z: f.minions[i + 3] }; } }
+        if (!best || bd > 6) return null;
+        const sg = g.z < -75 ? 1 : -1;
+        S.look({ x: best.x - 2.5 * sg, y: best.y + 2.2, z: best.z + 4.5 * sg, tx: g.x, ty: best.y + 0.8, tz: g.z, fov: 55 });
+        return best;
+      }, [target.id]);
+      if (!man) await lookAt(target.id, false);
       await adv(0.2);
       await snap("crew-one-man-down-real");
       console.log("one man down at", target.id, target.whose, "tick", st.tick);
