@@ -1,3 +1,7 @@
+// 3.6: a castle's keep through an AI match, every 5 s: its pieces down (and those of its lowest courses), how much it
+// holds (the statics pass), its masons' job, gold and buttresses, the enemy's hand shots, the gate's hits. For an early
+// keep fall: what was cut and what the masons were doing. tune= takes content tuning paths, as the observatory does.
+// npx rolldown packages/ai/scripts/keep-watch.ts --format esm --platform node -o node_modules/.scratch/keep-watch.mjs && node node_modules/.scratch/keep-watch.mjs [seed=2] [secs=110] [castle=1] [tune={...}]
 import RD from "@dimforge/rapier3d-deterministic-compat";
 import { applyTuning, buildLayout, GAME_LAYOUT, keepStructure, structureList } from "@keepfall/content";
 import { type Rapier } from "@keepfall/sim";
