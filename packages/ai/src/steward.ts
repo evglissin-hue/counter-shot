@@ -16,6 +16,7 @@ import {
   MIX_NAMES,
   PLOTS,
   POWDER,
+  SLOTS_PER_CASTLE,
   REGISTER,
   REPAIR_KINDS,
   ROUTE_NAMES,
@@ -23,7 +24,9 @@ import {
   UPGRADES,
   WAVES,
   WEAPON_COST,
+  StationKind,
   type AiLevel,
+  type FirstKind,
   type AiStep,
   type AiName,
   type MixName,
@@ -79,18 +82,54 @@ export class Steward {
     // Its castle as it finds it (M5 audit: taking over a friend's castle mid-match, it assumed Advance and every repair on).
     this.order = m.army.order[team] as Order;
     this.repairs = { ...m.repairs[team] };
+    this.first = m.world.household?.first[team] ?? "guns";
   }
 
   private get gold(): number {
     return this.m.gold[this.team];
   }
 
-  /** One look at the castle: a build or a buy, the barracks, the orders, the repairs. */
+  /** One look at the castle: a build or a buy, the barracks, the orders, the repairs, who its reserve replaces first. */
   look(tick: number) {
     this.build(tick);
     this.barracks(tick);
     this.orders(tick);
     this.switches(tick);
+    this.household(tick);
+  }
+
+  /** 3.6: who its reserve replaces first, as it last set it (a match starts at guns), and the tick of its next look at it. */
+  private first: FirstKind;
+  private nextFirst = 0;
+
+  /** What it should replace first now: its masons when two are lost and pieces are down, its boys when two are lost and a gun cannot pay (guns come first while a seasoned crew is short), else its guns. */
+  chooseFirst(): FirstKind {
+    const m = this.m, team = this.team;
+    if (V.seatsLost(m, team, StationKind.Mason) >= 2 && m.world.works && m.world.works.status(team).left > 0) return "walls";
+    if (V.seatsLost(m, team, StationKind.Boy) >= 2 && !V.veteranShort(m, team) && this.gunCannotPay()) return "powder";
+    return "guns";
+  }
+
+  /** Does one of its armed guns lack the powder for a shot? (With no magazine system, none does.) */
+  private gunCannotPay(): boolean {
+    const c = this.m.world.carriers;
+    if (!c) return false;
+    const first = firstSlot(this.team);
+    for (let i = first; i < first + SLOTS_PER_CASTLE; i++) {
+      const e = this.m.emplacements[i];
+      if (e && !e.empty && !c.canPay(e.id)) return true;
+    }
+    return false;
+  }
+
+  /** Every 10 s: send the household's order only when its choice changes. */
+  private household(tick: number) {
+    if (!this.L.household || this.stage || tick < this.nextFirst) return;
+    this.nextFirst = tick + 10 * 60;
+    const want = this.chooseFirst();
+    if (want === this.first) return;
+    this.first = want;
+    this.send(tick, { kind: "household", first: want });
   }
 
   private build(tick: number) {

@@ -120,6 +120,12 @@ export interface AiLevel {
   organs: boolean;
   organAims: number;
   organRest: number;
+  /**
+   * 3.6: it sets who its reserve replaces first by what it is short of (walls while its masons are lost and pieces are
+   * down, powder while its boys are lost and a gun cannot pay, else guns), looked at every 10 s; the Squire and the tutor
+   * leave it at guns.
+   */
+  household: boolean;
 }
 
 /** The numbers every level's orders share. */
@@ -171,6 +177,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     organs: false,
     organAims: 0,
     organRest: 0,
+    household: false,
   },
   knight: {
     name: "Knight",
@@ -205,6 +212,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     organs: true,
     organAims: 0.5,
     organRest: 45 * 60,
+    household: true,
   },
   warlord: {
     name: "Warlord",
@@ -239,6 +247,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     organs: true,
     organAims: 0.7,
     organRest: 30 * 60,
+    household: true,
   },
   // M6: the guided first match's castle. Placeholder numbers (a slower,
   // looser Squire); the tutor's stages (TUTOR) decide when it does anything at all.
@@ -275,6 +284,7 @@ export const AI_LEVELS: Record<AiName, AiLevel> = {
     organs: false,
     organAims: 0,
     organRest: 0,
+    household: false,
   },
 };
 

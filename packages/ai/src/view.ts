@@ -3,9 +3,9 @@
 // banner stands, which gate and buildings still stand, whether there is a way
 // in). Read only: the AI changes the match through inputs alone.
 
-import { BUTTRESS_FACES, CASTLE_SHAPE, DEFEND, KEEP_STOREYS, MID_Z, mirrorZ, MUSTER, PLOTS, plotCentre, ROUTE_NAMES, BRIDGES, inCourtyard, weaponOf, type ButtressFace, type CastleLayout, type Emplacement } from "@keepfall/content";
+import { BUTTRESS_FACES, StationKind, CASTLE_SHAPE, DEFEND, KEEP_STOREYS, MID_Z, mirrorZ, MUSTER, PLOTS, plotCentre, ROUTE_NAMES, BRIDGES, inCourtyard, weaponOf, type ButtressFace, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { dsqrt } from "@keepfall/core";
-import { aimDir, breachField, flightCoef, flightDv, FLOW_INF, G, MinionState, muzzle, PlotState, Role } from "@keepfall/sim";
+import { aimDir, breachField, flightCoef, flightDv, FLOW_INF, G, isWorker, MinionState, muzzle, PlotState, Role, SeatState } from "@keepfall/sim";
 import type { Match } from "@keepfall/rules";
 
 /** A knot of men: where its middle is, how many, and how fast it moves. */
@@ -187,10 +187,10 @@ export function threat(m: Match, team: number): number {
   return n;
 }
 
-/** A team's men standing (anyone upright), for the cap on its waves. */
+/** A team's fighting men standing, for the cap on its waves (3.6: the household, like the masons, is outside it). */
 export function standing(m: Match, team: number): number {
   let n = 0;
-  for (const mi of m.world.minions.list) if (mi.team === team && mi.state === MinionState.Upright) n++;
+  for (const mi of m.world.minions.list) if (mi.team === team && mi.state === MinionState.Upright && !isWorker(mi)) n++;
   return n;
 }
 
@@ -356,4 +356,38 @@ export function wavesPast(m: Match, team: number): number {
   let n = 0;
   for (const [z, k] of sum.values()) if (team === 0 ? z / k < MID_Z : z / k > MID_Z) n++;
   return n;
+}
+
+// ---- 3.6: reading the household ----
+
+/** Seats of a team's masons or powder boys that are not at their work (lost, due, walking, waiting or being hoisted). */
+export function seatsLost(m: Match, team: number, kind: StationKind): number {
+  const h = m.world.household;
+  if (!h) return 0;
+  let n = 0;
+  for (const st of h.stations) {
+    if (st.team !== team || st.kind !== kind) continue;
+    for (const seat of st.seats) if (seat.state !== SeatState.AtPost) n++;
+  }
+  return n;
+}
+
+/** Is one of a team's seasoned or veteran crews short a man (the one left, or both, being replaced)? Its veterans are worth protecting. */
+export function veteranShort(m: Match, team: number): boolean {
+  const h = m.world.household;
+  if (!h) return false;
+  for (const st of h.stations) {
+    if (st.team !== team || st.kind !== StationKind.Gun) continue;
+    const e = m.emplacements[st.index];
+    if (!e || e.empty || h.crew(e.id) < 1 || h.crew(e.id) >= st.seats.length) continue;
+    if (h.level(e.id) >= 2) return true;
+  }
+  return false;
+}
+
+/** The skill of a gun's crew as the enemy shows it: [men at the posts, level] (an uncrewed gun is [0, 0]). */
+export function crewOf(m: Match, emp: number): [number, number] {
+  const h = m.world.household;
+  if (!h) return [2, 1];
+  return [h.crew(emp), h.level(emp)];
 }

@@ -7,7 +7,7 @@
 // marker). The barrel turns at the gun's own rates, it waits for the reload,
 // and it waits to see where a shot came down before it fires again.
 
-import { BRIDGES, BUILDING_KINDS, keepStructure, MID_Z, ORGAN_KINDS, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, structureList, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
+import { BRIDGES, BUILDING_KINDS, crewPostXZ, keepStructure, MID_Z, ORGAN_KINDS, MUSTER, REGISTER, SLOTS_PER_CASTLE, shotCost, structureList, weaponOf, type AiLevel, type Emplacement, type WeaponDef, type WeaponKind } from "@keepfall/content";
 import { DPI, dcos, dsin, dsqrt, Rng } from "@keepfall/core";
 import { clampAim, clearOfCastle, DEFAULT_SIM, solveAim, Spin, StaticState, stepAim, type AimSolution, type AimState } from "@keepfall/sim";
 import { firstSlot, type Match, type MatchInput } from "@keepfall/rules";
@@ -163,6 +163,9 @@ export class Gunner {
   /** After M5: the enemy guns that hit its castle, and when they last did; and the tick until which it leaves guns alone. */
   private hurtBy = new Map<number, number>();
   private counterUntil = 0;
+  /** 3.6: the enemy gun it last went after by the counter, and the tick it did. */
+  private counterGun = -1;
+  private counterAt = 0;
   /** 3.2: the ground it ranges (computed once; spot 0 is the enemy gate), tries without a mark per spot, spots left alone until a tick, a mark waiting to be sent, and the tick of its last salvo order. */
   private _spots: Array<{ x: number; z: number; gate: boolean }> | null = null;
   private tries: number[] = [];
@@ -220,17 +223,35 @@ export class Gunner {
   }
 
   /**
-   * After M5: the enemy gun that hit its castle last (within HURT_TICKS), if
-   * it stands to be knocked out now.
+   * After M5: the enemy gun to go after, if it stands to be taken now. 3.6: among the guns that hit its castle in the last
+   * 20 s (a crew swept off a gun stays off until the reserve sends a green hand, so the gain lasts) the one with the most
+   * skilled crew; an enemy gun with no crew at it (it neither fires on its own nor can be swept) is left alone unless the
+   * enemy rides it. With none hurting it, a gun whose crew is seasoned or better may be the target all the same.
    */
   private threat(tick: number): Emplacement | null {
-    const mounts = this.m.world.mounts;
-    let best: Emplacement | null = null, at = -1;
-    for (const [emp, t] of this.hurtBy) {
-      const e = this.m.emplacements[emp];
-      if (tick - t > HURT_TICKS || t <= at || !e || e.empty || !mounts.up(emp)) continue;
-      best = e;
-      at = t;
+    const m = this.m, mounts = m.world.mounts, ridden = m.manned[this.foe];
+    let best: Emplacement | null = null, bl = -1, bc = -1, bt = -1;
+    for (let pass = 0; pass < 2 && !best; pass++) {
+      const first = firstSlot(this.foe);
+      for (let id = first; id < first + SLOTS_PER_CASTLE; id++) {
+        const e = m.emplacements[id];
+        if (!e || e.empty || !mounts.up(id)) continue;
+        const [men, level] = V.crewOf(m, id);
+        let at = -1;
+        if (pass === 0) {
+          const t = this.hurtBy.get(id);
+          if (t === undefined || tick - t > HURT_TICKS) continue;
+          if (men === 0 && id !== ridden) continue;
+          at = t;
+        } else if (men === 0 || level < 2) continue;
+        // Most skilled crew first (its level, then its men), then the one that hit it last, then the lower id.
+        if (level > bl || (level === bl && (men > bc || (men === bc && at > bt)))) {
+          best = e;
+          bl = level;
+          bc = men;
+          bt = at;
+        }
+      }
     }
     return best;
   }
@@ -245,6 +266,13 @@ export class Gunner {
       const dz = l.z - cz;
       if (l.x > -26 && l.x < 26 && dz > -26 && dz < 26) this.hurtBy.set(l.emplacement, tick);
     }
+    // 3.6: a crew swept off the gun it went after (it is no longer a gun that fires on its own) starts its rest, as a knock-out did.
+    if (this.counterGun >= 0) {
+      if (tick - this.counterAt > HURT_TICKS || V.crewOf(m, this.counterGun)[0] === 0) {
+        if (V.crewOf(m, this.counterGun)[0] === 0) this.counterUntil = tick + this.L.counterRest;
+        this.counterGun = -1;
+      }
+    }
     const outs = m.world.mounts.outs;
     for (let k = 0; k + 2 < outs.length; k += 3) {
       const info = m.world.shotInfo.get(outs[k + 2]);
@@ -258,6 +286,23 @@ export class Gunner {
   }
 
   /**
+   * Is gun `a` to be ridden before gun `b` (of a kind)? A gun whose box holds two shots goes before one holding a single
+   * shot; 3.6: then one with a crew before one with none (ridden alone it loads in twice the time); then the one ready
+   * first, except that within a second of each other the better crew goes (two men over one, then the higher level).
+   */
+  private prefer(a: Emplacement, b: Emplacement): boolean {
+    const a2 = this.twoShots(a), b2 = this.twoShots(b);
+    if (a2 !== b2) return a2;
+    const [ma, la] = V.crewOf(this.m, a.id), [mb, lb] = V.crewOf(this.m, b.id);
+    if ((ma > 0) !== (mb > 0)) return ma > 0;
+    const dr = this.readyIn(a) - this.readyIn(b);
+    if (dr > 60 || dr < -60) return dr < 0;
+    if (ma !== mb) return ma > mb;
+    if (la !== lb) return la > lb;
+    return dr < 0;
+  }
+
+  /**
    * The gun of a kind that would be ready first (of those that can reach a
    * point, if one is given, without hitting their own castle on the way: a
    * gun on the back tower cannot fire short over its own front).
@@ -265,11 +310,7 @@ export class Gunner {
   private soonest(kind: WeaponKind, x?: number, y?: number, z?: number): Emplacement | null {
     let best: Emplacement | null = null;
     for (const e of this.guns(kind)) {
-      if (best) {
-        // A gun whose box holds two shots goes before one holding a single shot; then the one ready first.
-        const a = this.twoShots(e), b = this.twoShots(best);
-        if (a === b ? this.readyIn(e) >= this.readyIn(best) : !a) continue;
-      }
+      if (best && !this.prefer(e, best)) continue;
       if (e.id === this.stuck.emp && this.m.tick < this.stuck.until) continue;
       if (x !== undefined) {
         const s = reach(e, x, y!, z!);
@@ -535,10 +576,22 @@ export class Gunner {
       // After M5: the gun that has been hitting it. On a wall or a tower its crew is swept off by the chain shot; a mortar in its pit takes a shell.
       const g = this.threat(tick);
       if (g) {
-        const t: Target = { key: Aim.Gun + g.id, x: g.x, y: g.y - 0.3, z: g.z, vx: 0, vz: 0 };
-        const e = g.y > 5 ? this.soonest("chainShot", t.x, t.y, t.z) : this.soonest("mortar", t.x, g.y, t.z);
+        // The chain's whirl (about 1.5 m) takes the men it passes: aim between the layer and the loader, 2.8 m apart.
+        const wall = g.y > 5;
+        let cx = g.x, cz = g.z;
+        if (wall) {
+          const a = crewPostXZ(g, 0), b = crewPostXZ(g, 1);
+          cx = (a.x + b.x) / 2;
+          cz = (a.z + b.z) / 2;
+        }
+        const t: Target = { key: Aim.Gun + g.id, x: cx, y: g.y - 0.3, z: cz, vx: 0, vz: 0 };
+        const e = wall ? this.soonest("chainShot", t.x, t.y, t.z) : this.soonest("mortar", t.x, g.y, t.z);
         // Loaded or nearly (its reload, not the time to settle in on it, as for the mortar below).
-        if (e && this.m.world.reload[e.id] < (e.weapon === "mortar" ? 90 : 3 * 60)) pick = { e, t };
+        if (e && this.m.world.reload[e.id] < (e.weapon === "mortar" ? 90 : 3 * 60)) {
+          pick = { e, t };
+          this.counterGun = g.id;
+          this.counterAt = tick;
+        }
       }
     }
     if (!pick && L.organs && tick >= this.organUntil) pick = this.organPick();
@@ -660,7 +713,7 @@ export class Gunner {
   /** The long guns it may ride now, the one ready first before the others (as `soonest` would take them). */
   private longGuns(): Emplacement[] {
     const out = this.guns("longGun").filter((e) => !(e.id === this.stuck.emp && this.m.tick < this.stuck.until));
-    out.sort((a, b) => Number(this.twoShots(b)) - Number(this.twoShots(a)) || this.readyIn(a) - this.readyIn(b) || a.id - b.id);
+    out.sort((a, b) => (this.prefer(a, b) ? -1 : this.prefer(b, a) ? 1 : a.id - b.id));
     return out;
   }
 
