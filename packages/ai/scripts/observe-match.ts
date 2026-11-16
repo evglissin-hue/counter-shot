@@ -3,11 +3,11 @@
 // observe-line.ts describes. Tuning is applied before the match is built and
 // undone when it is freed, so a process can play many setups.
 
-import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, ORGAN_KINDS, PLOTS, POWDER, shotCost, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
+import { applyTuning, BUILDING_KINDS, buildLayout, CASTLE_SHAPE, castleOfEmp, GAME_LAYOUT, KEEP_STOREYS, MATCH, mirrorZ, ORGAN_KINDS, PLOTS, POWDER, shotCost, StationKind, type AiLevel, type AiStep, type Difficulty } from "@keepfall/content";
 import { EVENT_STRIDE, EventKind, RULES_VERSION, type Rapier } from "@keepfall/sim";
 import { Match, MATCH_RULES_VERSION } from "@keepfall/rules";
 import { AIM_GROUPS, AiPlayer } from "@keepfall/ai";
-import { AIM_KINDS, LINE_VERSION, type AimKind, type Fall, type BuildEntry, type MatchLine, type MatchSetup, type Sample, type Totals } from "./observe-line";
+import { AIM_KINDS, LINE_VERSION, type AimKind, type Fall, type BuildEntry, type MatchLine, type HouseholdTotals, type MatchSetup, type Sample, type Totals } from "./observe-line";
 
 const pair = <T>(f: (c: 0 | 1) => T): [T, T] => [f(0), f(1)];
 
@@ -61,6 +61,12 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const downAt5: [Array<boolean | null>, Array<boolean | null>] = [ORGAN_KINDS.map(() => null), ORGAN_KINDS.map(() => null)];
   const spotterAt: [number | null, number | null] = [null, null];
   const AT5 = 5 * 60 * 60;
+  /** 3.6: people lost by kind of station, seconds the reserve stood at 0 and seconds a gun had no crew, and changes of "who is replaced first". */
+  const hh = m.world.household;
+  const lostBy = pair(() => ({ guns: 0, masons: 0, boys: 0, keepers: 0 }));
+  const reserveZero: [number, number] = [0, 0], uncrewed: [number, number] = [0, 0], firstChanges: [number, number] = [0, 0];
+  const firstSeen = hh ? [hh.first[0], hh.first[1]] : ["guns", "guns"];
+  const armedGuns = (c: number) => m.emplacements.filter((e) => !e.empty && (e.z < -75 ? 1 : 0) === c);
   const sample = (tick: number) => {
     const army = m.armyCounts();
     samples.push({
@@ -115,6 +121,11 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
         made[c] += m.powderRate(c);
         const r = ais[c]?.gunner.riding ?? -1;
         if (r >= 0 && m.world.carriers && !m.world.carriers.canPay(r)) dry[c]++;
+        if (hh) {
+          if (hh.reserve[c] === 0) reserveZero[c]++;
+          if (armedGuns(c).some((e) => hh.crew(e.id) === 0)) uncrewed[c]++;
+          if (hh.first[c] !== firstSeen[c]) (firstSeen[c] = hh.first[c], firstChanges[c]++);
+        }
       }
     }
     // 3.3: every shot that left a gun burned its cost; every MagazineBlew event is a magazine gone up (the world's event log, read in place).
@@ -142,6 +153,11 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
         }
         continue;
       }
+      if (kind === EventKind.HouseholdDown && hh) {
+        const c = worldEvents[evSeen + 1], st = hh.stations[worldEvents[evSeen + 2]];
+        if ((c === 0 || c === 1) && st) lostBy[c][st.kind === StationKind.Gun ? "guns" : st.kind === StationKind.Mason ? "masons" : st.kind === StationKind.Boy ? "boys" : "keepers"]++;
+        continue;
+      }
       if (kind !== EventKind.MagazineBlew) continue;
       const c = worldEvents[evSeen + 1] as 0 | 1;
       if (blownAt[c] < 0) blownAt[c] = i;
@@ -167,6 +183,18 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
   const endTick = m.tick;
   for (const c of [0, 1] as const) for (let o = 0; o < nO; o++) if (downSince[c][o] >= 0) downTicks[c][o] += endTick - downSince[c][o];
 
+  const household = hh
+    ? pair((c): HouseholdTotals => {
+        const levels: [number, number, number, number] = [0, 0, 0, 0];
+        let none = 0;
+        for (const e of armedGuns(c)) {
+          if (hh.crew(e.id) === 0) none++;
+          else levels[hh.level(e.id)]++;
+        }
+        if (hh.first[c] !== firstSeen[c]) (firstSeen[c] = hh.first[c], firstChanges[c]++);
+        return { lost: hh.lost[c], lostBy: lostBy[c], reserveZeroSecs: reserveZero[c], uncrewedSecs: uncrewed[c], levels, uncrewedEnd: none, firstChanges: firstChanges[c], firstEnd: hh.first[c] };
+      })
+    : undefined;
   const byHand = pair((c): Record<AimKind, number> => {
     const rec = {} as Record<AimKind, number>;
     for (const k of AIM_KINDS) rec[k] = 0;
@@ -205,6 +233,7 @@ function play(R: Rapier, setup: MatchSetup): MatchLine {
     organDowns: downs,
     organDownAt5: downAt5,
     spotterAt,
+    household,
   };
   const r = m.result;
   const line: MatchLine = {

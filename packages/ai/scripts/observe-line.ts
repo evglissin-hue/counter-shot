@@ -121,6 +121,24 @@ export interface Totals {
   organDownAt5?: [Array<boolean | null>, Array<boolean | null>];
   /** 3.5, by castle: the tick its spotter's tower first worked (null: never). */
   spotterAt?: [number | null, number | null];
+  /** 3.6, by castle: its household (older lines lack it; read as absent, not as zeros). */
+  household?: [HouseholdTotals, HouseholdTotals];
+}
+
+/** What the household cost a castle in one match (3.6). */
+export interface HouseholdTotals {
+  /** People lost in all, and by the kind of station they stood at. */
+  lost: number;
+  lostBy: { guns: number; masons: number; boys: number; keepers: number };
+  /** Seconds its reserve stood at 0, and seconds any of its armed guns had no crew. */
+  reserveZeroSecs: number;
+  uncrewedSecs: number;
+  /** At the end: its armed guns by their crew's level (green, trained, seasoned, veteran; crewed guns only) and the armed guns with no crew. */
+  levels: [number, number, number, number];
+  uncrewedEnd: number;
+  /** How many times its "who is replaced first" setting changed (the AI's, or any input), and what it was at the end. */
+  firstChanges: number;
+  firstEnd: string;
 }
 
 /** A structure that fell: [time (s), "keep" or "tower", "topple" or "crush", the course it gave way at]. */
