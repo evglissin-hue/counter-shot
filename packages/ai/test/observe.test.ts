@@ -66,7 +66,7 @@ test("an idle side counts no shots by hand", () => {
 
 test("3.6: the line carries each castle's household: losses by station, reserve and crew seconds, crews' levels, setting changes", () => {
   const l = observeMatch(R, { ...base, id: "household", secs: 60 });
-  const hh = l.totals.household;
+  const hh = l.totals.household!;
   assert.ok(hh, "the household totals are there");
   for (const side of [0, 1] as const) {
     const h = hh[side];

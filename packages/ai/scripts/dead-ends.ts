@@ -28,11 +28,18 @@
 // The banner rule adds two keep hunts (each flagged once per keep): a keep that fell (Topple or Crush) with its course below the
 // lowest storey (KEEP_STOREYS[0] - 1) and no result 10 s later; and a keep whose own standing masonry (part "keep", not loose) is
 // under 25% of what was built for 60 s while the match goes on.
+// 3.6 adds the household hunts (sampled once a second, each flagged once per seat, gun or team, with numbers): a seat lost whose
+// replacement was due over 60 s ago while its team's reserve held a hand (the reserve not reaching it); a replacement walking for
+// over 90 s, or waiting at the post's foot for over 240 s while the post stands (one who can never take his place); an armed gun
+// with its masonry standing and no crew for over 180 s while its team's reserve held a hand at some point in that time; and a
+// reserve at 0 for over 240 s with places empty (a castle run dry: reported, with the losses that drained it, though not a bug by
+// itself). And a static check, with the start plots and with plots=full, that the foot of every post (each gun slot, the bell, the
+// mast, the spotter's tower on each plot that may take one) can be reached on foot from the keep's door (the army's local field).
 // Prints one line per flag and a summary; exits 1 if anything was flagged.
 // npx rolldown packages/ai/scripts/dead-ends.ts --format esm --platform node -o node_modules/.scratch/dead-ends.mjs && node node_modules/.scratch/dead-ends.mjs [enemy=knight|idle] [player=knight|idle] [secs=720] [seed=21] [plots=full]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { allowedOn, BUILDING_KINDS, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, KEEP_STOREYS, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, REPAIR, repairSections, ROUTE_NAMES, sectionOf, stoneBounds, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
-import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, LOCAL_INF, MinionState, Order, OrganWait, PlotState, Role, routeField, StaticState, type Minion, type Rapier } from "@keepfall/sim";
+import { allowedOn, BUILDING_KINDS, keepDoor, postFoot, StationKind, BUILDING_REBUILD, BUILDINGS, buildLayout, CRANE, GAME_LAYOUT, holdMarker, inCourtyard, KEEP_STOREYS, masonYard, MUSTER, ORGAN_KINDS, ORGANS, PLOTS, powderFoot, REPAIR, repairSections, ROUTE_NAMES, sectionOf, stoneBounds, Unit, WEAPON_COST, workSpot, type BuildingKind, type Difficulty, type Stone } from "@keepfall/content";
+import { Action, breachField, EVENT_STRIDE, EventKind, FLOW_INF, LadderState, LOCAL_INF, MinionState, Order, OrganWait, PlotState, Role, routeField, SeatState, StaticState, type Minion, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
 
@@ -194,8 +201,43 @@ function reach(label: string) {
   }
   console.log(`reach (${label}): ${looked} distinct work spots and powder feet looked at, ${bad} cannot be reached`);
 }
+// 3.6 static: the foot of every post (a gun's powder foot, the bell tower's, the keep's door for the mast, the spotter's tower's
+// courtyard side on each plot that may take one) can be reached on foot from the keep's door, where a replacement walks out.
+function reachDoor(label: string) {
+  const A0 = m.army;
+  let looked = 0, bad = 0;
+  const check = (c: number, what: string, x: number, z: number) => {
+    looked++;
+    const d = keepDoor(c);
+    const covered = A0.local.covers(c, x, z) && A0.local.covers(c, d.x, d.z);
+    const cost = covered ? A0.local.cost(c, x, z, d.x, d.z) : LOCAL_INF;
+    if (cost >= LOCAL_INF) {
+      bad++;
+      flag(0, `${label}: castle ${c}'s ${what} at (${x.toFixed(1)}, ${z.toFixed(1)}) cannot be reached on foot from the keep's door (${covered ? "no way in the local field" : "outside the castle's box"})`);
+    }
+  };
+  for (const c of [0, 1]) {
+    for (let i = 0; i < m.emplacements.length; i++) {
+      const e = m.emplacements[i];
+      if (castleOf(i) !== c || (e.empty && !e.allowed)) continue;
+      const f = postFoot(c, StationKind.Gun, e);
+      check(c, `post of slot ${i} (${e.place ?? e.weapon})`, f.x, f.z);
+    }
+    for (const [kind, name] of [[StationKind.Bell, "bell"], [StationKind.Mast, "mast"]] as const) {
+      const f = postFoot(c, kind, null);
+      check(c, `${name} keeper's post`, f.x, f.z);
+    }
+    for (let p = 0; p < PLOTS.length; p++) {
+      if (!allowedOn("spotter", p)) continue;
+      const f = postFoot(c, StationKind.Spotter, null, p);
+      check(c, `spotter's tower on plot ${p}`, f.x, f.z);
+    }
+  }
+  console.log(`reach from the keep's door (${label}): ${looked} post feet looked at, ${bad} cannot be reached`);
+}
 for (let k = 0; k < 5; k++) m.step();
 reach(full ? "all eight plots built" : "the start plots");
+reachDoor(full ? "all eight plots built" : "the start plots");
 
 const n = m.emplacements.length;
 const report = new Int16Array(n * 2);
@@ -222,6 +264,20 @@ const boyKey = new Array<string>(6).fill(""), boySince = new Array<number>(6).fi
 const magSince = [-1, -1], magFlagged = [false, false];
 const boxes = (c: number) => m.emplacements.map((e, i) => (castleOf(i) === c && !e.empty ? `${i}:${carriers!.box(i)}/${carriers!.boxCap(i)}` : "")).filter(Boolean).join(" ");
 const stockOf = (c: number) => (carriers ? carriers.status(c).stock : 0);
+
+// 3.6 household hunts.
+const HOUSE = { due: 60, walk: 90, foot: 240, uncrewed: 180, dry: 240 };
+const H = m.world.household;
+const hRun = H as unknown as { postUp(st: unknown): boolean } | null;
+/** Per seat ("station:seat"): since when it has been in the state it is in, and the flags raised for it. */
+const seatSince = new Map<string, { state: number; since: number }>(), seatFlagged = new Set<string>();
+/** Per gun: since when it has been armed, standing and uncrewed (-1: not), and whether the reserve held a hand at some time in it. */
+const bareSince = new Int32Array(n).fill(-1), bareReserve = new Uint8Array(n), bareFlagged = new Uint8Array(n);
+/** Per team: since when its reserve has stood at 0 with places empty, and the people it has lost by kind of station (the losses that drained it), and the households' totals for the summary. */
+const dryRunSince = [-1, -1], dryRunFlagged = [false, false], hLostBy = [0, 1].map(() => [0, 0, 0, 0, 0, 0]), hReserveZero = [0, 0], hBareSecs = [0, 0];
+let hEvSeen = 0;
+const hEvents = (m.world as unknown as { events: number[] }).events;
+const KIND_NAMES = ["gun crews", "masons", "boys", "bell ringers", "signallers", "spotters"];
 
 // Army hunts: state.
 const A = m.army;
@@ -657,6 +713,62 @@ for (let tick = 0; tick < secs * 60 && !m.result; tick++) {
       }
     });
   }
+  if (H && hRun) {
+    for (; hEvSeen + EVENT_STRIDE <= hEvents.length; hEvSeen += EVENT_STRIDE) {
+      if (hEvents[hEvSeen] !== EventKind.HouseholdDown) continue;
+      const st = H.stations[hEvents[hEvSeen + 2]];
+      if (st) hLostBy[hEvents[hEvSeen + 1]][st.kind]++;
+    }
+    H.stations.forEach((st, si) => {
+      const where = `castle ${st.team}'s ${KIND_NAMES[st.kind]} station ${si} (${st.kind === StationKind.Gun ? `${m.emplacements[st.index].weapon}, slot ${st.index}` : `index ${st.index}`})`;
+      st.seats.forEach((seat, k) => {
+        const key = `${si}:${k}`;
+        const was = seatSince.get(key);
+        if (!was || was.state !== seat.state) seatSince.set(key, { state: seat.state, since: t });
+        const since = seatSince.get(key)!.since;
+        const reserve = H.reserve[st.team];
+        // A seat lost, due 60 s ago, while the reserve holds a hand.
+        if (seat.state === SeatState.Due && seat.due >= 0 && t - seat.due > HOUSE.due * 60 && reserve > 0 && !seatFlagged.has(`due:${key}`)) {
+          seatFlagged.add(`due:${key}`);
+          flag(t, `${where}, seat ${k} lost at ${clock(seat.lostAt)} and due since ${clock(seat.due)}: ${((t - seat.due) / 60).toFixed(0)} s past its due tick with ${reserve} in the reserve and first = ${H.first[st.team]}`);
+        }
+        if (seat.state === SeatState.Walking && t - since > HOUSE.walk * 60 && !seatFlagged.has(`walk:${key}`)) {
+          seatFlagged.add(`walk:${key}`);
+          flag(t, `${where}, seat ${k}: a replacement has been walking for ${((t - since) / 60).toFixed(0)} s (at his post's foot he would be there in a few seconds)`);
+        }
+        if (seat.state === SeatState.Waiting && t - since > HOUSE.foot * 60 && hRun.postUp(st) && !seatFlagged.has(`foot:${key}`)) {
+          seatFlagged.add(`foot:${key}`);
+          flag(t, `${where}, seat ${k}: a replacement has waited ${((t - since) / 60).toFixed(0)} s at the foot of a post that stands`);
+        }
+      });
+    });
+    for (let i = 0; i < n; i++) {
+      const e = m.emplacements[i], c = castleOf(i);
+      const bare = !e.empty && M.up(i) && H.crew(i) === 0;
+      if (!bare) {
+        bareSince[i] = -1;
+        continue;
+      }
+      if (bareSince[i] < 0) (bareSince[i] = t, (bareReserve[i] = 0));
+      if (H.reserve[c] > 0) bareReserve[i] = 1;
+      if (!bareFlagged[i] && bareReserve[i] && t - bareSince[i] > HOUSE.uncrewed * 60) {
+        bareFlagged[i] = 1;
+        flag(t, `castle ${c}'s ${e.weapon} (slot ${i}, ${e.place ?? "slot"}) has stood armed with no crew for ${((t - bareSince[i]) / 60).toFixed(0)} s while the reserve held a hand (reserve ${H.reserve[c]}, first = ${H.first[c]}, seats ${H.stations.find((q) => q.kind === StationKind.Gun && q.index === i)?.seats.map((q) => SeatState[q.state] ?? q.state).join("/")})`);
+      }
+    }
+    for (const c of [0, 1] as const) {
+      const empty = H.stations.some((st) => st.team === c && st.seats.some((q) => q.state === SeatState.Due || q.state === SeatState.Walking || q.state === SeatState.Waiting));
+      if (H.reserve[c] === 0) hReserveZero[c]++;
+      if (m.emplacements.some((e, i) => castleOf(i) === c && !e.empty && M.up(i) && H.crew(i) === 0)) hBareSecs[c]++;
+      if (H.reserve[c] === 0 && empty) {
+        if (dryRunSince[c] < 0) dryRunSince[c] = t;
+        if (!dryRunFlagged[c] && t - dryRunSince[c] > HOUSE.dry * 60) {
+          dryRunFlagged[c] = true;
+          flag(t, `castle ${c}'s reserve has stood at 0 for ${((t - dryRunSince[c]) / 60).toFixed(0)} s with places empty (a castle run dry, not a bug by itself); it has lost ${hLostBy[c].reduce((a, b) => a + b, 0)} people: ${KIND_NAMES.map((nm, k) => `${nm} ${hLostBy[c][k]}`).filter((x) => !x.endsWith(" 0")).join(", ")}`);
+        }
+      } else dryRunSince[c] = -1;
+    }
+  }
   for (const c of [0, 1]) {
     if (!ais[c]) continue;
     if (m.shots[c] !== shotsSeen[c]) {
@@ -706,6 +818,7 @@ const summary = [0, 1].map((c) => {
 console.log(`seed ${seed}, ${sides[0]} (castle 0) against ${sides[1]} (castle 1), ${clock(end)} played: ${m.result ? (m.result.winner < 0 ? `a draw (${m.result.reason})` : `won by castle ${m.result.winner} (${m.result.reason})`) : "no result yet"}`);
 for (const s of summary) console.log("  " + s);
 console.log("  army: " + armyLine);
+if (H) console.log("  household: " + [0, 1].map((c) => `castle ${c}: lost ${H.lost[c]} (${KIND_NAMES.map((nm, k) => `${nm} ${hLostBy[c][k]}`).filter((x) => !x.endsWith(" 0")).join(", ") || "none"}), reserve ${H.reserve[c]} at the end and at 0 for ${hReserveZero[c]} s, a gun uncrewed ${hBareSecs[c]} s, first = ${H.first[c]}`).join("; "));
 if (organs) {
   const names = [0, 1].map((c) => ORGAN_KINDS.map((kn, o) => {
     const k = organs.index(c, o);
