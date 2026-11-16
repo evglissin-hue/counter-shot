@@ -130,7 +130,7 @@ const STEPS: Step[] = [
     ready: (c) => c.stage >= 1 && c.outside > 0,
     wait: (c) => (c.stage < 1 ? "The enemy castle is still asleep." : "Their first wave is not out yet."),
     test: (c) => c.fallenSince >= 4 || c.outside === 0,
-    follow: () => "Your other guns fire on their own at men near your gate.",
+    follow: () => "Your other guns fire on their own at men near your gate, while their crews stand.",
     highlights: () => ["#threat", TABS(2), TABS(3)],
     mark: { kind: "wave", label: "Their wave" },
   },

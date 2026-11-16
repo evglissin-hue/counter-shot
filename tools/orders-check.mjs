@@ -13,6 +13,7 @@ const R = (n) => `r.route === "${n}"`;
 const ctrl = (d) => ({ key: `Digit${d}`, opts: { ctrlKey: true, key: String(d) } });
 const ord = (n) => ({ kind: "order", order: n });
 const road = (n) => ({ kind: "route", route: n });
+const hh = (first) => ({ kind: "household", first });
 // Each step: what it does, the report it must bring (want), the inputs it must send (sent) and what the card must show at the end (hud).
 const steps = [
   { label: "card: Advance", click: '[data-order="0"]', want: O(0), sent: [ord(0)], hud: { order: "0" } },
@@ -62,6 +63,14 @@ const steps = [
   },
   { label: "Esc closes the menu", key: "Escape", frames: 2 },
   { label: 'line "all barracks left"', say: "all barracks left", want: "r.barracks && r.barracks[1] === 0", sent: [{ kind: "barracks", plot: 0, route: "left" }], hud: { route: "left" } },
+  // 3.6 the household: who the reserve replaces first, in the six ways of saying it.
+  { label: 'line "guns first"', say: "guns first", sent: [hh("guns")] },
+  { label: 'line "walls first"', say: "walls first", sent: [hh("walls")] },
+  { label: 'line "replace guns first"', say: "replace guns first", sent: [hh("guns")] },
+  { label: 'line "masons first"', say: "masons first", sent: [hh("walls")] },
+  { label: 'line "powder first"', say: "powder first", sent: [hh("powder")] },
+  { label: 'line "boys first"', say: "boys first", sent: [hh("powder")] },
+  { label: "Esc closes the line", key: "Escape", on: "#steward-input", frames: 1 },
 ];
 
 let failed = 0;

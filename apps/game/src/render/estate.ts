@@ -432,6 +432,9 @@ export class EstateView {
   }
 
   /** Every rendered frame: wheels turn, furnaces flicker, chimneys smoke, fuses spark. */
+  /** 3.6: with a household in the match its spotter is a real man (a Crew minion): the page-only figure on the platform is for the Practice range alone. */
+  household = false;
+
   update(dt: number, now: number, puff: Puff) {
 
     for (const v of this.views) {
@@ -446,6 +449,7 @@ export class EstateView {
       }
       if (v.kind === BARRACKS && now >= v.nextPuff) v.nextPuff = now + 1;
       // The spotter turns slowly on his platform, looking across the valley and down it, never quite the same way twice.
+      if (v.kind === SPOTTER && v.figure) v.figure.visible = !this.household;
       if (v.kind === SPOTTER && v.figure) v.figure.rotation.y = (v.castle === 0 ? Math.PI : 0) + 0.95 * Math.sin(now * 0.3 + v.plot * 1.9 + v.castle) + 0.25 * Math.sin(now * 0.77 + v.plot);
     }
     const m = new THREE.Matrix4();

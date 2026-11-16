@@ -7,18 +7,18 @@
 
 import * as THREE from "three/webgpu";
 import { vertexColor } from "three/tsl";
-import { MINION_PARTS } from "@keepfall/sim";
+import { CREW_STRIDE, MINION_PARTS } from "@keepfall/sim";
 import { applyCloudShadow } from "./clouds";
 import { mergeGeometries } from "./geometry";
 import { glowGeometry, glowMaterial } from "./gunModel";
 import { markInstances, sharedCapacity } from "./instancing";
 import { newCrewInfo, type CrewInfo, type Guns } from "./guns";
-import { HIDE_NEAR, LINSTOCK, LINSTOCK_TOOL, NO_CARRY, POLE, SHELL, STAFF, CARTRIDGE, liftOf, newCrewGun, newFigures, poseCrew, type CrewGun, type Figure } from "./crewLogic";
+import { CREW_MEN, HIDE_NEAR, LINSTOCK, LINSTOCK_TOOL, NO_CARRY, POLE, SHELL, STAFF, CARTRIDGE, liftOf, newCrewGun, newFigures, poseCrew, type CrewGun, type Figure } from "./crewLogic";
 import { TEAM_COLORS } from "./minions";
 
-/** Figures drawn at most: 16 guns of four men. */
+/** Figures drawn at most: 16 guns of two men. */
 export const MAX_GUNS = 16;
-export const MAX_MEN = MAX_GUNS * 4;
+export const MAX_MEN = MAX_GUNS * CREW_MEN;
 /** Share of the gun's turn the crew's frame follows (the platform does not turn, so they turn only a little with the gun). */
 export const FRAME_FOLLOW = 0.3;
 
@@ -88,7 +88,7 @@ export class Crews {
   private mats: THREE.Material[] = [];
   private info: CrewInfo = newCrewInfo();
   private gun: CrewGun = newCrewGun();
-  private figs: Figure[] = newFigures(4);
+  private figs: Figure[] = newFigures(CREW_MEN);
   private nStaff = 0;
   private nLin = 0;
   private nBag = 0;
@@ -205,10 +205,11 @@ export class Crews {
   }
 
   /**
-   * A frame: pose and draw every crew from its gun. `camera` is the view's (a man whose head comes within HIDE_NEAR of it
-   * is not drawn); `now` and `dt` are the renderer's own clock (slow motion slows the men's idle sway with it).
+   * A frame: pose and draw every crew from its gun and from the household's report of how many men stand at it (`counts`,
+   * CREW_STRIDE numbers per emplacement, men first; null in the Practice range, where every gun has two). `camera` is the
+   * view's (a man whose head comes within HIDE_NEAR of it is not drawn); `now` is the renderer's own clock.
    */
-  update(guns: Guns, now: number, camera: THREE.Camera) {
+  update(guns: Guns, now: number, camera: THREE.Camera, counts: Int8Array | null = null) {
     const t0 = typeof performance !== "undefined" ? performance.now() : 0;
     const cam = camera.position;
     this.camQ.copy(camera.quaternion);
@@ -222,7 +223,8 @@ export class Crews {
     for (let k = 0; k < n; k++) {
       const id = guns.idAt(k);
       const info = this.info;
-      if (!guns.crewInfo(id, info)) continue;
+      const reported = counts ? (counts[id * CREW_STRIDE] ?? 0) : -1;
+      if (!guns.crewInfo(id, info, reported)) continue;
       const g = this.gun;
       const yawC = crewYaw(info.baseYaw, info.yaw);
       g.kind = info.kind;
@@ -236,12 +238,13 @@ export class Crews {
       g.turn = info.yaw - yawC;
       g.propTurn = info.baseYaw - yawC;
       g.ridden = info.ridden;
+      g.men = info.men;
       const men = poseCrew(g, this.figs);
       const team = teamOfGun(info.z);
       const cy = Math.cos(yawC), sy = Math.sin(yawC);
       for (let i = 0; i < men; i++) {
         if (nm >= MAX_MEN) break;
-        nm = this.drawMan(this.figs[i], nm, id * 4 + i, team, info.x, info.floorY, info.z, cy, sy, yawC, now, cam);
+        nm = this.drawMan(this.figs[i], nm, id * CREW_MEN + i, team, info.x, info.floorY, info.z, cy, sy, yawC, now, cam);
       }
     }
     this.nMen = nm;

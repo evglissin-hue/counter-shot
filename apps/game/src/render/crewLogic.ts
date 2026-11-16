@@ -1,6 +1,6 @@
-// A crew at every gun (look round L1): what each man does and where he stands, by the gun's reload stage. Pure rules, no
-// three, so Node can test them. The crew are figures on the page only (milestone 3.6 makes real crews later): nothing here
-// feeds the match, and a pose is a function of the gun's state alone (stage, carriage, age of the shot), so a keyframe
+// A crew at every gun (look round L1, reworked for 3.6): what each man does and where he stands, by the gun's reload stage
+// and by how many men the household has at it (two, one or none). Pure rules, no three, so Node can test them. The men
+// are the sim's household figures; nothing here feeds the match, and a pose is a function of the gun's state alone (stage, carriage, age of the shot), so a keyframe
 // applied or a fast forward lands on the right pose with nothing to swing.
 //
 // Frame: the gun's own (x to the gunner's left looking down the barrel, z along it, y up), y measured from the floor the
@@ -27,10 +27,10 @@ export const MORTAR_SPLITS = { clear: [0, 0.08], swab: [0.08, 0.3], powder: [0.3
 /** The swivel's one man: works at the breech, then goes to the tiller. */
 export const SWIVEL_SPLITS = { clear: [0, 0.08], breech: [0.08, 0.5], tiller: [0.5, 0.9], ready: [0.9, 1] } as const;
 
-/** Men at each weapon. */
-export const CREW_SIZE: Record<WeaponKind, number> = { longGun: 4, chainShot: 4, mortar: 3, swivel: 1 };
-/** Roles by index: 0 the gunner (linstock), 1 the spongeman and rammer, 2 the loader (powder), 3 the helper (shot). */
-export const GUNNER = 0, SPONGE = 1, LOADER = 2, HELPER = 3;
+/** Men at every armed gun (the household's crew): the layer (seat 0) and the loader (seat 1). With one he does all of it; with none nobody is drawn. */
+export const CREW_MEN = 2;
+/** Figures by index: the layer (the match, the sponge and rammer, the shot) and the loader (the powder; both run the gun out). */
+export const LAYER = 0, LOADER = 1;
 
 /** A place in the gun's frame: x to the gunner's left, z along the barrel, and the level (0 the floor, 1 the platform's top). */
 export type Place = readonly [x: number, z: number, level: number];
@@ -45,17 +45,12 @@ export interface Places {
   /** The strips beside the cheeks at the front of the carriage, right and left. */
   frontR: Place;
   frontL: Place;
-  /** Where each man waits, clear of the work. */
-  rest: readonly [Place, Place, Place, Place];
+  /** Where the layer and the loader wait, clear of the work (the household's posts, content CREW_POSTS). */
+  rest: readonly [Place, Place];
   /** The gunner by the breech at the ready. */
   gunnerReady: Place;
-  /** The helper waiting at the left for the loader to step off. */
-  helperWait: Place;
-  /** Where the helper waits with the ball while the loader fetches the cartridge: behind the loader's line, out of the ridden gun's sight. */
-  helperHold: Place;
-  /** Where the men lean on the cheeks (z, with the gun run out) and on the rear. */
+  /** Where the men lean on the cheeks (z, with the gun run out). */
   pushZ: number;
-  pushRear: Place;
 }
 
 export const PLACES: Record<WeaponKind, Places> = {
@@ -67,12 +62,9 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [-1.35, -1.4],
     frontR: [-0.85, 0.6, 1],
     frontL: [0.85, 0.6, 1],
-    rest: [[-1.25, -1.75, 0], [-1.4, -0.6, 0], [1.55, -0.7, 0], [-0.9, -2.0, 0]],
+    rest: [[-1.25, -1.75, 0], [1.55, -0.7, 0]],
     gunnerReady: [-1.2, -1.5, 0],
-    helperWait: [1.2, -0.5, 0],
-    helperHold: [1.25, -2.0, 0],
     pushZ: 0.35,
-    pushRear: [0.55, -1.95, 0],
   },
   chainShot: {
     box: [1.35, -0.85],
@@ -82,12 +74,9 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [-1.5, -1.35],
     frontR: [-0.85, 0.6, 1],
     frontL: [0.85, 0.6, 1],
-    rest: [[-1.1, -1.7, 0], [-1.1, -0.6, 0], [1.7, -0.3, 0], [-1.1, -1.45, 0]],
+    rest: [[-1.1, -1.7, 0], [1.7, -0.3, 0]],
     gunnerReady: [-1.15, -1.5, 0],
-    helperWait: [1.2, -0.4, 0],
-    helperHold: [1.3, -1.9, 0],
     pushZ: 0.35,
-    pushRear: [0.55, -1.8, 0],
   },
   mortar: {
     box: [1.9, -0.9],
@@ -96,12 +85,9 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [-1.9, 0.15],
     frontR: [-1.05, 0.9, 0],
     frontL: [1.05, 0.9, 0],
-    rest: [[-1.2, -1.1, 0], [-1.55, 0.55, 0], [1.4, -0.8, 0], [0, 0, 0]],
+    rest: [[-1.2, -1.1, 0], [1.4, -0.8, 0]],
     gunnerReady: [-1.2, -0.5, 0],
-    helperWait: [-1.0, 0.1, 0],
-    helperHold: [-1.0, 0.1, 0],
     pushZ: 0,
-    pushRear: [0, -1.6, 0],
   },
   swivel: {
     box: [0, 0],
@@ -110,12 +96,9 @@ export const PLACES: Record<WeaponKind, Places> = {
     ammoAt: [0, 0],
     frontR: [-0.7, 0.1, 0],
     frontL: [0.7, 0.1, 0],
-    rest: [[-0.7, -0.55, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]],
+    rest: [[-0.7, -0.55, 0], [0, 0, 0]],
     gunnerReady: [-0.7, -0.55, 0],
-    helperWait: [0, 0, 0],
-    helperHold: [0, 0, 0],
     pushZ: 0,
-    pushRear: [0, 0, 0],
   },
 };
 
@@ -150,10 +133,12 @@ export interface CrewGun {
   turn: number;
   propTurn: number;
   ridden: boolean;
+  /** Men at the gun's posts: 0, 1 or 2. */
+  men: number;
 }
 
 export function newCrewGun(): CrewGun {
-  return { kind: "longGun", stage: 1, slide: 0, age: 1e6, pitch: 0.05, barrel: 1.8, drop: 1.7, lift: 0.85, turn: 0, propTurn: 0, ridden: false };
+  return { kind: "longGun", stage: 1, slide: 0, age: 1e6, pitch: 0.05, barrel: 1.8, drop: 1.7, lift: 0.85, turn: 0, propTurn: 0, ridden: false, men: 2 };
 }
 
 /** The platform's height under a gun the pivot of which stands `drop` above the floor. */
@@ -194,7 +179,7 @@ export function newFigure(): Figure {
   return { role: 0, px: 0, pz: 0, py: 0, face: 0, lean: 0, crouch: 0, stride: 0, hw: 0, hl: [0, 0, 0], hr: [0, 0, 0], tool: 0, ta: [0, 0, 0], tb: [0, 0, 0], carry: 0, cp: [0, 0, 0], glow: 0 };
 }
 
-export function newFigures(n = 4): Figure[] {
+export function newFigures(n = CREW_MEN): Figure[] {
   return Array.from({ length: n }, newFigure);
 }
 
@@ -435,7 +420,8 @@ function pushCheek(f: Figure, g: CrewGun, side: number, z: number) {
 
 // --- the long gun and the chain shot -------------------------------------------------------------------------
 
-function longCrew(g: CrewGun, out: Figure[]) {
+/** Both men of a long gun or a chain shot: the layer (the match, the sponge, the shot, the rammer) and the loader (the powder). Both run the gun out. */
+function longTwo(g: CrewGun, out: Figure[]) {
   const P = PLACES[g.kind];
   const s = g.stage;
   const lift = g.lift;
@@ -443,58 +429,48 @@ function longCrew(g: CrewGun, out: Figure[]) {
   const muz = muzzleOf(g, _w);
   const aimR = faceTo(fr[0], fr[1], muz[0], muz[2]);
   const aimL = faceTo(fl[0], fl[1], muz[0], muz[2]);
-  // The men leaning on the cheeks stand behind their hands; the hands (z) go forward with the carriage.
   const pushZ = P.pushZ - g.slide;
   const pushR = at(fr[0], pushZ - 0.4, 1);
   const pushL = at(fl[0], pushZ - 0.4, 1);
-  const rearZ = -1.05 - g.slide;
-  const pushB = at(P.pushRear[0], rearZ - 0.55, 0);
-  const pushing = s >= 0.78 && s <= SPLITS.runOut[1] + 0.02;
   const boxAt = at(P.boxAt[0], P.boxAt[1]);
   const ammoAt = at(P.ammoAt[0], P.ammoAt[1]);
-  const wait = at(P.helperWait[0], P.helperWait[1]);
-  const holdAt = at(P.helperHold[0], P.helperHold[1]);
   turned(P.box[0], P.box[1], g.propTurn, _p);
   const faceBox = faceTo(boxAt[0], boxAt[1], _p[0], _p[1]);
   turned(P.ammo[0], P.ammo[1], g.propTurn, _p);
   const faceAmmo = faceTo(ammoAt[0], ammoAt[1], _p[0], _p[1]);
+  const pushing = s >= 0.78 && s <= 0.9;
 
-  // 0 the gunner: at the breech with the match; steps back as the gun leaps; back at the breech for the ready
+  // The layer: the match at the breech; the sponge; the shot from the garland; the rammer; leans on the right cheek to run out
   {
-    const f = out[GUNNER];
-    reset(f, GUNNER);
-    track([key(0, gr, 0.3), key(0.06, rest[0], 0.2), key(0.8, rest[0], 0.2), key(0.92, gr, 0.3), key(1, gr, 0.3)], s, f, lift);
-    flinch(f, g, 0.5);
-    gunnerMatch(f, g);
-  }
-  // 1 the spongeman and rammer
-  {
-    const f = out[SPONGE];
-    reset(f, SPONGE);
+    const f = out[LAYER];
+    reset(f, LAYER);
     track(
       [
-        key(0, rest[1], 0.5),
-        key(0.08, rest[1], 0.5),
-        key(0.14, fr, aimR, 0.1),
-        key(0.3, fr, aimR, 0.1),
-        key(0.38, rest[1], 0.5),
-        key(0.46, rest[1], 0.5),
-        key(0.55, fr, aimR, 0.1),
+        key(0, gr, 0.3),
+        key(0.02, rest[0], 0.2),
+        key(0.13, fr, aimR, 0.1),
+        key(0.24, fr, aimR, 0.1),
+        key(0.33, ammoAt, faceAmmo),
+        key(0.39, ammoAt, faceAmmo),
+        key(0.48, fr, aimR, 0.1),
         key(0.72, fr, aimR, 0.1),
         key(0.78, pushR, 0.1, 0.35),
-        key(0.92, pushR, 0.1, 0.35),
-        key(0.97, rest[1], 0.5),
-        key(1, rest[1], 0.5),
+        key(0.9, pushR, 0.1, 0.35),
+        key(0.96, gr, 0.3),
+        key(1, gr, 0.3),
       ],
       s,
       f,
       lift,
     );
-    if (inWin(s, 0.14, 0.3)) {
-      const ins = 0.5 * strokes((s - 0.14) / 0.16, 3);
+    if (inWin(s, 0.13, 0.24)) {
+      const ins = 0.5 * strokes((s - 0.13) / 0.11, 2);
       f.lean += 0.25 * ins;
       pole(f, g, ins);
-    } else if (inWin(s, 0.55, 0.72)) {
+    } else if (inWin(s, 0.33, 0.39)) fetch(f, P.ammo, g.propTurn, (s - 0.33) / 0.06, BALL);
+    else if (inWin(s, 0.39, 0.48)) hold(f, BALL);
+    else if (inWin(s, 0.48, 0.51)) putIn(f, g, (s - 0.48) / 0.03, BALL);
+    else if (inWin(s, 0.55, 0.72)) {
       const ins = 0.55 * strokes((s - 0.55) / 0.17, 2);
       f.lean += 0.3 * ins;
       f.crouch = 0.08 * ins;
@@ -502,115 +478,185 @@ function longCrew(g: CrewGun, out: Figure[]) {
     } else if (pushing) {
       poleRest(f);
       pushCheek(f, g, -1, pushZ);
-    } else poleRest(f);
-    flinch(f, g, 0.25);
+    } else if (s < 0.06 || s > 0.94) gunnerMatch(f, g);
+    else poleRest(f);
+    flinch(f, g, 0.4);
   }
-  // 2 the loader: the cartridge from the box to the muzzle
+  // The loader: the cartridge from the box to the muzzle, then leans on the left cheek to run out
   {
     const f = out[LOADER];
     reset(f, LOADER);
     track(
       [
-        key(0, rest[2], 2.5),
-        key(0.12, rest[2], 2.5),
-        key(0.2, boxAt, faceBox),
-        key(0.28, boxAt, faceBox),
-        key(0.42, fl, aimL, 0.1),
-        key(0.46, fl, aimL, 0.1),
-        key(0.53, rest[2], 2.5),
-        key(0.72, rest[2], 2.5),
+        key(0, rest[1], 2.5),
+        key(0.02, rest[1], 2.5),
+        key(0.1, boxAt, faceBox),
+        key(0.14, boxAt, faceBox),
+        key(0.27, fl, aimL, 0.1),
+        key(0.36, fl, aimL, 0.1),
+        key(0.45, rest[1], 2.5),
+        key(0.72, rest[1], 2.5),
         key(0.78, pushL, -0.1, 0.35),
-        key(0.92, pushL, -0.1, 0.35),
-        key(0.97, rest[2], 2.5),
-        key(1, rest[2], 2.5),
+        key(0.9, pushL, -0.1, 0.35),
+        key(0.96, rest[1], 2.5),
+        key(1, rest[1], 2.5),
       ],
       s,
       f,
       lift,
     );
-    if (inWin(s, 0.23, 0.28)) fetch(f, P.box, g.propTurn, (s - 0.23) / 0.05, CARTRIDGE);
-    else if (inWin(s, 0.28, 0.42)) hold(f, CARTRIDGE);
-    else if (inWin(s, 0.42, 0.46)) putIn(f, g, (s - 0.42) / 0.04, CARTRIDGE);
+    if (inWin(s, 0.1, 0.14)) fetch(f, P.box, g.propTurn, (s - 0.1) / 0.04, CARTRIDGE);
+    else if (inWin(s, 0.14, 0.3)) hold(f, CARTRIDGE);
+    else if (inWin(s, 0.3, 0.34)) putIn(f, g, (s - 0.3) / 0.04, CARTRIDGE);
     else if (pushing) pushCheek(f, g, 1, pushZ);
-    flinch(f, g, 0.25);
-  }
-  // 3 the helper: the ball from the garland to the muzzle, then the rear of the carriage
-  {
-    const f = out[HELPER];
-    reset(f, HELPER);
-    track(
-      [
-        key(0, rest[3], 0.9),
-        key(0.03, rest[3], faceAmmo),
-        key(0.08, ammoAt, faceAmmo),
-        key(0.14, ammoAt, faceAmmo),
-        // With the ball, out of the sight while the loader fetches (from the old wait by the gun he stood large at its left).
-        key(0.3, holdAt, 0.8),
-        key(0.37, holdAt, 0.8),
-        key(0.49, fl, aimL, 0.1),
-        key(0.53, fl, aimL, 0.1),
-        key(0.6, wait, 0.8),
-        key(0.66, wait, 0.8),
-        key(0.78, pushB, 0, 0.45),
-        key(0.92, pushB, 0, 0.45),
-        key(1, rest[3], 0.9),
-      ],
-      s,
-      f,
-      lift,
-    );
-    if (inWin(s, 0.08, 0.14)) fetch(f, P.ammo, g.propTurn, (s - 0.08) / 0.06, BALL);
-    else if (inWin(s, 0.14, 0.49)) hold(f, BALL);
-    else if (inWin(s, 0.49, 0.53)) putIn(f, g, (s - 0.49) / 0.04, BALL);
-    else if (pushing) {
-      turned(0, rearZ, g.turn, _p);
-      bothHands(f, _p[0], g.drop - 0.3, _p[1], 0.25);
-      f.stride = 0.4;
-    }
     flinch(f, g, 0.25);
   }
 }
 
+/** One man at a long gun or a chain shot does all of it in turn: the sponge, the powder from the box, the shot from the garland, the rammer, the run out. */
+function longOne(g: CrewGun, out: Figure[]) {
+  const P = PLACES[g.kind];
+  const s = g.stage;
+  const lift = g.lift;
+  const { frontR: fr, frontL: fl, rest, gunnerReady: gr } = P;
+  const muz = muzzleOf(g, _w);
+  const aimR = faceTo(fr[0], fr[1], muz[0], muz[2]);
+  const aimL = faceTo(fl[0], fl[1], muz[0], muz[2]);
+  const pushZ = P.pushZ - g.slide;
+  const pushR = at(fr[0], pushZ - 0.4, 1);
+  const boxAt = at(P.boxAt[0], P.boxAt[1]);
+  const ammoAt = at(P.ammoAt[0], P.ammoAt[1]);
+  turned(P.box[0], P.box[1], g.propTurn, _p);
+  const faceBox = faceTo(boxAt[0], boxAt[1], _p[0], _p[1]);
+  turned(P.ammo[0], P.ammo[1], g.propTurn, _p);
+  const faceAmmo = faceTo(ammoAt[0], ammoAt[1], _p[0], _p[1]);
+  const f = out[LAYER];
+  reset(f, LAYER);
+  track(
+    [
+      key(0, gr, 0.3),
+      key(0.02, rest[0], 0.2),
+      key(0.09, fr, aimR, 0.1),
+      key(0.16, fr, aimR, 0.1),
+      key(0.27, boxAt, faceBox),
+      key(0.3, boxAt, faceBox),
+      key(0.39, fl, aimL, 0.1),
+      key(0.43, fl, aimL, 0.1),
+      key(0.52, ammoAt, faceAmmo),
+      key(0.56, ammoAt, faceAmmo),
+      key(0.63, fr, aimR, 0.1),
+      key(0.75, fr, aimR, 0.1),
+      key(0.82, pushR, 0.1, 0.35),
+      key(0.93, pushR, 0.1, 0.35),
+      key(0.99, gr, 0.3),
+      key(1, gr, 0.3),
+    ],
+    s,
+    f,
+    lift,
+  );
+  if (inWin(s, 0.09, 0.16)) {
+    const ins = 0.5 * strokes((s - 0.09) / 0.07, 2);
+    f.lean += 0.25 * ins;
+    pole(f, g, ins);
+  } else if (inWin(s, 0.27, 0.3)) fetch(f, P.box, g.propTurn, (s - 0.27) / 0.03, CARTRIDGE);
+  else if (inWin(s, 0.3, 0.39)) hold(f, CARTRIDGE);
+  else if (inWin(s, 0.39, 0.43)) putIn(f, g, (s - 0.39) / 0.04, CARTRIDGE);
+  else if (inWin(s, 0.52, 0.56)) fetch(f, P.ammo, g.propTurn, (s - 0.52) / 0.04, BALL);
+  else if (inWin(s, 0.56, 0.63)) hold(f, BALL);
+  else if (inWin(s, 0.63, 0.67)) putIn(f, g, (s - 0.63) / 0.04, BALL);
+  else if (inWin(s, 0.67, 0.76)) {
+    const ins = 0.55 * strokes((s - 0.67) / 0.09, 2);
+    f.lean += 0.3 * ins;
+    f.crouch = 0.08 * ins;
+    pole(f, g, ins);
+  } else if (s >= 0.82 && s <= 0.93) {
+    poleRest(f);
+    pushCheek(f, g, -1, pushZ);
+  } else if (s < 0.06 || s > 0.96) gunnerMatch(f, g);
+  else poleRest(f);
+  flinch(f, g, 0.4);
+}
+
 // --- the mortar ----------------------------------------------------------------------------------------------
 
-function mortarCrew(g: CrewGun, out: Figure[]) {
+function mortarCrew(g: CrewGun, out: Figure[], men: number) {
   const P = PLACES.mortar;
   const s = g.stage;
   const { frontR: fr, frontL: fl, rest, gunnerReady: gr } = P;
   const muz = muzzleOf(g, _w);
   const aimR = faceTo(fr[0], fr[1], muz[0], muz[2]);
   const aimL = faceTo(fl[0], fl[1], muz[0], muz[2]);
-  const S = MORTAR_SPLITS;
-  // The shell: two men take it from the crate (ends of it), carry it in front of the bed, and lift it into the muzzle.
-  const shellFrom = [at(P.ammo[0], P.ammo[1] + 0.8), at(P.ammo[0], P.ammo[1] - 0.8)];
-  const shellTo = [at(-0.6, 1.3), at(0.6, 1.3)];
-
-  // 0 the gunner: the match, always
-  {
-    const f = out[GUNNER];
-    reset(f, GUNNER);
-    track([key(0, gr, 0.3), key(0.06, rest[0], 0.2), key(0.8, rest[0], 0.2), key(0.9, gr, 0.3), key(1, gr, 0.3)], s, f, 0);
-    flinch(f, g, 0.5);
-    gunnerMatch(f, g);
-  }
-  // 1 the spongeman, then a shell carrier
-  {
-    const f = out[SPONGE];
-    reset(f, SPONGE);
+  const boxAt = at(P.boxAt[0], P.boxAt[1]);
+  const ammoAt = at(P.ammoAt[0], P.ammoAt[1]);
+  const faceBox = Math.PI * 0.6;
+  turned(P.ammo[0], P.ammo[1], g.propTurn, _p);
+  const faceAmmo = faceTo(ammoAt[0], ammoAt[1], _p[0], _p[1]);
+  if (men === 1) {
+    // One man: the swab, the powder, then the shell, lifted from its crate and put into the muzzle alone.
+    const f = out[LAYER];
+    reset(f, LAYER);
     track(
       [
-        key(0, rest[1], 2.8),
-        key(0.08, rest[1], 2.8),
+        key(0, gr, 0.3),
+        key(0.05, rest[0], 0.2),
+        key(0.1, fr, aimR, 0.1),
+        key(0.26, fr, aimR, 0.1),
+        key(0.32, boxAt, faceBox),
+        key(0.36, boxAt, faceBox),
+        key(0.42, fl, aimL, 0.1),
+        key(0.48, fl, aimL, 0.1),
+        key(0.54, ammoAt, faceAmmo),
+        key(0.6, ammoAt, faceAmmo),
+        key(0.7, fr, aimR, 0.1),
+        key(0.79, fr, aimR, 0.1),
+        key(0.86, rest[0], 0.2),
+        key(0.92, gr, 0.3),
+        key(1, gr, 0.3),
+      ],
+      s,
+      f,
+      0,
+    );
+    if (inWin(s, 0.1, 0.26)) {
+      const ins = 0.5 * strokes((s - 0.1) / 0.16, 2);
+      f.lean += 0.25 * ins;
+      pole(f, g, ins);
+    } else if (inWin(s, 0.32, 0.36)) fetch(f, P.box, g.propTurn, (s - 0.32) / 0.04, CARTRIDGE);
+    else if (inWin(s, 0.36, 0.42)) hold(f, CARTRIDGE);
+    else if (inWin(s, 0.42, 0.48)) putIn(f, g, (s - 0.42) / 0.06, CARTRIDGE);
+    else if (inWin(s, 0.54, 0.6)) fetch(f, P.ammo, g.propTurn, (s - 0.54) / 0.06, SHELL);
+    else if (inWin(s, 0.6, 0.7)) hold(f, SHELL);
+    else if (inWin(s, 0.7, 0.79)) putIn(f, g, (s - 0.7) / 0.09, SHELL);
+    else if (s < 0.08 || s > 0.9) gunnerMatch(f, g);
+    else poleRest(f);
+    flinch(f, g, 0.4);
+    return;
+  }
+  // The shell: the two men take it from the crate (ends of it), carry it in front of the bed, and lift it into the muzzle.
+  const shellFrom = [at(P.ammo[0], P.ammo[1] + 0.8), at(P.ammo[0], P.ammo[1] - 0.8)];
+  const shellTo = [at(-0.6, 1.3), at(0.6, 1.3)];
+  const faceFrom = (i: number) => faceTo(shellFrom[i][0], shellFrom[i][1], P.ammo[0], P.ammo[1]);
+  const faceInto = (i: number) => faceTo(shellTo[i][0], shellTo[i][1], 0, 1.3);
+  // The layer: the match, the sponge, then one end of the shell
+  {
+    const f = out[LAYER];
+    reset(f, LAYER);
+    track(
+      [
+        key(0, gr, 0.3),
+        key(0.06, rest[0], 0.2),
         key(0.14, fr, aimR, 0.1),
         key(0.3, fr, aimR, 0.1),
-        key(0.36, rest[1], 2.8),
-        key(0.5, rest[1], 2.8),
-        key(0.55, shellFrom[0], faceTo(shellFrom[0][0], shellFrom[0][1], P.ammo[0], P.ammo[1])),
-        key(0.6, shellFrom[0], faceTo(shellFrom[0][0], shellFrom[0][1], P.ammo[0], P.ammo[1])),
-        key(0.7, shellTo[0], faceTo(shellTo[0][0], shellTo[0][1], 0, 1.3)),
-        key(0.76, shellTo[0], faceTo(shellTo[0][0], shellTo[0][1], 0, 1.3)),
-        key(0.82, rest[1], 2.8),
-        key(1, rest[1], 2.8),
+        key(0.38, rest[0], 0.2),
+        key(0.5, rest[0], 0.2),
+        key(0.55, shellFrom[0], faceFrom(0)),
+        key(0.6, shellFrom[0], faceFrom(0)),
+        key(0.7, shellTo[0], faceInto(0)),
+        key(0.76, shellTo[0], faceInto(0)),
+        key(0.84, rest[0], 0.2),
+        key(0.9, gr, 0.3),
+        key(1, gr, 0.3),
       ],
       s,
       f,
@@ -620,28 +666,29 @@ function mortarCrew(g: CrewGun, out: Figure[]) {
       const ins = 0.5 * strokes((s - 0.14) / 0.16, 3);
       f.lean += 0.25 * ins;
       pole(f, g, ins);
-    } else if (!inWin(s, S.shell[0] + 0.05, S.shell[1])) poleRest(f);
-    flinch(f, g, 0.25);
+    } else if (s < 0.08 || s > 0.9) gunnerMatch(f, g);
+    else if (!inWin(s, MORTAR_SPLITS.shell[0] + 0.05, MORTAR_SPLITS.shell[1])) poleRest(f);
+    flinch(f, g, 0.4);
   }
-  // 2 the loader: the powder, then the other shell carrier
+  // The loader: the powder, then the other end of the shell
   {
     const f = out[LOADER];
     reset(f, LOADER);
     track(
       [
-        key(0, rest[2], 2.5),
-        key(0.3, rest[2], 2.5),
-        key(0.33, at(P.boxAt[0], P.boxAt[1]), Math.PI * 0.6),
-        key(0.36, at(P.boxAt[0], P.boxAt[1]), Math.PI * 0.6),
+        key(0, rest[1], 2.5),
+        key(0.3, rest[1], 2.5),
+        key(0.33, boxAt, faceBox),
+        key(0.36, boxAt, faceBox),
         key(0.41, fl, aimL, 0.1),
         key(0.45, fl, aimL, 0.1),
-        key(0.5, rest[2], 2.5),
-        key(0.55, shellFrom[1], faceTo(shellFrom[1][0], shellFrom[1][1], P.ammo[0], P.ammo[1])),
-        key(0.6, shellFrom[1], faceTo(shellFrom[1][0], shellFrom[1][1], P.ammo[0], P.ammo[1])),
-        key(0.7, shellTo[1], faceTo(shellTo[1][0], shellTo[1][1], 0, 1.3)),
-        key(0.76, shellTo[1], faceTo(shellTo[1][0], shellTo[1][1], 0, 1.3)),
-        key(0.82, rest[2], 2.5),
-        key(1, rest[2], 2.5),
+        key(0.5, rest[1], 2.5),
+        key(0.55, shellFrom[1], faceFrom(1)),
+        key(0.6, shellFrom[1], faceFrom(1)),
+        key(0.7, shellTo[1], faceInto(1)),
+        key(0.76, shellTo[1], faceInto(1)),
+        key(0.82, rest[1], 2.5),
+        key(1, rest[1], 2.5),
       ],
       s,
       f,
@@ -654,7 +701,7 @@ function mortarCrew(g: CrewGun, out: Figure[]) {
   }
   // The shell between the two: lifted from the crate (0.55 to 0.62), carried (to 0.7), raised into the muzzle (to 0.78).
   if (s >= 0.55 && s < 0.78) {
-    const a = out[SPONGE], b = out[LOADER];
+    const a = out[LAYER], b = out[LOADER];
     const mx = (a.px + b.px) / 2, mz = (a.pz + b.pz) / 2;
     const lift1 = sm((s - 0.55) / 0.07);
     const into = sm((s - 0.7) / 0.08);
@@ -663,7 +710,7 @@ function mortarCrew(g: CrewGun, out: Figure[]) {
     for (const f of [a, b]) {
       const sideX = f === a ? -0.2 : 0.2;
       bothHands(f, x, y, z, 0.0);
-      set3(f === a ? f.hl : f.hl, x + sideX, y, z);
+      set3(f.hl, x + sideX, y, z);
       set3(f.hr, x + sideX, y, z);
       f.tool = NO_TOOL;
       f.lean = 0.15 + 0.2 * into;
@@ -676,11 +723,11 @@ function mortarCrew(g: CrewGun, out: Figure[]) {
 
 // --- the swivel ----------------------------------------------------------------------------------------------
 
-function swivelCrew(g: CrewGun, out: Figure[]) {
+function swivelCrew(g: CrewGun, out: Figure[], men: number) {
   const P = PLACES.swivel;
   const s = g.stage;
-  const f = out[GUNNER];
-  reset(f, GUNNER);
+  const f = out[LAYER];
+  reset(f, LAYER);
   const breech = at(-0.6, -0.2);
   const tiller = P.gunnerReady;
   const faceX = Math.PI / 2;
@@ -701,25 +748,47 @@ function swivelCrew(g: CrewGun, out: Figure[]) {
     f.lean = 0.3;
   }
   flinch(f, g, 0.5);
+  if (men < 2) return;
+  // The loader stands on the other side and hands the charge across while the layer works at the breech.
+  const l = out[LOADER];
+  reset(l, LOADER);
+  const post = at(0.7, -0.55);
+  track([key(0, post, -faceX), key(1, post, -faceX)], s, l, 0);
+  if (inWin(s, 0.16, 0.5)) {
+    const k = strokes((s - 0.16) / 0.34, 2);
+    l.lean = 0.3;
+    turned(0.3, -0.3 - g.slide - 0.08 * k, g.turn, _p);
+    bothHands(l, _p[0], g.drop + 0.02, _p[1], 0.08);
+  }
+  flinch(l, g, 0.25);
 }
 
 /**
- * Pose a gun's crew: fills `out` (at least four figures) and returns how many men there are. `out` positions are in the
+ * Pose a gun's crew: fills `out` (at least two figures) with `g.men` men (0 to 2) and returns how many there are. With two,
+ * the layer is the figure 0 and the loader the figure 1; with one he does the work of both. `out` positions are in the
  * gun's frame, y from its floor.
  */
 export function poseCrew(g: CrewGun, out: Figure[]): number {
+  const men = g.men <= 0 ? 0 : g.men >= 2 ? 2 : 1;
+  if (men === 0) return 0;
   posing = g;
-  if (g.kind === "longGun" || g.kind === "chainShot") longCrew(g, out);
-  else if (g.kind === "mortar") mortarCrew(g, out);
-  else swivelCrew(g, out);
+  if (g.kind === "longGun" || g.kind === "chainShot") (men === 2 ? longTwo : longOne)(g, out);
+  else if (g.kind === "mortar") mortarCrew(g, out, men);
+  else swivelCrew(g, out, men);
   posing = null;
-  return CREW_SIZE[g.kind];
+  return men;
 }
 
-/** How many men stand at a gun: none for an empty slot (`armed` ""), a gun knocked out (it was swept away; its crew is back with it) or a gun not shown now. */
-export function crewSizeFor(armed: string, out: boolean, shown: boolean): number {
-  if (armed === "" || out || !shown) return 0;
-  return CREW_SIZE[armed as WeaponKind] ?? 0;
+/** How many men stand at a gun's posts: what the household reports (0 to 2); both with no report (the Practice range, `reported` below 0); none for an empty slot or a gun not shown now. */
+export function crewSizeFor(armed: string, reported: number, shown: boolean): number {
+  if (armed === "" || !shown) return 0;
+  return reported < 0 ? CREW_MEN : Math.min(CREW_MEN, reported);
+}
+
+/** The household's figures (content's Unit.Crew, sim's CrewAction numbers): at a gun's post the crews draw him, so the minion renderer leaves him out. */
+export const UNIT_CREW = 6, ACTION_AT_GUN = 12, ACTION_AT_POST = 13, ACTION_HOIST = 14;
+export function drawnByCrews(unit: number, action: number): boolean {
+  return unit === UNIT_CREW && action === ACTION_AT_GUN;
 }
 
 /** Whether a point in the gun's frame (y from its floor) lies in the sight camera's central cone and the band below the crosshair. */
