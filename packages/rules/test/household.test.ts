@@ -13,6 +13,7 @@ import {
   HOUSEHOLD,
   keeperPost,
   MATCH_EMPLACEMENTS,
+  REMOUNT,
   REPAIR,
   StationKind,
   stoneBounds,
@@ -33,6 +34,7 @@ import {
   SeatState,
   solveAim,
   Spin,
+  supportOf,
   type Rapier,
 } from "@keepfall/sim";
 import { Match, Team, type MatchOptions } from "@keepfall/rules";
@@ -459,23 +461,35 @@ test("who is replaced first: guns, walls (masons) or powder, with one hand in th
   c.free();
 });
 
-test("a gun's mount brought down: its crew fall with it, the replacements wait at the foot until it stands again, and the gun is back only with a man at its post", () => {
+test("a gun's mount shot away: its men climb down and keep their places, wait at the foot until it stands again, and the gun is back only with a man at its post", () => {
   const m = quiet(12, { masons: false, powder: false });
   const h = hh(m);
   const w = watch(m, [EventKind.GunOut, EventKind.GunBack, EventKind.HouseholdDown]);
   const g = station(m, 1, StationKind.Gun, 0);
-  const old = g.seats.map((s) => s.minion);
-  const pieces = [...m.world.mounts.pieces[0]];
+  const men = g.seats.map((s) => s.minion), people = g.seats.map((s) => s.person);
+  const L = m.world.castle.layout, e = m.emplacements[0], floor = mountFloor(L, e);
+  // The gun's mount and the footing under both its men.
+  const under = new Set<number>(m.world.mounts.pieces[0]);
+  for (let k = 0; k < 2; k++) {
+    const p = crewPostXZ(e, k);
+    for (const id of supportOf(L, 1, p.x, p.z, floor, false, HOUSEHOLD.footReach).ids) under.add(id);
+  }
+  const pieces = [...under].sort((a, b) => a - b);
   for (const id of pieces) m.world.castle.knockLoose(id, 0, -50, 0);
   run(m, 3, w.each);
-  assert.deepEqual(w.got.filter((e) => e[0] === EventKind.GunOut).map((e) => [e[1], e[2]]), [[0, 1]], "out by its mount");
-  for (const id of old) assert.equal(m.world.minions.list[id].downCause, Cause.Fall, "the crew fell with it");
-  assert.equal(h.crew(0), 0);
-  assert.equal(w.got.filter((e) => e[0] === EventKind.HouseholdDown).length, 2);
-  // They walk out, and wait at the foot: the masonry is down.
-  assert.ok(until(m, 4000, () => g.seats.every((s) => s.state === SeatState.Waiting)) >= 0, "the replacements wait at the foot");
-  assert.equal(h.reserve[1], HOUSEHOLD.reserve - 2);
-  run(m, 120);
+  assert.deepEqual(w.got.filter((x) => x[0] === EventKind.GunOut).map((x) => [x[1], x[2]]), [[0, 1]], "out by its mount");
+  assert.equal(h.crew(0), 0, "nobody at its posts");
+  assert.equal(w.got.filter((x) => x[0] === EventKind.HouseholdDown).length, 0, "nobody lost: they climbed down");
+  for (const [k, s] of g.seats.entries()) {
+    assert.equal(s.state, SeatState.Waiting, "waiting at the foot");
+    assert.equal(s.minion, men[k], "the same man");
+    assert.equal(s.person, people[k], "the same person, with his shots");
+    assert.equal(m.world.minions.list[men[k]].state, MinionState.Upright);
+    assert.ok(m.world.minions.list[men[k]].y < 2, "down in the courtyard");
+  }
+  assert.equal(h.reserve[1], HOUSEHOLD.reserve, "the reserve is not touched");
+  // (past the crew's REMOUNT time, so what keeps the gun out after the masonry is back is only its hands)
+  run(m, REMOUNT.ticks);
   assert.ok(g.seats.every((s) => s.state === SeatState.Waiting), "and go on waiting while it is down");
   assert.equal(m.world.mounts.up(0), false);
   // Masons put it back.
@@ -487,10 +501,31 @@ test("a gun's mount brought down: its crew fall with it, the replacements wait a
   const rep = new Int16Array(64);
   m.world.mounts.report(m.tick, rep);
   assert.equal(rep[0], 1 + OutWait.Hands, "the page reads 'no hands'");
-  assert.ok(until(m, 400, () => m.world.mounts.up(0)) >= 0, "back once a man is at its post");
+  assert.ok(until(m, 2400, () => m.world.mounts.up(0)) >= 0, "back once a man is at its post");
   run(m, 1, w.each);
-  assert.ok(h.crew(0) >= 1);
-  assert.ok(w.got.some((e) => e[0] === EventKind.GunBack && e[1] === 0));
+  assert.equal(h.crew(0), 2);
+  assert.equal(h.level(0), 1, "still trained: the same men");
+  assert.ok(w.got.some((x) => x[0] === EventKind.GunBack && x[1] === 0));
+  m.free();
+});
+
+test("a man whose footing goes with a toppling keep or tower falls with it (lost, a replacement due)", () => {
+  const m = quiet(12, { masons: false, powder: false });
+  const h = hh(m);
+  const w = watch(m, [EventKind.HouseholdDown]);
+  const g = station(m, 1, StationKind.Gun, 0);
+  const men = g.seats.map((s) => s.minion);
+  const L = m.world.castle.layout, e = m.emplacements[0], floor = mountFloor(L, e);
+  // The statics pass claims the footing under both men as part of a falling structure.
+  for (let k = 0; k < 2; k++) {
+    const p = crewPostXZ(e, k);
+    for (const id of supportOf(L, 1, p.x, p.z, floor, false, HOUSEHOLD.footReach).ids) m.world.castle.claim(id, true);
+  }
+  run(m, 2, w.each);
+  for (const id of men) assert.equal(m.world.minions.list[id].downCause, Cause.Fall, "he fell with it");
+  assert.equal(h.crew(0), 0);
+  assert.equal(w.got.filter((x) => x[0] === EventKind.HouseholdDown).length, 2);
+  assert.ok(g.seats.every((s) => s.state === SeatState.Due), "replacements due");
   m.free();
 });
 
@@ -625,3 +660,24 @@ test("the household is not counted among men standing, attackers or defenders; i
 
 void GUN_HITS;
 void PROJECTILE_STRIDE;
+
+test("the household takes cover: a shell bursting beyond a quarter of its knock reach leaves a crew standing; nearer, it knocks them down", () => {
+  const m = quiet(14, { masons: false, powder: false });
+  const h = hh(m);
+  // The mortar pit's crew (the player's emplacement 1), on the ground.
+  const g = station(m, 1, StationKind.Gun, 1);
+  const man = m.world.minions.list[g.seats[0].minion], mate = m.world.minions.list[g.seats[1].minion];
+  // Away from his mate, so the layer is the nearer of the two.
+  const ux0 = man.x - mate.x, uz0 = man.z - mate.z, ul = Math.hypot(ux0, uz0), ux = ux0 / ul, uz = uz0 / ul;
+  const knock = WEAPONS.mortar.burst!.knock;
+  const far = knock * HOUSEHOLD.cover + 1.5;
+  m.world.explode(man.x + ux * far, man.y + 0.9, man.z + uz * far, WEAPONS.mortar.burst!, -1);
+  run(m, 2);
+  assert.equal(man.state, MinionState.Upright, `a burst ${far.toFixed(1)} m away (a soldier is thrown out to ${knock} m)`);
+  assert.equal(h.crew(1), 2);
+  const near = knock * HOUSEHOLD.cover - 1;
+  m.world.explode(man.x + ux * near, man.y + 0.9, man.z + uz * near, WEAPONS.mortar.burst!, -1);
+  run(m, 2);
+  assert.notEqual(man.state, MinionState.Upright, `a burst ${near.toFixed(1)} m away knocks him down`);
+  m.free();
+});
