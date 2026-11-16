@@ -86,6 +86,8 @@ try {
     const target = hurt ? { id: hurt.index, whose: "own" } : st.foe.length ? { id: st.foe[0], whose: "enemy" } : null;
     if (target && !got.one) {
       got.one = true;
+      // Let the dust of the hit settle first.
+      await adv(8);
       // Look at the man left at the gun (Unit.Crew 6, CrewAction.AtGun 12, nearest to it), from a few metres off on the near side.
       const man = await page.evaluate(([id]) => {
         const S = window.__sandbox, g = S.guns[id], f = S.frame;
@@ -103,7 +105,7 @@ try {
     }
     if (st.hoist && !got.hoist) {
       got.hoist = true;
-      await page.evaluate((h) => { const S = window.__sandbox; S.look({ x: h.x + 3, y: h.y + 1.2, z: h.z + 4, tx: h.x, ty: h.y + 1, tz: h.z, fov: 55 }); }, st.hoist);
+      await page.evaluate((h) => { const S = window.__sandbox; S.look({ x: h.x + 1.5, y: h.y + 1.7, z: h.z + 2.4, tx: h.x, ty: h.y + 1.2, tz: h.z, fov: 50 }); }, st.hoist);
       await adv(0.1);
       await snap("hoist-real");
       console.log("hoist seen at", JSON.stringify(st.hoist), "tick", st.tick);
