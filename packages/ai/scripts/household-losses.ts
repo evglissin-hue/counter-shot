@@ -4,7 +4,7 @@
 // the first time it ran dry.
 // npx rolldown packages/ai/scripts/household-losses.ts --format esm --platform node -o node_modules/.scratch/household-losses.mjs && node node_modules/.scratch/household-losses.mjs [c0=knight] [c1=knight] [seed=1] [secs=900] [list=0]
 import RD from "@dimforge/rapier3d-deterministic-compat";
-import { buildLayout, GAME_LAYOUT, Unit, type Difficulty } from "@keepfall/content";
+import { applyTuning, buildLayout, GAME_LAYOUT, Unit, type Difficulty } from "@keepfall/content";
 import { Cause, isWorker, Role, type Rapier } from "@keepfall/sim";
 import { Match } from "@keepfall/rules";
 import { AiPlayer } from "@keepfall/ai";
@@ -14,6 +14,9 @@ const R = RD as unknown as Rapier;
 const arg = (k: string, d: string) => process.argv.find((a) => a.startsWith(k + "="))?.split("=")[1] ?? d;
 const sides = [arg("c0", "knight"), arg("c1", "knight")];
 const seed = Number(arg("seed", "1")), secs = Number(arg("secs", "900")), list = arg("list", "0") === "1";
+// tune='{"HOUSEHOLD.cover":1}': content changes for this match (the observatory's tuning paths).
+const tune = arg("tune", "");
+if (tune) applyTuning(JSON.parse(tune));
 const layout = buildLayout(1, GAME_LAYOUT);
 const m = new Match(R, layout, { seed, plan: false, rotate: false });
 const ais = sides.map((s, team) => (s === "idle" ? null : new AiPlayer(m, team, s as Difficulty, seed)));
