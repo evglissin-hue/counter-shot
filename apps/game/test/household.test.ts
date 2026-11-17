@@ -91,6 +91,9 @@ test("the panel lists each armed gun by place with its men, the masons, powder b
   assert.deepEqual(m.lines[6].people.map((p) => p.state), ["way"]);
   assert.equal(m.reserve, "Reserve 4 of 6, one more in 0:42");
   assert.equal(m.first, "guns");
+  // A man waiting at his post's foot (his footing shot away) or being hoisted is named where he is: the same man.
+  const below = panelModel(roster({ stations: [station(StationKind.Gun, 8, [seat(2, "Will Ward", 1, SeatState.Waiting), seat(4, "Ivo Dunn", 1, SeatState.Hoisting)])] }), () => "1 Long gun");
+  assert.deepEqual(below.lines[1].people.map((p) => [p.state, p.text]), [["way", "Will Ward, below"], ["way", "Ivo Dunn, going up"]]);
   // With the reserve dry, a seat due stays empty.
   const dry = panelModel(roster({ reserve: 0 }), () => "x");
   assert.deepEqual(dry.lines[2].people.map((p) => p.state), ["post", "empty"]);

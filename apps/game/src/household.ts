@@ -94,6 +94,10 @@ const GROUP_NAMES: Partial<Record<StationKind, string>> = {
 function person(s: SeatInfo, reserve: number, full: boolean): PanelPerson {
   if (s.state === SeatState.AtPost && s.person >= 0) return { state: "post", text: full ? s.name : (s.name.split(" ")[0] ?? s.name), level: s.level };
   // A seat lost waits for a hand of the reserve: with none it stays empty (until the reserve gains one).
+  // 3.6 (the player's chair): a man waiting at his post's foot (his footing shot away, or a replacement whose post is down)
+  // or being hoisted is named where he is, not "on the way": the men who climbed down are the same men.
+  const short = full ? s.name : (s.name.split(" ")[0] ?? s.name);
+  if ((s.state === SeatState.Waiting || s.state === SeatState.Hoisting) && s.person >= 0 && s.name) return { state: "way", text: s.state === SeatState.Waiting ? `${short}, below` : `${short}, going up`, level: 0 };
   if (s.state === SeatState.Walking || s.state === SeatState.Waiting || s.state === SeatState.Hoisting) return { state: "way", text: "on the way", level: 0 };
   if (s.state === SeatState.Due && reserve > 0) return { state: "way", text: "on the way", level: 0 };
   return { state: "empty", text: "empty", level: 0 };
