@@ -36,8 +36,9 @@ test("with the enemy gate off, a Knight gunner cuts the keep's foot and the keep
   const m = match(7);
   knockGate(m, FOE);
   // A Knight that always cuts when it looks at the keep with a long gun (the share is its level's `cut`), aiming true so
-  // its cut shots thread the narrow gateway rather than scattering off the wall (this watches the way it cuts, not its scatter).
-  const ai = new AiPlayer(m, ME, "knight", 7, { level: { cut: 1, firstErr: 0, noise: 0, learn: 1 } });
+  // its cut shots thread the narrow gateway rather than scattering off the wall (this watches the way it cuts, not its scatter),
+  // and ranging no marks (with no waves nothing presses it, and ranging would take its long gun for minutes: 3.6).
+  const ai = new AiPlayer(m, ME, "knight", 7, { level: { cut: 1, firstErr: 0, noise: 0, learn: 1, marks: 0 } });
   const kz = mirrorZ(FOE, CASTLE_SHAPE.keepZ), reach = CASTLE_SHAPE.keepHalf + 1.5;
   let footLandings = 0, minWeak = 99, footHeat = 0;
   play(m, ai, 3 * 60 * 60, () => {
@@ -54,7 +55,7 @@ test("with the enemy gate off, a Knight gunner cuts the keep's foot and the keep
   });
   const cut = ai.gunner.byAim[CUT];
   const holds = m.world.statics!.status(KEEP).holds;
-  console.log("knight cuts: cut shots", cut, "open", ai.gunner.byAim[OPEN], "keep", ai.gunner.byAim[0], "foot landings", footLandings, "lowest weakest course", minWeak, "foot heat", footHeat.toFixed(3), "holds", holds.toFixed(2), "state", m.world.statics!.status(KEEP).state);
+  console.log("knight cuts: by aim", JSON.stringify(ai.gunner.byAim), "cut shots", cut, "open", ai.gunner.byAim[OPEN], "keep", ai.gunner.byAim[0], "foot landings", footLandings, "lowest weakest course", minWeak, "foot heat", footHeat.toFixed(3), "holds", holds.toFixed(2), "state", m.world.statics!.status(KEEP).state);
   assert.ok(cut >= 1, `${cut} shots by hand were cuts`);
   assert.ok(footLandings >= 1, `a shot by hand landed on the keep's foot`);
   assert.ok(minWeak < FOOT_COURSES || footHeat >= 0.05, `the cut weakened a foot course (lowest weakest ${minWeak}, foot is under ${FOOT_COURSES}; foot heat ${footHeat.toFixed(3)})`);
