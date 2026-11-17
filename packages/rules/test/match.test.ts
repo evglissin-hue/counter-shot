@@ -41,8 +41,8 @@ test("the scripted match: long gun hits and shells down the sturdy enemy keep wi
   // 3.4: the long gun's hits just under the banner's floor cut the keep there too; it falls by its floors or by that cut.
   // 3.5: the first shell brings down the signal mast on the enemy keep's roof; the script was written again on 3.5's tree, merged with the banner rule and the budget.
   // 3.6: written again with the household in the keep (its crews are figures on the walls and the keep's roof, the signaller beside the mast).
-  assert.ok(a.result.tick > 4125 && a.result.tick < 4400, `won at tick ${a.result.tick}, after the last shot`);
-  assert.deepEqual(a.shots, [0, 24], "the shell and the shot after the end and the enemy's borrowed gun were refused");
+  assert.ok(a.result.tick > 4605 && a.result.tick < 4800, `won at tick ${a.result.tick}, after the last shot`);
+  assert.deepEqual(a.shots, [0, 27], "the shell and the shot after the end and the enemy's borrowed gun were refused");
   const incomeTicks = Math.floor((a.result.tick + 1) / MATCH.incomeEvery);
   const income = incomeTicks * MATCH.keepIncome;
   assert.equal(a.earned[0], income, "the enemy earned its keep's income and nothing more, and income stops at the end");

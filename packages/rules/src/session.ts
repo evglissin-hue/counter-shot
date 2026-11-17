@@ -22,10 +22,10 @@ import { buildLayout, GAME_LAYOUT } from "@keepfall/content";
 import { Order, Spin, type Rapier } from "@keepfall/sim";
 import { Match, Team, type MatchInput, type MatchOptions, type MatchResult } from "./match";
 
-export const MATCH_TICKS = 4800;
+export const MATCH_TICKS = 4900;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const MATCH_HASH = { state: "0472dafc", world: "5455cd71" } as const;
+export const MATCH_HASH = { state: "9fd88baf", world: "5719a585" } as const;
 
 const fire = (emplacement: number, yaw: number, pitch: number, charge = 1): MatchInput => ({ kind: "fire", emplacement, yaw, pitch, charge, fuse: 0, spin: Spin.None });
 
@@ -44,22 +44,25 @@ export const MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [1470, Team.Player, fire(1, 0, 0.9078)],
   [1485, Team.Player, fire(0, -0.0196, 0.1198)],
   [1725, Team.Player, fire(0, 0, 0.0707)],
-  [1965, Team.Player, fire(0, 0.0196, 0.0707)],
-  [2190, Team.Player, fire(1, 0.0099, 0.9614)],
-  [2205, Team.Player, fire(0, -0.0196, 0.0707)],
-  [2445, Team.Player, fire(0, 0, 0.0707)],
-  [2685, Team.Player, fire(0, 0.0196, 0.0707)],
-  [2910, Team.Player, fire(1, 0.0138, 0.993)],
+  [1965, Team.Player, fire(0, 0.0196, 0.0594)],
+  [2190, Team.Player, fire(1, 0.0108, 1.0044)],
+  [2205, Team.Player, fire(0, -0.0196, 0.0594)],
+  [2445, Team.Player, fire(0, 0, 0.0594)],
+  [2685, Team.Player, fire(0, 0.0196, 0.0594)],
+  [2910, Team.Player, fire(1, 0.0108, 1.0044)],
   [2925, Team.Player, fire(0, -0.0196, 0.0594)],
   [3165, Team.Player, fire(0, 0, 0.0594)],
   [3405, Team.Player, fire(0, 0.0196, 0.0594)],
-  [3630, Team.Player, fire(1, 0.0138, 0.993)],
+  [3630, Team.Player, fire(1, 0.0112, 1.0048)],
   [3645, Team.Player, fire(0, -0.0196, 0.0594)],
   [3885, Team.Player, fire(0, 0, 0.0594)],
   [4125, Team.Player, fire(0, 0.0196, 0.0594)],
+  [4350, Team.Player, fire(1, 0.012, 1.0058)],
+  [4365, Team.Player, fire(0, -0.0196, 0.0594)],
+  [4605, Team.Player, fire(0, 0, 0.0594)],
   // The keep has fallen by now: these are refused.
-  [4400, Team.Player, fire(1, -0.0039, 0.9958)],
-  [4430, Team.Player, fire(0, 0.02, 0.03)],
+  [4800, Team.Player, fire(1, -0.0039, 0.9958)],
+  [4830, Team.Player, fire(0, 0.02, 0.03)],
   // Not the enemy's emplacement: refused.
   [100, Team.Enemy, fire(0, 0, 0.03)],
 ];
@@ -92,7 +95,7 @@ export function runMatchSession(R: Rapier, ticks = MATCH_TICKS, script = MATCH_S
 export const WAVE_MATCH_TICKS = 4800;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const WAVE_MATCH_HASH = { state: "dbad5225", world: "51df108c" } as const;
+export const WAVE_MATCH_HASH = { state: "4dbff882", world: "4107b2d8" } as const;
 
 /** The long gun at the foot of the enemy front wall, west of the gate (yaw towards x = -8.5 and -7.5 at the wall). */
 const wall = (yaw: number): MatchInput => ({ kind: "fire", emplacement: 0, yaw, pitch: -0.022, charge: 1, fuse: 0, spin: Spin.None });
@@ -134,7 +137,7 @@ export const ESTATE_MATCH_TICKS = 6900;
 export const ESTATE_MATCH_EXTRA_GOLD = 250;
 
 /** Pinned: change only on purpose, and bump RULES_VERSION or MATCH_RULES_VERSION when play changes. */
-export const ESTATE_MATCH_HASH = { state: "538cebe3", world: "0f8640e3" } as const;
+export const ESTATE_MATCH_HASH = { state: "57d64940", world: "2c91180e" } as const;
 
 export const ESTATE_MATCH_SCRIPT: Array<[number, Team, MatchInput]> = [
   [0, Team.Player, { kind: "man", emplacement: 0 }],
