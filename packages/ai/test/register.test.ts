@@ -98,13 +98,14 @@ test("with enemy men on a mark a Knight orders a salvo, not twice in 20 s; a Squ
     assert.ok(m.register.list(team)[0], "there is a mark");
     // A salvo fires only loaded guns clear of the team's own men and of bridges: go on until a mark has a gun that bears, and load the guns.
     const bears = () => m.register.list(team).find((k) => m.register.bearing(team, k.n, false).length > 0 && k.y < m.world.terrain.heightAt(k.x, k.z) + 0.5);
-    for (let i = 0; i < 6 * 60 * 60 && !bears(); i++) {
+    // (3.6: up to 9 minutes: a gun whose crew is down bears on nothing until its replacement is at his post.)
+    for (let i = 0; i < 9 * 60 * 60 && !bears(); i++) {
       ai.step();
       m.step();
       marks();
     }
     const mark = bears();
-    assert.ok(mark, "a mark with a gun that bears");
+    assert.ok(mark, `a mark with a gun that bears (${level} ${JSON.stringify(over ?? {})})`);
     for (const e of m.emplacements) m.world.reload[e.id] = 0;
     // Eight of the enemy's men standing on it.
     const wv = m.army.newWave(foe, 1, true);
