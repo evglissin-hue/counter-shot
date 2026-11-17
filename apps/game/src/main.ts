@@ -110,7 +110,7 @@ import { buildView, createSteward } from "./steward";
 import { FIRST_LABELS, HOUSEHOLD_KEY, HouseholdBook, HouseholdNotes, OUT_HANDS, OUT_HANDS_TEXT, crewOf, crewPosts, crewShortLine, crewTitle, keeperNote, panelModel, skillName, uncrewed, type CrewReport } from "./household";
 import { boxOf, canPay, drawPips, DryNotes, dryNote, dryState, boyServing, KEG_BOY_NOTE, magazineBlewNote, millBlewNote, markTabs, PowderBar } from "./powder";
 import type { MatchInput } from "@keepfall/rules";
-import { structureList, type FirstKind } from "@keepfall/content";
+import { StationKind, structureList, type FirstKind } from "@keepfall/content";
 import { EyeHud } from "./eyeHud";
 import { EYE_KEY, fallShake, holdsClass, landing as fallLanding, structureWords } from "./eye";
 
@@ -451,8 +451,10 @@ interface Tally {
   stones: number;
   down0: number;
   guns: number;
-  /** 3.6: the enemy's crew and keepers it knocked down. */
+  /** 3.6: the enemy's crew and keepers, masons and powder boys it knocked down (none of them are in the men down). */
   crew: number;
+  masons: number;
+  boys: number;
   /** Where it came down, once it has (stones within r of it count). */
   x: number;
   y: number;
@@ -468,7 +470,7 @@ const foesDown = () => (isMatch() ? lastFoes : lastDown);
 /** Open a shot's tally (the open one, if any, is shown first). */
 function openTally(shot: number, emp: number, x: number, y: number, z: number, landed: boolean, ms: number, r: number) {
   if (tally) showTally();
-  tally = { shot, emp, until: clock() + ms, stones: 0, down0: foesDown(), guns: 0, crew: 0, x, y, z, r, landed };
+  tally = { shot, emp, until: clock() + ms, stones: 0, down0: foesDown(), guns: 0, crew: 0, masons: 0, boys: 0, x, y, z, r, landed };
 }
 /** Minions down as of the frame before the one being applied (a burst's own knockdowns count for it). */
 let lastDown = 0;
@@ -804,7 +806,9 @@ function showTally() {
   if (tally.guns) parts.push(tally.guns === 1 ? "gun silenced" : `${tally.guns} guns silenced`);
   if (tally.stones) parts.push(`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`);
   if (down) parts.push(`${down} ${down === 1 ? "man" : "men"} down`);
-  if (tally.crew) parts.push(tally.crew === 1 ? "1 of their crew" : `${tally.crew} of their crew`);
+  if (tally.crew) parts.push(`${tally.crew} of their crew`);
+  if (tally.masons) parts.push(tally.masons === 1 ? "a mason" : `${tally.masons} masons`);
+  if (tally.boys) parts.push(tally.boys === 1 ? "a powder boy" : `${tally.boys} powder boys`);
   tally = null;
   if (!parts.length) return;
   parts[0] = parts[0][0].toUpperCase() + parts[0].slice(1);
@@ -1907,6 +1911,8 @@ function gunBack(emp: number) {
 /** Names by person id, and the notes about your own people lost and replaced (household.ts). */
 const householdBook = new HouseholdBook();
 const householdNotes = new HouseholdNotes(householdBook, (index) => ALL_EMP[index]?.weapon);
+/** The kind of every station of both castles (StationKind, +8 for castle 1), from the first report. */
+let stationKinds: Int8Array = new Int8Array(0);
 /** What you chose to replace first, shown at once and kept over the reports until one carries it (as orders are). */
 let pendingFirst: { v: FirstKind; at: number } | null = null;
 const hhPanel = $("household");
@@ -1916,7 +1922,13 @@ function householdEvent(kind: number, a: number, b: number, _c: number, d: numbe
   if (!playing()) return;
   if (kind === EventKind.HouseholdDown) {
     if (a === ME) householdNotes.down(d, tick);
-    else if (a === FOE && tally) tally.crew++;
+    else if (a === FOE && tally) {
+      // Their station kinds are fixed at the start (the worker sends them once): a trade's men by name, the rest as crew.
+      const k = (stationKinds[b] ?? 0) & 7;
+      if (k === StationKind.Mason) tally.masons++;
+      else if (k === StationKind.Boy) tally.boys++;
+      else tally.crew++;
+    }
   } else if (kind === EventKind.HouseholdUp) {
     if (a === ME) householdNotes.up(d, tick);
   } else if (kind === EventKind.Reserve) {
@@ -1936,6 +1948,7 @@ function flushHouseholdNotes(tick: number) {
 /** What a new match report says about the household: the crews to the renderer, the roster to the book and the panel. */
 function householdMatch(info: MatchInfo) {
   renderer.setCrews(info.crews);
+  if (info.stationKinds) stationKinds = info.stationKinds;
   if (info.household) {
     householdBook.learn(info.household);
     if (!hhPanel.hidden) renderHousehold();
@@ -1945,6 +1958,7 @@ function householdMatch(info: MatchInfo) {
 function householdReset() {
   householdBook.clear();
   householdNotes.clear();
+  stationKinds = new Int8Array(0);
   pendingFirst = null;
   hhPanel.hidden = true;
   renderer.setCrews(null);
@@ -3201,7 +3215,7 @@ function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: st
 }
 
 /** 3.6: people of a side's household lost (TeamStats.householdLost; "" until the match's stats carry it). */
-const householdLost = (s: unknown): number | string => (s as { householdLost?: number }).householdLost ?? "";
+const householdLost = (s: { householdLost: number }): number => s.householdLost;
 
 function showEnd() {
   const info = matchInfo;

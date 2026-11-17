@@ -40,11 +40,13 @@ const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
 let failed = 0;
+const t00 = Date.now();
+const stamp = () => { const s = Math.round((Date.now() - t00) / 1000); return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; };
 /** Wait (up to 15 s) for fn() in the page to be true. */
 async function expect(name, fn, arg, timeout = 90000) {
   let ok = true;
   try { await page.waitForFunction(fn, arg, { timeout, polling: 100 }); } catch { ok = false; }
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
+  console.log(`${stamp()} ${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
 }
 /**
@@ -91,8 +93,20 @@ const shotHeld = async (path, clip) => {
   await page.screenshot({ path, ...(clip ? { clip } : {}) });
   await page.evaluate(() => window.__hold.forEach((o) => o.disconnect()));
 };
+/**
+ * Press a key and wait for the state it brings (polled in the page). A key a slow machine's frame loop missed is pressed once more
+ * after a wait, but only while the state is still not there, so it can never toggle twice.
+ */
+async function pressUntil(code, name, fn, arg, again = 2) {
+  for (let i = 0; i <= again; i++) {
+    await page.keyboard.press(code);
+    try { await page.waitForFunction(fn, arg, { timeout: i < again ? 12000 : 90000, polling: 100 }); console.log(`${stamp()} ok   ${name}`); return; } catch {}
+  }
+  console.log(`${stamp()} FAIL ${name}`);
+  failed++;
+}
 const check = (name, ok) => {
-  console.log(`${ok ? "ok  " : "FAIL"} ${name}`);
+  console.log(`${stamp()} ${ok ? "ok  " : "FAIL"} ${name}`);
   if (!ok) failed++;
 };
 const press = (sel) => page.evaluate((s) => document.querySelector(s).click(), sel);
@@ -109,8 +123,9 @@ async function load(hash) {
 try {
   // A Squire (it warms up and fights slowly): this section runs on the real clock and takes minutes on a slow machine, and
   // since 3.3 a Knight can take an idle castle in four (its guns nobody mans run out of powder), ending the match midway.
-  await load("versus=squire-webgl-low");
-  await page.waitForFunction(() => (window.__sandbox.match?.tick ?? 0) > 60, null, { timeout: 180000, polling: 200 });
+  // On the test clock (#fixed): game time follows the frames drawn, so a slow machine cannot let the match run on, or end, between two steps.
+  await load("versus=squire-webgl-low-fixed");
+  await adv(3);
   await expect("command card and scoreboard shown in a match", () => !document.getElementById("command").hidden && !document.getElementById("matchbar").hidden);
   // L0: the minimap is drawn, and grows to twice its size over the scene when pointed at, or while G is held.
   const mapW = () => page.evaluate(() => document.querySelector(".mapzoom").getBoundingClientRect().width);
@@ -148,8 +163,7 @@ try {
   await expect("Alt+5 turns them back on", () => window.__sandbox.match.repairs.works !== false && !document.querySelector('[data-repair="works"]').classList.contains("off"));
   await expect("the controls help says Alt+1 to 5, works among them", () => /<dt>Alt\+1 to 5<\/dt><dd>[^<]*works/.test(document.getElementById("help").innerHTML));
   // 3.5: the build menu: eight plots, the Spotter's Tower with the plots it may take, a plot's page offering only what may stand there.
-  await page.keyboard.press("KeyB");
-  await expect("the build menu draws eight plots, 7 and 8 behind the keep", () => { const p = [...document.querySelectorAll("#build .yard [data-pick]")]; const keep = document.querySelector("#build .yard .keep").getBoundingClientRect(); const top = (i) => p[i].getBoundingClientRect().top; return p.length === 8 && top(6) >= keep.bottom - 4 && top(7) >= keep.bottom - 4 && p[6].dataset.pick === "6" && p[7].textContent.startsWith("8"); });
+  await pressUntil("KeyB", "the build menu draws eight plots, 7 and 8 behind the keep", () => { if (document.getElementById("build").hidden) return false; const p = [...document.querySelectorAll("#build .yard [data-pick]")]; const keep = document.querySelector("#build .yard .keep").getBoundingClientRect(); const top = (i) => p[i].getBoundingClientRect().top; return p.length === 8 && top(6) >= keep.bottom - 4 && top(7) >= keep.bottom - 4 && p[6].dataset.pick === "6" && p[7].textContent.startsWith("8"); });
   await expect("the list sells the Spotter's Tower for 180, saying Plots 5 to 8", () => { const c = [...document.querySelectorAll("#build .choice2")].find((b) => /Spotter/.test(b.textContent)); return !!c && /180/.test(c.querySelector(".c")?.textContent ?? "") && /Plots 5 to 8/.test(c.textContent); });
   await expect("the Powder Mill's line says Plots 1 to 6", () => { const c = [...document.querySelectorAll("#build .choice2")].find((b) => /Powder Mill/.test(b.textContent)); return !!c && /Plots 1 to 6/.test(c.textContent); });
   await page.screenshot({ path: "tools/.shots/3.5/build-list.png" });
@@ -202,8 +216,7 @@ try {
   await page.keyboard.up("KeyA");
   await expect("aiming with the keys dismisses it", () => document.getElementById("lock-hint").hidden);
   await expect("the masons' line has its full words in a tooltip", () => (document.getElementById("masons").title ?? "").length > 8);
-  await page.keyboard.press("KeyP");
-  await expect("P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
+  await pressUntil("KeyP", "P pauses (the badge shows)", () => !document.getElementById("paused").hidden);
   await page.keyboard.press("KeyP");
   await expect("P resumes", () => document.getElementById("paused").hidden);
   // ---- 3.2: marks and fire for effect (a Squire never marks, so any mark in the report would be an enemy's: there must be none but ours) ----
@@ -221,7 +234,7 @@ try {
     await page.waitForFunction(() => window.__sandbox.reload[0] === 0, null, { timeout: 60000, polling: 100 });
     await page.evaluate(() => window.__sandbox.fire());
   };
-  await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T: mark where your shot landed\. Guns nobody mans shoot true on marked ground\. F then its number: every gun that bears fires there\./.test(document.getElementById("help").innerHTML));
+  await expect("no marks to start: the marks row is hidden, the controls list says T and F", () => window.__sandbox.match.marks.length === 0 && document.getElementById("marks-row").hidden && /T: mark where your shot landed\. Guns nobody rides shoot true on marked ground, while their crew stands\. F then its number: every gun that bears fires there\./.test(document.getElementById("help").innerHTML));
   await page.keyboard.press("KeyT");
   await expect("T with nothing to mark says so and sends nothing", () => /Nothing to mark/.test(document.getElementById("note").textContent) && window.__sent.length === 0);
   await layShot(-22, -62); // off the centre road: a salvo skips a gun with own men near the mark, and our waves walk that road
