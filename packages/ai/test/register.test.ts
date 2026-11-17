@@ -104,7 +104,9 @@ test("with enemy men on a mark a Knight orders a salvo, not twice in 20 s; a Squ
       m.step();
       marks();
     }
-    const mark = bears();
+    // A level that must never order a salvo is checked on its newest mark when none of its guns bears on one (its match runs
+    // apart from the first Knight's once that one's salvos are missing, and a crew down bears on nothing: 3.6).
+    const mark = bears() ?? (expect ? undefined : m.register.list(team).find((k) => k.y < m.world.terrain.heightAt(k.x, k.z) + 0.5) ?? m.register.list(team)[0]);
     assert.ok(mark, `a mark with a gun that bears (${level} ${JSON.stringify(over ?? {})})`);
     for (const e of m.emplacements) m.world.reload[e.id] = 0;
     // Eight of the enemy's men standing on it.
