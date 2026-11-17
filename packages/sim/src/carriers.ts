@@ -87,6 +87,7 @@ import {
   POWDER,
   powderFoot,
   shotCost,
+  StationKind,
   Unit,
   type Emplacement,
 } from "@keepfall/content";
@@ -96,6 +97,7 @@ import { EventKind } from "./frame";
 import { LOCAL_INF } from "./local";
 import { navCell } from "./nav";
 import { Cause, MinionState, Role, yawOf, type Minion, type Minions } from "./minions";
+import type { Household } from "./household";
 import { PlotState, type Structures } from "./structures";
 
 /** What a boy is doing (Minion.task). */
@@ -211,6 +213,12 @@ const RING: Array<[number, number]> = [
 export class Carriers {
   /** Set by the match; without one, no gun is served first. */
   policy: CarriersPolicy | null = null;
+  /**
+   * 3.6: the household, once the match has one. With it set a boy who falls is reported to it (lostWorker) and never
+   * replaced here (POWDER.respawn is for worlds without a household): the household sends the next of its reserve,
+   * through refill().
+   */
+  household: Household | null = null;
 
   private readonly stock: [number, number] = [POWDER.start, POWDER.start];
   private readonly lostN: [number, number] = [0, 0];
@@ -252,9 +260,23 @@ export class Carriers {
     }
   }
 
-  private spawn(b: Boy) {
-    // Where boys wait: in the lee of the magazine, or by the keep's door without one.
-    const { x, z } = this.waitSpot(b.castle, b.slot);
+  /** 3.6: the household's next hand takes a fallen boy's place: a new boy out of the keep's door. Returns his minion (-1: no such place, or it is filled). */
+  refill(castle: 0 | 1, slot: number): number {
+    const b = this.boys[castle]?.[slot];
+    if (!b || b.minion >= 0 || this.wave[castle] < 0) return -1;
+    const d = keepDoor(castle);
+    this.spawn(b, { x: d.x + (slot - (POWDER.boys - 1) / 2) * 1.2, z: d.z });
+    return b.minion;
+  }
+
+  /** 3.6: a boy's minion (-1: none standing), for the household's seats at the start. */
+  boyMinion(castle: number, slot: number): number {
+    return this.boys[castle]?.[slot]?.minion ?? -1;
+  }
+
+  private spawn(b: Boy, at?: { x: number; z: number }) {
+    // Where boys wait: in the lee of the magazine, or by the keep's door without one (3.6: a replacement comes out of the keep's door).
+    const { x, z } = at ?? this.waitSpot(b.castle, b.slot);
     const m = this.army.spawnAt(b.castle, this.wave[b.castle], Unit.PowderBoy, x, z, b.castle === 0 ? 3.141592653589793 / 2 : 0);
     m.role = Role.Carrier;
     m.home = b.castle;
@@ -901,7 +923,10 @@ export class Carriers {
   private fell(b: Boy, m: Minion, tick: number): boolean {
     const keg = b.keg > 0;
     b.minion = -1;
-    b.due = tick + POWDER.respawn;
+    if (this.household?.started) {
+      b.due = -1;
+      this.household.lostWorker(b.castle, StationKind.Boy, b.slot, tick);
+    } else b.due = tick + POWDER.respawn;
     b.keg = 0;
     b.want = 0;
     b.emp = -1;

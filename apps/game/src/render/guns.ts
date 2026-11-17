@@ -54,10 +54,12 @@ export interface CrewInfo {
   stage: number;
   slide: number;
   age: number;
+  /** Men at its posts (1 or 2). */
+  men: number;
 }
 
 export function newCrewInfo(): CrewInfo {
-  return { kind: "longGun", x: 0, y: 0, z: 0, floorY: 0, yaw: 0, baseYaw: 0, pitch: 0, barrel: 1, ridden: false, stage: 1, slide: 0, age: 1e6 };
+  return { kind: "longGun", x: 0, y: 0, z: 0, floorY: 0, yaw: 0, baseYaw: 0, pitch: 0, barrel: 1, ridden: false, stage: 1, slide: 0, age: 1e6, men: 2 };
 }
 
 interface Gun {
@@ -526,14 +528,16 @@ export class Guns {
   }
 
   /**
-   * What its crew needs (look round L1): false when no crew stands there (an empty slot, a gun knocked out and swept
-   * away, a gun not shown now). Else fills the gun's weapon, where its pivot is, the world y of its floor, which way it
+   * What its crew needs (look round L1): false when no crew stands there (an empty slot, a gun not shown now, no man at
+   * its posts: `reported` is the household's count, below 0 for the Practice range's two). Else fills the gun's weapon, where its pivot is, the world y of its floor, which way it
    * points and its rest aim, the barrel's length from the pivot, whether it is the one you ride, and its stage, slide
    * and shot age.
    */
-  crewInfo(i: number, o: CrewInfo): boolean {
+  crewInfo(i: number, o: CrewInfo, reported = -1): boolean {
     const g = this.find(i);
-    if (!g || crewSizeFor(g.armed, g.out, g.root.visible) === 0 || g.floorY === null) return false;
+    const men = g ? crewSizeFor(g.armed, reported, g.root.visible) : 0;
+    if (!g || men === 0 || g.floorY === null) return false;
+    o.men = men;
     o.kind = g.em.weapon;
     o.x = g.em.x;
     o.y = g.em.y;

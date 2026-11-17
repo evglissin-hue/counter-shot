@@ -1,7 +1,7 @@
 // The steward's word lists, as data. Everything the grammar knows by name is
 // here; parse.ts only reads these. Words are lowercase single tokens unless a
 // phrase is written as several words ("long gun" is two tokens).
-import type { BuildingKind, MixName, RepairKind, UpgradeKind, WeaponKind } from "@keepfall/content";
+import type { BuildingKind, FirstKind, MixName, RepairKind, UpgradeKind, WeaponKind } from "@keepfall/content";
 import type { StandingId } from "./types";
 
 /** Standing orders: their names as the panel lists them. */
@@ -202,3 +202,16 @@ export const WAVE_FILLER = new Set([
 ]);
 /** A line that is only these is who the order is for ("Waves, advance."): it joins the next part. */
 export const WAVE_ADDRESS = new Set(["waves", "wave", "all", "lads", "boys", "soldiers", "soldier", "minions", "minion", "forces", "attackers"]);
+
+/**
+ * The household (3.6): who the reserve replaces first, said "guns first", "replace walls first", "masons first",
+ * "powder first", "boys first". A part is this order when it holds "first" ("o1"), one of these words and nothing but filler;
+ * it is taken before the masons' repair order, so "walls first" and "masons first" are the household's ("wall repairs
+ * first" and "mend the walls first" still the masons').
+ */
+export const HOUSEHOLD_FIRST_WORDS: Record<string, FirstKind> = {
+  gun: "guns", guns: "guns",
+  wall: "walls", walls: "walls", mason: "walls", masons: "walls",
+  powder: "powder", boy: "powder", boys: "powder",
+};
+export const HOUSEHOLD_FILLER = new Set(["o1", "replace", "replacing", "replacement", "replacements", "reserve", "refill", "fill", "crew", "crews", "men", "people", "household", "who"]);

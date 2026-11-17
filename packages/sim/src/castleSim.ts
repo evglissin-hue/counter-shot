@@ -228,6 +228,12 @@ export class CastleSim {
   private tipping = 0;
   /** T9: pieces woken (loosened, thawed, let go) since the last freezeResting; it counts them in `moving` from then on. */
   private woken = 0;
+  /**
+   * 3.6 (T9): loose pieces asleep but not yet frozen, as of the last step. Rapier wakes a whole sleeping heap when anything
+   * awake touches it, with no word to the budget (some 140 stones of a tower's heap woke so at once as a keep fell beside
+   * it), so the room keeps a place for each.
+   */
+  private dozing = 0;
   /** M5: tough pieces a blast cracked this step without breaking them loose (for the page: splinters and a crack). */
   cracked: number[] = [];
   /**
@@ -1117,7 +1123,7 @@ export class CastleSim {
     const fixed = this.R.RigidBodyType.Fixed;
     const banners = this.layout.bannerIds;
     const settle = this.opts.settle === true && this.moving > SETTLE_BUSY;
-    let moving = 0;
+    let moving = 0, dozing = 0;
     for (const id of this.dynList) {
       if (this.frozen[id] || this.shattered[id] || this.busy[id] || id === banners[0] || id === banners[1]) continue;
       const body = this.bodies[id];
@@ -1134,12 +1140,13 @@ export class CastleSim {
           this.frozen[id] = 1;
           this.frozenList.push(id);
           this.restSteps[id] = 0;
-        }
+        } else if (asleep) dozing++;
       } else {
         this.restSteps[id] = 0;
       }
     }
     this.moving = moving;
+    this.dozing = dozing;
     this.woken = 0;
   }
 
@@ -1189,10 +1196,14 @@ export class CastleSim {
     this.frozenList = keep;
   }
 
-  /** T9: how many more loose bodies may wake now: the budget less what moves (as of the last step, plus tipping parts and pieces woken since). Infinity when off. */
+  /**
+   * T9: how many more loose bodies may wake now: the budget less what moves (as of the last step, plus tipping parts and
+   * pieces woken since) and, 3.6, less the loose pieces asleep but not yet frozen (any touch wakes a sleeping heap whole).
+   * Infinity when off.
+   */
   room(): number {
     const b = this.opts.budget;
-    return b ? b - (this.moving + this.tipping + this.woken) : Infinity;
+    return b ? b - (this.moving + this.dozing + this.tipping + this.woken) : Infinity;
   }
 
   /** T9: rubble (settled or loose) whose centre lies within `core` of a point turns to dust: never a banner, a storey board or a claimed piece. */
@@ -1282,10 +1293,17 @@ export class CastleSim {
     const z0 = s.z - s.hz - 0.5, z1 = s.z + s.hz + 0.5;
     const y0 = s.y - s.hy, y1 = s.y + s.hy + 3;
     const keep: number[] = [];
+    const banners = this.layout.bannerIds;
     for (const f of this.frozenList) {
       const p = this.bodies[f].translation();
-      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0 && p.y <= y1) this.wake(f);
-      else keep.push(f);
+      if (p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && p.y >= y0 && p.y <= y1) {
+        // 3.6 (T9): with a budget and no room, the rubble lying on a board that gives way turns to dust rather than wake
+        // (a keep's floors hold the rubble of every shell that caved them in: some 200 stones woken at once when a keep
+        // fell, past the budget). Never a banner, a storey board, a gate leaf or an organ's key piece: those wake.
+        const part = this.layout.stones[f].part;
+        if (this.opts.budget && this.room() <= 0 && f !== banners[0] && f !== banners[1] && part !== "storey" && part !== "gate" && !this.organKey[f]) this.shatter(f);
+        else this.wake(f);
+      } else keep.push(f);
     }
     this.frozenList = keep;
   }

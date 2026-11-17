@@ -2,7 +2,7 @@
 
 import type { Difficulty, RepairKind, RouteName } from "@keepfall/content";
 import type { MatchInput, MatchResult, TeamStats } from "@keepfall/rules";
-import type { FrameData, SandboxInput, TerrainPatch } from "@keepfall/sim";
+import type { FrameData, HouseholdRoster, SandboxInput, TerrainPatch } from "@keepfall/sim";
 import type { NetState } from "./lockstep";
 import type { ReplayFile } from "./matchLog";
 
@@ -229,9 +229,29 @@ export interface MatchInfo extends RegisterInfo {
   buttresses: [number[], number[]];
   /** 3.5: each team's organs (content ORGAN_KINDS order: the bell, the crane, the signal mast). */
   organs: [OrganInfo[], OrganInfo[]];
-  /** 3.5: does each team have a working spotter's tower (its marks last longer and every gun shares them; the aim help and the mason's eye read it)? */
+  /** 3.5: does each team have a working spotter's tower (its marks last longer and every gun shares them; the aim help and the mason's eye read it)? 3.6: and its spotter at his post. */
   spotter: [boolean, boolean];
+  /**
+   * 3.6: every emplacement's crew (match order), CREW_STRIDE numbers each (sim household.ts): men at its posts (0 to 2),
+   * the crew's skill level (0 green to 3 veteran), replacements on their way to it. Crews are seen in both castles.
+   * Null without a household (the Practice range: every gun fires as a trained crew of two).
+   */
+  crews: Int8Array | null;
+  /**
+   * 3.6: this page's castle's household (each station with its people, the reserve, who is replaced first), refreshed
+   * every HOUSEHOLD_REPORT ticks; null on frames between (the page keeps the last) and without a household. The enemy's
+   * crews are seen (crews), not listed.
+   */
+  household: HouseholdRoster | null;
+  /**
+   * 3.6: the kind of every station of both castles (Household.stations order; StationKind + 8 for castle 1), sent once on the
+   * first report of a match (they are fixed after its start); null on every other. For naming what a shot of yours knocked down.
+   */
+  stationKinds: Int8Array | null;
 }
+
+/** 3.6: ticks between MatchInfo.household rosters. */
+export const HOUSEHOLD_REPORT = 15;
 
 /** 3.5: one organ of a castle as the page sees it. */
 export interface OrganInfo {
@@ -241,6 +261,8 @@ export interface OrganInfo {
   share: number;
   /** Why it is not being put back while it is down (sim OrganWait: 0 none or masons at it, 1 what it stands on is down, 2 the crane is down, 3 Works repairs off, 4 masons busy or short of gold). */
   wait: number;
+  /** 3.6: its keeper (the bell ringer, the signaller) is at his post; a bell or mast without its keeper does not work. The crane has none (always true). */
+  keeper: boolean;
 }
 
 export interface MasonInfo {

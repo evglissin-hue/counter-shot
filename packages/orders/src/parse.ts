@@ -14,6 +14,7 @@ import {
   WEAPONS,
   type BuildingKind,
   type ButtressFace,
+  type FirstKind,
   type MixName,
   type RepairKind,
   type RouteName,
@@ -57,6 +58,8 @@ import {
   POWDER_FILLER,
   POWDER_STANDING,
   REBUILD_WORDS,
+  HOUSEHOLD_FILLER,
+  HOUSEHOLD_FIRST_WORDS,
   REPAIR_CUES,
   REPAIR_FILLER,
   REPAIR_KIND_WORDS,
@@ -363,6 +366,9 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (t.some((x) => SURRENDER_WORDS.includes(x)) || SURRENDER_PHRASES.some((ph) => phraseAt(t, ph) >= 0) || (t.includes("leave") && !gunish)) return fail(R_SURRENDER);
   if (t.some((x) => FIRE_WORDS.includes(x))) return fail(R_FIRE);
 
+  // The household (3.6): who the reserve replaces first.
+  const replaced = householdFirst(t);
+  if (replaced) return replaced;
   // Buttresses for the keep (3.4).
   if (t.includes("buttress")) return buttress(t, w, notUnderstood);
   // The waves: an order, a road, or both, said any of the ways people say them.
@@ -388,6 +394,22 @@ function parsePart(p: Part, w: OrdersView): Res {
   if (weapon) return buy(t, w, notUnderstood);
   if (t.some((x) => REPAIR_CUES.has(x)) || (t.some((x) => own(REPAIR_KIND_WORDS, x)) && t.some((x) => OFF_WORDS.has(x) || x === "o1"))) return repair(t, w, notUnderstood);
   return notUnderstood();
+}
+
+// The household
+
+/** "guns first", "replace walls first", "powder first": who the reserve replaces first (null: not this order). */
+function householdFirst(t: Tokens): Res | null {
+  if (!t.includes("o1")) return null;
+  let first: FirstKind | null = null;
+  for (const x of t) {
+    if (HOUSEHOLD_FILLER.has(x)) continue;
+    const k = HOUSEHOLD_FIRST_WORDS[x];
+    if (!k || (first && first !== k)) return null;
+    first = k;
+  }
+  if (!first) return null;
+  return ok(input({ kind: "household", first }, `Replace first: ${first}`));
 }
 
 // Standing orders

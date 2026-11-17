@@ -21,11 +21,13 @@ import * as THREE from "three/webgpu";
 import { EVENT_STRIDE, EventKind, MINION_PARTS, MINION_STRIDE, PART_STRIDE, type FrameData } from "@keepfall/sim";
 import { mergeGeometries } from "./geometry";
 import { markInstances, sharedCapacity } from "./instancing";
+import { drawnByCrews } from "./crewLogic";
 import {
   HEAD,
   LARM_L,
   MASON,
   POWDER_BOY,
+  HOUSEHOLD,
   MUSKETEER,
   NPARTS,
   PELVIS,
@@ -88,9 +90,9 @@ const C_SKIN = SKINS.map(lin);
 const C_APRON = lin(APRON);
 /** A powder boy's plain smock: undyed linen over his body and thighs. */
 const C_SMOCK = lin(0xcbbf9f);
-/** How a unit is dressed: 1 a mason (apron, cap), 2 a powder boy (smock, cap), 0 a soldier (helmet). */
+/** How a unit is dressed: 1 a mason (apron, cap), 2 a powder boy (smock, cap), 3 one of the household (dark cloth, leather apron, cap: the crews' figures), 0 a soldier (helmet). */
 function dressOf(unit: number | undefined): number {
-  return unit === MASON ? 1 : unit === POWDER_BOY ? 2 : 0;
+  return unit === MASON ? 1 : unit === POWDER_BOY ? 2 : unit === HOUSEHOLD ? 3 : 0;
 }
 
 const _m = new THREE.Matrix4();
@@ -553,6 +555,8 @@ export class Minions implements FigureSink {
       const unit = minions[o + 9] | 0;
       this.teamOf.set(id, team);
       if (unit) this.unitOf.set(id, unit);
+      // 3.6: a man at his gun's post is drawn by the crews (render/crews.ts), not here.
+      if (drawnByCrews(unit, minions[o + 7] | 0)) continue;
       rig.take(id, minions[o + 1], minions[o + 2], minions[o + 3], minions[o + 4], minions[o + 5], team, minions[o + 7] | 0, minions[o + 8], unit);
     }
     rig.end();
@@ -772,7 +776,11 @@ export class Minions implements FigureSink {
       c = C_SKIN[skin] ?? C_SKIN[0];
       f = 1;
     } else if (part >= THIGH_L) c = C_LEGS;
-    if (dress === 1 && (part === PELVIS || part === THIGH_L || part === THIGH_R)) c = C_APRON;
+    if (dress === 3 && part === TORSO) {
+      c = C_CLOTH;
+      f = 1 + (tint - 1) * 0.4;
+    }
+    if ((dress === 1 || dress === 3) && (part === PELVIS || part === THIGH_L || part === THIGH_R)) c = C_APRON;
     else if (dress === 2 && (part === TORSO || part === PELVIS || part === THIGH_L || part === THIGH_R)) {
       c = C_SMOCK;
       f = 1 + (tint - 1) * 0.5;

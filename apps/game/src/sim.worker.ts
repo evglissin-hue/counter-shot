@@ -8,15 +8,15 @@
 import { ASHWRIGHT_EMPLACEMENTS, boxSize, buildLayout, CASTLE_SHAPE, Earn, UNMANNED, GAME_LAYOUT, KEEP_STOREYS, MIX_NAMES, PLOTS, REGISTER, ROUTE_NAMES, shotCost, STORM, UPGRADE_KINDS, WEAPON_KINDS, type CastleLayout, type Emplacement } from "@keepfall/content";
 import { AiPlayer } from "@keepfall/ai";
 import { GUIDED_OPTIONS, Match, Register, Team, teamOf, TUTOR_TEAM, type MatchInput, type MatchOptions, type RegisterHost } from "@keepfall/rules";
-import { RULES_VERSION, SandboxSim, type Rapier } from "@keepfall/sim";
-import { BUTTRESS_FACES, ORGAN_KINDS, STRUCTURE } from "@keepfall/content";
+import { CREW_STRIDE, RULES_VERSION, SandboxSim, type HouseholdRoster, type Rapier } from "@keepfall/sim";
+import { BUTTRESS_FACES, ORGAN_KINDS, StationKind, STRUCTURE } from "@keepfall/content";
 import { Lockstep, netHash } from "./lockstep";
 import { MatchLog, makeSetup, writeLog, type LoggedMode, type ReplayFile, type ReplaySetup } from "./matchLog";
 import { NET_VERSION } from "./net";
 import { LANE_COUNT, laneSummary } from "./threat";
 import { FOOT_COURSES, SECTION_COUNT, sectionOf } from "./minimap";
 import { placeName } from "./marks";
-import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, type FromWorker, type MarkInfo, type MatchInfo, type OrganInfo, type StructureInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
+import { BOX_STRIDE, BOY_STRIDE, EARN_STRIDE, HOUSEHOLD_REPORT, type FromWorker, type MarkInfo, type MatchInfo, type OrganInfo, type StructureInfo, type MatchSetup, type Mode, type NavInfo, type RegisterInfo, type ToWorker } from "./protocol";
 
 /** The page's number for the world being run (init and reset carry it): every message says which world it is from. */
 let gen = 0;
@@ -178,6 +178,8 @@ function build(mode: Mode, seed: number, minions: number, setup: MatchSetup = {}
   navSent = -1;
   bridgesSent = -1;
   endSent = false;
+  rosterAt = -1e9;
+  stationsSent = false;
   post({ t: "ready", mode, stones: sim.castle.layout.stones.length, setupMs: Math.round(performance.now() - t0), terrain: sim.terrain.fullPatch(), rulesVersion: RULES_VERSION });
 }
 
@@ -238,17 +240,52 @@ function matchInfo(): MatchInfo | null {
     buttresses: [0, 1].map((t) => BUTTRESS_FACES.map((f) => match!.buttress(t, f))) as [number[], number[]],
     organs: [0, 1].map((t) => ORGAN_KINDS.map((_, k) => organInfo(match!, t, k))) as [OrganInfo[], OrganInfo[]],
     spotter: [match.spotter(0), match.spotter(1)],
+    // 3.6: every crew each frame (men at its posts, skill, replacements on the way), and this page's roster now and then.
+    crews: crewReport(match),
+    household: householdRoster(match, ended),
+    stationKinds: stationKinds(match),
   };
   if (info.masonry) endSent = true;
   return info;
+}
+
+/** 3.6: the crews' report (CREW_STRIDE numbers per emplacement), null without a household. */
+function crewReport(match: Match): Int8Array | null {
+  const h = match.world.household;
+  if (!h) return null;
+  const out = new Int8Array(match.world.emplacements.length * CREW_STRIDE);
+  h.report(out);
+  return out;
+}
+
+/** 3.6: every station's kind (+ 8 for castle 1), once per match. */
+let stationsSent = false;
+function stationKinds(match: Match): Int8Array | null {
+  const h = match.world.household;
+  if (!h || stationsSent || !h.stations.length) return null;
+  stationsSent = true;
+  return Int8Array.from(h.stations, (s) => s.kind + (s.team === 1 ? 8 : 0));
+}
+
+/** 3.6: ticks of the last roster sent (the page keeps it between). */
+let rosterAt = -1e9;
+function householdRoster(match: Match, ended: boolean): HouseholdRoster | null {
+  const h = match.world.household;
+  if (!h) return null;
+  if (!ended && match.tick - rosterAt < HOUSEHOLD_REPORT && match.tick >= rosterAt) return null;
+  rosterAt = match.tick;
+  return h.roster(me);
 }
 
 /** 3.5: one of a team's organs for the page (it works, the share standing, why masons are not at it). */
 function organInfo(match: Match, team: number, organ: number): OrganInfo {
   const o = match.world.organs;
   const i = o ? o.index(team, organ) : -1;
-  if (!o || i < 0) return { up: true, share: 1, wait: 0 };
-  return { up: o.works[i], share: o.up[i] / o.ids[i].length, wait: o.wait[i] };
+  if (!o || i < 0) return { up: true, share: 1, wait: 0, keeper: true };
+  // 3.6: the bell and the signal mast work only with their keeper at his post (the crane has none).
+  const h = match.world.household;
+  const keeper = !h || organ === 1 ? true : h.keeper(team, organ === 0 ? StationKind.Bell : StationKind.Mast);
+  return { up: o.works[i], share: o.up[i] / o.ids[i].length, wait: o.wait[i], keeper };
 }
 
 /** 3.4: the structures' bounds (stone layout), once per world. */

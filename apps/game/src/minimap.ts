@@ -140,7 +140,8 @@ const STONE = "#d9d1bd", EDGE = "#100f0c", BRASS = "#d7a049", RED = "#ef6a52", P
 const TILE = "#2b2720", TILE_EDGE = "#8a7850";
 
 /** The kinds of gun mark (Minimap guns: x, z, kind). */
-export const Gun = { Armed: 0, Ride: 1, Out: 2, Empty: 3 } as const;
+/** A gun's mark: armed, the one you ride, knocked out (a red cross), an empty slot (a grey ring), uncrewed (3.6: up, armed and nobody at it: a brass ring, hollow). */
+export const Gun = { Armed: 0, Ride: 1, Out: 2, Empty: 3, Uncrewed: 4 } as const;
 export const GUN_STRIDE = 3;
 
 /** What the minimap draws from, as the page last heard it. */
@@ -171,7 +172,7 @@ export interface MinimapState {
   /** 3.3: each castle's powder store (charges) and what it holds at most: the bar under a magazine's keg sign. Null: no powder in this match. */
   stores?: [{ stock: number; cap: number }, { stock: number; cap: number }] | null;
   /** 3.5: each castle's organs (the bell, the crane, the signal mast): whether each works. Red when down; undefined: all shown standing. */
-  organs?: [Array<{ up: boolean }>, Array<{ up: boolean }>] | null;
+  organs?: [Array<{ up: boolean; keeper?: boolean }>, Array<{ up: boolean; keeper?: boolean }>] | null;
   /** 3.2: your team's marks (world x, z and number): a chalk-white circled number. Never the other side's. */
   marks?: Array<{ n: number; x: number; z: number }>;
 }
@@ -790,7 +791,8 @@ export class Minimap {
   private organsOf(st: MinimapState, c: 0 | 1, W: (x: number, cz: number) => [number, number]) {
     const ctx = this.ctx!;
     const sg = getSigns();
-    const up = (k: number) => st.organs?.[c]?.[k]?.up !== false;
+    // 3.6: a bell or a mast without its keeper reads as down.
+    const up = (k: number) => st.organs?.[c]?.[k]?.up !== false && st.organs?.[c]?.[k]?.keeper !== false;
     const T = S.half;
     // The bell's tower: castle 0's back right tower is at +x, castle 1's at -x (the layout mirrors castle 1 across z only).
     for (let k = 0; k < 3; k++) {
@@ -947,6 +949,13 @@ export class Minimap {
         circle(ctx, x, y, 3.2);
         ctx.beginPath();
         ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (kind === Gun.Uncrewed) {
+        // Armed and up, with nobody at it (3.6): a hollow brass ring, the map's own ground showing through.
+        ctx.strokeStyle = BRASS;
+        ctx.lineWidth = 1.7;
+        ctx.beginPath();
+        ctx.arc(x, y, 3.9, 0, Math.PI * 2);
         ctx.stroke();
       } else if (kind === Gun.Out) {
         ctx.fillStyle = "#16140f";

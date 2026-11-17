@@ -107,9 +107,10 @@ import { Timeline } from "./timeline";
 import { ThreatStrip } from "./threat";
 import { OverviewMarks } from "./overviewMarks";
 import { buildView, createSteward } from "./steward";
+import { FIRST_LABELS, HOUSEHOLD_KEY, HouseholdBook, HouseholdNotes, OUT_HANDS, OUT_HANDS_TEXT, crewOf, crewPosts, crewShortLine, crewTitle, keeperNote, panelModel, skillName, uncrewed, type CrewReport } from "./household";
 import { boxOf, canPay, drawPips, DryNotes, dryNote, dryState, boyServing, KEG_BOY_NOTE, magazineBlewNote, millBlewNote, markTabs, PowderBar } from "./powder";
 import type { MatchInput } from "@keepfall/rules";
-import { structureList } from "@keepfall/content";
+import { StationKind, structureList, type FirstKind } from "@keepfall/content";
 import { EyeHud } from "./eyeHud";
 import { EYE_KEY, fallShake, holdsClass, landing as fallLanding, structureWords } from "./eye";
 
@@ -450,6 +451,10 @@ interface Tally {
   stones: number;
   down0: number;
   guns: number;
+  /** 3.6: the enemy's crew and keepers, masons and powder boys it knocked down (none of them are in the men down). */
+  crew: number;
+  masons: number;
+  boys: number;
   /** Where it came down, once it has (stones within r of it count). */
   x: number;
   y: number;
@@ -465,7 +470,7 @@ const foesDown = () => (isMatch() ? lastFoes : lastDown);
 /** Open a shot's tally (the open one, if any, is shown first). */
 function openTally(shot: number, emp: number, x: number, y: number, z: number, landed: boolean, ms: number, r: number) {
   if (tally) showTally();
-  tally = { shot, emp, until: clock() + ms, stones: 0, down0: foesDown(), guns: 0, x, y, z, r, landed };
+  tally = { shot, emp, until: clock() + ms, stones: 0, down0: foesDown(), guns: 0, crew: 0, masons: 0, boys: 0, x, y, z, r, landed };
 }
 /** Minions down as of the frame before the one being applied (a burst's own knockdowns count for it). */
 let lastDown = 0;
@@ -658,6 +663,8 @@ function onFrame(f: FrameData) {
       gunKnockedOut(a, b, c);
     } else if (kind === EventKind.GunBack) {
       gunBack(a);
+    } else if (kind === EventKind.HouseholdDown || kind === EventKind.HouseholdUp || kind === EventKind.Reserve) {
+      householdEvent(kind, a, b, c, d, f.tick);
     } else if (kind === EventKind.MagazineBlew || kind === EventKind.MillBlew || kind === EventKind.Hoist || kind === EventKind.Boxed || kind === EventKind.KegBurst) {
       powderEvent(kind, a, b, c, d, true);
     } else if (kind === EventKind.Cracked) {
@@ -690,6 +697,7 @@ function onFrame(f: FrameData) {
     }
   }
   if (tally && now > tally.until) showTally();
+  flushHouseholdNotes(f.tick);
   // Where loose masonry is moving, for the rumble and clatter.
   if (f.stoneCount > 0) {
     let sx = 0, sy = 0, sz = 0, n = 0;
@@ -798,6 +806,9 @@ function showTally() {
   if (tally.guns) parts.push(tally.guns === 1 ? "gun silenced" : `${tally.guns} guns silenced`);
   if (tally.stones) parts.push(`${tally.stones} ${tally.stones === 1 ? "stone" : "stones"} down`);
   if (down) parts.push(`${down} ${down === 1 ? "man" : "men"} down`);
+  if (tally.crew) parts.push(`${tally.crew} of their crew`);
+  if (tally.masons) parts.push(tally.masons === 1 ? "a mason" : `${tally.masons} masons`);
+  if (tally.boys) parts.push(tally.boys === 1 ? "a powder boy" : `${tally.boys} powder boys`);
   tally = null;
   if (!parts.length) return;
   parts[0] = parts[0][0].toUpperCase() + parts[0].slice(1);
@@ -1234,7 +1245,10 @@ function drawMap() {
     // The Practice range has no empty slots to show; a match shows all sixteen.
     if (e.empty && !match) continue;
     const slot = i - BASE;
-    const kind = e.empty ? Gun.Empty : (gunOut[e.id * 2] ?? 0) > 0 ? Gun.Out : slot === current && slot >= 0 && slot < EMP.length ? Gun.Ride : Gun.Armed;
+    const out = (gunOut[e.id * 2] ?? 0) > 0;
+    // 3.6: a gun that is up with nobody at it (either castle's: crews are seen) is a hollow ring, apart from a dismounted gun's mark.
+    const bare = uncrewed(crewOf(matchInfo?.crews, e.id)?.men ?? null, out, !e.empty);
+    const kind = e.empty ? Gun.Empty : out ? Gun.Out : slot === current && slot >= 0 && slot < EMP.length ? Gun.Ride : bare ? Gun.Uncrewed : Gun.Armed;
     mapGuns[guns * GUN_STRIDE] = e.x;
     mapGuns[guns * GUN_STRIDE + 1] = e.z;
     mapGuns[guns * GUN_STRIDE + 2] = kind;
@@ -1742,6 +1756,7 @@ function outShort(i: number): string {
     return off.length ? `Out: ${off[0] === "towers" ? "tower" : off[0] === "walls" ? "wall" : off[0]} repairs off (Alt+${REPAIR_KINDS.indexOf(off[0]) + 1})` : "Out: masonry down";
   }
   if (st === 3) return "Out: needs gold";
+  if (st === OUT_HANDS) return `Out: ${OUT_HANDS_TEXT[0].toLowerCase()}${OUT_HANDS_TEXT.slice(1)}`;
   return `Out: back in ${Math.max(1, Math.ceil(left / 60))} s`;
 }
 
@@ -1892,6 +1907,182 @@ function gunBack(emp: number) {
   }
 }
 
+// ---- the household (3.6) -----------------------------------------------------------
+/** Names by person id, and the notes about your own people lost and replaced (household.ts). */
+const householdBook = new HouseholdBook();
+const householdNotes = new HouseholdNotes(householdBook, (index) => ALL_EMP[index]?.weapon);
+/** The kind of every station of both castles (StationKind, +8 for castle 1), from the first report. */
+let stationKinds: Int8Array = new Int8Array(0);
+/** What you chose to replace first, shown at once and kept over the reports until one carries it (as orders are). */
+let pendingFirst: { v: FirstKind; at: number } | null = null;
+const hhPanel = $("household");
+
+/** A castle's household events from the frame: yours become notes, theirs count in your shot's report. */
+function householdEvent(kind: number, a: number, b: number, _c: number, d: number, tick: number) {
+  if (!playing()) return;
+  if (kind === EventKind.HouseholdDown) {
+    if (a === ME) householdNotes.down(d, tick);
+    else if (a === FOE && tally) {
+      // Their station kinds are fixed at the start (the worker sends them once): a trade's men by name, the rest as crew.
+      const k = (stationKinds[b] ?? 0) & 7;
+      if (k === StationKind.Mason) tally.masons++;
+      else if (k === StationKind.Boy) tally.boys++;
+      else tally.crew++;
+    }
+  } else if (kind === EventKind.HouseholdUp) {
+    if (a === ME) householdNotes.up(d, tick);
+  } else if (kind === EventKind.Reserve) {
+    // a: the team whose reserve ran dry, or (b 1) gained one back from none.
+    if (a === ME && b !== 1) householdNotes.reserveDry();
+  }
+}
+/** The notes due now (frame time: a loss waits a moment for others of the same blow); a replacement is named only while no other note is up. */
+function flushHouseholdNotes(tick: number) {
+  if (!playing() || !matchInfo) return;
+  const quiet = performance.now() - lastNoteAt > 3000;
+  for (const n of householdNotes.flush(tick, matchInfo.household?.reserve ?? 1, quiet)) {
+    showNote(n.text, n.ms);
+    logMoment(n.text, !/ takes /.test(n.text));
+  }
+}
+/** What a new match report says about the household: the crews to the renderer, the roster to the book and the panel. */
+function householdMatch(info: MatchInfo) {
+  renderer.setCrews(info.crews);
+  if (info.stationKinds) stationKinds = info.stationKinds;
+  if (info.household) {
+    householdBook.learn(info.household);
+    if (!hhPanel.hidden) renderHousehold();
+  }
+}
+/** A new world: forget the people and the crews. */
+function householdReset() {
+  householdBook.clear();
+  householdNotes.clear();
+  stationKinds = new Int8Array(0);
+  pendingFirst = null;
+  hhPanel.hidden = true;
+  renderer.setCrews(null);
+}
+/** A gun's place for the panel: its slot's number and weapon ("2 Mortar"). */
+function hhGunName(index: number): string | null {
+  const e = ALL_EMP[index];
+  const slot = index - BASE;
+  if (!e || slot < 0 || slot >= SLOTS) return null;
+  return `${slot + 1} ${WEAPONS[e.weapon].name}`;
+}
+let hhShown = "";
+function renderHousehold() {
+  const r = matchInfo?.household;
+  if (!r) return;
+  const model = panelModel(r, hhGunName);
+  const first = pendingFirst && performance.now() - pendingFirst.at < PENDING_MS && r.first !== pendingFirst.v ? pendingFirst.v : r.first;
+  if (pendingFirst && (r.first === pendingFirst.v || performance.now() - pendingFirst.at >= PENDING_MS)) pendingFirst = null;
+  const key = JSON.stringify([model, first]);
+  if (key === hhShown) return;
+  hhShown = key;
+  const list = $("hh-list");
+  list.textContent = "";
+  for (const line of model.lines) {
+    const row = document.createElement("div");
+    row.className = line.head ? "hh-row head" : "hh-row";
+    const label = document.createElement("span");
+    label.className = "hh-label";
+    label.textContent = line.label;
+    row.append(label);
+    if (!line.head) {
+      const people = document.createElement("span");
+      people.className = "hh-people";
+      for (const p of line.people) {
+        const el = document.createElement("span");
+        el.className = `hh-p ${p.state}`;
+        el.append(p.text);
+        // A gun's men show their skill (the first character of a gun's label is its slot's number).
+        if (p.state === "post" && line.label[0] >= "0" && line.label[0] <= "9") {
+          const pips = document.createElement("span");
+          pips.className = "pips";
+          pips.title = skillName(p.level);
+          for (let i = 0; i < 3; i++) {
+            const dot = document.createElement("i");
+            if (i < p.level) dot.className = "on";
+            pips.append(dot);
+          }
+          el.append(pips);
+        }
+        people.append(el);
+      }
+      row.append(people);
+    }
+    list.append(row);
+  }
+  const res = $("hh-reserve");
+  res.textContent = model.reserve;
+  res.classList.toggle("dry", r.reserve <= 0);
+  for (const b of document.querySelectorAll<HTMLButtonElement>("#household [data-first]")) b.setAttribute("aria-pressed", String(b.dataset.first === first));
+}
+function openHousehold() {
+  if (!playing() || !matchInfo?.household) return;
+  hhPanel.hidden = false;
+  hhShown = "";
+  renderHousehold();
+}
+function closeHousehold() {
+  hhPanel.hidden = true;
+}
+function toggleHousehold() {
+  if (hhPanel.hidden) openHousehold();
+  else closeHousehold();
+}
+$("household-btn").addEventListener("click", () => {
+  $<HTMLButtonElement>("household-btn").blur();
+  toggleHousehold();
+});
+$("household-close").addEventListener("click", closeHousehold);
+for (const b of document.querySelectorAll<HTMLButtonElement>("#household [data-first]")) {
+  b.addEventListener("click", () => {
+    b.blur();
+    if (!playing() || !matchInfo || matchInfo.result) return;
+    const first = b.dataset.first as FirstKind;
+    send({ t: "input", input: { kind: "household", first } });
+    sound.ui("click");
+    pendingFirst = { v: first, at: performance.now() };
+    hhShown = "";
+    renderHousehold();
+  });
+}
+
+/** The weapon card's crew line: two figures (filled at his post, hollow for an empty post, a dot for a replacement on his way) and skill pips. */
+let crewShown = "";
+function setCrewCard(c: CrewReport | null) {
+  const line = $("w-crew"), note = $("w-crew-note");
+  const key = c ? `${c.men}|${c.level}|${c.way}` : "";
+  if (key === crewShown) return;
+  crewShown = key;
+  line.hidden = !c;
+  const text = c ? crewShortLine(c.men) : "";
+  note.hidden = !text;
+  note.textContent = text;
+  if (!c) return;
+  const SVG: Record<string, string> = {
+    man: '<svg viewBox="0 0 14 18" aria-hidden="true"><g class="man"><circle cx="7" cy="4" r="3"/><path d="M2 17v-5a5 5 0 0 1 10 0v5z"/></g></svg>',
+    empty: '<svg viewBox="0 0 14 18" aria-hidden="true"><g class="hollow" stroke-width="1.3"><circle cx="7" cy="4" r="2.7"/><path d="M2.4 16.4v-4.4a4.6 4.6 0 0 1 9.2 0v4.4z"/></g></svg>',
+    way: '<svg viewBox="0 0 14 18" aria-hidden="true"><circle class="way" cx="7" cy="10" r="2.6"/></svg>',
+  };
+  const men = $("w-men");
+  men.innerHTML = crewPosts(c).map((p) => SVG[p]).join("");
+  men.title = crewTitle(c);
+  men.setAttribute("aria-label", crewTitle(c));
+  const skill = $("w-skill");
+  skill.hidden = c.men === 0;
+  skill.textContent = "";
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("i");
+    if (i < c.level) dot.className = "on";
+    skill.append(dot);
+  }
+  skill.title = `${skillName(c.level)} crew`;
+  skill.setAttribute("aria-label", `${skillName(c.level)} crew`);
+}
+
 // ---- HUD -------------------------------------------------------------------------
 const hud = {
   name: $("w-name"),
@@ -2014,6 +2205,7 @@ function updateHud(force = false) {
     hud.reloadFill.style.transform = "scaleX(0)";
     hud.target.textContent = "";
     drawPips(hud.pips, null);
+    setCrewCard(null);
     setExtra("<kbd>Space</kbd> buys one");
     hud.reticle.hidden = true;
     return;
@@ -2026,6 +2218,9 @@ function updateHud(force = false) {
   hud.reload.textContent = out ? outShort(current) : r > 0 ? `Reloading ${(r / 60).toFixed(1)} s` : dry || "Ready";
   hud.reloadFill.style.transform = `scaleX(${out ? 0 : 1 - r / w.reload})`;
   drawPips(hud.pips, box);
+  // 3.6: the crew of the gun you ride (a match only: the Practice range's guns all have two).
+  setCrewCard(isMatch() ? crewOf(matchInfo?.crews, gid(current)) : null);
+  if (!hhPanel.hidden) renderHousehold();
   weaponPanel.classList.toggle("loaded", r === 0 && !out && !dry);
   weaponPanel.classList.toggle("out", out);
   const hitText = aimHelp === "full" && aimHit ? describeHit(aimHit) : "";
@@ -2338,6 +2533,7 @@ function resetLocal() {
   lastFoes = 0;
   everMoved.fill(0);
   tally = null;
+  householdReset();
   trails.fill(null);
   landing.fill(null);
   recording.clear();
@@ -2693,12 +2889,13 @@ function updateStorm() {
 function onMatch(info: MatchInfo) {
   const prev = matchInfo;
   moments.match(info);
-  matchInfo = { ...info, structures: info.structures ?? prev?.structures ?? null, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null };
+  matchInfo = { ...info, structures: info.structures ?? prev?.structures ?? null, masonry: info.masonry ?? prev?.masonry ?? null, stats: info.stats ?? prev?.stats ?? null, down: info.down ?? prev?.down ?? null, household: info.household ?? prev?.household ?? null };
   applyPending(matchInfo);
   threat.update(info.lanes, ME);
   updateWaves();
   updateGangs(info);
   soundscape.match(info, ME, FOE);
+  householdMatch(info);
   updateRepairs();
   updateStorm();
   renderer.setPowder(info.powder, info.boxes);
@@ -2830,6 +3027,19 @@ function organNotes(prev: MatchInfo, info: MatchInfo) {
   if (!info.organs || !prev.organs) return;
   info.organs[ME].forEach((o, k) => {
     const was = prev.organs[ME][k];
+    // 3.6: a bell or a mast without its keeper is silent: it says why (and when he is back, that it works again).
+    if (was.keeper !== false && o.keeper === false && o.up) {
+      const t = keeperNote(k, o.up, o.keeper);
+      if (t) {
+        showNote(t, 4500);
+        logMoment(t, true);
+        lastOrganNote = info.tick;
+      }
+    } else if (was.keeper === false && o.keeper !== false && o.up && k !== 1) {
+      showNote(ORGAN_UP[k], 3500);
+      logMoment(ORGAN_UP[k]);
+      lastOrganNote = info.tick;
+    }
     if (was.up && !o.up) {
       showNote(ORGAN_DOWN[k], 4500);
       logMoment(ORGAN_DOWN[k], true);
@@ -3004,6 +3214,9 @@ function endLine(r: NonNullable<MatchInfo["result"]>): { short: string; long: st
   return won ? { short: "The enemy keep has fallen", long: "The enemy keep's banner is on the ground." } : { short: "Your keep has fallen", long: "Your keep's banner is on the ground." };
 }
 
+/** 3.6: people of a side's household lost (TeamStats.householdLost; "" until the match's stats carry it). */
+const householdLost = (s: { householdLost: number }): number => s.householdLost;
+
 function showEnd() {
   const info = matchInfo;
   if (!info || !info.result || !playing()) return;
@@ -3039,6 +3252,7 @@ function showEnd() {
     // After M5: guns knocked out.
     ["Guns silenced", st ? st[a].gunsSilenced : "", st ? st[b].gunsSilenced : ""],
     ["Men lost", info.fallen[a], info.fallen[b]],
+    ["Household lost", st ? householdLost(st[a]) : "", st ? householdLost(st[b]) : ""],
     ["Waves sent", info.waves[a], info.waves[b]],
     ["Ladders raised", st ? st[a].laddersRaised : "", st ? st[b].laddersRaised : ""],
     ["Storms begun", st ? st[a].stormsBegun : "", st ? st[b].stormsBegun : ""],
@@ -3186,7 +3400,9 @@ $("book-close").addEventListener("click", () => {
 });
 
 let noteTimer: ReturnType<typeof setTimeout> | undefined;
+let lastNoteAt = -1e9;
 function showNote(text: string, ms: number) {
+  lastNoteAt = performance.now();
   const note = $("note");
   note.textContent = text;
   note.hidden = false;
@@ -3999,6 +4215,8 @@ function frame(wall: number) {
   if (p.prev) step(-1);
   if (p.overview) toggleOverview();
   if (p.help) help.hidden = !help.hidden;
+  if (p.household && !estate.wheelOpen) toggleHousehold();
+  if (p.esc && !hhPanel.hidden && !estate.wheelOpen) closeHousehold();
   if (p.pause && $("menu").hidden && $("end").hidden) setPause(!userPause);
   if (p.shotCam) toggleShotCam();
   if (p.impact) toggleImpactCam();
@@ -4257,6 +4475,26 @@ else {
   /** 3.5 test hook: how many times each castle's bell has begun to ring, and since when it rings now (-1: not). */
   bells() {
     return { rings: [...organWatch.rings], since: [organWatch.bellRinging(0), organWatch.bellRinging(1)] };
+  },
+  /** 3.6 test hook: a household event as the frame would carry it (33 down, 34 up, 35 reserve; team, station, seat, person), at the frame now. */
+  householdEvent(kind: number, a: number, b = 0, c = 0, d = 0) {
+    householdEvent(kind, a, b, c, d, lastFrameTick);
+  },
+  /** 3.6 test hooks: the match id of your first emplacement, the marks the minimap last drew for each gun (Gun.*), and how many emplacements there are. */
+  get emplacementBase() {
+    return BASE;
+  },
+  get mapGunKinds() {
+    return ALL_EMP.map((_, i) => mapGuns[i * GUN_STRIDE + 2]);
+  },
+  /** 3.6 test hook: the household panel's state (open, the reserve line, the lines, which first is pressed). */
+  get householdPanel() {
+    return {
+      open: !hhPanel.hidden,
+      reserve: $("hh-reserve").textContent,
+      lines: Array.from(document.querySelectorAll("#hh-list .hh-row")).map((r) => r.textContent ?? ""),
+      first: Array.from(document.querySelectorAll<HTMLButtonElement>("#household [data-first]")).filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.dataset.first),
+    };
   },
   /** M6 test hook: lay fields over every match report the page gets (null: none). */
   patchMatch(p: Partial<MatchInfo> | null) {

@@ -146,11 +146,13 @@ export const enum Role {
   Gang = 4,
   /** One of a castle's powder boys (carriers.ts). */
   Carrier = 5,
+  /** 3.6: one of the household at a station of its own (a gun's crew, the bell ringer, the signaller, the spotter) or walking out to one (household.ts). */
+  Crew = 6,
 }
 
-/** A castle's worker (a mason or a powder boy): never counted among its fighting men, never fights, never chased. */
+/** A castle's worker (a mason, a powder boy, 3.6: a gun's crew or a keeper): never counted among its fighting men, never fights, never chased. */
 export function isWorker(m: { role: number }): boolean {
-  return m.role === Role.Mason || m.role === Role.Carrier;
+  return m.role === Role.Mason || m.role === Role.Carrier || m.role === Role.Crew;
 }
 
 /** What knocked a minion down (M3: bounties and trick shots). */
@@ -280,6 +282,31 @@ export class Minions {
     m.capsule.setNextKinematicTranslation({ x: m.x, y: m.y + CAP_HALF + CAP_R, z: m.z });
     const q = quatY(m.yaw);
     m.capsule.setNextKinematicRotation({ x: q[0], y: q[1], z: q[2], w: q[3] });
+  }
+
+  /**
+   * 3.6: put an upright minion's capsule where it now stands at once, with no motion (a man hoisted to his post on a wall,
+   * or climbing down from it). A kinematic move over metres in one step sweeps the capsule at hundreds of m/s and flings
+   * any loose stone in its way into the masonry (towers and keeps came down early in the first household matches).
+   */
+  teleport(m: Minion) {
+    if (!m.capsule) return;
+    const t = { x: m.x, y: m.y + CAP_HALF + CAP_R, z: m.z };
+    const q = quatY(m.yaw);
+    const r = { x: q[0], y: q[1], z: q[2], w: q[3] };
+    m.capsule.setTranslation(t, false);
+    m.capsule.setRotation(r, false);
+    m.capsule.setNextKinematicTranslation(t);
+    m.capsule.setNextKinematicRotation(r);
+  }
+
+  /**
+   * 3.6: an upright minion's capsule still reports what touches it (a stone, a ball) but pushes on nothing: the household,
+   * which keeps clear of slow stone (HOUSEHOLD.stone), would otherwise stand in the rubble as immovable posts that loose
+   * stones are pinned against, breaking the masonry beside them (a keep's foot broke by the mortar pit's men).
+   */
+  yielding(m: Minion) {
+    m.capsule?.collider(0).setSolverGroups(0);
   }
 
   /** Turn an upright minion into a ragdoll and push it. */

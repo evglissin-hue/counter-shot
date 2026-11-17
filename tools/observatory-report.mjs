@@ -389,6 +389,65 @@ function machineLines(f) {
   return out;
 }
 
+/**
+ * 3.6: the household. From the lines that carry totals.household (older lines lack it): per level pairing (castle 0 : castle 1)
+ * and the level of the castle looked at, over every match played: the medians and the spread (quartiles and the most) of the
+ * people lost (all told and by station kind), the seconds its reserve stood at 0 and the seconds any armed gun had no crew,
+ * the guns at the end by their crew's level, and the changes of its "who is replaced first" (with where it ended).
+ */
+function householdStats(all) {
+  const ms = all.filter((m) => m.totals?.household);
+  if (!ms.length) return null;
+  const groups = new Map();
+  for (const m of ms) {
+    for (const c of [0, 1]) {
+      const h = m.totals.household[c];
+      if (!h) continue;
+      const key = `${m.setup.sides[0]}:${m.setup.sides[1]} / ${m.setup.sides[c]}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(h);
+    }
+  }
+  const spread = (a) => ({ median: median(a), p25: quantile(a, 0.25), p75: quantile(a, 0.75), max: Math.max(...a) });
+  const mean = (a) => sum(a) / a.length;
+  const rows = [...groups.entries()].map(([key, hs]) => {
+    const firsts = { guns: 0, walls: 0, powder: 0 };
+    for (const h of hs) firsts[h.firstEnd] = (firsts[h.firstEnd] ?? 0) + 1;
+    return {
+      group: key,
+      sides: hs.length,
+      lost: spread(hs.map((h) => h.lost)),
+      guns: spread(hs.map((h) => h.lostBy.guns)),
+      masons: spread(hs.map((h) => h.lostBy.masons)),
+      boys: spread(hs.map((h) => h.lostBy.boys)),
+      keepers: spread(hs.map((h) => h.lostBy.keepers)),
+      reserveZeroSecs: spread(hs.map((h) => h.reserveZeroSecs)),
+      uncrewedSecs: spread(hs.map((h) => h.uncrewedSecs)),
+      levels: [0, 1, 2, 3].map((k) => mean(hs.map((h) => h.levels[k]))),
+      uncrewedEnd: mean(hs.map((h) => h.uncrewedEnd)),
+      firstChanges: { mean: mean(hs.map((h) => h.firstChanges)), max: Math.max(...hs.map((h) => h.firstChanges)) },
+      firstEnd: firsts,
+    };
+  });
+  return { n: ms.length, rows };
+}
+
+function householdLines(f) {
+  if (!f) return ["No line carries the household (a run from before 3.6)."];
+  const sp = (x, d = 0) => `${num(x.median, d)} [${num(x.p25, d)} to ${num(x.p75, d)}] (most ${num(x.max, d)})`;
+  const out = [`Matches with the household recorded: ${f.n}. Each line is one castle's level in one pairing (castle 0 : castle 1); medians with the quartiles and the most over the matches.`];
+  for (const r of f.rows) {
+    const fe = r.firstEnd, tot = r.sides;
+    out.push(
+      `${r.group} (${r.sides} castles): lost ${sp(r.lost)}; by station: gun crews ${sp(r.guns)}, masons ${sp(r.masons)}, boys ${sp(r.boys)}, keepers ${sp(r.keepers)}. ` +
+        `Reserve at 0: ${sp(r.reserveZeroSecs)} s. A gun with no crew: ${sp(r.uncrewedSecs)} s. ` +
+        `Guns at the end by crew (green/trained/seasoned/veteran, mean per castle): ${r.levels.map((v) => num(v, 1)).join("/")}, with no crew ${num(r.uncrewedEnd, 1)}. ` +
+        `"Who is first" changed ${num(r.firstChanges.mean, 1)} times (most ${r.firstChanges.max}); at the end: guns ${pct(fe.guns / tot)}, walls ${pct(fe.walls / tot)}, powder ${pct(fe.powder / tot)}.`,
+    );
+  }
+  return out;
+}
+
 function halfSample(m) {
   const half = m.result.tick / 120;
   let best = null;
@@ -522,7 +581,8 @@ function analyse(dir) {
   const powder = powderStats(all);
   const falls = fallStats(all);
   const machines = machineStats(all);
-  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder, falls, machines };
+  const household = householdStats(all);
+  return { run, all, decided, mirror, levels, header, targets, pairings, openings, prices, noResult, powder, falls, machines, household };
 }
 
 // ---------------------------------------------------------------- charts
@@ -907,6 +967,7 @@ ${failedList}
 <section><h2>Powder</h2><ul>${powderLines(a.powder).map((l) => `<li>${esc(l)}</li>`).join("")}</ul></section>
 <section><h2>Falls</h2><ul>${fallLines(a.falls).map((l) => `<li>${esc(l)}</li>`).join("")}</ul><div class="small">Every structure that toppled or crushed (from the Topple and Crush events), over both castles; endings split as keep (felled) and keep (floors); hand shots by where they landed on the enemy keep. Lines from before 3.4 carry none of it.</div></section>
 <section><h2>Machines</h2><ul>${machineLines(a.machines).map((l) => `<li>${esc(l)}</li>`).join("")}</ul><div class="small">Each organ (bell, crane, signal mast) per castle: how long it was down, and the win rate of the side whose organ was down at 5:00 against the side whose was up; and the Spotter's Tower. Lines from before 3.5 carry none of it.</div></section>
+<section><h2>Household</h2><ul>${householdLines(a.household).map((l) => `<li>${esc(l)}</li>`).join("")}</ul><div class="small">Each castle's household (gun crews, masons, powder boys, keepers) per level pairing: people lost, seconds with the reserve at 0 and with a gun uncrewed, the crews' levels at the end and how often "who is replaced first" changed. Lines from before 3.6 carry none of it.</div></section>
 <section><h2>Charts</h2>
 <figure><h3>Match length (T1)</h3>${length}<figcaption>Mirror matches with a result: ${mirrorDecided.length}. The shaded band is the median target.</figcaption></figure>
 <figure><h3>Endings by pairing (T2)</h3>${endings}<figcaption>All matches with a result, by who commanded castle 0 and castle 1.</figcaption></figure>
@@ -947,6 +1008,7 @@ function buildSummary(a) {
     powder: a.powder,
     falls: a.falls,
     machines: a.machines,
+    household: a.household,
   };
 }
 
@@ -969,6 +1031,9 @@ function buildMarkdown(a) {
   lines.push("");
   lines.push("Machines", "");
   for (const l of machineLines(a.machines)) lines.push(`- ${l}`);
+  lines.push("");
+  lines.push("Household", "");
+  for (const l of householdLines(a.household)) lines.push(`- ${l}`);
   lines.push("");
   return lines.join("\n");
 }

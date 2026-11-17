@@ -16,15 +16,13 @@ export const WEAPON_COST: Record<WeaponKind, number> = { longGun: 220, mortar: 3
  * Guns stand on real masonry and can be knocked out (the owner's request
  * after M5: something besides the keep worth shooting at). A gun goes out of
  * action when the masonry it stands on gives way (its tower top or wall walk:
- * the top two courses under it), when a ball strikes the gun itself, when a
- * chain shot sweeps the crew around it off the wall, or when a shell bursts
- * beside it. Distances are from the gun's trunnions.
+ * the top two courses under it), when a ball strikes the gun itself, or when a
+ * shell bursts beside it (3.6: a chain shot sweeps its crew down as men, and
+ * leaves the gun up). Distances are from the gun's trunnions.
  */
 export const GUN_HITS = {
   /** A single ball must strike the gun itself, square: the radius of its barrel and carriage (m), by kind. */
   body: { longGun: 0.45, mortar: 0.5, chainShot: 0.45, swivel: 0.3 } as Record<WeaponKind, number>,
-  /** A chain shot's whirling chain (or either of its balls) sweeps away the crew standing this close to a gun (m, beyond the whirl's edge). */
-  crew: { longGun: 1.2, mortar: 1.2, chainShot: 1.2, swivel: 1.0 } as Record<WeaponKind, number>,
   /** A shell bursting within this share of its burst's radius of a gun blows it off its bed. */
   burst: 0.65,
   /** The slowest a shot may fly and still knock a gun out (m/s). */

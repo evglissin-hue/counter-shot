@@ -718,3 +718,30 @@ test("buttresses: words for each face, the steward's line, and the refusals the 
   assert.ok(!parse("buttress the dragon", v).ok);
   assert.ok(!parse("buttress the front back", v).ok);
 });
+
+test("the household (3.6): who the reserve replaces first, said ten ways, and the masons' repair order keeps its own words", () => {
+  const hh = (first: "guns" | "walls" | "powder"): MatchInput[] => [{ kind: "household", first }];
+  accepts(fixture(), [
+    ["guns first", hh("guns")],
+    ["replace guns first", hh("guns")],
+    ["replace the guns first", hh("guns")],
+    ["walls first", hh("walls")],
+    ["masons first", hh("walls")],
+    ["replace masons first", hh("walls")],
+    ["powder first", hh("powder")],
+    ["boys first", hh("powder")],
+    ["powder boys first", hh("powder")],
+    ["replace the powder boys first", hh("powder")],
+  ]);
+  const r = parse("walls first", fixture());
+  assert.ok(r.ok && r.say === "Replace first: walls");
+  // Said with another order in one line.
+  accepts(fixture(), [["guns first and hold", [...hh("guns"), { kind: "order", order: 1 }]]]);
+  // Not this order: a repair order keeps its words, a powder purchase stays one, two settings or no "first" say nothing.
+  const rep = parse("wall repairs first", fixture());
+  assert.ok(rep.ok && inputs(rep).every((i) => i.kind === "repair"), "wall repairs first is still the masons'");
+  assert.ok(!parse("guns walls first", fixture()).ok, "two settings are not one");
+  assert.ok(!parse("replace the reserve", fixture()).ok, "without first it says nothing");
+  const buy = parse("buy powder", fixture({ powder: { stock: 0, cap: 40, magazine: 2 } }));
+  assert.ok(buy.ok && inputs(buy)[0].kind === "powder", "powder alone is still a purchase");
+});

@@ -24,6 +24,8 @@ export const PELVIS = 0, TORSO = 1, HEAD = 2, UARM_L = 3, LARM_L = 4, UARM_R = 5
 export const WALK = 0, STAND = 1, FIGHT = 2, BATTER = 3, WORK = 4, CARRY = 5, CLIMB = 6, RAISE = 7, PLANT = 8, AIM = 9;
 /** Unit kinds (content's Unit). */
 export const PIKEMAN = 0, MASON = 1, CREW = 2, SAPPER = 3, MUSKETEER = 4, POWDER_BOY = 5;
+/** 3.6: one of the household (content's Unit.Crew) at a post of his own, or walking out to one; his hoist at a post's foot (sim CrewAction.Hoist) is drawn as a man on a rope. */
+export const HOUSEHOLD = 6, A_HOIST_CREW = 14;
 /** A powder boy's actions (carriers.ts ACTION_KEG, ACTION_HOIST): a keg on his shoulder, hauling one up. */
 export const A_KEG = 10, A_HOIST = 11;
 /** Where in a mason's stroke the mallet strikes, and the stroke's length (ticks; works.ts STROKE, the page's knock). */
@@ -584,6 +586,7 @@ export class Rig {
     if (a === CARRY) return F_CARRY;
     if (a === RAISE) return F_RAISE;
     if (u === POWDER_BOY) return a === A_HOIST ? F_HOIST : F_LOCO;
+    if (u === HOUSEHOLD) return a === A_HOIST_CREW ? F_ROPE : F_LOCO;
     if (u === MASON) return a === WORK ? F_WORK : F_LOCO;
     if (a === FIGHT) return u === CREW || u === SAPPER ? F_CHOP : u === MUSKETEER ? F_JAB : F_FIGHT;
     if (a === BATTER) return F_BATTER;
@@ -778,8 +781,8 @@ export class Rig {
       this.swingArm(-1, swingR * 0.7 + 0.05, bend + 0.35, 0.02);
       P[P_KIT_M] = KM_HAND;
       P[P_KIT_T] = u === MASON ? 0.3 : 0.2;
-    } else if (u === POWDER_BOY) {
-      // A powder boy: both arms free, nothing at his belt.
+    } else if (u === POWDER_BOY || u === HOUSEHOLD) {
+      // A powder boy or one of the household: both arms free, nothing at his belt.
       this.swingArm(-1, swingR, bend, 0);
     } else {
       // A sapper: a free right arm, his hatchet at his belt.
