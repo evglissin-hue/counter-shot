@@ -87,7 +87,7 @@ function AI_WARM(): number {
 test("with enemy men on a mark a Knight orders a salvo, not twice in 20 s; a Squire (and a Knight with salvo off) never does", () => {
   for (const [level, over, expect] of [["knight", undefined, true], ["squire", { marks: 1 }, false], ["knight", { salvo: false }, false]] as const) {
     const team = Team.Enemy, foe = Team.Player;
-    const { m, ai, sent } = setup(level, team, 13, over);
+    const { m, ai, sent } = setup(level, team, Number(process.env.REG_SEED ?? 13), over);
     const marks = watchMarks(m, team);
     // (The Squire is given the Knight's marking by an override, so only its salvo choice is tested.)
     for (let i = 0; i < 4 * 60 * 60 && m.register.list(team).length === 0; i++) {
