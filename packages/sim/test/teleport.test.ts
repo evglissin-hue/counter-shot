@@ -30,3 +30,25 @@ test("a man lifted 12 m to his post is put there at once: the capsule stands at 
   assert.ok(speed < 2, `the stone moves at ${speed.toFixed(1)} m/s`);
   sim.free();
 });
+
+for (const yields of [true, false]) {
+  test(`a loose stone thrown at a man at 6 m/s ${yields ? "passes him when he yields (the household: no push either way)" : "stops dead on an immovable capsule (why the household yields)"}`, () => {
+    const sim = new SandboxSim(R, layout, { seed: 3, minions: 0, army: true, powder: false });
+    const c = sim.castle;
+    const id = layout.stones.find((s) => s.part === "wall" && s.castle === 0 && s.course === 1)!.id;
+    c.knockLoose(id, 0, 0, 0);
+    const x = 0, z = -60, g = sim.terrain.heightAt(x, z);
+    const m = sim.minions.spawn(0, x, z, x, z, x, z, false);
+    if (yields) sim.minions.yielding(m);
+    sim.castle.world.step();
+    // At his waist, a metre and a half to his side, coming at him.
+    c.bodies[id].setTranslation({ x: x - 1.5, y: g + 1.0, z }, true);
+    c.bodies[id].setLinvel({ x: 6, y: 0, z: 0 }, true);
+    c.bodies[id].setAngvel({ x: 0, y: 0, z: 0 }, true);
+    for (let k = 0; k < 30; k++) sim.castle.world.step();
+    const p = c.bodies[id].translation();
+    if (yields) assert.ok(p.x > x + 0.5, `it went past him (x ${(p.x - x).toFixed(2)})`);
+    else assert.ok(p.x < x, `it stopped at him (x ${(p.x - x).toFixed(2)})`);
+    sim.free();
+  });
+}

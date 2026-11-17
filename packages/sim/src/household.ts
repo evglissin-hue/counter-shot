@@ -380,7 +380,10 @@ export class Household {
     seat.person = person;
     seat.minion = minion;
     seat.state = minion >= 0 ? SeatState.AtPost : SeatState.Due;
-    if (minion >= 0) this.byMinion.set(minion, this.run.indexOf(st));
+    if (minion >= 0) {
+      this.byMinion.set(minion, this.run.indexOf(st));
+      this.deps!.minions.yielding(this.deps!.minions.list[minion]);
+    }
   }
 
   // ---- Posts and floors -------------------------------------------------------
@@ -464,6 +467,7 @@ export class Household {
     m.yaw = yaw;
     m.action = action;
     d.minions.teleport(m);
+    d.minions.yielding(m);
     return m;
   }
 
@@ -710,6 +714,7 @@ export class Household {
       seat.minion = minion;
       seat.state = SeatState.AtPost;
       this.byMinion.set(minion, si);
+      d.minions.yielding(d.minions.list[minion]);
       this.emit(EventKind.HouseholdUp, team, si, k, person);
       return true;
     }

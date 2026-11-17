@@ -300,6 +300,15 @@ export class Minions {
     m.capsule.setNextKinematicRotation(r);
   }
 
+  /**
+   * 3.6: an upright minion's capsule still reports what touches it (a stone, a ball) but pushes on nothing: the household,
+   * which keeps clear of slow stone (HOUSEHOLD.stone), would otherwise stand in the rubble as immovable posts that loose
+   * stones are pinned against, breaking the masonry beside them (a keep's foot broke by the mortar pit's men).
+   */
+  yielding(m: Minion) {
+    m.capsule?.collider(0).setSolverGroups(0);
+  }
+
   /** Turn an upright minion into a ragdoll and push it. */
   knock(k: Knock, tick: number) {
     const m = this.list[k.minion];
