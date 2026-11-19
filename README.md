@@ -1,12 +1,41 @@
 # Keepfall (working title)
 
-A physics-heavy 3D castle duel for the browser: first-person siege weapons, minions, and a castle to run. Keepfall is a working title; the repo keeps the name counter-shot until the final name is chosen.
+A physics-heavy 3D castle duel for the browser. You aim siege guns in first person, send waves of men down three roads, and run a castle's gold, buildings and repairs, against an AI or a friend.
+
+![A Versus AI match seen from the long gun, with the enemy keep under fire](docs/img/match.jpg)
+
+Keepfall is a working title; the repo keeps the name counter-shot until the final name is chosen.
+
+## What is in it
+
+- **Four ways to play:** a guided first match with a coach, a Practice range, Versus AI at three difficulties, and a friend online in lockstep.
+- **Siege guns you aim yourself:** long gun, mortar, chain shot and swivel gun, with wind, masonry that breaks and falls, and a shot camera.
+- **A castle to run:** gold, buildings and upgrades, barracks, repairs, and orders for the waves (advance, hold or push, down the left, centre or right road).
+- **A deterministic simulation:** the same match gives the same result in Node and in the browser, bit for bit. That is what makes lockstep play, replays and AI against AI test matches possible.
+- **An observatory for balance:** batches of AI matches that search for dominant build orders and price every building, gun and upgrade by win rate.
+
+## Run it
+
+```bash
+npm install
+npm run game:dev   # then open the address it prints
+```
+
+The game is made for laptops (keyboard and mouse). Add `#guided`, `#practice`, `#versus` or `#versus=warlord` to the address to skip the menu; `#net=local` plays a friend between two tabs.
+
+## How it is built
+
+The code is written by AI coding agents working from the owner's spec and playtest notes, in a build and review loop: a master agent plans and reviews, executor agents build, then automated hunts and play rounds run before each pull request. See "Build and review loop" in `docs/handoff.md`.
+
+## Where things are
 
 - `SPEC.md`: the game spec (draft 0.5). `docs/plan.md`: decisions and findings. `docs/phase-1.md`: the Sandbox plan and its status. `docs/phase-2.md`: the plan for a full match versus the AI, its decisions and status. `docs/handoff.md`: a brief for the next session.
 - `docs/phase-3.md`: the plan for what is built next (the parts of a match made to depend on each other): the targets, the order, the rules for every milestone. `docs/phase-3/`: a spec for each milestone (`01-observatory.md` to `13-two-seats.md`) and each track on the page (`show.md`: the kill cam, replays and the film; `steward.md`: orders typed and spoken; `look.md`: the visual rounds, with `minimap-mock.svg` as the minimap's target). `docs/future.md`: ideas kept for later and what was dropped.
 - `packages/`: DOM-free, deterministic code. `core` (maths, Rng, hashing), `content` (castles with the sturdy match keep, the valley map, weapons, the economy, buildings and guns, pikemen, sappers, musketeers and waves, repairs, the garrison, storming and ladders, the AI's levels and build plans, as data), `sim` (the Rapier simulation: masonry, bridges, buildings, projectiles, wind, terrain, minions, the nav grid, flow fields, the army, masons and repairs, ladders, gunnery, guns on their masonry, the chain shot's whirling chain), `rules` (the match: teams, gold, the clock, plots and buildings, guns and upgrades, barracks, orders, guns nobody rides, the garrison, repairs, storming, sudden death, surrender, who has won), `ai` (the AI castle: a player in the sim that sends the same inputs you do).
 - `apps/game`: the game page (start menu, the guided match against a castle that wakes up slowly, with a coach, Practice range, Versus AI at three difficulties, Play a friend online in lockstep over the artifact room; worker, Gritty renderer with the minions' procedural rig, input, HUD with a keep tracker, a threat strip over the minimap, pennants for groups of men in the overview and a first-match guide, pause, sound).
 - `lab/`: the device test page (physics budget, graphics tiers, determinism hash).
+
+## Commands
 
 ```bash
 npm install
